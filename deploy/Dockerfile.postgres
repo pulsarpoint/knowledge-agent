@@ -1,0 +1,8 @@
+FROM postgres:17.10-bookworm AS build
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git ca-certificates postgresql-server-dev-17 \
+    && git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+    && cd /tmp/pgvector && make OPTFLAGS='' && make install
+
+FROM postgres:17.10-bookworm
+COPY --from=build /usr/lib/postgresql/17/lib/vector.so /usr/lib/postgresql/17/lib/vector.so
+COPY --from=build /usr/share/postgresql/17/extension/vector* /usr/share/postgresql/17/extension/

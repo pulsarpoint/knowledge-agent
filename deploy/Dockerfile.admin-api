@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir uv
+WORKDIR /services/admin-api
+# The two applications reuse storage/configuration modules, but mount disjoint APIs.
+COPY packages/llm-settings /packages/llm-settings
+COPY services/docs-wiki /services/docs-wiki
+COPY services/admin-api /services/admin-api
+RUN uv sync --frozen --no-dev
+EXPOSE 8766
+ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "knowledge-admin"]
+CMD ["/work/docs", "--host", "0.0.0.0"]

@@ -1,0 +1,24 @@
+# rag service configuration (copy to config.toml and edit).
+#
+# Run with:  uv run rag serve config.toml
+# A bare folder also works for a single collection with no config file:
+#            uv run rag serve /work/my-docs
+
+# One [[collections]] entry per indexed folder. `name` identifies the
+# collection in the retrieval API.
+[[collections]]
+name = "my-docs"
+
+# The folder to index. Required; must exist.
+path = "/work/my-docs"
+
+# A second collection — remove or duplicate as needed.
+[[collections]]
+name = "billing-docs"
+path = "/work/billing-docs"
+
+# Optional: embedding settings — enables retrieval. Environment variables
+# override; API keys go in .env, never here (see .env.example).
+[llm]
+embed_base_url = "http://localhost:11434/v1"
+embed_model = "nomic-embed-text"

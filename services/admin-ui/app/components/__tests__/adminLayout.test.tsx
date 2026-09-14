@@ -1,0 +1,37 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
+import AdminLayout from "../AdminLayout";
+
+test("administration has its own navigation without reader pages", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
+  render(<MemoryRouter initialEntries={["/rag/files"]}><AdminLayout><div>Admin content</div></AdminLayout></MemoryRouter>);
+  expect(await screen.findByText("Admin content")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Platform" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Files & folders" })).toHaveAttribute("href", "/rag/files");
+  expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/activity");
+  expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("href", "/storage");
+  expect(screen.getByRole("link", { name: "Code projects" })).toHaveAttribute("href", "/code-projects");
+  expect(screen.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
+  expect(screen.getByRole("link", { name: "Environments" })).toHaveAttribute("href", "/environments");
+  expect(screen.getAllByRole("link", { name: "Search" }).some(link => link.getAttribute("href") === "/rag/search")).toBe(true);
+  const agents = within(screen.getByRole("navigation", { name: "Agents" }));
+  expect(agents.getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
+  expect(agents.getByRole("link", { name: "Multi-agent board" })).toHaveAttribute("href", "/agent-board");
+  expect(agents.queryByRole("link", { current: "page" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Agents" })).toBeNull();
+  const docs = within(screen.getByRole("navigation", { name: "Docs" }));
+  expect(docs.getByRole("link", { name: "Documents" })).toHaveAttribute("href", "/documents");
+  expect(docs.getByRole("link", { name: "Prompts" })).toHaveAttribute("href", "/documentation/prompts");
+  expect(docs.getByRole("link", { name: "Generate documents" })).toHaveAttribute("href", "/documentation/generations");
+  expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/skills");
+  expect(screen.queryByText("Application")).toBeNull();
+  expect(screen.queryByText("Administration / docs")).toBeNull();
+  for (const name of ["Chat", "Gaps"]) expect(screen.queryByRole("link", { name })).toBeNull();
+});
+
+test("denied admin discovery does not mount administrative content", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "admin access required" } }), { status: 403 })));
+  render(<MemoryRouter><AdminLayout><div>Admin content</div></AdminLayout></MemoryRouter>);
+  await waitFor(() => expect(screen.getByText("admin access required")).toBeInTheDocument());
+  expect(screen.queryByText("Admin content")).toBeNull();
+});

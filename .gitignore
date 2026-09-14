@@ -1,0 +1,17 @@
+.env
+.local/
+bin/
+.react-router/
+.env.*
+!.env.example
+.DS_Store
+data/
+code/
+node_modules/
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+/.playwright-cli/
+/output/

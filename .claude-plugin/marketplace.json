@@ -1,0 +1,14 @@
+{
+  "name": "knowledge-agent-v3",
+  "owner": {
+    "name": "Knowledge Agent Project"
+  },
+  "description": "Application documentation in Diátaxis format from code analysis and focused developer questions.",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "app-docs",
+      "source": "./plugins/app-docs"
+    }
+  ]
+}

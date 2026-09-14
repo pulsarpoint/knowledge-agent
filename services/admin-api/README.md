@@ -1,0 +1,250 @@
+# Administration API
+
+Independent FastAPI application for Jira settings/tickets, services/server inventory, code projects, RAG workspace management
+and user/session audit inspection. All `/api` routes require the forwarded `docs-admins` group. Only the
+admin OAuth gateway may expose this service; `/health` is its internal health check.
+Reader, search and chat routes are absent.
+
+The package reuses `docs-wiki` configuration and audit-storage modules through a
+locked local dependency. It does not require the reader process to run. Docker
+binds no API host port and uses the same audit data volume as the reader.
+
+```sh
+uv sync --frozen
+uv run --frozen pytest -q
+# Native development; set the PostgreSQL and issuer variables described below first.
+uv run --frozen knowledge-admin ../../.local/docs --env-file ../../.env
+```
+
+Use `make up` from the repository root for the authenticated local stack. The
+admin web app is available on http://localhost:8183. Future document,
+server access and job management belong in this application.
+
+Jira Data Center settings, connection tests and recent-ticket fetching use
+`/api/{app}/jira/settings`, `/jira/test`, `/jira/tickets` and `/jira/tickets/fetch`.
+The PAT is encrypted; fetches paginate and atomically update the saved selection.
+See [Jira API and mock guide](../../docs/jira.md) for request shapes and isolation.
+
+Service routes are `GET/POST /api/{app}/services`, `PUT /api/{app}/services/{id}`,
+and `GET /api/{app}/services/{id}/context`. Updates require `revision` from the
+last read. The service asset projection joins source repositories and deployments
+without credentials. Context is operator-maintained data for future agent consumers;
+these routes do not run monitoring or invoke the existing code agent.
+
+`GET/POST /api/{app}/servers` lists server metadata or registers name, hostname/IP,
+description, and tags with SSH access and sudo disabled. `PUT /api/{app}/servers/{id}`
+updates inventory fields with a required current `revision`; stale edits return 409.
+Tags are trimmed, lowercased and deduplicated, limited to 32 tags of 64 characters
+each. Server saves preserve deployment links and access configuration, and record
+an attributed audit event. `ka.server_assets` supplies the public fields to both the
+inventory API and nested service context. Full connection settings are pending.
+
+Code projects use `GET/POST /api/code-projects`, `PUT /api/code-projects/{id}`
+and `POST /api/code-projects/{id}/pull`. Folder browsing uses `/api/code/files`
+and `/api/code/file`. Historical `/api/repositories` routes remain available.
+Mutations require the authenticated subject and admin group. Projects group one
+or more folders inside `CODE_ROOT`, optionally with a Git URL and clone path.
+Updates require a revision. Credentials are write-only and automatic pull
+intervals are stored with the project. See the root README for the UI workflow.
+
+For native repository development set `PGHOST=127.0.0.1`, `PGPORT=5438`,
+`PGDATABASE=knowledge_agent`, `PGUSER=knowledge_agent`, `PGPASSWORD` to the local
+PostgreSQL password, and `AUTH_ISSUER_URL=http://localhost:8181/realms/docs`.
+The `.env` supplies `CREDENTIAL_ENCRYPTION_KEY`; keep it identical to the worker's
+key. Run `knowledge-repo-worker` with those same variables plus `CODE_ROOT` pointing
+to the managed code directory. Compose wires these settings automatically.
+
+Tests use a disposable PostgreSQL Docker container with its own temporary databases
+and real Git checkouts against a local fixture. Existing development data is not used.
+
+## Loading an agent configuration
+
+```python
+from knowledge_admin.agents import get_agent_config
+
+config = get_agent_config("operations")  # Saved ID; custom agents use their UUID text ID.
+# PostgreSQL connection settings come from PG* variables.
+# An explicit connection string can be supplied with conninfo=... .
+```
+
+`agents.py` reads a consistent database snapshot and returns a JSON-compatible
+dictionary. Its sections are `model`, `system_prompt` (the active version and its
+content), `instructions`, `documents`, `code`, `ssh`, `skills`, `mcp`, and `services`.
+Identity, description, when-to-use text, availability and revisions are included.
+No records are created or updated by loading. A missing agent raises `LookupError`.
+
+Each capability has an `enabled` flag and retains its saved selections while
+disabled. Folder selections expand to descendants only when `include_subfolders`
+is set; deleted document folders and archived code projects are excluded. `selected`
+marks explicit selections within the expanded document folder list.
+
+`code` contains `enabled`, `all_projects`, and `projects`. Each code project has
+`id`, `name`, `description`, and absolute `folder_paths` under `CODE_ROOT`. Git-backed
+projects additionally include `remote_git_url`; local projects omit that key.
+Clone paths, sync state, commits and selection markers are administration metadata
+and are not included in these project entries.
+Document folders have an absolute `path` under `RAG_SOURCE_ROOT` and a separate
+`search_folder` identifier (for example, `payments.runbooks`) for the search API.
+Both root environment variables must be absolute paths in the agent container.
+Compose mounts the same code and document directories read-only at `/work/code`
+and `/work/rag-data` in `admin-api` and `code-agent`. The config joins the stored
+relative paths to these roots without resolving paths on the host. `CODE_PATH`
+and `RG_DATA` are host-side mount sources and never enter the generated paths.
+Service repository checkout paths use the same code root; remote deployment log
+paths remain paths on their SSH servers. Database paths remain relative.
+Service context does not grant access to its linked repositories or servers.
+
+Each selected SSH server contains its hostname, port, login user, sudo permission,
+trusted host keys and effective connection settings. `connection_source` identifies
+shared server settings or the agent's complete override. A cleared override key
+stays cleared. `instructions`, `skills` and `mcp_servers` resolve server overrides;
+their source fields show whether they came from this agent's settings or its
+server override. Empty overrides stay empty; inherited values come only from the
+same agent. Capability flags and server/resource availability still apply.
+
+Credentials are references, never plaintext or ciphertext in the returned object:
+
+- SSH: `ssh.servers[].private_key_ref` identifies `ka.credentials.ciphertext`.
+- Model: `model.api_key_ref` identifies `ka.llm_models.api_key_ciphertext`.
+- MCP: `mcp.servers[].bearer_token_ref` identifies `ka.mcp_servers.token_ciphertext`.
+
+Each reference provides the record ID, column, encryption-key environment variable
+and exact AAD. There is no stored private-key file. All three use AES-256-GCM:
+decode `CREDENTIAL_ENCRYPTION_KEY` from URL-safe Base64, read the referenced bytes,
+then decrypt with the first 12 bytes as nonce, the remaining bytes as ciphertext
+and tag, and `reference['aad'].encode()` as AAD. Existing backend SSH access uses
+`OperationsStore(store, app_name, agent_id).agent_connection(conn, server_id)` to
+obtain an `SSHConnection` with the decrypted key in memory. Loading this config
+does not need the encryption key. Never send decrypted credentials to an LLM.
+The runner supplies instructions and enabled resource context; the tuning reviewer
+receives the full configuration with credential references only.
+
+This is the application configuration accepted by `agent()` in the same module.
+It is **not** a dictionary to unpack directly into the native Agents SDK:
+the function maps enabled sections to provider settings, instructions, MCP
+connections and function tools. The Test tab calls
+`POST /api/agents/{id}/runs` with `{ "task": "...", "id": "optional request UUID", "session_id": "optional session UUID" }`.
+The endpoint loads this saved configuration, resolves its credentials, and calls
+`agent()` directly. Its SSE response publishes `started`, `activity`, and
+`completed` events; the final run contains the answer or error.
+`POST /api/agents/{id}/runs/{run_id}/cancel` cancels that test.
+Disconnecting its stream leaves execution running. The UI restores the session
+from its URL and polls an unfinished turn. Runs and safe activity are retained in
+PostgreSQL; full SDK traces go to Phoenix. Duplicate request IDs do not run again.
+
+The first message creates a session. Follow-ups continue its Agents SDK conversation
+using the session’s pinned configuration. New sessions use the active agent version,
+or an explicitly selected draft. Sessions close explicitly or expire
+after one hour of inactivity; running turns are excluded from expiry. Session
+history and tuning reviews remain in PostgreSQL after runtime files are removed.
+See [session and review endpoints](../../docs/agents.md) for the API contract.
+The tuning reviewer receives full configuration, the whole stored conversation,
+and administrator feedback. It proposes changes without applying them.
+
+The agent's **Test → Show config** button displays this saved configuration along
+with the current test prompt. It reads `GET /api/agents/{agent_id}/config`, an
+admin-only endpoint with caching disabled. Previewing does not create a run or
+send the task to a model.
+
+## Running a configured agent with the Agents SDK
+
+Both specialist Test conversations and delegated board tasks call the same
+function. It accepts the saved configuration and separately resolved credentials;
+it never queries PostgreSQL.
+
+```python
+from knowledge_admin.agents import agent, get_agent_config
+
+config = get_agent_config("code")
+result = await agent(config, "Explain how this project starts.", credentials=decrypted_credentials)
+print(result.final_output)
+```
+
+Setup is split into `get_model`, `get_paths`, `get_ssh`, `get_mcp`, `get_tools`,
+and `get_prompt` in `agents.py`. These select the saved settings and enabled
+resources. Provider connections still belong to `model_adapter.agent_model()`;
+the main runner owns connection cleanup and streaming. The session API owns
+conversation persistence.
+
+`agent()` creates `agents.Agent` and executes `Runner.run_streamed()`, returning
+its native `RunResultStreaming`. Failures, cancellation, timeout and exhausted
+turn limits raise exceptions. Token usage is in `result.context_wrapper.usage`.
+`timeout_seconds` defaults to 300 and `max_turns` to 20. For structured results,
+pass an existing Pydantic class as `output_type`; `final_output` is that model.
+The agent wizard and tuning reviewer use this support.
+
+Enabled code/document folders register `list_files`, `read_file` and
+`search_files` from `knowledge_admin/tools/files.py`. These read configured
+absolute mounted paths. SSH registers `ssh_run`, which uses saved connection
+settings and credentials in backend context, enforces selected servers and sudo
+settings, and reuses the AsyncSSH transport. Keys are not written to disk or
+included in prompts. The arbitrary local `shell_run` tool is not registered in
+the administration process; it requires a separate isolated execution worker.
+
+The saved active prompt, agent instructions, enabled resources, and enabled
+skills form the system instructions. Selected server instructions/skills remain
+part of each server's context. Disabled capabilities are omitted. Selected HTTP
+MCP servers connect using `MCPServerStreamableHttp`, with private bearer headers
+and server-qualified tool names to avoid collisions.
+
+`model_adapter.agent_model()` selects `OpenAIResponsesModel`,
+`OpenAIChatCompletionsModel`, or `LitellmModel` for Anthropic/Bedrock. There is no
+intermediate HTTP proxy or Codex dependency. Bedrock uses the saved bearer key,
+region and model ID. Credentials are specific to each invocation, and native
+providers require a saved key instead of using environment credentials.
+
+The session API passes complete SDK `history` to `agent()` and atomically saves
+`result.to_input_list()` in `ka.agent_sessions.history` with the successful turn.
+Both live and test conversations use the same creation, execution, locking, and
+one-hour idle expiry logic; `is_test` distinguishes them. Failed or cancelled turns
+leave the previous history intact. Tool workspaces are temporary; the runner no
+longer reads or writes session-history files. See [session APIs and migration](../../docs/agents.md).
+
+## Live board activity and Phoenix traces
+
+`GET /api/agent-board/tasks/{id}/activity` is an admin-authenticated SSE stream
+for one main task and all its subagents. `connected`, `activity`, `done`, and
+`unavailable` are the event names. Activity is an upsert keyed by `(task_id, id)`;
+its fields include `kind`, `title`, `detail`, `status`, and `time`. The board
+subscribes once per main task and opens each subagent's activity in **View work**.
+Commands and MCP calls expand to show their input/output preview.
+
+`agent(config, task, credentials=..., on_activity=callback)` consumes Agents SDK
+stream events and tool lifecycle hooks. Public messages and tool input/output
+are sent to the existing UI callback. Reasoning and raw provider errors are
+excluded. Credentials are redacted before activity or span export, including
+secret prefixes split across streamed message chunks.
+
+`coordinator.py` runs the dedicated OpenAI Agents SDK coordinator with explicit
+inputs and one native `Agent.as_tool()` entry per selected specialist. `board.py`
+instantiates the team with `agents.create_agent()` and supplies each invocation's
+private context, task persistence, limits, and streaming. After orchestration,
+a tool-free summary agent receives `run.to_input_list()` and writes the final
+answer with the same model and an editable summary prompt. Direct agent tests use
+the same constructor through `agents.agent()`.
+See [the board guide](../../docs/agent-board.md) for coordinator settings and limits.
+
+Phoenix stores the execution history. Native `trace('Agent board task')` covers
+the coordinator, nested `as_tool()` specialists, and summary. The SDK creates
+agent, model, and tool spans; OpenInference exports them to Phoenix. `agent_tracing.py`
+adds credential/error filtering before export and disables OpenAI's default trace
+exporter. `SdkActivity` only publishes UI previews. Inputs,
+outputs, token counts, errors, and timings are recorded with bounded text sizes.
+Existing task rows store OpenTelemetry trace/span IDs alongside status and final
+results. Main tasks link to the complete trace; finished specialists link to their
+agent span. These IDs differ from the native SDK's internal trace IDs.
+The existing `docs-wiki` Phoenix project and OTLP configuration are reused.
+Set `PHOENIX_PUBLIC_URL` to the browser-accessible Phoenix URL for **View trace**;
+this public URL carries no API key. Phoenix handles its own login.
+
+Live updates use transient PostgreSQL LISTEN/NOTIFY, so API workers share the
+same stream without another event-history table or broker. Subscribers receive
+updates from connection time; reconnecting keeps the browser's existing previews
+and resumes new events, but does not replay a disconnected interval. Open Phoenix
+for retained history. The UI retains the latest 200 items and bounded previews;
+completed tool spans retain up to 65,536 characters of text. Phoenix exports completed spans,
+so a new trace appears after its first span finishes. Streams close at task
+completion and when the page disconnects. Cancellation drains the SDK stream so
+native tracing scopes finish. Live-view failures do not fail an agent.
+
+Full configuration snapshot lifecycle and API: [agent versions](../../docs/agents.md#configuration-versions).

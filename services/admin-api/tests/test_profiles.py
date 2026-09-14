@@ -1,0 +1,172 @@
+from concurrent.futures import ThreadPoolExecutor
+from uuid import UUID, uuid4
+
+import psycopg
+import pytest
+from fastapi import HTTPException
+
+from knowledge_admin.profiles_api import ProfileInput
+from knowledge_admin.operations_store import OperationsStore
+from test_api import _client
+from test_operations import configured
+from test_repositories import HEADERS
+
+
+def create(client, name):
+    response = client.post('/api/agents', headers=HEADERS, json={'name': name, 'description': 'Purpose', 'when_to_use': 'For tests', 'system_prompt': f'Instructions for {name}.'})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_coordinator_is_a_protected_agent_with_editable_identity(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    rows = client.get('/api/agents', headers=HEADERS).json()['agents']
+    coordinator = client.get('/api/agents/coordinator', headers=HEADERS).json()
+    assert rows[0]['is_coordinator'] and rows[0]['id'] == coordinator['id']
+    assert len([row for row in rows if row['is_coordinator']]) == 1
+    assert coordinator['active_prompt']['version'] == 1
+    result = update(client, coordinator, name='Incident coordinator', description='Coordinate incidents.')
+    assert result.status_code == 200 and result.json()['is_coordinator']
+    disabled = update(client, result.json(), enabled=False)
+    assert disabled.status_code == 400 and 'always enabled' in disabled.text
+    assert update(client, result.json(), ssh_enabled=True).status_code == 400
+    denied = client.request('DELETE', '/api/agents/coordinator', headers=HEADERS,
+        json={'revision': result.json()['revision'], 'confirmed': True})
+    assert denied.status_code == 409 and 'cannot be removed' in denied.text
+    assert client.post('/api/agents', headers=HEADERS, json={'name':'Another coordinator',
+        'system_prompt':'Coordinate.', 'is_coordinator':True}).status_code == 400
+    assert client.get('/api/agents/coordinator/config', headers=HEADERS).status_code == 409
+    for statement in ("DELETE FROM ka.agents WHERE is_coordinator",
+                      "UPDATE ka.agents SET enabled=false WHERE is_coordinator",
+                      "UPDATE ka.agents SET is_coordinator=false WHERE is_coordinator"):
+        with pytest.raises(psycopg.errors.CheckViolation), store.connect() as conn:
+            conn.execute(statement)
+    assert client.get('/api/agents/coordinator', headers=HEADERS).json()['name'] == 'Incident coordinator'
+    assert client.get('/api/agents/coordinator', headers=HEADERS).json()['enabled']
+    specialist = client.get('/api/agents/code', headers=HEADERS).json()
+    assert update(client, specialist, enabled=False).json()['enabled'] is False
+
+
+def update(client, profile, **changes):
+    value = {field: profile[field] for field in ProfileInput.model_fields}
+    return client.put(f"/api/agents/{profile['id']}", headers=HEADERS, json={**value, **changes})
+
+
+def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    assert client.get('/api/agents').status_code == 403
+    original = client.get('/api/agents', headers=HEADERS).json()['agents']
+    assert {a['id'] for a in original} == {'search', 'code', 'operations', 'coordinator'}
+    first = create(client, 'Payments')
+    second = create(client, 'Documentation')
+    assert first['id'] != second['id'] and 'kind' not in first
+    assert not any(first[name + '_enabled'] for name in ('documents','repositories','ssh','skills','mcp','services'))
+    assert first['model_id'] is None and first['folder_ids'] == first['repository_ids'] == first['skill_ids'] == []
+    assert not first['all_folders'] and not first['all_repositories']
+    assert first['active_prompt']['id'] != second['active_prompt']['id']
+    versions = client.get('/api/llm/prompts', headers=HEADERS).json()
+    assert next(v for v in versions['versions'] if v['agent'] == first['id'])['content'] == 'Instructions for Payments.'
+    draft = client.post(f"/api/llm/prompts/{first['id']}/versions", headers=HEADERS, json={'title': 'Payments only', 'content': 'Payments instructions.'})
+    assert draft.status_code == 201, draft.text
+    prompt = next(p for p in versions['agents'] if p['agent'] == first['id'])
+    activation = client.post(f"/api/llm/prompts/{first['id']}/versions/{draft.json()['id']}/activate", headers=HEADERS, json={'revision': draft.json()['revision'], 'prompt_revision': prompt['revision']})
+    assert activation.status_code == 200, activation.text
+    assert client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()['active_prompt']['title'] == 'Payments only'
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['active_prompt'] == second['active_prompt']
+    assert client.post('/api/agents', headers=HEADERS, json={'name': 'Payments', 'system_prompt': 'Duplicate name'}).status_code == 409
+    assert client.get('/api/agents/missing', headers=HEADERS).status_code == 404
+    assert update(client, first, name='Renamed').status_code == 200
+    assert update(client, first, name='Stale').status_code == 409
+
+
+def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    first = create(client, 'Code one')
+    second = create(client, 'Code two')
+    repository = client.post('/api/repositories', headers=HEADERS, json={'remote_url': 'example/repo'}).json()
+    skill = client.post('/api/skills', headers=HEADERS, json={'name': 'review', 'description': 'Review procedures', 'instructions': 'Inspect retries.'}).json()
+    response = update(client, first, repositories_enabled=True, repository_ids=[repository['id']])
+    assert response.status_code == 200, response.text
+    first = response.json()
+    assert first['repository_ids'] == [repository['id']]
+    saved = client.put('/api/operations/settings', headers=HEADERS, params={'agent_id': first['id']}, json={'revision': 1, 'instructions': '', 'server_ids': [], 'skill_ids': [skill['id']]})
+    assert saved.status_code == 200, saved.text
+    assert client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()['skill_ids'] == [skill['id']]
+    first = client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()
+    assert update(client, first, repository_ids=[str(uuid4())]).status_code == 400
+    assert update(client, first, all_repositories=True).status_code == 400
+    assert update(client, first, all_folders=True).status_code == 200
+    first = client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['repository_ids'] == []
+    model = client.post('/api/llm/models', headers=HEADERS, json={'name': 'Model', 'provider': 'openai', 'model': 'test', 'api_format': 'responses', 'base_url': 'http://model.test/v1'}).json()
+    saved = client.put(f"/api/agents/{first['id']}/model", headers=HEADERS, json={'revision': first['revision'], 'model_id': model['id']})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['model_id'] == model['id']
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['model_id'] is None
+    assert client.get('/api/llm', headers=HEADERS).json()['assignments']['code_model_id'] is None
+    options = client.get(f"/api/agents/{first['id']}/options", headers=HEADERS)
+    assert options.status_code == 200 and options.json()['repositories'][0]['id'] == repository['id']
+
+
+def test_mcp_selections_are_independent_and_available_to_every_agent(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    first = create(client, 'First code')
+    second = create(client, 'Second code')
+    server = client.post('/api/mcp/servers', headers=HEADERS, json={'name': 'Mock', 'url': 'http://mock.test/mcp'}).json()
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.mcp_servers SET tools='[{\"name\":\"lookup\"}]',last_tested_at=now() WHERE id=%s", (UUID(server['id']),))
+    response = client.put('/api/mcp/code', headers=HEADERS, params={'agent_id': first['id']}, json={'revision': 1, 'mcp_server_ids': [server['id']]})
+    assert response.status_code == 200, response.text
+    assert client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': first['id']}).json()['mcp_server_ids'] == [server['id']]
+    assert client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': second['id']}).json()['mcp_server_ids'] == []
+    assert client.get('/api/mcp/code', headers=HEADERS).json()['mcp_server_ids'] == []
+    assert client.get('/api/mcp/code', headers=HEADERS, params={'agent_id': 'operations'}).status_code == 200
+
+
+def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    for payload in [{}, {'system_prompt': ''}, {'system_prompt': ' \n\t '}, {'system_prompt': None}, {'system_prompt': 'bad\x00prompt'}]:
+        response = client.post('/api/agents', headers=HEADERS, json={'name': 'Incomplete', **payload})
+        assert response.status_code == 400, response.text
+    assert len(client.get('/api/agents', headers=HEADERS).json()['agents']) == 4
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with store.connect() as conn:
+            conn.execute("INSERT INTO ka.agents(id,name) VALUES ('missing-prompt','Missing prompt')")
+
+
+def test_agent_skill_assignments_are_many_to_many_and_atomic(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    first, second = create(client, 'First specialist'), create(client, 'Second specialist')
+    skills = [client.post('/api/skills', headers=HEADERS, json={
+        'name': name, 'description': name, 'instructions': f'Follow {name}.'
+    }).json()['id'] for name in ('inspect', 'verify')]
+    first = update(client, first, skills_enabled=True, skill_ids=skills).json()
+    second = update(client, second, skills_enabled=True, skill_ids=[skills[0]]).json()
+    assert set(first['skill_ids']) == set(skills)
+    assert second['skill_ids'] == [skills[0]]
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.skills_agents').fetchone()['n'] == 3
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_config_skills').fetchone()['n'] == 0
+        for selected in (first, second):
+            configs = OperationsStore(store, 'shop', selected['id']).configs(conn)
+            assert set(next(c for c in configs if c['server_id'] is None)['skill_ids']) == {UUID(s) for s in selected['skill_ids']}
+        with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
+            conn.execute('INSERT INTO ka.skills_agents SELECT * FROM ka.skills_agents LIMIT 1')
+        with pytest.raises(psycopg.errors.ForeignKeyViolation), conn.transaction():
+            conn.execute("INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) SELECT 'missing',skill_id,project_id FROM ka.skills_agents LIMIT 1")
+    disabled = update(client, first, skills_enabled=False, skill_ids=skills)
+    assert disabled.status_code == 200, disabled.text
+    assert set(disabled.json()['skill_ids']) == set(skills)
+    assert update(client, first, skill_ids=[]).status_code == 409
+    first = disabled.json()
+    invalid = update(client, first, skills_enabled=True, skill_ids=[str(uuid4())])
+    assert invalid.status_code == 400
+    assert client.get(f"/api/agents/{first['id']}", headers=HEADERS).json() == first
+    assert update(client, first, skill_ids=[skills[0], skills[0]]).status_code == 400
+    first = update(client, first, skill_ids=[skills[1]]).json()
+    assert first['skill_ids'] == [skills[1]]
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['skill_ids'] == [skills[0]]
+    with store.connect() as conn:
+        conn.execute('DELETE FROM ka.agent_skills WHERE id=%s', (UUID(skills[1]),))
+        assert conn.execute('SELECT count(*) AS n FROM ka.skills_agents WHERE agent_id=%s', (first['id'],)).fetchone()['n'] == 0
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['skill_ids'] == [skills[0]]

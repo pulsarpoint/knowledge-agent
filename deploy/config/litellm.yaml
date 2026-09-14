@@ -1,0 +1,32 @@
+# litellm proxy config — one OpenAI-compatible endpoint
+# (http://litellm:4400/v1 inside compose) fronting AWS Bedrock for both
+# chat (docs-wiki's Ask) and embeddings (rag's hybrid retrieval), so
+# neither service needs its own AWS SDK/credentials wiring.
+#
+# model_name is the public alias every OTHER service in this bundle
+# calls by (docs-wiki's DOCS_WIKI_CHAT_MODEL, rag's RAG_EMBED_MODEL —
+# see deploy/.env.example); `model:` is the real litellm/Bedrock model
+# id it maps to. Keep the two aliases below in sync with
+# deploy/.env.example's DOCS_WIKI_CHAT_MODEL/RAG_EMBED_MODEL defaults.
+#
+# `os.environ/<VAR>` is litellm's own interpolation syntax (confirmed
+# supported for any config.yaml value, litellm docs "Load API Keys /
+# config values from Environment", 2026-08-05) — NOT shell-style
+# `${VAR}`, which litellm does not expand. AWS_REGION_NAME is set by
+# docker-compose.yml from the root .env's AWS_REGION.
+#
+# No aws_access_key_id/aws_secret_access_key here: authentication is
+# the AWS_BEARER_TOKEN_BEDROCK bearer-token env var (litellm docs
+# "AWS Bedrock > Authentication" — read directly from the process
+# environment by litellm's boto3 layer, no config.yaml key needed),
+# set on the litellm service in docker-compose.yml from the root .env.
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: bedrock/eu.anthropic.claude-sonnet-5
+      aws_region_name: os.environ/AWS_REGION_NAME
+
+  - model_name: bedrock-embed
+    litellm_params:
+      model: bedrock/amazon.titan-embed-text-v2:0
+      aws_region_name: os.environ/AWS_REGION_NAME

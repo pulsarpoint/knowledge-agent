@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+RUN pip install --no-cache-dir uv
+WORKDIR /services/docs-wiki
+RUN ln -s /services/docs-wiki /app
+COPY packages/llm-settings /packages/llm-settings
+COPY services/docs-wiki/pyproject.toml services/docs-wiki/uv.lock ./
+COPY services/docs-wiki/src ./src
+COPY services/docs-wiki/README.md ./
+RUN uv sync --frozen --no-dev
+EXPOSE 8765
+ENTRYPOINT ["uv", "run", "docs-wiki"]
+CMD ["serve", "/work/docs", "--host", "0.0.0.0"]

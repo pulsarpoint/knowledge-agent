@@ -1,0 +1,13 @@
+Port 22
+ListenAddress 0.0.0.0
+HostKey /fixtures/host_key
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+AllowUsers operator
+UsePAM no
+PidFile /run/sshd.pid
+LogLevel ERROR
+Subsystem sftp internal-sftp

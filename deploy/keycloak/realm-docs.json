@@ -1,0 +1,98 @@
+{
+  "realm": "docs",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "users": [
+    {
+      "username": "${APP_ADMIN_USERNAME}",
+      "email": "${APP_ADMIN_EMAIL}",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "V3",
+      "lastName": "Administrator",
+      "groups": [
+        "/docs-admins"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${APP_ADMIN_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "docs-admins",
+      "path": "/docs-admins"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "knowledge-agent-v3",
+      "name": "Knowledge Agent v3 (oauth2-proxy)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OAUTH2_PROXY_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://${WEB_HOST}:${WEB_PORT}/oauth2/callback"
+      ],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "knowledge-agent-v3-admin",
+      "name": "Knowledge Agent v3 Administration",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${ADMIN_OAUTH2_PROXY_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://${WEB_HOST}:${ADMIN_PORT}/oauth2/callback"
+      ],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    }
+  ]
+}

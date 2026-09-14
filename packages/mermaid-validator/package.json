@@ -1,0 +1,12 @@
+{
+  "name": "@knowledge-agent/mermaid-validator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "mermaid": "11.16.0",
+    "jsdom": "26.1.0"
+  }
+}

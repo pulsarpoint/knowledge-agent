@@ -1,0 +1,430 @@
+name: knowledge-agent-v3
+services:
+  postgres:
+    image: knowledge-agent-v3-postgres:17.10-vector0.8.6
+    build: {context: .., dockerfile: deploy/Dockerfile.postgres}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: knowledge_agent
+      POSTGRES_DB: knowledge_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5438}:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../db:/workspace/db:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U knowledge_agent -d knowledge_agent"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: knowledge-agent-v3-migrate:4.19.1
+    build: {context: .., dockerfile: deploy/Dockerfile.migrate}
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: knowledge_agent
+      PGDATABASE: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      PGSSLMODE: disable
+    volumes: ["../db:/workspace/db:ro"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  rag:
+    build: {context: .., dockerfile: deploy/Dockerfile.rag}
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ${RG_DATA:?Run make setup}
+        target: /work/rag-data
+    environment:
+      RAG_SOURCE_ROOT: /work/rag-data
+      RG_DATA: ${RG_DATA:?Run make setup}
+      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, /services/rag/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rag-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.rag}
+    restart: unless-stopped
+    entrypoint: [uv, run, --frozen, --no-dev, rag-workspace-worker]
+    command: []
+    volumes:
+      - type: bind
+        source: ${RG_DATA:?Run make setup}
+        target: /work/rag-data
+    environment:
+      RAG_SOURCE_ROOT: /work/rag-data
+      RG_DATA: ${RG_DATA:?Run make setup}
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  docs-wiki:
+    build: {context: .., dockerfile: deploy/Dockerfile.docs-wiki}
+    restart: unless-stopped
+    volumes:
+      - ${DOCS_PATH:-../.local/docs}:/work/docs:ro
+      - wiki-data:/data
+    environment:
+      LLM_SETTINGS_SOURCE: database
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      DOCS_WIKI_RAG_URL: http://rag:8790
+      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
+      DOCS_WIKI_STATE_DIR: /data/docs-wiki
+      DOCS_WIKI_CODE_AGENT_URL: http://code-agent:8795
+      DOCS_WIKI_ADMIN_GROUP: docs-admins
+      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
+      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rag: {condition: service_healthy}
+      code-agent: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/apps', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  admin-api:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    networks: [default, jira-test]
+    # Use the host/VPN search domain for short SSH and Jira hostnames.
+    dns_search: ${DOCKER_DNS_SEARCH:-.}
+    volumes:
+      - ${DOCS_PATH:-../.local/docs}:/work/docs:ro
+      - ${CODE_PATH:-../.local/code}:/work/code:ro
+      - type: bind
+        source: ${RG_DATA:?Run make setup}
+        target: /work/rag-data
+        read_only: true
+      - wiki-data:/data
+      - ${GENERATED_DOCS_PATH:-../.local/generated-documents}:/work/generated-documents
+    environment:
+      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
+      GENERATED_DOCS_PATH: ${GENERATED_DOCS_PATH:-../.local/generated-documents}
+      BOOTSTRAP_DOCS_ROOT: /work/docs
+      DOCS_PATH: ${DOCS_PATH:-../.local/docs}
+      RG_DATA: ${RG_DATA:?Run make setup}
+      CODE_ROOT: /work/code
+      RAG_SOURCE_ROOT: /work/rag-data
+      CODE_PATH: ${CODE_PATH:-../.local/code}
+      LLM_SETTINGS_SOURCE: database
+      PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:8182}
+      DOCS_WIKI_RAG_URL: http://rag:8790
+      DOCS_WIKI_CODE_AGENT_URL: http://code-agent:8795
+      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
+      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+      DOCS_WIKI_STATE_DIR: /data/docs-wiki
+      DOCS_WIKI_ADMIN_GROUP: docs-admins
+      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rag: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /services/admin-api/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  jira-mock:
+    profiles: [jira-mock]
+    build: {context: ./jira-mock}
+    restart: unless-stopped
+    networks: [jira-test]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  repository-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    entrypoint: [uv, run, --frozen, --no-dev, knowledge-repo-worker]
+    command: []
+    volumes: ["${CODE_PATH:-../.local/code}:/work/code"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+      CODE_ROOT: /work/code
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  documentation-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    dns_search: ${DOCKER_DNS_SEARCH:-.}
+    entrypoint: [uv, run, --frozen, --no-dev, knowledge-doc-worker]
+    command: []
+    volumes:
+      - ${GENERATED_DOCS_PATH:-../.local/generated-documents}:/work/generated-documents
+      - ${CODE_PATH:-../.local/code}:/work/code:ro
+      - ${RG_DATA:?Run make setup}:/work/rag-data:ro
+    environment:
+      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+      CODE_ROOT: /work/code
+      RAG_SOURCE_ROOT: /work/rag-data
+      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
+      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  admin-web:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-web}
+    restart: unless-stopped
+    depends_on:
+      admin-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  code-agent:
+    build: {context: .., dockerfile: deploy/Dockerfile.code-agent}
+    dns_search: ${DOCKER_DNS_SEARCH:-.}
+    restart: unless-stopped
+    volumes:
+      - ${CODE_PATH:-../.local/code}:/work/code:ro
+      - type: bind
+        source: ${RG_DATA:?Run make setup}
+        target: /work/rag-data
+        read_only: true
+    environment:
+      LLM_SETTINGS_SOURCE: database
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      CODE_ROOT: /work/code
+      RAG_SOURCE_ROOT: /work/rag-data
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+    depends_on:
+      rag: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8795/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.95.0
+    restart: unless-stopped
+    command: ["--config", /config/config.yaml, "--port", "4400"]
+    volumes: ["./config/litellm.yaml:/config/config.yaml:ro"]
+    environment:
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      AWS_REGION_NAME: ${AWS_REGION:-eu-central-1}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Run make setup}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4400/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  web:
+    build: {context: .., dockerfile: deploy/Dockerfile.web}
+    restart: unless-stopped
+    depends_on:
+      docs-wiki: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    restart: unless-stopped
+    command: [start-dev, --import-realm]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Run make setup}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      WEB_HOST: ${WEB_HOST:-localhost}
+      WEB_PORT: ${WEB_PORT:-8180}
+      ADMIN_PORT: ${ADMIN_PORT:-8183}
+      ADMIN_OAUTH2_PROXY_CLIENT_SECRET: ${ADMIN_OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-v3-admin}
+      APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-v3-admin@example.test}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?Run make setup}
+      JAVA_OPTS_APPEND: -Dkeycloak.import.replace-placeholders=true
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak/realm-docs.json:/opt/keycloak/data/import/realm-docs.json:ro
+    ports: ["127.0.0.1:${KEYCLOAK_PORT:-8181}:8080"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9000;
+          printf "GET /health/ready HTTP/1.0\r\n\r\n" >&3;
+          read -r response <&3; [[ "$$response" == *" 200 "* ]]'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  keycloak-configure:
+    image: python:3.12-slim
+    restart: "no"
+    working_dir: /workspace
+    command: [python, -m, scripts.keycloak_clients]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Run make setup}
+      WEB_HOST: ${WEB_HOST:-localhost}
+      WEB_PORT: ${WEB_PORT:-8180}
+      ADMIN_PORT: ${ADMIN_PORT:-8183}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+      ADMIN_OAUTH2_PROXY_CLIENT_SECRET: ${ADMIN_OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+    volumes:
+      - ../scripts:/workspace/scripts:ro
+      - ./keycloak/realm-docs.json:/config/realm-docs.json:ro
+    depends_on:
+      keycloak: {condition: service_healthy}
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_PROVIDER: keycloak-oidc
+      OAUTH2_PROXY_CLIENT_ID: knowledge-agent-v3
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?Run make setup}
+      OAUTH2_PROXY_COOKIE_NAME: _knowledge_agent_v3
+      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      OAUTH2_PROXY_OIDC_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+      # Browser login uses the public URL; token/JWKS requests use Docker DNS.
+      # Issuer validation remains enabled; localhost inside a container is not the host.
+      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
+      OAUTH2_PROXY_LOGIN_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs/protocol/openid-connect/auth
+      OAUTH2_PROXY_REDEEM_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/token
+      OAUTH2_PROXY_OIDC_JWKS_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/certs
+      OAUTH2_PROXY_PROFILE_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/userinfo
+      OAUTH2_PROXY_REDIRECT_URL: http://${WEB_HOST:-localhost}:${WEB_PORT:-8180}/oauth2/callback
+      OAUTH2_PROXY_UPSTREAMS: http://web:80
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_OIDC_GROUPS_CLAIM: groups
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+    ports: ["127.0.0.1:${WEB_PORT:-8180}:4180"]
+    depends_on:
+      keycloak-configure: {condition: service_completed_successfully}
+      web: {condition: service_healthy}
+
+  admin-oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_PROVIDER: keycloak-oidc
+      OAUTH2_PROXY_CLIENT_ID: knowledge-agent-v3-admin
+      OAUTH2_PROXY_CLIENT_SECRET: ${ADMIN_OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
+      OAUTH2_PROXY_COOKIE_SECRET: ${ADMIN_OAUTH2_PROXY_COOKIE_SECRET:?Run make setup}
+      OAUTH2_PROXY_COOKIE_NAME: _knowledge_agent_v3_admin
+      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      OAUTH2_PROXY_OIDC_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+      # Browser login uses the public URL; token/JWKS requests use Docker DNS.
+      # Issuer validation remains enabled; localhost inside a container is not the host.
+      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
+      OAUTH2_PROXY_LOGIN_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs/protocol/openid-connect/auth
+      OAUTH2_PROXY_REDEEM_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/token
+      OAUTH2_PROXY_OIDC_JWKS_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/certs
+      OAUTH2_PROXY_PROFILE_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/userinfo
+      OAUTH2_PROXY_REDIRECT_URL: http://${WEB_HOST:-localhost}:${ADMIN_PORT:-8183}/oauth2/callback
+      OAUTH2_PROXY_UPSTREAMS: http://admin-web:80
+      # Agent design can take longer than the proxy's default 30 seconds.
+      OAUTH2_PROXY_UPSTREAM_TIMEOUT: 300s
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_OIDC_GROUPS_CLAIM: groups
+      OAUTH2_PROXY_ALLOWED_GROUPS: docs-admins
+      # The client's dedicated mapper emits groups; no separate groups scope exists.
+      OAUTH2_PROXY_SCOPE: openid email profile
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+    ports: ["127.0.0.1:${ADMIN_PORT:-8183}:4180"]
+    depends_on:
+      keycloak-configure: {condition: service_completed_successfully}
+      admin-web: {condition: service_healthy}
+
+  phoenix:
+    image: arizephoenix/phoenix:19.21.0
+    restart: unless-stopped
+    environment:
+      PHOENIX_ENABLE_AUTH: "true"
+      PHOENIX_SECRET: ${PHOENIX_SECRET:?Run make setup}
+      PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD: ${PHOENIX_ADMIN_PASSWORD:?Run make setup}
+      PHOENIX_ADMIN_SECRET: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+    volumes: ["phoenix-data:/mnt/data"]
+    ports: ["127.0.0.1:${PHOENIX_PORT:-8182}:6006"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+networks:
+  jira-test:
+    internal: true
+
+volumes:
+  postgres-data:
+  wiki-data:
+  keycloak-data:
+  phoenix-data:

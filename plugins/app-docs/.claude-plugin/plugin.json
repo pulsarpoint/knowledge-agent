@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "app-docs",
+  "displayName": "Application Docs (Diátaxis)",
+  "version": "0.3.2",
+  "description": "Produce application documentation in Diátaxis format by analyzing code and asking clarifying questions only where code cannot answer.",
+  "author": {
+    "name": "Knowledge Agent Project"
+  },
+  "keywords": [
+    "documentation",
+    "diataxis",
+    "source-analysis",
+    "developer-interview"
+  ]
+}

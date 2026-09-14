@@ -1,0 +1,70 @@
+import { Link } from 'react-router';
+import { useEffect, useState, type FormEvent } from 'react';
+import { getAgentOptions, saveAgent, type AgentProfile, type AgentOptions } from '../lib/profiles';
+import { Alert, AlertDescription } from '~/components/ui/alert';
+import { Button } from '~/components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '~/components/ui/card';
+import { Checkbox } from '~/components/ui/checkbox';
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet, FieldLegend } from '~/components/ui/field';
+import { Input } from '~/components/ui/input';
+import { Textarea } from '~/components/ui/textarea';
+import { Switch } from '~/components/ui/switch';
+
+function ResourceSelection({ label, options, selected, onChange, disabled }: { label: string; options: { id: string; name: string; description?: string; enabled?: boolean }[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
+  return <FieldSet disabled={disabled}><FieldLegend variant="label">{label}</FieldLegend><div className="max-h-60 overflow-auto rounded-md border p-3">
+    {!options.length && <p className="text-sm text-muted-foreground">No {label.toLowerCase()} available.</p>}
+    {options.map(option => <Field key={option.id} orientation="horizontal" className="items-start py-2"><Checkbox id={`${label}-${option.id}`} disabled={disabled || option.enabled === false && !selected.includes(option.id)} checked={selected.includes(option.id)} onCheckedChange={checked => onChange(checked ? [...selected, option.id] : selected.filter(id => id !== option.id))} /><div><FieldLabel htmlFor={`${label}-${option.id}`}>{option.name}{option.enabled === false && ' (disabled)'}</FieldLabel>{option.description && <FieldDescription className="mt-1">{option.description}</FieldDescription>}</div></Field>)}
+  </div></FieldSet>;
+}
+export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, configurationDirty = false, view = "general" }: { profile: AgentProfile; view?: string; configurationDirty?: boolean; onDirtyChange?: (dirty: boolean) => void; onSaved: (profile: AgentProfile) => void }) {
+  const [draft, setDraft] = useState(profile);
+  const [options, setOptions] = useState<AgentOptions>();
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [skillsDirty, setSkillsDirty] = useState(false);
+  const [reload, setReload] = useState(0);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => { let live = true; getAgentOptions(profile.id).then(value => { if (live) setOptions(value); }).catch(e => { if (live) setError(e.message); }); return () => { live = false; }; }, [profile.id, reload]);
+  // Saving the independent model field must preserve edits in this form.
+  useEffect(() => { setDraft(current => ({ ...current, revision: profile.revision, model_id: profile.model_id })); }, [profile.revision, profile.model_id]);
+  function change(patch: Partial<AgentProfile>) { setDraft(current => ({ ...current, ...patch })); setDirty(true); setNotice(''); }
+  async function save(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    if (skillsDirty && configurationDirty) { setBusy(false); return; }
+    try { const saved = skillsDirty ? await saveAgent(draft, draft.skill_ids) : await saveAgent(draft); setDraft(saved); setDirty(false); setSkillsDirty(false); onSaved(saved); setNotice('Agent configuration saved.'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not save this agent.'); }
+    finally { setBusy(false); }
+  }
+  const capability = ({ documents: ['documents_enabled','Document search'], git: ['repositories_enabled','Code project access'], ssh: ['ssh_enabled','SSH access'], skills: ['skills_enabled','Skills'], mcp: ['mcp_enabled','MCP tools'], services: ['services_enabled','Service context'] } as const)[view as 'documents' | 'git' | 'ssh' | 'skills' | 'mcp' | 'services'];
+  return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>{profile.is_coordinator ? 'Edit the coordinator’s identity. Model, notes, and prompt versions are configured below and in Prompts.' : 'Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.'}</CardDescription></CardHeader>
+    <form onSubmit={event => void save(event)}><CardContent className="pb-6"><FieldGroup>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}{notice && <p role="status" className="text-sm">{notice}</p>}
+      <div hidden={view !== 'general'}><FieldGroup>
+      <Field><FieldLabel htmlFor="agent-name">Name</FieldLabel><Input id="agent-name" required maxLength={100} disabled={busy} value={draft.name} onChange={e => change({ name: e.target.value })} /></Field>
+      <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
+      <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. {profile.is_coordinator ? 'The coordinator handles every board task.' : 'Agents are currently selected explicitly.'}</FieldDescription></Field>
+      {profile.is_coordinator ? <FieldDescription>The coordinator is always enabled.</FieldDescription> : <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>}
+      </FieldGroup></div>
+      {capability && <Field orientation="horizontal"><Switch id={`capability-${capability[0]}`} checked={draft[capability[0]]} disabled={busy} onCheckedChange={enabled => { change({ [capability[0]]: enabled }); if (view === 'skills') setSkillsDirty(true); }} /><div><FieldLabel htmlFor={`capability-${capability[0]}`}>Enable {capability[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</FieldLabel><FieldDescription>{draft[capability[0]] ? 'Enabled for this agent after saving.' : 'Disabled. Its saved settings are retained.'}</FieldDescription></div></Field>}
+      <div hidden={view !== 'skills'}><FieldGroup>
+        {skillsDirty && configurationDirty && <Alert><AlertDescription>Save or discard changes in General, SSH, or MCP before saving skills.</AlertDescription></Alert>}
+        {draft.skills_enabled && <ResourceSelection label="Predefined skills" options={options?.skills ?? []} selected={draft.skill_ids} onChange={skill_ids => { change({ skill_ids }); setSkillsDirty(true); }} disabled={busy || !options} />}
+        <FieldDescription>{draft.skills_enabled ? 'Choose one or more skills for this agent. ' : 'Enable skills to choose which ones this agent can use. ' }Create and edit skills in the <Link to="/skills" className="underline underline-offset-4">Skills library</Link>.</FieldDescription>
+      </FieldGroup></div>
+      <div hidden={view !== 'documents'}><FieldGroup>
+        <Field orientation="horizontal"><Switch id="all-folders" disabled={busy || !draft.documents_enabled} checked={draft.all_folders} onCheckedChange={all_folders => change({ all_folders, folder_ids: [] })} /><FieldLabel htmlFor="all-folders">All document folders</FieldLabel></Field>
+        {!draft.all_folders && <><ResourceSelection label="Document folders" options={options?.folders.map(f => ({ ...f, name: f.path })) ?? []} selected={draft.folder_ids} onChange={folder_ids => change({ folder_ids })} disabled={busy || !options || !draft.documents_enabled} /><Field orientation="horizontal"><Switch id="include-subfolders" disabled={busy || !draft.documents_enabled} checked={draft.include_subfolders} onCheckedChange={include_subfolders => change({ include_subfolders })} /><FieldLabel htmlFor="include-subfolders">Include subfolders of selected folders</FieldLabel></Field></>}
+      </FieldGroup></div>
+      <div hidden={view !== 'git'}><FieldGroup>
+        <Field orientation="horizontal"><Switch id="all-repositories" disabled={busy || !draft.repositories_enabled} checked={draft.all_repositories} onCheckedChange={all_repositories => change({ all_repositories, repository_ids: [] })} /><FieldLabel htmlFor="all-repositories">All code projects</FieldLabel></Field>
+        {!draft.all_repositories && <ResourceSelection label="Code projects" options={options?.repositories ?? []} selected={draft.repository_ids} onChange={repository_ids => change({ repository_ids })} disabled={busy || !options || !draft.repositories_enabled} />}
+      </FieldGroup></div>
+      <div hidden={view !== 'services'}><FieldGroup>
+      <ResourceSelection label="Services" options={options?.services ?? []} selected={draft.service_ids} onChange={service_ids => change({ service_ids })} disabled={busy || !options || !draft.services_enabled} />
+      <FieldDescription>Selected service descriptions are included as context. Server and repository access are configured separately.</FieldDescription>
+      </FieldGroup></div>
+    </FieldGroup></CardContent><CardFooter className="flex-wrap gap-2"><Button disabled={busy || !dirty || !draft.name.trim() || skillsDirty && configurationDirty}>Save {view === 'general' ? 'details' : capability?.[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</Button><Button type="button" variant="outline" disabled={busy} onClick={() => { setDraft(profile); setDirty(false); setSkillsDirty(false); setError(''); setNotice(''); setReload(n => n + 1); }}>{dirty ? 'Discard changes' : 'Refresh resources'}</Button></CardFooter></form>
+  </Card>;
+}

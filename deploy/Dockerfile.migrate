@@ -1,0 +1,5 @@
+FROM migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 AS migrate
+
+FROM postgres:17.10-bookworm
+COPY --from=migrate /usr/local/bin/migrate /usr/local/bin/migrate
+ENTRYPOINT ["sh", "/workspace/db/migrate.sh"]

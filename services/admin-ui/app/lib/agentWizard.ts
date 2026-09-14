@@ -1,0 +1,37 @@
+import { request } from './api';
+
+export interface WizardResource { id: string; name: string; description?: string }
+export interface WizardConnection {
+  username: string | null; port: number; allow_sudo: boolean; known_hosts: string; credential_id: string | null;
+}
+export interface WizardServer {
+  server_id: string; instructions: string | null; skill_ids: string[] | null;
+  mcp_server_ids: string[] | null; connection: WizardConnection | null;
+}
+export interface AgentProposal {
+  name: string; description: string; when_to_use: string; system_prompt: string; instructions: string;
+  model_id: string; enabled: boolean;
+  documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean;
+  skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean;
+  all_folders: boolean; all_repositories: boolean; include_subfolders: boolean;
+  folder_ids: string[]; repository_ids: string[]; skill_ids: string[];
+  mcp_server_ids: string[]; service_ids: string[]; servers: WizardServer[];
+}
+export interface WizardOptions {
+  default_model_id: string | null; prompt: string; schema: Record<string, unknown>;
+  catalog: {
+    models: (WizardResource & { provider: string; model: string })[];
+    code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
+    folders: { id: string; path: string; description: string }[];
+    servers: (WizardResource & WizardConnection & { hostname: string; tags: string[] })[];
+    credentials: WizardResource[]; skills: WizardResource[]; mcp_servers: WizardResource[];
+    services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];
+  };
+}
+export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
+export const generateAgent = (role: string, model_id: string) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id }),
+});
+export const createWizardAgent = (proposal: AgentProposal) => request<{ id: string }>('/api/agents/wizard', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal),
+});

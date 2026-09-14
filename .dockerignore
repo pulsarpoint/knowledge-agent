@@ -1,0 +1,14 @@
+.git
+.local
+.env
+**/.env
+**/.env.*
+**/.venv
+**/node_modules
+**/build
+**/.react-router
+**/__pycache__
+**/.pytest_cache
+data
+code
+bin
