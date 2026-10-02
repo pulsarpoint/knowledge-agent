@@ -246,7 +246,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,
-            documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
+            documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_folders,all_repositories,include_subfolders,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
@@ -400,8 +400,8 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'when_to_use': agent['when_to_use'], 'enabled': agent['enabled'], 'revision': agent['revision'],
             'model': model, 'system_prompt': prompt, 'instructions': instructions,
             'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
-            'documents': {'enabled': agent['documents_enabled'], 'all_folders': agent['all_folders'],
-                'include_subfolders': agent['include_subfolders'], 'folders': folders},
+            'documents': {'enabled': agent['documents_enabled'], 'grounded': agent['documents_grounded'],
+                'all_folders': agent['all_folders'], 'include_subfolders': agent['include_subfolders'], 'folders': folders},
             'code': {'enabled': agent['repositories_enabled'], 'all_projects': agent['all_repositories'],
                 'projects': code_projects},
             'skills': {'enabled': agent['skills_enabled'], 'items': agent_skills},

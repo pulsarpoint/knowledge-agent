@@ -170,3 +170,24 @@ def test_agent_skill_assignments_are_many_to_many_and_atomic(store, tmp_path):
         conn.execute('DELETE FROM ka.agent_skills WHERE id=%s', (UUID(skills[1]),))
         assert conn.execute('SELECT count(*) AS n FROM ka.skills_agents WHERE agent_id=%s', (first['id'],)).fetchone()['n'] == 0
     assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['skill_ids'] == [skills[0]]
+
+
+def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_path, monkeypatch):
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    client = _client(tmp_path, repository_store=store)
+    agent = create(client, 'Grounded docs')
+    saved = client.get(f"/api/agents/{agent['id']}", headers=HEADERS).json()
+    assert saved['documents_grounded'] is False
+    payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'all_folders',
+        'all_repositories', 'include_subfolders', 'folder_ids', 'repository_ids', 'service_ids', 'documents_enabled',
+        'repositories_enabled', 'ssh_enabled', 'skills_enabled', 'mcp_enabled', 'services_enabled')}
+    updated = client.put(f"/api/agents/{agent['id']}", headers=HEADERS,
+                         json={**payload, 'documents_enabled': True, 'documents_grounded': True})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()['documents_grounded'] is True
+    kept = client.put(f"/api/agents/{agent['id']}", headers=HEADERS,
+                      json={**payload, 'revision': updated.json()['revision'], 'documents_enabled': True})
+    assert kept.json()['documents_grounded'] is True
+    config = client.get(f"/api/agents/{agent['id']}/config", headers=HEADERS).json()
+    assert config['documents']['grounded'] is True

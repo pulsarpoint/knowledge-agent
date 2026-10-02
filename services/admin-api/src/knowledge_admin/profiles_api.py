@@ -43,6 +43,7 @@ class ProfileInput(BaseModel):
     service_ids: list[UUID] = Field(max_length=100)
     skill_ids: list[UUID] | None = Field(default=None, max_length=30)
     documents_enabled: bool = Field(strict=True)
+    documents_grounded: bool | None = Field(default=None, strict=True)
     repositories_enabled: bool = Field(strict=True)
     ssh_enabled: bool = Field(strict=True)
     skills_enabled: bool = Field(strict=True)
@@ -171,7 +172,7 @@ def build_api(app_name, store):
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
                 if old['is_coordinator'] and not value.enabled:
                     raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
-                if old['is_coordinator'] and any((value.documents_enabled,value.repositories_enabled,value.ssh_enabled,
+                if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
                         value.skills_enabled,value.mcp_enabled,value.services_enabled,value.folder_ids,value.repository_ids,
                         value.service_ids,value.skill_ids)):
                     raise HTTPException(400, 'Configure resource access on the specialists the coordinator delegates to.')
@@ -198,9 +199,10 @@ def build_api(app_name, store):
                     conn.execute(f'DELETE FROM ka.{table} WHERE agent_id=%s', (agent_id,))
                     for resource_id in ids:
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
+                grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_folders=%s,
-                    all_repositories=%s,include_subfolders=%s,documents_enabled=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_folders,value.all_repositories,value.include_subfolders,value.documents_enabled,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
+                    all_repositories=%s,include_subfolders=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_folders,value.all_repositories,value.include_subfolders,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
