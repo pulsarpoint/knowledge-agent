@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
@@ -138,6 +139,16 @@ def build_api(prefix: str, state_root: Path, rag, code,
     def failure(exc: ReaderError) -> JSONResponse:
         return JSONResponse({'error': {'message': exc.message}}, status_code=exc.status)
 
+    def known(key: str) -> bool:
+        """Reader conversations are admin-api sessions; any other key (e.g. a legacy file key) is unknown."""
+        try:
+            UUID(key)
+        except ValueError:
+            return False
+        return True
+
+    unknown = ReaderError(404, 'Unknown conversation')
+
     if reader is not None:
         @router.post('/chat')
         async def reader_chat(body: ChatInput, request: Request):
@@ -147,6 +158,8 @@ def build_api(prefix: str, state_root: Path, rag, code,
             payload = {'question': body.question, 'folders': body.context.folders,
                        'include_subfolders': body.context.include_subfolders}
             if body.session is not None:
+                if not known(body.session):
+                    return failure(unknown)
                 payload['session_id'] = body.session
             try:
                 upstream = await reader.run(subject, email, payload)
@@ -157,7 +170,9 @@ def build_api(prefix: str, state_root: Path, rag, code,
                 key = body.session
                 finished = False
                 async for name, data in upstream:
-                    if name == 'session':
+                    if name == 'heartbeat':
+                        yield ': heartbeat\n\n'
+                    elif name == 'session':
                         key = data['id']
                         yield frame('session', {'key': key})
                     elif name == 'activity':
@@ -169,12 +184,13 @@ def build_api(prefix: str, state_root: Path, rag, code,
                             break
                         found = data.get('grounding') or {}
                         sources = found.get('sources', [])
-                        yield frame('sources', {'sources': sources})
-                        yield frame('done', {'text': data['answer'], 'not_covered': bool(found.get('not_covered')),
-                                             'escalation_offered': False, 'sources_used': ['docs'] if sources else []})
+                        # Log the gap first: a user who disconnects on `done` must not lose it.
                         if found.get('not_covered') and gaps_dir is not None:
                             gaps.append_gap(gaps_dir, body.question, found.get('near_misses', []),
                                             results=found.get('results'), session_ref=session_ref(key) if key else None)
+                        yield frame('sources', {'sources': sources})
+                        yield frame('done', {'text': data['answer'], 'not_covered': bool(found.get('not_covered')),
+                                             'escalation_offered': False, 'sources_used': ['docs'] if sources else []})
                         break
                 if not finished:
                     yield frame('error', {'message': UNAVAILABLE})
@@ -194,6 +210,8 @@ def build_api(prefix: str, state_root: Path, rag, code,
         @router.get('/chats/{key}')
         async def reader_transcript(key: str, request: Request):
             subject, email = identity(request)
+            if not known(key):
+                return failure(unknown)
             try:
                 saved = await reader.transcript(subject, email, key)
             except ReaderError as exc:
@@ -210,6 +228,8 @@ def build_api(prefix: str, state_root: Path, rag, code,
         @router.delete('/chats/{key}', status_code=204)
         async def reader_delete(key: str, request: Request):
             subject, email = identity(request)
+            if not known(key):
+                return failure(unknown)
             try:
                 await reader.delete(subject, email, key)
             except ReaderError as exc:

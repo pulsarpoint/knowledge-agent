@@ -1,5 +1,6 @@
 """Client for admin-api's internal Reader conversation endpoints."""
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -7,6 +8,7 @@ import httpx
 
 UNAVAILABLE = 'Chat is temporarily unavailable.'
 PASS_THROUGH = {400, 404, 409}
+logger = logging.getLogger(__name__)
 
 
 class ReaderError(Exception):
@@ -28,6 +30,8 @@ class ReaderClient:
         if response.status_code < 400:
             return
         await response.aread()
+        if response.status_code == 401:
+            logger.error('admin-api rejected the Reader agent key; check READER_AGENT_KEY in both services')
         if response.status_code in PASS_THROUGH:
             try:
                 message = response.json()['error']['message']
@@ -52,7 +56,9 @@ class ReaderClient:
             name, data = '', ''
             try:
                 async for line in response.aiter_lines():
-                    if line.startswith('event: '):
+                    if line.startswith(':'):
+                        yield 'heartbeat', {}
+                    elif line.startswith('event: '):
                         name = line[7:]
                     elif line.startswith('data: '):
                         data += line[6:]
