@@ -88,6 +88,15 @@ not under `/api` and is not routed by the admin gateway, authenticating with the
 one chosen in Admin -> Agents -> Reader assistant; it must have grounding on, and
 grounded agents get only `search_documents`, `read_document` and `report_not_covered`.
 
+**Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
+(repositories) off for the Search agent; its down migration does not turn Code back
+on. Settings changes touch only the agent's working copy: if the Search agent (or
+whichever agent answers the Reader) has an active configuration version, the Reader
+keeps using that version's snapshot. Save and activate a new version so the Reader
+uses the new settings — until then the card lists "active version vN predates these
+settings" and the Reader replies "The assistant's configuration isn't allowed in the
+Reader."
+
 The code chat endpoints below still return HTTP 200 `text/plain` `TODO`. They do not
 execute agents or create new conversations.
 

@@ -463,9 +463,19 @@ Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire 
 disabled, has no enabled model, or other tabs have unsaved changes.
 
 **Reader assistant.** A card at the top of `/agents` chooses which agent answers
-Reader chat (default: the Search agent). Agents that use SSH, MCP tools or code
-projects, or have Documents off, or have **Answer only from documents** off, are
-disabled in the list with the reason. The Reader agent cannot be deleted.
+Reader chat (default: the Search agent). Agents that are disabled, have no enabled
+model, use SSH, MCP tools or code projects, or have Documents off, or have **Answer
+only from documents** off, are disabled in the list with the reason, and the card
+warns when the current Reader agent can't answer. The Reader agent cannot be deleted.
+
+**Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
+(repositories) off for the Search agent; its down migration does not turn Code back
+on. Settings changes touch only the agent's working copy: if the Search agent (or
+whichever agent answers the Reader) has an active configuration version, the Reader
+keeps using that version's snapshot. Save and activate a new version so the Reader
+uses the new settings — until then the card lists "active version vN predates these
+settings" and the Reader replies "The assistant's configuration isn't allowed in the
+Reader."
 
 Agents with sessions or board history cannot be removed — disable them instead.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
