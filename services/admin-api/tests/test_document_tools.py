@@ -137,3 +137,15 @@ def test_grounded_agents_get_only_citable_tools_and_policy():
     assert {'search_documents', 'read_document', 'list_files', 'shell_run'} <= names
     assert 'report_not_covered' not in names
     assert grounding.POLICY not in get_prompt(ungrounded, [], [])
+
+
+def test_get_paths_skips_document_folders_for_grounded_agents():
+    missing = [{'path': '/nonexistent/rag-data/payments', 'search_folder': 'payments'}]
+    assert get_paths(config(folders=missing)) == []
+    assert [str(path) for path in get_paths(config(grounded=False, folders=missing))] == ['/nonexistent/rag-data/payments']
+
+
+def test_get_paths_treats_legacy_config_without_grounded_as_ungrounded():
+    legacy = config()
+    del legacy['documents']['grounded']
+    assert [str(path) for path in get_paths(legacy)] == ['/work/rag-data/payments']
