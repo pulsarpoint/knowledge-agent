@@ -3,7 +3,9 @@ import asyncio
 import copy
 from agents import ModelBehaviorError
 import json
+from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
+from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -17,6 +19,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from knowledge_admin import grounding
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_versions import TuningSuggestion
 from knowledge_admin.agent_activity import redact
@@ -41,18 +44,19 @@ class SessionInput(BaseModel):
 
 
 def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UUID,
-                   actor_id: UUID, config: dict[str, Any], title: str, is_test: bool) -> dict[str, Any]:
-    """Create the same pinned agent session for a test or a live conversation."""
+                   actor_id: UUID, config: dict[str, Any], title: str, is_test: bool,
+                   channel: str = 'admin', idle_timeout: timedelta | None = None) -> dict[str, Any]:
+    """Create the same pinned agent session for a test, an admin live conversation, or a Reader conversation."""
     if not config['enabled']:
         raise ValueError('Agent is disabled.')
     if config['model'] is None or not config['model']['enabled']:
         raise ValueError('Select an enabled model in this agent’s General tab.')
     return conn.execute('''INSERT INTO ka.agent_sessions
-        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,
-        last_activity_at+interval '1 hour' AS expires_at,config->'config_version' AS config_version''',
+        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test,channel,idle_timeout)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s::interval,interval '1 hour')) RETURNING *,
+        last_activity_at+idle_timeout AS expires_at,config->'config_version' AS config_version''',
         (session_id,project_id,config['id'],actor_id,title,Jsonb(config),
-         config.get('config_version',{}).get('id'),is_test)).fetchone()
+         config.get('config_version',{}).get('id'),is_test,channel,idle_timeout)).fetchone()
 
 
 class ReviewInput(BaseModel):
@@ -91,8 +95,185 @@ def expire_sessions(store) -> None:
             WHERE status='running' AND context->>'runtime' IN ('codex-direct','agents-sdk')
             AND pg_try_advisory_xact_lock(hashtextextended(id::text,27002))""")
         conn.execute("""UPDATE ka.agent_sessions s SET status='expired',closed_at=now()
-            WHERE status='active' AND last_activity_at <= now()-interval '1 hour'
+            WHERE status='active' AND last_activity_at <= now()-s.idle_timeout
             AND NOT EXISTS (SELECT 1 FROM ka.operations_runs r WHERE r.session_id=s.id AND r.status='running')""")
+
+
+async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunInput, actor: tuple[str, str], *,
+                     channel: str = 'admin', idle_timeout: timedelta | None = None, owner_only: bool = False,
+                     prepare: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                     validate: Callable[[dict[str, Any]], None] | None = None) -> AsyncIterator[tuple[str, Any]]:
+    """Start one agent turn and return its events; raises HTTPException before the turn starts.
+
+    Yields ('started', run), ('activity', item), ('heartbeat', None) and ('completed', run).
+    A disconnecting consumer does not stop the turn.
+    """
+    await asyncio.to_thread(expire_sessions,store)
+    owner = None
+    try:
+        if owner_only:
+            with store.connect() as owner_connection:
+                owner = store.actor(owner_connection, *actor)
+        if value.session_id is not None:
+            with store.connect() as saved_connection:
+                saved = load_session(store, saved_connection, app_name, agent_id, value.session_id, owner=owner)
+                if saved['status'] != 'active':
+                    raise HTTPException(409,'This session is closed or expired. Start a new session.')
+                if value.version_id is not None and value.version_id != saved['agent_version_id']:
+                    raise HTTPException(409,'A session cannot change agent versions. Start a new session.')
+                if value.is_test is not None and value.is_test != saved['is_test']:
+                    raise HTTPException(409,'A session cannot switch between test and live. Start a new session.')
+                config = saved['config']
+        else:
+            config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
+            if prepare is not None:
+                config = prepare(config)
+        if validate is not None:
+            validate(config)
+        if not config['enabled']:
+            raise ValueError('Agent is disabled.')
+        if config['model'] is None or not config['model']['enabled']:
+            raise ValueError('Select an enabled model in this agent’s General tab.')
+        credentials = await asyncio.to_thread(load_credentials,store,config)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+    except InvalidTag as exc:
+        raise HTTPException(409,'A configured credential could not be decrypted. Save it again in administration.') from exc
+
+    session_id = value.session_id or uuid4()
+    conn = await psycopg.AsyncConnection.connect(store.conninfo,autocommit=True,row_factory=dict_row,connect_timeout=5)
+    try:
+        locked = await (await conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,27003)) AS locked', (str(session_id),))).fetchone()
+        if not locked['locked']:
+            raise HTTPException(409,'This session already has a running message or tuning review.')
+        await conn.execute('SELECT pg_advisory_lock(hashtextextended(%s,27002))', (str(value.id),))
+        if await (await conn.execute('SELECT id FROM ka.operations_runs WHERE id=%s',(value.id,))).fetchone():
+            raise HTTPException(409,'This message was already submitted. Open its session instead of retrying.')
+        context = {'runtime':'agents-sdk','config':config,'activity':[],
+            'servers':config['ssh']['servers'] if config['ssh']['enabled'] else [],
+            'model_name':config['model']['name'],'prompt':config['system_prompt']}
+        context = json.loads(redact(json.dumps(context),credentials.values()))
+        with store.connect() as setup:
+            project = store.project(setup,app_name)
+            actor_id = store.actor(setup,*actor)
+            if value.session_id is None:
+                saved = create_session(setup, session_id=session_id, project_id=project, actor_id=actor_id,
+                    config=context['config'], title=redact(value.task,credentials.values())[:200],
+                    is_test=value.is_test is True, channel=channel, idle_timeout=idle_timeout)
+            else:
+                setup.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
+                saved = load_session(store,setup,app_name,agent_id,session_id,owner=owner)
+                if saved['status'] != 'active':
+                    raise HTTPException(409,'This session is closed or expired. Start a new session.')
+            history = saved['history']
+            row = setup.execute('''INSERT INTO ka.operations_runs(id,session_id,project_id,actor_id,agent,task,context)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
+                (value.id,session_id,project,actor_id,agent_id,redact(value.task,credentials.values()),Jsonb(context))).fetchone()
+            setup.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s',(session_id,))
+        row.update(actor_email=actor[1],commands=[])
+    except BaseException:
+        credentials.clear()
+        await conn.close()
+        raise
+
+    events = asyncio.Queue(maxsize=128)
+    def publish(event, data):
+        if events.full():
+            events.get_nowait()
+        events.put_nowait((event,jsonable_encoder(data)))
+
+    async def execute():
+        async def on_activity(item):
+            item = json.loads(redact(json.dumps(item),credentials.values()))
+            context['activity'] = [previous for previous in context['activity'] if previous['id'] != item['id']] + [item]
+            await conn.execute('UPDATE ka.operations_runs SET context=%s,progress=%s WHERE id=%s', (Jsonb(context),item['title'],value.id))
+            publish('activity',item)
+        turn = asyncio.create_task(agent(config,value.task,credentials=credentials,on_activity=on_activity,history=history))
+        try:
+            while not turn.done():
+                await asyncio.wait({turn},timeout=1)
+                state = await (await conn.execute('SELECT status FROM ka.operations_runs WHERE id=%s',(value.id,))).fetchone()
+                if state['status'] == 'cancelled':
+                    turn.cancel()
+                    break
+            answer,error,status = '','','completed'
+            updated_history = None
+            try:
+                result = await turn
+                answer = redact(str(result.final_output),credentials.values())
+                context['usage'] = jsonable_encoder(result.context_wrapper.usage)
+                run_context = getattr(result.context_wrapper, 'context', None)
+                summary = grounding.result(answer, run_context.get('grounding') if isinstance(run_context, dict) else None)
+                if summary is not None:
+                    context['grounding'] = json.loads(redact(json.dumps(summary), credentials.values()))
+                updated_history = json.loads(redact(json.dumps(result.to_input_list(),ensure_ascii=False),credentials.values()))
+            except asyncio.CancelledError:
+                status = 'cancelled'
+            except TimeoutError:
+                status,error = 'failed','The agent exceeded the time limit. Send a smaller task.'
+            except ValueError as exc:
+                status,error = 'failed',redact(str(exc),credentials.values())
+            except Exception as exc:
+                status,error = 'failed',f'Agent execution failed ({type(exc).__name__}). Check the model connection and agent resources.'
+            # Close/cancel and completion lock the session before the turn.
+            # Publish history only when the successful turn is committed.
+            async with conn.transaction():
+                await conn.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
+                completed = await (await conn.execute("""UPDATE ka.operations_runs SET status=%s,answer=%s,error=%s,context=%s,
+                    progress='',finished_at=now() WHERE id=%s AND status='running' RETURNING id""",
+                    (status,answer,error,Jsonb(context),value.id))).fetchone()
+                if completed is not None and status == 'completed':
+                    await conn.execute('UPDATE ka.agent_sessions SET history=%s WHERE id=%s',
+                                       (Jsonb(updated_history),session_id))
+        finally:
+            with anyio.CancelScope(shield=True):
+                turn.cancel()
+                with suppress(asyncio.CancelledError,Exception):
+                    await turn
+                try:
+                    with store.connect() as cleanup:
+                        cleanup.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
+                        cleanup.execute("""UPDATE ka.operations_runs SET status='failed',finished_at=now(),
+                            error='The turn was interrupted. Send a new message to continue.' WHERE id=%s AND status='running'""", (value.id,))
+                        cleanup.execute("UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s AND status='active'",(session_id,))
+                        final = cleanup.execute('SELECT * FROM ka.operations_runs WHERE id=%s',(value.id,)).fetchone()
+                        final.update(actor_email=actor[1],commands=[])
+                        publish('completed',final)
+                finally:
+                    credentials.clear()
+                    await conn.close()
+
+    execution = asyncio.create_task(execute())
+    app_state.agent_runs.add(execution)
+    execution.add_done_callback(app_state.agent_runs.discard)
+
+    async def stream():
+        yield 'started', jsonable_encoder(row)
+        while True:
+            try:
+                event, data = await asyncio.wait_for(events.get(), timeout=1)
+            except TimeoutError:
+                if execution.done():
+                    return
+                yield 'heartbeat', None
+                continue
+            yield event, data
+            if event == 'completed':
+                return
+    return stream()
+
+
+def load_session(store, conn, app_name: str, agent_id: str, session_id: UUID, *, owner: UUID | None = None) -> dict[str, Any]:
+    """Load one session of this agent; with owner, only that principal's visible session."""
+    value = conn.execute("""SELECT s.*,s.last_activity_at+s.idle_timeout AS expires_at
+        FROM ka.agent_sessions s WHERE s.id=%s AND s.agent=%s AND s.project_id=%s
+        AND (%s::uuid IS NULL OR (s.actor_id=%s AND s.hidden_by_owner_at IS NULL))""",
+        (session_id, agent_id, store.project(conn, app_name), owner, owner)).fetchone()
+    if value is None:
+        raise HTTPException(404, 'Session not found for this agent.')
+    return value
 
 
 def build_api(app_name, store):
@@ -102,14 +283,6 @@ def build_api(app_name, store):
         if store is None:
             raise HTTPException(503, 'Agent session storage is not configured.')
         return store
-
-    def session(conn, agent_id, session_id):
-        value = conn.execute("""SELECT s.*,s.last_activity_at+interval '1 hour' AS expires_at
-            FROM ka.agent_sessions s WHERE s.id=%s AND s.agent=%s AND s.project_id=%s""",
-            (session_id,agent_id,store.project(conn,app_name))).fetchone()
-        if value is None:
-            raise HTTPException(404, 'Session not found for this agent.')
-        return value
 
     @router.post('/agents/{agent_id}/sessions', status_code=201)
     def create(agent_id: str, value: SessionInput, request: Request):
@@ -135,7 +308,7 @@ def build_api(app_name, store):
         expire_sessions(database())
         with store.connect() as conn:
             return {'sessions': conn.execute("""SELECT id,title,status,is_test,agent_version_id,config->'config_version' AS config_version,created_at,last_activity_at,
-                last_activity_at+interval '1 hour' AS expires_at FROM ka.agent_sessions
+                last_activity_at+idle_timeout AS expires_at FROM ka.agent_sessions
                 WHERE agent=%s AND project_id=%s AND (%s::boolean IS NULL OR is_test=%s)
                 ORDER BY created_at DESC LIMIT 100""",
                 (agent_id,store.project(conn,app_name),is_test,is_test)).fetchall()}
@@ -145,7 +318,7 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         expire_sessions(database())
         with store.connect() as conn:
-            value = session(conn,agent_id,session_id)
+            value = load_session(store,conn,app_name,agent_id,session_id)
             value.pop('history')
             value['runs'] = conn.execute("""SELECT r.*,p.email AS actor_email FROM ka.operations_runs r
                 JOIN ka.principals p ON p.id=r.actor_id WHERE session_id=%s ORDER BY r.created_at,r.id""", (session_id,)).fetchall()
@@ -158,7 +331,7 @@ def build_api(app_name, store):
     def close(agent_id: str, session_id: UUID, request: Request):
         request_actor(request)
         with database().connect() as conn:
-            session(conn,agent_id,session_id)
+            load_session(store,conn,app_name,agent_id,session_id)
             conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s AND status='active'", (session_id,))
             conn.execute("UPDATE ka.operations_runs SET status='cancelled',finished_at=now(),progress='Session closed.' WHERE session_id=%s AND status='running'", (session_id,))
         expire_sessions(store)
@@ -167,150 +340,11 @@ def build_api(app_name, store):
     @router.post('/agents/{agent_id}/runs')
     async def start(agent_id: str, value: RunInput, request: Request):
         database()
-        actor = request_actor(request)
-        await asyncio.to_thread(expire_sessions,store)
-        try:
-            if value.session_id is not None:
-                with store.connect() as saved_connection:
-                    saved = session(saved_connection,agent_id,value.session_id)
-                    if saved['status'] != 'active':
-                        raise HTTPException(409,'This session is closed or expired. Start a new session.')
-                    if value.version_id is not None and value.version_id != saved['agent_version_id']:
-                        raise HTTPException(409,'A session cannot change agent versions. Start a new session.')
-                    if value.is_test is not None and value.is_test != saved['is_test']:
-                        raise HTTPException(409,'A session cannot switch between test and live. Start a new session.')
-                    config = saved['config']
-            else:
-                config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
-            if not config['enabled']:
-                raise ValueError('Agent is disabled.')
-            if config['model'] is None or not config['model']['enabled']:
-                raise ValueError('Select an enabled model in this agent’s General tab.')
-            credentials = await asyncio.to_thread(load_credentials,store,config)
-        except LookupError as exc:
-            raise HTTPException(404,str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(409,str(exc)) from exc
-        except InvalidTag as exc:
-            raise HTTPException(409,'A configured credential could not be decrypted. Save it again in administration.') from exc
-
-        session_id = value.session_id or uuid4()
-        conn = await psycopg.AsyncConnection.connect(store.conninfo,autocommit=True,row_factory=dict_row,connect_timeout=5)
-        try:
-            locked = await (await conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,27003)) AS locked', (str(session_id),))).fetchone()
-            if not locked['locked']:
-                raise HTTPException(409,'This session already has a running message or tuning review.')
-            await conn.execute('SELECT pg_advisory_lock(hashtextextended(%s,27002))', (str(value.id),))
-            if await (await conn.execute('SELECT id FROM ka.operations_runs WHERE id=%s',(value.id,))).fetchone():
-                raise HTTPException(409,'This message was already submitted. Open its session instead of retrying.')
-            context = {'runtime':'agents-sdk','config':config,'activity':[],
-                'servers':config['ssh']['servers'] if config['ssh']['enabled'] else [],
-                'model_name':config['model']['name'],'prompt':config['system_prompt']}
-            context = json.loads(redact(json.dumps(context),credentials.values()))
-            with store.connect() as setup:
-                project = store.project(setup,app_name)
-                actor_id = store.actor(setup,*actor)
-                if value.session_id is None:
-                    saved = create_session(setup, session_id=session_id, project_id=project, actor_id=actor_id,
-                        config=context['config'], title=redact(value.task,credentials.values())[:200],
-                        is_test=value.is_test is True)
-                else:
-                    setup.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
-                    saved = session(setup,agent_id,session_id)
-                    if saved['status'] != 'active':
-                        raise HTTPException(409,'This session is closed or expired. Start a new session.')
-                history = saved['history']
-                row = setup.execute('''INSERT INTO ka.operations_runs(id,session_id,project_id,actor_id,agent,task,context)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
-                    (value.id,session_id,project,actor_id,agent_id,redact(value.task,credentials.values()),Jsonb(context))).fetchone()
-                setup.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s',(session_id,))
-            row.update(actor_email=actor[1],commands=[])
-        except BaseException:
-            credentials.clear()
-            await conn.close()
-            raise
-
-        events = asyncio.Queue(maxsize=128)
-        def publish(event, data):
-            if events.full():
-                events.get_nowait()
-            events.put_nowait((event,jsonable_encoder(data)))
-
-        async def execute():
-            async def on_activity(item):
-                item = json.loads(redact(json.dumps(item),credentials.values()))
-                context['activity'] = [previous for previous in context['activity'] if previous['id'] != item['id']] + [item]
-                await conn.execute('UPDATE ka.operations_runs SET context=%s,progress=%s WHERE id=%s', (Jsonb(context),item['title'],value.id))
-                publish('activity',item)
-            turn = asyncio.create_task(agent(config,value.task,credentials=credentials,on_activity=on_activity,history=history))
-            try:
-                while not turn.done():
-                    await asyncio.wait({turn},timeout=1)
-                    state = await (await conn.execute('SELECT status FROM ka.operations_runs WHERE id=%s',(value.id,))).fetchone()
-                    if state['status'] == 'cancelled':
-                        turn.cancel()
-                        break
-                answer,error,status = '','','completed'
-                updated_history = None
-                try:
-                    result = await turn
-                    answer = redact(str(result.final_output),credentials.values())
-                    context['usage'] = jsonable_encoder(result.context_wrapper.usage)
-                    updated_history = json.loads(redact(json.dumps(result.to_input_list(),ensure_ascii=False),credentials.values()))
-                except asyncio.CancelledError:
-                    status = 'cancelled'
-                except TimeoutError:
-                    status,error = 'failed','The agent exceeded the time limit. Send a smaller task.'
-                except ValueError as exc:
-                    status,error = 'failed',redact(str(exc),credentials.values())
-                except Exception as exc:
-                    status,error = 'failed',f'Agent execution failed ({type(exc).__name__}). Check the model connection and agent resources.'
-                # Close/cancel and completion lock the session before the turn.
-                # Publish history only when the successful turn is committed.
-                async with conn.transaction():
-                    await conn.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
-                    completed = await (await conn.execute("""UPDATE ka.operations_runs SET status=%s,answer=%s,error=%s,context=%s,
-                        progress='',finished_at=now() WHERE id=%s AND status='running' RETURNING id""",
-                        (status,answer,error,Jsonb(context),value.id))).fetchone()
-                    if completed is not None and status == 'completed':
-                        await conn.execute('UPDATE ka.agent_sessions SET history=%s WHERE id=%s',
-                                           (Jsonb(updated_history),session_id))
-            finally:
-                with anyio.CancelScope(shield=True):
-                    turn.cancel()
-                    with suppress(asyncio.CancelledError,Exception):
-                        await turn
-                    try:
-                        with store.connect() as cleanup:
-                            cleanup.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
-                            cleanup.execute("""UPDATE ka.operations_runs SET status='failed',finished_at=now(),
-                                error='The turn was interrupted. Send a new message to continue.' WHERE id=%s AND status='running'""", (value.id,))
-                            cleanup.execute("UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s AND status='active'",(session_id,))
-                            final = cleanup.execute('SELECT * FROM ka.operations_runs WHERE id=%s',(value.id,)).fetchone()
-                            final.update(actor_email=actor[1],commands=[])
-                            publish('completed',final)
-                    finally:
-                        credentials.clear()
-                        await conn.close()
-
-        execution = asyncio.create_task(execute())
-        request.app.state.agent_runs.add(execution)
-        execution.add_done_callback(request.app.state.agent_runs.discard)
-
+        turn = await start_turn(request.app.state, store, app_name, agent_id, value, request_actor(request))
         async def stream():
             # Disconnecting only closes this subscriber. The session/turn continue.
-            yield 'event: started\ndata: '+json.dumps(jsonable_encoder(row))+'\n\n'
-            while True:
-                try:
-                    event,data = await asyncio.wait_for(events.get(),timeout=1)
-                except TimeoutError:
-                    if execution.done():
-                        return
-                    yield ': heartbeat\n\n'
-                    continue
-                yield 'event: '+event+'\ndata: '+json.dumps(data)+'\n\n'
-                if event == 'completed':
-                    return
+            async for event, data in turn:
+                yield ': heartbeat\n\n' if event == 'heartbeat' else 'event: '+event+'\ndata: '+json.dumps(data)+'\n\n'
         return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
 
     @router.get('/agents/{agent_id}/runs')
@@ -350,7 +384,7 @@ def build_api(app_name, store):
             if not locked['locked']:
                 raise HTTPException(409,'Wait for the current message or review to finish.')
             with store.connect() as conn:
-                saved = session(conn,agent_id,session_id)
+                saved = load_session(store,conn,app_name,agent_id,session_id)
                 turns = conn.execute('SELECT id,task,answer,error,status,context FROM ka.operations_runs WHERE session_id=%s ORDER BY created_at,id',(session_id,)).fetchall()
                 if not turns:
                     raise HTTPException(409,'Run at least one message before requesting tuning suggestions.')

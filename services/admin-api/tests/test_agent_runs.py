@@ -162,3 +162,70 @@ def test_closing_stream_keeps_session_and_turn_alive(direct, store, monkeypatch)
     with store.connect() as conn:
         assert conn.execute('SELECT status FROM ka.operations_runs WHERE id=%s', (run_id,)).fetchone()['status'] == 'completed'
         assert conn.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,27002)) AS unlocked', (run_id,)).fetchone()['unlocked']
+
+
+from datetime import timedelta
+from fastapi import HTTPException
+from knowledge_admin.agent_sessions import create_session, expire_sessions, load_session
+
+
+def grounded_run(answer, state):
+    async def run(config, task, **kwargs):
+        return SimpleNamespace(final_output=answer,
+            context_wrapper=SimpleNamespace(usage=Usage(), context={'grounding': state}),
+            to_input_list=lambda: [{'role': 'user', 'content': task}, {'role': 'assistant', 'content': answer}])
+    return run
+
+
+def test_completed_run_carries_grounding_summary(direct, monkeypatch):
+    state = {'excerpts': [{'n': 1, 'path': 'payments/retries.md', 'folder': 'payments', 'text': 'Three retries.'}],
+             'searches': 1, 'empty_searches': 0, 'reported': None}
+    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', grounded_run('Three retries [1].', state))
+    client, _, path = direct
+    completed = events(client.post(path, headers=HEADERS, json={'task': 'How many retries?'}))[-1]
+    assert completed['context']['grounding']['sources'] == [
+        {'n': 1, 'path': 'payments/retries.md', 'heading_path': 'payments', 'anchor': None}]
+    assert completed['context']['grounding']['not_covered'] is False
+
+
+def test_ungrounded_run_has_no_grounding(direct):
+    client, _, path = direct
+    completed = events(client.post(path, headers=HEADERS, json={'task': 'Inspect'}))[-1]
+    assert 'grounding' not in completed['context']
+
+
+def test_idle_timeout_controls_expiry(direct, store):
+    _, agent_id, _ = direct
+    from knowledge_admin.agents import get_agent_config
+    config = get_agent_config(agent_id, conninfo=store.conninfo)
+    with store.connect() as conn:
+        project, actor = store.project(conn, 'shop'), store.actor(conn, 'reader-1', 'reader@test')
+        long = create_session(conn, session_id=uuid4(), project_id=project, actor_id=actor, config=config,
+                              title='Long', is_test=False, channel='reader', idle_timeout=timedelta(days=7))
+        short = create_session(conn, session_id=uuid4(), project_id=project, actor_id=actor, config=config,
+                               title='Short', is_test=False)
+        conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '2 hours'")
+    expire_sessions(store)
+    with store.connect() as conn:
+        status = {row['id']: row['status'] for row in conn.execute('SELECT id,status FROM ka.agent_sessions')}
+    assert status[long['id']] == 'active' and status[short['id']] == 'expired'
+    assert long['channel'] == 'reader' and short['channel'] == 'admin'
+
+
+def test_load_session_owner_filter(direct, store):
+    _, agent_id, _ = direct
+    from knowledge_admin.agents import get_agent_config
+    config = get_agent_config(agent_id, conninfo=store.conninfo)
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        alice, bob = store.actor(conn, 'alice', 'a@test'), store.actor(conn, 'bob', 'b@test')
+        saved = create_session(conn, session_id=uuid4(), project_id=project, actor_id=alice, config=config,
+                               title='Mine', is_test=False, channel='reader')
+        assert load_session(store, conn, 'shop', agent_id, saved['id'], owner=alice)['id'] == saved['id']
+        with pytest.raises(HTTPException) as denied:
+            load_session(store, conn, 'shop', agent_id, saved['id'], owner=bob)
+        assert denied.value.status_code == 404
+        conn.execute('UPDATE ka.agent_sessions SET hidden_by_owner_at=now() WHERE id=%s', (saved['id'],))
+        with pytest.raises(HTTPException):
+            load_session(store, conn, 'shop', agent_id, saved['id'], owner=alice)
+        assert load_session(store, conn, 'shop', agent_id, saved['id'])['id'] == saved['id']
