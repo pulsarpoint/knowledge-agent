@@ -19,6 +19,7 @@ export default function ReaderAssistantCard() {
     return () => { live = false; };
   }, []);
   if (!settings) return null;
+  const current = settings.candidates.find(agent => agent.id === settings.knowledge_agent_id);
   async function save() {
     setBusy(true); setError(''); setNotice('');
     try { const saved = await saveReaderSettings(choice, settings!.revision); setSettings(saved); setNotice('Saved.'); }
@@ -32,6 +33,9 @@ export default function ReaderAssistantCard() {
     </CardHeader>
     <CardContent className="flex flex-col gap-3">
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {current && current.violations.length > 0 && <Alert variant="destructive">
+        <AlertDescription>The current Reader agent can't answer: {current.violations.join(', ')}.</AlertDescription>
+      </Alert>}
       <Field>
         <FieldLabel htmlFor="reader-agent">Reader agent</FieldLabel>
         <select id="reader-agent" className="h-9 rounded-md border bg-background px-2 text-sm" value={choice} disabled={busy} onChange={event => setChoice(event.target.value)}>

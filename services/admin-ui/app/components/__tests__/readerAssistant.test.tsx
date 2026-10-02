@@ -38,3 +38,20 @@ test('grounding sources list cited documents', () => {
   expect(screen.getByText('[1]')).toBeInTheDocument();
   expect(screen.getByText('payments/retries.md')).toBeInTheDocument();
 });
+
+test('warns when the current Reader agent cannot answer', async () => {
+  const stale = { ...settings, candidates: [
+    { id: 'search', name: 'Search agent', enabled: true,
+      violations: ['Answer only from documents is off', 'active version v3 predates these settings — save and activate a new version'] },
+    ...settings.candidates.slice(1)] };
+  vi.stubGlobal('fetch', vi.fn(async () => json(stale)));
+  render(<MemoryRouter><ReaderAssistantCard /></MemoryRouter>);
+  expect(await screen.findByText("The current Reader agent can't answer: Answer only from documents is off, active version v3 predates these settings — save and activate a new version.")).toBeInTheDocument();
+});
+
+test('no warning when the current Reader agent can answer', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json(settings)));
+  render(<MemoryRouter><ReaderAssistantCard /></MemoryRouter>);
+  await screen.findByLabelText('Reader agent');
+  expect(screen.queryByText(/can't answer/)).not.toBeInTheDocument();
+});
