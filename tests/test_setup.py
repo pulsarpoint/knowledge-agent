@@ -79,3 +79,14 @@ class SetupTests(unittest.TestCase):
             (root / ".env").write_text("RG_DATA='/srv/knowledge sources'\n", encoding="utf-8")
             initialize(root)
             self.assertIn("RG_DATA='/srv/knowledge sources'\n", (root / ".env").read_text(encoding="utf-8"))
+
+    def test_setup_generates_reader_agent_key(self) -> None:
+        source = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(source / ".env.example", root / ".env.example")
+            shutil.copytree(source / "examples", root / "examples")
+            initialize(root)
+            values = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", (root / ".env").read_text(encoding="utf-8"), re.MULTILINE))
+            self.assertGreaterEqual(len(values["READER_AGENT_KEY"]), 32)
+            self.assertNotEqual(values["READER_AGENT_KEY"], values["RAG_BACKOFFICE_KEY"])

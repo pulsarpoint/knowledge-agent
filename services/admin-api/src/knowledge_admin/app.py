@@ -62,4 +62,6 @@ def create_app(cfg: Config, *, server: ServerConfig,
         return {"status": "ok"}
 
     app.include_router(build_api({a.name: a for a in cfg.apps}, server, backoffice_client, repository_store, jira_transport))
+    from knowledge_admin import reader_api
+    app.include_router(reader_api.build_api(cfg.apps[0].name, repository_store))
     return app

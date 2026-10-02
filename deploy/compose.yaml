@@ -147,6 +147,7 @@ services:
       DOCS_WIKI_STATE_DIR: /data/docs-wiki
       DOCS_WIKI_ADMIN_GROUP: docs-admins
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
+      READER_AGENT_KEY: ${READER_AGENT_KEY:?Run make setup}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent

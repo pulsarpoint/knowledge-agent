@@ -1,0 +1,154 @@
+"""Reader conversations run through the shared turn service on the internal network only."""
+import json
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from agents.usage import Usage
+
+from knowledge_admin.reader_api import narrow
+from test_api import _client
+from test_sdk_agent import responses_api
+from test_repositories import HEADERS
+
+KEY = 'reader-test-key'
+
+
+def reader_headers(user='alice'):
+    return {'X-Reader-Key': KEY, 'X-Reader-User': user, 'X-Reader-Email': f'{user}@example.test'}
+
+
+def sse(response):
+    events, name = [], None
+    for line in response.text.splitlines():
+        if line.startswith('event: '):
+            name = line[7:]
+        elif line.startswith('data: '):
+            events.append((name, json.loads(line[6:])))
+    return events
+
+
+@pytest.fixture
+def reader(store, tmp_path, monkeypatch, responses_api):
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('READER_AGENT_KEY', KEY)
+    client = _client(tmp_path, repository_store=store)
+    model = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Reader model', 'provider': 'openai', 'api_format': 'responses', 'model': 'reader-fixture',
+        'base_url': responses_api[0], 'api_key': 'reader-model-secret'}).json()
+    with store.connect() as conn:
+        conn.execute('''UPDATE ka.agents SET model_id=%s,enabled=true,documents_enabled=true,documents_grounded=true,
+            all_folders=true,repositories_enabled=false,ssh_enabled=false,mcp_enabled=false WHERE id='search' ''', (model['id'],))
+    seen = []
+    async def fake(config, task, **kwargs):
+        seen.append(config)
+        state = {'excerpts': [{'n': 1, 'path': 'payments/retries.md', 'folder': 'payments', 'text': 'Three.'}],
+                 'searches': 1, 'empty_searches': 0, 'reported': None}
+        return SimpleNamespace(final_output='Three retries [1].',
+            context_wrapper=SimpleNamespace(usage=Usage(), context={'grounding': state}),
+            to_input_list=lambda: [*kwargs.get('history', []), {'role': 'user', 'content': task},
+                                   {'role': 'assistant', 'content': 'Three retries [1].'}])
+    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', fake)
+    return client, seen
+
+
+def ask(client, user='alice', **body):
+    return client.post('/internal/reader/runs', headers=reader_headers(user), json={'question': 'How many retries?', **body})
+
+
+def test_key_is_required_and_routes_are_not_under_api(reader, monkeypatch):
+    client, _ = reader
+    assert client.get('/internal/reader/sessions', headers={**reader_headers(), 'X-Reader-Key': 'wrong'}).status_code == 401
+    assert client.get('/internal/reader/sessions', headers={'X-Reader-User': 'alice'}).status_code == 401
+    assert client.get('/internal/reader/sessions', headers={'X-Reader-Key': KEY}).status_code == 403
+    assert client.get('/api/internal/reader/sessions', headers={**HEADERS, **reader_headers()}).status_code == 404
+    monkeypatch.delenv('READER_AGENT_KEY')
+    assert client.get('/internal/reader/sessions', headers=reader_headers()).status_code == 503
+
+
+def test_new_conversation_streams_session_activity_and_cited_answer(reader, store):
+    client, _ = reader
+    response = ask(client)
+    assert response.status_code == 200, response.text
+    events = sse(response)
+    assert events[0][0] == 'session'
+    completed = events[-1]
+    assert completed[0] == 'completed' and completed[1]['status'] == 'completed'
+    assert completed[1]['grounding']['sources'][0]['path'] == 'payments/retries.md'
+    session_id = events[0][1]['id']
+    with store.connect() as conn:
+        row = conn.execute('''SELECT s.channel,s.is_test,s.idle_timeout,p.email FROM ka.agent_sessions s
+            JOIN ka.principals p ON p.id=s.actor_id WHERE s.id=%s''', (session_id,)).fetchone()
+    assert row['channel'] == 'reader' and row['is_test'] is False and row['idle_timeout'].days == 7
+    assert row['email'] == 'alice@example.test'
+    assert 'reader-model-secret' not in response.text
+
+
+def test_follow_up_list_transcript_and_owner_isolation(reader):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    follow = sse(ask(client, session_id=session_id, question='And after that?'))
+    assert follow[0][0] != 'session' and follow[-1][1]['status'] == 'completed'
+    sessions = client.get('/internal/reader/sessions', headers=reader_headers()).json()['sessions']
+    assert [row['id'] for row in sessions] == [session_id]
+    transcript = client.get(f'/internal/reader/sessions/{session_id}', headers=reader_headers()).json()
+    assert [m['role'] for m in transcript['messages']] == ['user', 'assistant', 'user', 'assistant']
+    assert transcript['messages'][1]['sources'][0]['n'] == 1 and transcript['messages'][1]['not_covered'] is False
+    assert client.get('/internal/reader/sessions', headers=reader_headers('bob')).json()['sessions'] == []
+    assert client.get(f'/internal/reader/sessions/{session_id}', headers=reader_headers('bob')).status_code == 404
+    assert ask(client, user='bob', session_id=session_id).status_code == 404
+    assert client.delete(f'/internal/reader/sessions/{session_id}', headers=reader_headers('bob')).status_code == 404
+
+
+def test_delete_hides_from_owner_but_admin_keeps_transcript(reader):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    assert client.delete(f'/internal/reader/sessions/{session_id}', headers=reader_headers()).status_code == 204
+    assert client.get('/internal/reader/sessions', headers=reader_headers()).json()['sessions'] == []
+    assert client.get(f'/api/agents/search/sessions/{session_id}', headers=HEADERS).status_code == 200
+
+
+def test_tier_and_configuration_errors(reader, store):
+    client, _ = reader
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET ssh_enabled=true WHERE id='search'")
+    response = ask(client)
+    assert response.status_code == 409
+    assert response.json()['error']['message'] == "The assistant's configuration isn't allowed in the Reader."
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET ssh_enabled=false,model_id=NULL WHERE id='search'")
+    assert ask(client).json()['error']['message'] == "The assistant isn't configured yet. Ask an administrator."
+
+
+def test_ended_conversation(reader, store):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions SET status='expired' WHERE id=%s", (session_id,))
+    response = ask(client, session_id=session_id)
+    assert response.status_code == 409
+    assert response.json()['error']['message'] == 'This conversation has ended. Start a new one.'
+
+
+def test_switching_reader_agent_keeps_existing_conversations(reader, store):
+    client, seen = reader
+    session_id = sse(ask(client))[0][1]['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET documents_grounded=true,documents_enabled=true,model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id='code'")
+        conn.execute("UPDATE ka.agents SET repositories_enabled=false WHERE id='code'")
+        conn.execute("UPDATE ka.reader_settings SET knowledge_agent_id='code'")
+    follow = sse(ask(client, session_id=session_id, question='Again?'))
+    assert follow[-1][1]['status'] == 'completed' and seen[-1]['id'] == 'search'
+    assert [row['id'] for row in client.get('/internal/reader/sessions', headers=reader_headers()).json()['sessions']] == [session_id]
+
+
+def test_narrow_keeps_only_intersection():
+    config = {'documents': {'all_folders': True, 'folders': [
+        {'search_folder': 'payments'}, {'search_folder': 'payments.runbooks'}, {'search_folder': 'people'}]}}
+    assert narrow(config, None, True) is config
+    narrowed = narrow(config, ['payments'], True)
+    assert narrowed['documents']['all_folders'] is False
+    assert [f['search_folder'] for f in narrowed['documents']['folders']] == ['payments', 'payments.runbooks']
+    assert [f['search_folder'] for f in narrow(config, ['payments'], False)['documents']['folders']] == ['payments']
+    assert narrow(config, ['finance'], True)['documents']['folders'] == []

@@ -19,7 +19,7 @@ def initialize(root: Path) -> None:
         "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET", "PHOENIX_SECRET",
         "ADMIN_OAUTH2_PROXY_CLIENT_SECRET", "ADMIN_OAUTH2_PROXY_COOKIE_SECRET",
         "PHOENIX_ADMIN_PASSWORD", "PHOENIX_ADMIN_SECRET", "LITELLM_MASTER_KEY",
-        "CREDENTIAL_ENCRYPTION_KEY", "RAG_BACKOFFICE_KEY",
+        "CREDENTIAL_ENCRYPTION_KEY", "RAG_BACKOFFICE_KEY", "READER_AGENT_KEY",
     }
     for key, default in defaults.items():
         existing = current.get(key, "").strip().strip("\"'")
