@@ -2,7 +2,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from docs_wiki import audit
 from docs_wiki.config import App, Config, ServerConfig
 from knowledge_admin.app import create_app
 
@@ -41,39 +40,6 @@ def test_admin_api_does_not_mount_reader_routes(tmp_path, method, path):
     assert _client(tmp_path).request(method, path, headers={"X-Forwarded-Groups": "docs-admins"}).status_code == 404
 
 
-def test_admin_audit_requires_group(tmp_path):
-    client = _client(tmp_path)
-    assert client.get("/api/admin/audit").status_code == 403
-    wrong = client.get("/api/admin/audit",
-                       headers={"X-Forwarded-Groups": "devs,qa"})
-    assert wrong.status_code == 403
-    ok = client.get("/api/admin/audit",
-                    headers={"X-Forwarded-Groups": "devs, docs-admins"})
-    assert ok.status_code == 200
-    assert ok.json() == {"rows": []}
-
-
-def test_admin_audit_returns_rows_and_filters(tmp_path):
-    client = _client(tmp_path)
-    state_dir = tmp_path / "state" / "shop"
-    audit.append(state_dir, user_email="a@x.io", session_key="k1",
-                 question="q1", answer="a1", sources_used=["docs"],
-                 not_covered=False, escalated=False)
-    audit.append(state_dir, user_email="b@x.io", session_key="k2",
-                 question="q2", answer="a2", sources_used=[],
-                 not_covered=True, escalated=False)
-    headers = {"X-Forwarded-Groups": "docs-admins"}
-    rows = client.get("/api/admin/audit", headers=headers).json()["rows"]
-    assert [r["question"] for r in rows] == ["q2", "q1"]
-    only_a = client.get("/api/admin/audit", params={"user": "a@x.io"},
-                        headers=headers).json()["rows"]
-    assert [r["user_email"] for r in only_a] == ["a@x.io"]
-    by_session = client.get("/api/admin/audit/session/k1",
-                            headers=headers).json()["rows"]
-    assert [r["question"] for r in by_session] == ["q1"]
-    assert client.get("/api/admin/audit/session/k1").status_code == 403
-
-
 def test_admin_audit_unknown_app_404(tmp_path):
     response = _client(tmp_path).get(
         "/api/ghost/admin/audit",
@@ -86,32 +52,6 @@ def test_admin_audit_has_no_application_prefixed_routes(tmp_path):
     assert client.get("/api/ghost/admin/audit").status_code == 404
     assert client.get("/api/ghost/admin/audit",
                       headers={"X-Forwarded-Groups": "devs"}).status_code == 404
-
-
-def test_admin_audit_users_and_sessions_endpoints(tmp_path):
-    client = _client(tmp_path)
-    state_dir = tmp_path / "state" / "shop"
-    audit.append(state_dir, user_email="a@x.io", session_key="s1",
-                 question="q1", answer="a1", sources_used=[],
-                 not_covered=False, escalated=False)
-    audit.append(state_dir, user_email="a@x.io", session_key="s1",
-                 question="q2", answer="a2", sources_used=[],
-                 not_covered=False, escalated=False)
-    headers = {"X-Forwarded-Groups": "docs-admins"}
-    assert client.get("/api/admin/audit/users").status_code == 403
-    users = client.get("/api/admin/audit/users",
-                       headers=headers).json()["users"]
-    assert users == [{"user_email": "a@x.io", "sessions": 1,
-                      "questions": 2, "last_ts": users[0]["last_ts"]}]
-    assert client.get(
-        "/api/admin/audit/users/a@x.io/sessions").status_code == 403
-    sessions = client.get("/api/admin/audit/users/a@x.io/sessions",
-                          headers=headers).json()["sessions"]
-    assert sessions[0]["session_key"] == "s1"
-    assert sessions[0]["first_question"] == "q1"
-    assert sessions[0]["questions"] == 2
-    # Application-prefixed routes no longer exist.
-    assert client.get("/api/ghost/admin/audit/users").status_code == 404
 
 
 @pytest.mark.parametrize("method,path", [

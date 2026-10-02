@@ -3,10 +3,9 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from docs_wiki import audit
-from docs_wiki.config import App, ServerConfig, state_root
+from docs_wiki.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin import documents, documentation_workflows, documentation_generation, documentation_prompts, environments, agent_sessions, agent_versions, board, jira_api, repository_api, service_api, rag_api, skills, storage
+from knowledge_admin import activity, documents, documentation_workflows, documentation_generation, documentation_prompts, environments, agent_sessions, agent_versions, board, jira_api, repository_api, service_api, rag_api, skills, storage
 
 
 def build_api(apps: dict[str, App], server: ServerConfig,
@@ -30,6 +29,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
 
     router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
     router.include_router(storage.build_api())
+    router.include_router(activity.build_api(app_name, repository_store))
     router.include_router(board.build_api(app_name, repository_store))
     router.include_router(agent_versions.build_api(app_name, repository_store))
     router.include_router(agent_sessions.build_api(app_name, repository_store))
@@ -59,27 +59,5 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     @router.get("/session")
     def admin_session():
         return {"is_admin": True}
-
-    @router.get("/admin/audit")
-    def admin_audit(user: str | None = None,
-                    before: int | None = None, limit: int = 50):
-        rows = audit.query(state_root(server) / app_name,
-                           user=user, before_id=before,
-                           limit=max(1, min(limit, 200)))
-        return {"rows": rows}
-
-    @router.get("/admin/audit/users")
-    def admin_audit_users():
-        return {"users": audit.users(state_root(server) / app_name)}
-
-    @router.get("/admin/audit/users/{email}/sessions")
-    def admin_audit_user_sessions(email: str):
-        return {"sessions": audit.sessions_for(
-            state_root(server) / app_name, email)}
-
-    @router.get("/admin/audit/session/{key}")
-    def admin_audit_session(key: str):
-        rows = audit.by_session(state_root(server) / app_name, key)
-        return {"rows": rows}
 
     return router
