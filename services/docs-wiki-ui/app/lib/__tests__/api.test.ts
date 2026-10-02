@@ -18,14 +18,42 @@ test("non-ok responses raise ApiError with the server message", async () => {
   expect(new ApiError("x", 400)).toBeInstanceOf(Error);
 });
 
-test.each(['chat', 'escalate'])("%s reads the plain TODO response without session events", async kind => {
+test("escalate reads the plain TODO response without session events", async () => {
   const fetchMock = vi.fn(async () => new Response('TODO', { headers: { 'Content-Type': 'text/plain' } }));
   vi.stubGlobal('fetch', fetchMock);
   const events = [];
-  const result = kind === 'chat' ? streamChat('shop', 'hello?') : escalateStream('shop', 'saved', 'hello?');
-  for await (const event of result) events.push(event);
+  for await (const event of escalateStream('shop', 'saved', 'hello?')) events.push(event);
   expect(events).toEqual([{ type: 'todo', text: 'TODO' }]);
-  expect(fetchMock).toHaveBeenCalledWith(kind === 'chat' ? '/api/shop/chat' : '/api/shop/chat/saved/escalate', expect.objectContaining({ method: 'POST', body: JSON.stringify({ question: 'hello?' }) }));
+  expect(fetchMock).toHaveBeenCalledWith('/api/shop/chat/saved/escalate', expect.objectContaining({ method: 'POST', body: JSON.stringify({ question: 'hello?' }) }));
+});
+
+function sseResponse(text: string, chunks = 1) {
+  const bytes = new TextEncoder().encode(text);
+  const size = Math.ceil(bytes.length / chunks);
+  return new Response(new ReadableStream<Uint8Array>({ start(c) {
+    for (let i = 0; i < bytes.length; i += size) c.enqueue(bytes.slice(i, i + size));
+    c.close();
+  } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+}
+
+test('streamChat parses reader events across chunk boundaries', async () => {
+  const text = 'event: session\ndata: {"key":"s1"}\n\n' +
+    'event: tool\ndata: {"name":"search_documents","argument":"{\\"query\\":\\"retries\\"}"}\n\n' +
+    'event: sources\ndata: {"sources":[{"n":1,"path":"p/r.md","heading_path":"p","anchor":null}]}\n\n' +
+    'event: done\ndata: {"text":"Three [1].","not_covered":false,"escalation_offered":false,"sources_used":["docs"]}\n\n';
+  vi.stubGlobal('fetch', vi.fn(async () => sseResponse(text, 7)));
+  const events = [];
+  for await (const event of streamChat('shop', 'retries?')) events.push(event);
+  expect(events.map(e => e.type)).toEqual(['session', 'tool', 'sources', 'done']);
+  expect(events[0]).toEqual({ type: 'session', key: 's1' });
+  expect(events[3]).toMatchObject({ type: 'done', text: 'Three [1].', not_covered: false });
+});
+
+test('streamChat reports an error when the stream ends without an answer', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => sseResponse('event: session\ndata: {"key":"s1"}\n\n')));
+  const events = [];
+  for await (const event of streamChat('shop', 'q')) events.push(event);
+  expect(events.at(-1)).toEqual({ type: 'error', message: 'Chat is temporarily unavailable.' });
 });
 
 test("streamChat includes sources in the body when passed", async () => {

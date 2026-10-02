@@ -11,7 +11,7 @@ export interface ContextOptions {
   warnings: string[];
 }
 export interface Transcript {
-  session: string; messages: { role: string; content: string; sources_used?: string[] }[];
+  session: string; messages: { role: string; content: string; sources_used?: string[]; sources?: ChatSource[]; not_covered?: boolean }[];
   context?: AgentContext; sources?: { docs: boolean; codex: boolean };
 }
 export type ChatEvent =

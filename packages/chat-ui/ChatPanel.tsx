@@ -362,8 +362,9 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
         setTurns(t.messages.map((m) => ({
           role: m.role === "user" ? "user" : "assistant", content: m.content,
           notCovered: m.role !== "user"
-            && m.content.trim() === NOT_COVERED_SENTINEL,
+            && (m.not_covered ?? m.content.trim() === NOT_COVERED_SENTINEL),
           sourcesUsed: m.sources_used,
+          sources: m.sources,
         })));
       })
       .catch((e) => {
@@ -706,9 +707,6 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
           </InputGroupAddon>
         </InputGroup>
       </form>
-      <p className="text-xs text-muted-foreground">
-        Agent execution is not implemented yet. Submitting returns TODO without saving a conversation.
-      </p>
     </div>
   );
 }

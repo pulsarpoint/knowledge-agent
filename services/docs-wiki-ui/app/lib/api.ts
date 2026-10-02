@@ -1,4 +1,5 @@
 import type { AgentContext, ContextOptions, ChatEvent, ChatSource, CodeCitation, EscalateEvent, Transcript } from "@knowledge-agent/chat-ui/types";
+import { parseSse } from "./sse";
 export type { ChatEvent, ChatSource, CodeCitation, EscalateEvent, Transcript } from "@knowledge-agent/chat-ui/types";
 
 export interface AppInfo {
@@ -95,7 +96,15 @@ export async function* streamChat(
     yield { type: "error", message };
     return;
   }
-  yield { type: "todo", text: await response.text() };
+  if (!response.body) { yield { type: "error", message: "Chat is temporarily unavailable." }; return; }
+  let finished = false;
+  for await (const { event, data } of parseSse(response.body)) {
+    const payload = (data ?? {}) as Record<string, unknown>;
+    if (event === "done" || event === "error") finished = true;
+    yield { type: event, ...payload } as ChatEvent;
+    if (finished) return;
+  }
+  if (!finished) yield { type: "error", message: "Chat is temporarily unavailable." };
 }
 
 export async function* escalateStream(

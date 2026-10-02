@@ -73,7 +73,7 @@ export default function AdvancedContext({ value, onChange, sources, available, o
             </>}
           </FieldGroup>}
         </FieldSet>}
-        {available.codex && <FieldSet>
+        {repositories.length > 0 && available.codex && <FieldSet>
           <FieldLegend>Git repositories</FieldLegend>
           <Field orientation="horizontal">
             <Switch id={`${id}-git`} checked={!!sources.codex} disabled={locked || (sources.codex && !sources.docs)} onCheckedChange={() => onToggle("codex")} />

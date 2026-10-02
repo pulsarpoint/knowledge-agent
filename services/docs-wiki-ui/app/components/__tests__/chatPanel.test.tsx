@@ -23,6 +23,11 @@ vi.mock("../Markdown", async (importOriginal) => {
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
+function doneResponse(text: string, key?: string) {
+  const session = key ? `event: session\ndata: ${JSON.stringify({ key })}\n\n` : '';
+  return new Response(`${session}event: done\ndata: ${JSON.stringify({ text, not_covered: false })}\n\n`, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+}
+
 function renderPanel(props: Partial<Parameters<typeof ChatPanel>[0]> = {}) {
   const onSession = vi.fn();
   render(
@@ -112,7 +117,7 @@ test("streamChat call omits sources entirely when the selector is hidden", async
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.endsWith("/api/shop/chat") && init?.method === "POST") {
-      return new Response('TODO');
+      return doneResponse('OK');
     }
     throw new Error(`unexpected fetch ${u}`);
   });
@@ -120,7 +125,7 @@ test("streamChat call omits sources entirely when the selector is hidden", async
   renderPanel();
   await userEvent.type(screen.getByRole("textbox"), "how do refunds work?");
   await userEvent.click(screen.getByRole("button", { name: /ask/i }));
-  await waitFor(() => expect(screen.getByText("TODO")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("OK")).toBeInTheDocument());
   const postCall = fetchMock.mock.calls.find(([u, i]) =>
     String(u).endsWith("/api/shop/chat") && (i as RequestInit | undefined)?.method === "POST");
   const body = JSON.parse((postCall![1] as RequestInit).body as string);
@@ -169,31 +174,25 @@ test("historical assistant turns render sources_used badges", async () => {
   expect(screen.queryByText("docs")).toBeNull();
 });
 
-test("TODO preserves the question, ends loading and creates no session or recent history", async () => {
-  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('TODO', { headers: { 'Content-Type': 'text/plain' } }));
+test("a streamed answer renders and creates the session", async () => {
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => doneResponse('Three retries [1].', 's9'));
   vi.stubGlobal('fetch', fetchMock);
   const onSession = renderPanel();
   const user = userEvent.setup();
-  const input = screen.getByRole('textbox');
-  await user.type(input, 'Explain retries');
+  await user.type(screen.getByRole('textbox'), 'Explain retries');
   await user.click(screen.getByRole('button', { name: 'Ask' }));
-  expect(await screen.findByRole('status')).toHaveTextContent('TODO');
-  expect(input).toHaveValue('Explain retries');
-  expect(input).toBeEnabled();
-  expect(onSession).not.toHaveBeenCalled();
-  expect(listRecent('shop')).toEqual([]);
-  await user.click(screen.getByRole('button', { name: 'Ask' }));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-  expect(screen.getAllByText('TODO')).toHaveLength(1);
-  expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string)).toEqual({ question: 'Explain retries' });
+  expect(await screen.findByText(/Three retries/)).toBeVisible();
+  expect(screen.getByRole('textbox')).toHaveValue('');
+  expect(screen.getByRole('textbox')).toBeEnabled();
+  expect(onSession).toHaveBeenCalledWith('s9');
 });
 
-test("TODO preserves an existing transcript and its advanced context", async () => {
+test("a follow-up keeps an existing transcript and its advanced context", async () => {
   const context = { folders: ['payments'], include_subfolders: false, repositories: null };
   const fetchMock = vi.fn(async (url: string) => {
     if (url.endsWith('/context')) return Response.json({ folders: [{ path: 'payments', description: '', indexed_files: 1 }], repositories: [], warnings: [] });
     if (url.endsWith('/chats/saved')) return Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Historical answer' }], context, sources: { docs: true, codex: false } });
-    return new Response('TODO');
+    return doneResponse('Follow-up answer');
   });
   vi.stubGlobal('fetch', fetchMock);
   const onSession = renderPanel({ sessionKey: 'saved', contextEnabled: true, sources: { docs: true, codex: true } });
@@ -201,16 +200,16 @@ test("TODO preserves an existing transcript and its advanced context", async () 
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Advanced' }));
   expect(screen.getByRole('checkbox', { name: 'payments' })).toBeChecked();
-  expect(screen.getByRole('switch', { name: 'Search Git repositories' })).toBeDisabled();
+  expect(screen.queryByRole('switch', { name: 'Search Git repositories' })).not.toBeInTheDocument();
   await user.type(screen.getByRole('textbox'), 'Follow up');
   await user.click(screen.getByRole('button', { name: 'Ask' }));
-  expect(await screen.findByText('TODO')).toBeVisible();
+  expect(await screen.findByText('Follow-up answer')).toBeVisible();
   expect(screen.getByText('Historical answer')).toBeVisible();
   expect(onSession).not.toHaveBeenCalled();
 });
 
 test("failed submission shows the API error and can be retried", async () => {
-  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ error: { message: 'Access denied' } }, { status: 403 })).mockResolvedValue(new Response('TODO'));
+  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ error: { message: 'Access denied' } }, { status: 403 })).mockImplementation(async () => doneResponse('Recovered'));
   vi.stubGlobal('fetch', fetchMock);
   renderPanel();
   const user = userEvent.setup();
@@ -220,6 +219,11 @@ test("failed submission shows the API error and can be retried", async () => {
   expect(screen.getByRole('textbox')).toBeEnabled();
   await user.type(screen.getByRole('textbox'), 'Try again');
   await user.keyboard('{Enter}');
-  expect(await screen.findByText('TODO')).toBeVisible();
+  expect(await screen.findByText('Recovered')).toBeVisible();
   expect(screen.queryByText('Access denied')).not.toBeInTheDocument();
+});
+
+test('the TODO footer is gone', () => {
+  renderPanel();
+  expect(screen.queryByText(/Agent execution is not implemented yet/)).not.toBeInTheDocument();
 });

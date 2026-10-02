@@ -123,8 +123,7 @@ export default function ChatPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{truncateForDialog(r.firstQuestion)}&rdquo; — This removes it
-              for everyone with the link and cannot be undone.
+              Remove this conversation from your list?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
