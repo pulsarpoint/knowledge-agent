@@ -16,6 +16,7 @@ def test_reader_assistant_schema(store):
         column = conn.execute("""SELECT column_default FROM information_schema.columns
             WHERE table_schema='ka' AND table_name='agent_sessions' AND column_name='channel'""").fetchone()
         assert column['column_default'] == "'admin'::text"
+        assert conn.execute("SELECT repositories_enabled FROM ka.agents WHERE id='search'").fetchone()['repositories_enabled'] is False
 
 
 def test_reader_settings_row_is_a_singleton_and_blocks_agent_delete(store):

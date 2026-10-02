@@ -40,6 +40,7 @@ def test_settings_default_to_search_and_list_candidates(admin):
     by_id = {row['id']: row for row in settings['candidates']}
     assert 'coordinator' not in by_id
     assert 'uses SSH' in by_id['operations']['violations']
+    assert by_id['search']['violations'] == []
 
 
 def test_save_rejects_violating_agent_and_stale_revision(admin, store):

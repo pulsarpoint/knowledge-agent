@@ -1,7 +1,7 @@
 SET search_path = ka, public;
 
 ALTER TABLE agents ADD COLUMN documents_grounded boolean NOT NULL DEFAULT false;
-UPDATE agents SET documents_grounded = true WHERE id = 'search';
+UPDATE agents SET documents_grounded = true, repositories_enabled = false WHERE id = 'search';
 
 ALTER TABLE agent_sessions
     ADD COLUMN idle_timeout interval NOT NULL DEFAULT interval '1 hour' CHECK (idle_timeout > interval '0'),
