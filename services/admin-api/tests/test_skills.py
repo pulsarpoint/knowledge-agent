@@ -22,11 +22,11 @@ def test_skill_lifecycle_preserves_markdown_and_audits_changes(store, tmp_path):
     endpoint = f"/api/skills/{original['id']}"
     assert client.get(endpoint, headers=HEADERS).json() == original
     listing = client.get('/api/skills', headers=HEADERS).json()['skills']
-    assert [row['id'] for row in listing] == [original['id']]
+    assert [row['name'] for row in listing] == ['api-analysis', VALUE['name']]
     assert 'instructions' not in listing[0]
     disabled = client.patch(endpoint + '/status', headers=HEADERS, json={'enabled': False, 'revision': 1})
     assert disabled.status_code == 200 and disabled.json()['revision'] == 2
-    assert client.get('/api/skills?enabled=true', headers=HEADERS).json() == {'skills': []}
+    assert [row['name'] for row in client.get('/api/skills?enabled=true', headers=HEADERS).json()['skills']] == ['api-analysis']
     assert len(client.get('/api/skills?enabled=false', headers=HEADERS).json()['skills']) == 1
     assert client.get(endpoint, headers=HEADERS).json()['instructions'] == VALUE['instructions']
     updated = client.put(endpoint, headers=HEADERS, json={**VALUE, 'description': 'Updated scope', 'instructions': '  indented Markdown\n\n', 'revision': 2})
@@ -73,7 +73,7 @@ def test_invalid_skills_are_rejected_before_persistence(store, tmp_path, changes
     client = _client(tmp_path, repository_store=store)
     response = client.post('/api/skills', headers=HEADERS, json={**VALUE, **changes})
     assert response.status_code == 400, response.text
-    assert client.get('/api/skills', headers=HEADERS).json() == {'skills': []}
+    assert [row['name'] for row in client.get('/api/skills', headers=HEADERS).json()['skills']] == ['api-analysis']
 
 
 @pytest.mark.parametrize('groups', ['', 'readers', 'docs-admins-other'])
@@ -96,7 +96,7 @@ def test_identity_storage_and_workspace_boundaries(store, tmp_path):
     with store.connect() as conn:
         other = store.project(conn, 'other-workspace')
         conn.execute('UPDATE ka.agent_skills SET project_id=%s WHERE id=%s', (other, UUID(skill['id'])))
-    assert client.get('/api/skills', headers=HEADERS).json() == {'skills': []}
+    assert [row['name'] for row in client.get('/api/skills', headers=HEADERS).json()['skills']] == ['api-analysis']
     assert client.get(endpoint, headers=HEADERS).status_code == 404
     assert client.put(endpoint, headers=HEADERS, json={**VALUE, 'revision': 1}).status_code == 404
     assert client.patch(endpoint + '/status', headers=HEADERS, json={'enabled': False, 'revision': 1}).status_code == 404

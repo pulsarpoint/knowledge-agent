@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from docs_wiki import audit
 from docs_wiki.config import App, ServerConfig, state_root
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin import documents, documentation_generation, documentation_prompts, environments, agent_sessions, agent_versions, board, jira_api, repository_api, service_api, rag_api, skills, storage
+from knowledge_admin import documents, documentation_workflows, documentation_generation, documentation_prompts, environments, agent_sessions, agent_versions, board, jira_api, repository_api, service_api, rag_api, skills, storage
 
 
 def build_api(apps: dict[str, App], server: ServerConfig,
@@ -39,6 +39,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(service_api.build_api(app_name, repository_store))
     router.include_router(environments.build_api(app_name, repository_store))
     router.include_router(skills.build_api(app_name, repository_store))
+    router.include_router(documentation_workflows.build_api(app_name, repository_store))
     router.include_router(documents.build_api(app_name, repository_store))
     router.include_router(documentation_generation.build_api(app_name, repository_store))
     router.include_router(documentation_prompts.build_api(app_name, repository_store))

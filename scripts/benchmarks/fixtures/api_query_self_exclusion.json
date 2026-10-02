@@ -1,0 +1,130 @@
+{
+  "endpoint": "POST /api/v1/external/revoke-self-exclusion",
+  "project_id": "926d0db6-2301-495d-a3be-a276d3f51097",
+  "snapshot_source_hash": "05e2e2669407889a65e0fe00596d1926063130bfaeb0346f8dc308595c93c1bc",
+  "units": [
+    {
+      "id": "query",
+      "scope": "Resolve and analyze only the selected read helper and its actual query path. Request the constructor or selected method when their bodies are needed. Do not analyze the whole endpoint or infer SQL from names or graph targets.",
+      "resources": [
+        {
+          "path": "self_exclusion_m/main.go",
+          "function": "GetSelfExclusion"
+        }
+      ],
+      "questions": [
+        {
+          "id": "query.argument",
+          "question": "Which expression is passed to the constructor when this helper initializes its query object?",
+          "allowed_values": [
+            "db.DB_POOL",
+            "caller_transaction"
+          ]
+        },
+        {
+          "id": "query.receiver",
+          "question": "Which package owns the concrete receiver type of the invoked GetSelfExclusion method?",
+          "allowed_values": [
+            "self_exclusion_m.Queries",
+            "scheduler_m.Queries"
+          ]
+        },
+        {
+          "id": "query.handle",
+          "question": "Does the constructor store its database argument in the same field used by the selected method for querying, or replace it with a different handle?",
+          "allowed_values": [
+            "stores_and_uses_argument",
+            "replaces_argument"
+          ]
+        },
+        {
+          "id": "query.sql_source",
+          "question": "Which file defines the selected method and SQL constant?",
+          "allowed_values": [
+            "self_exclusion_m/queries.sql.go",
+            "scheduler_m/queries.sql.go"
+          ]
+        },
+        {
+          "id": "query.table",
+          "question": "Which table does the actual SQL read?",
+          "allowed_values": [
+            "self_exclusion",
+            "self_exclusion_history"
+          ]
+        },
+        {
+          "id": "query.user_filter",
+          "question": "Which input is bound to the user_id filter?",
+          "allowed_values": [
+            "method_userID_parameter",
+            "unfiltered"
+          ]
+        },
+        {
+          "id": "query.end_filter",
+          "question": "Which predicate does the selected SQL apply to end_time?",
+          "allowed_values": [
+            "end_time > NOW()",
+            "end_time < NOW()"
+          ]
+        },
+        {
+          "id": "query.start_filter",
+          "question": "Which predicate does the selected SQL apply to start_time?",
+          "allowed_values": [
+            "start_time < NOW()",
+            "none"
+          ]
+        },
+        {
+          "id": "query.deactivated_filter",
+          "question": "Does the WHERE clause filter on deactivated? Distinguish selecting a column from filtering it.",
+          "allowed_values": [
+            "yes",
+            "no"
+          ]
+        },
+        {
+          "id": "query.order",
+          "question": "What ordering does the selected SQL use?",
+          "allowed_values": [
+            "start_time DESC",
+            "start_time ASC"
+          ]
+        },
+        {
+          "id": "query.limit",
+          "question": "How many rows does the SQL LIMIT allow?",
+          "allowed_values": [
+            "1",
+            "unbounded"
+          ]
+        },
+        {
+          "id": "query.operation",
+          "question": "Which database operation does the selected method call?",
+          "allowed_values": [
+            "QueryRow",
+            "Exec"
+          ]
+        },
+        {
+          "id": "query.error",
+          "question": "Is the error returned by row.Scan propagated with the record, or discarded?",
+          "allowed_values": [
+            "returned_with_record",
+            "discarded"
+          ]
+        },
+        {
+          "id": "query.flow",
+          "question": "Describe the complete visible chain from the helper through constructor, receiver field, SQL invocation and returned record/error. Include the full predicate semantics and identify any dependency whose internals are not supplied.",
+          "allowed_values": [
+            "described"
+          ]
+        }
+      ]
+    }
+  ]
+}

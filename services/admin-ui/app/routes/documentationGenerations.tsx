@@ -1,6 +1,6 @@
 import AdminLayout from '../components/AdminLayout';
-import DocumentationGenerationsView from '../components/DocumentationGenerationsView';
+import { DocumentationWorkflowsView } from '../components/DocumentationWorkflowView';
 
 export default function Page() {
-  return <AdminLayout><DocumentationGenerationsView /></AdminLayout>;
+  return <AdminLayout><DocumentationWorkflowsView /></AdminLayout>;
 }

@@ -1,0 +1,18 @@
+{
+  "snapshot_source_hash": "05e2e2669407889a65e0fe00596d1926063130bfaeb0346f8dc308595c93c1bc",
+  "answers": {
+    "query.argument": "db.DB_POOL",
+    "query.receiver": "self_exclusion_m.Queries",
+    "query.handle": "stores_and_uses_argument",
+    "query.sql_source": "self_exclusion_m/queries.sql.go",
+    "query.table": "self_exclusion",
+    "query.user_filter": "method_userID_parameter",
+    "query.end_filter": "end_time > NOW()",
+    "query.start_filter": "start_time < NOW()",
+    "query.deactivated_filter": "no",
+    "query.order": "start_time DESC",
+    "query.limit": "1",
+    "query.operation": "QueryRow",
+    "query.error": "returned_with_record"
+  }
+}

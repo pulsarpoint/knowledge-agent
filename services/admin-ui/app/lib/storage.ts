@@ -1,6 +1,6 @@
 import { request } from './api';
 
-export type StorageArea = 'code' | 'rag' | 'documents' | 'bootstrap';
+export type StorageArea = 'code' | 'code_index' | 'rag' | 'documents' | 'bootstrap';
 export interface StorageLocation {
   id: StorageArea; container_path: string | null; host_path: string | null;
   host_variable: string; host_path_relative: boolean; status: 'available' | 'unavailable' | 'unconfigured';

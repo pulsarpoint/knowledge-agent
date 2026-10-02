@@ -51,6 +51,13 @@ def test_fresh_workspace_fixture_is_active_and_edits_are_drafts(store, tmp_path)
 
 def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(store, tmp_path):
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / '0058_graph_directed_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0057_bounded_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0056_messaging_documentation.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0055_documentation_sessions.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0054_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0053_application_overview.down.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0052_codegraph_documentation.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0049_layered_environment_architecture.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0048_server_infrastructure_documentation.down.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0047_documentation_workflows.down.sql').read_text(), prepare=False)

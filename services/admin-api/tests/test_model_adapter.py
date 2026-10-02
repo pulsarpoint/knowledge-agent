@@ -6,11 +6,61 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import litellm
+import httpx
 import pytest
 from pydantic import BaseModel
 
 from knowledge_admin.agents import agent
 from test_sdk_agent import config, responses_api
+
+
+def test_responses_reasoning_and_cached_usage_survive_tool_cycle(config, responses_api):
+    config['model']['reasoning_effort'] = 'max'
+    result = asyncio.run(agent(config, 'RESPONSES_REASONING_CYCLE',
+        credentials={'model-key': 'fixture-secret'}, stream=False))
+    requests = responses_api[1]
+    assert len(requests) == 2
+    for request in requests:
+        assert request['body']['reasoning'] == {'effort': 'max'}
+        assert request['body']['store'] is False
+        assert request['body'].get('previous_response_id') is None
+    history = requests[1]['body']['input']
+    reasoning = next(item for item in history if item.get('type') == 'reasoning')
+    assert reasoning['content'] == [{'type': 'reasoning_text', 'text': 'Synthetic fixture reasoning.'}]
+    tool_result = next(item for item in history if item.get('type') == 'function_call_output')
+    assert tool_result['call_id'] == 'files-call'
+    assert config['code']['projects'][0]['folder_paths'][0] in tool_result['output']
+    usage = result.context_wrapper.usage
+    assert (usage.input_tokens, usage.input_tokens_details.cached_tokens, usage.output_tokens,
+            usage.output_tokens_details.reasoning_tokens) == (200, 160, 40, 24)
+
+
+def test_responses_benchmark_records_usage_without_private_reasoning(config, responses_api, tmp_path, monkeypatch):
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / 'scripts/benchmarks/agents_api.py'
+    spec = importlib.util.spec_from_file_location('agents_api_benchmark', script)
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    config['model']['reasoning_effort'] = 'max'
+    (tmp_path / 'config.json').write_text(json.dumps(config))
+    (tmp_path / 'objective.md').write_text('RESPONSES_REASONING_CYCLE')
+    output = tmp_path / 'result'
+    monkeypatch.setenv('BENCHMARK_MODEL_KEY', 'fixture-secret')
+    monkeypatch.setattr(sys, 'argv', [str(script), '--config', str(tmp_path / 'config.json'),
+        '--objective', str(tmp_path / 'objective.md'), '--output', str(output), '--api-key-env', 'BENCHMARK_MODEL_KEY'])
+    asyncio.run(benchmark.main())
+    result = json.loads((output / 'result.json').read_text())
+    assert result['status'] == 'succeeded'
+    assert result['usage']['input_tokens_details']['cached_tokens'] == 160
+    wire = [json.loads(line) for line in (output / 'wire-usage.jsonl').read_text().splitlines()]
+    assert [item['reasoning_items'] for item in wire] == [0, 1]
+    assert wire[1]['reasoning'] == {'effort': 'max'}
+    for file in output.iterdir():
+        assert 'Synthetic fixture reasoning.' not in file.read_text()
+        assert 'fixture-secret' not in file.read_text()
 
 
 @pytest.fixture
@@ -132,11 +182,12 @@ def test_sdk_executes_file_tool_and_preserves_tool_history(config, chat_api, tmp
     assert any(m['role']=='tool' and 'Source fixture.' in m['content'] for m in messages)
     asyncio.run(agent(config,'Explain the file you read.',credentials={'model-key':'key'},history=result.to_input_list()))
     assert any(m['role']=='tool' and 'Source fixture.' in m['content'] for m in chat_api[1][-1]['body']['messages'])
-    assert not any('shell' in tool['function']['name'] for tool in chat_api[1][0]['body']['tools'])
+    assert any(tool['function']['name'] == 'shell_run' for tool in chat_api[1][0]['body']['tools'])
 
 
 @pytest.mark.parametrize('provider', ['bedrock','anthropic'])
-def test_native_model_routing(config, monkeypatch, provider):
+@pytest.mark.parametrize('stream', [True, False])
+def test_native_model_routing(config, monkeypatch, provider, stream):
     captured=[]
     real=litellm.acompletion
     async def completion(**kwargs):
@@ -145,12 +196,20 @@ def test_native_model_routing(config, monkeypatch, provider):
     monkeypatch.setattr('agents.extensions.models.litellm_model.litellm.acompletion',completion)
     config['model'].update(provider=provider,api_format='native',model='eu.anthropic.claude-opus-5',
         aws_region='eu-central-1',base_url=None if provider=='bedrock' else 'https://api.anthropic.com')
-    result=asyncio.run(agent(config,'Inspect.',credentials={'model-key':'native-secret'}))
+    recorded=[]
+    async def record(usage):
+        recorded.append(usage)
+    result=asyncio.run(agent(config,'Inspect.',credentials={'model-key':'native-secret'}, stream=stream, on_usage=record))
     assert result.final_output=='Native fixture.'
     call=captured[0]
     assert call['api_key']=='native-secret'
-    assert call['stream_options']=={'include_usage':True}
+    assert call['max_tokens'] == litellm.model_cost[config['model']['model']]['max_output_tokens']
+    assert call['max_tokens'] > 4096
+    if stream:
+        assert call['stream_options']=={'include_usage':True}
     assert result.context_wrapper.usage.total_tokens > 0
+    assert len(recorded) == 1
+    assert recorded[0].total_tokens == result.context_wrapper.usage.total_tokens
     assert call['model']==('bedrock/invoke/' if provider=='bedrock' else 'anthropic/')+config['model']['model']
     if provider=='bedrock':
         assert call['aws_region_name']=='eu-central-1'
@@ -167,6 +226,69 @@ def test_concurrent_runs_keep_credentials_separate(config, chat_api):
             agent(second,'Hello.',credentials={'model-key':'second-key'}))
     assert len(asyncio.run(run()))==2
     assert {(r['body']['model'],r['auth']) for r in chat_api[1]}=={('fixture-model','Bearer first-key'),('second-model','Bearer second-key')}
+
+
+def test_bedrock_wire_caching_reasoning_replay_and_natural_completion(config, monkeypatch):
+    """Exercise the SDK and LiteLLM converters, replacing only Bedrock's HTTP transport."""
+    requests = []
+    source = config['code']['projects'][0]['folder_paths'][0]
+    config['model'].update(provider='bedrock', api_format='native', model='eu.anthropic.claude-opus-5',
+        aws_region='eu-central-1', base_url=None)
+
+    async def post(self, url, **kwargs):
+        assert 'bedrock-runtime.eu-central-1.amazonaws.com' in str(url)
+        body = json.loads(kwargs['data'])
+        requests.append(body)
+        more = len(requests) <= 41
+        content = ([{'type': 'thinking', 'thinking': 'Synthetic fixture reasoning.', 'signature': 'fixture-signature'},
+                    {'type': 'tool_use', 'id': f'fixture-{len(requests)}', 'name': 'read_file',
+                     'input': {'path': source + '/README.md'}}] if more else
+                   [{'type': 'text', 'text': 'Inspection completed naturally.'}])
+        return httpx.Response(200, request=httpx.Request('POST', str(url)), json={
+            'id': f'msg-{len(requests)}', 'type': 'message', 'role': 'assistant',
+            'model': config['model']['model'], 'content': content,
+            'stop_reason': 'tool_use' if more else 'end_turn', 'stop_sequence': None,
+            'usage': {'input_tokens': 100, 'output_tokens': 10,
+                      'cache_read_input_tokens': 60, 'cache_creation_input_tokens': 20},
+        })
+
+    monkeypatch.setattr('litellm.llms.custom_httpx.http_handler.AsyncHTTPHandler.post', post)
+    result = asyncio.run(agent(config, 'Inspect the README.', credentials={'model-key': 'fixture-bearer'},
+                               stream=False, max_turns=None))
+    assert result.final_output == 'Inspection completed naturally.' and len(requests) == 42
+    for body in requests:
+        assert body['thinking']['type'] == 'adaptive'
+        assert body['output_config']['effort'] == 'xhigh'
+        assert body['system'][-1]['cache_control'] == {'type': 'ephemeral'}
+        assert body['messages'][-1]['content'][-1]['cache_control'] == {'type': 'ephemeral'}
+    assistant = next(message for message in requests[1]['messages'] if message['role'] == 'assistant')
+    assert assistant['content'][0] == {
+        'type': 'thinking', 'thinking': 'Synthetic fixture reasoning.', 'signature': 'fixture-signature'}
+    assert 'Source fixture.' in json.dumps(requests[1]['messages'][-1])
+    usage = result.context_wrapper.usage
+    assert usage.input_tokens == 42 * 180 and usage.output_tokens == 42 * 10
+    assert usage.input_tokens_details.cached_tokens == 42 * 60
+    assert usage.input_tokens_details.cache_write_tokens == 42 * 20
+
+
+def test_bedrock_structured_output_keeps_adaptive_thinking(config, monkeypatch):
+    from pydantic import BaseModel
+    class Answer(BaseModel):
+        answer: str
+    config['model'].update(provider='bedrock', api_format='native', model='eu.anthropic.claude-opus-5',
+                           aws_region='eu-central-1', base_url=None)
+    async def post(self, url, **kwargs):
+        body = json.loads(kwargs['data'])
+        assert body['thinking'] == {'type': 'adaptive'}
+        assert body['output_config']['effort'] == 'xhigh'
+        return httpx.Response(200, request=httpx.Request('POST', str(url)), json={
+            'id': 'structured', 'type': 'message', 'role': 'assistant', 'model': config['model']['model'],
+            'content': [{'type': 'text', 'text': '{"answer":"42"}'}], 'stop_reason': 'end_turn',
+            'usage': {'input_tokens': 100, 'output_tokens': 10}})
+    monkeypatch.setattr('litellm.llms.custom_httpx.http_handler.AsyncHTTPHandler.post', post)
+    result = asyncio.run(agent(config, 'Answer with a number.', credentials={'model-key': 'fixture'},
+                               stream=False, output_type=Answer))
+    assert result.final_output.answer == '42'
 
 
 @pytest.mark.parametrize('cancel', [False,True])

@@ -50,7 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const ragPage = ragPages.find((page) => pathname === `/rag/${page.path}`);
   const docsPage = pathname.startsWith('/documents') || pathname.startsWith('/documentation/');
   const docsPrompts = pathname.startsWith('/documentation/prompts');
-  const docsHistory = pathname === '/documentation/generations';
+  const docsHistory = pathname.startsWith('/documentation/generations');
   const title = pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
   const description = pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : boardPage ? "Coordinate one main task across your agents and review their shared results." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
@@ -104,7 +104,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <SidebarInset>
       <header className="flex h-16 items-center gap-3 border-b px-6"><SidebarTrigger /><span className="text-sm text-muted-foreground">Administration</span></header>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
-        <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>
+        {!docsHistory && <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>}
         {children}
       </main>
     </SidebarInset>

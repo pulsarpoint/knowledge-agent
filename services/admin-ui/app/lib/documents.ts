@@ -1,10 +1,11 @@
 import { request } from './api';
 
-export interface DocumentResource { id: string; name: string; hostname?: string; service_id?: string; server_id?: string; environment?: string }
+export interface DocumentResource { id: string; name: string; hostname?: string; service_id?: string; server_id?: string; environment?: string; git_commit?: string }
 export interface DocumentResources { code_projects: DocumentResource[]; services: DocumentResource[]; servers: DocumentResource[]; deployments: DocumentResource[]; environments?: DocumentResource[] }
 export interface DocumentInput {
   slug: string; title: string; description: string; purpose: string; audience: 'people' | 'agents' | 'both';
   tags: string[]; markdown: string; code_project_ids: string[]; service_ids: string[]; server_ids: string[]; deployment_ids: string[]; environment_ids?: string[]; revision?: number;
+  source_commits?: Record<string, string>;
 }
 export interface DocumentSummary extends Omit<DocumentInput, 'markdown' | 'revision'> {
   id: string; current_version_id: string; published_version_id: string | null; revision: number;
@@ -15,19 +16,42 @@ export interface DocumentVersion {
   tags: string[]; markdown: string; content_hash: string; source_snapshot: DocumentResources;
   origin: 'manual' | 'uploaded' | 'generated'; base_version_id: string | null; created_at: string;
 }
-export interface DocumentDetail extends DocumentSummary { current_version: DocumentVersion; versions: Pick<DocumentVersion, 'id' | 'version' | 'title' | 'origin' | 'base_version_id' | 'content_hash' | 'created_at'>[] }
+export interface DocumentDetail extends DocumentSummary { workflows?: {id:string;name:string}[]; current_version: DocumentVersion; versions: Pick<DocumentVersion, 'id' | 'version' | 'title' | 'origin' | 'base_version_id' | 'content_hash' | 'created_at'>[] }
 export interface DocumentationPromptInput { name: string; description: string; input_kind: 'code' | 'server' | 'service' | 'mixed'; enabled: boolean; content: string; revision?: number }
 export interface DocumentationPrompt extends Omit<DocumentationPromptInput, 'content' | 'revision'> {
   id: string; revision: number; active_version_id: string | null; active_version: number | null; version_count: number; updated_at: string;
 }
 export interface DocumentationPromptVersion { id: string; version: number; content: string; activated_at: string | null; created_at: string }
 export interface DocumentationPromptDetail extends DocumentationPrompt { versions: DocumentationPromptVersion[] }
-export interface DocumentationGeneration { job_id: string; mode: string; instructions: string; status: string; error: string | null; created_at: string; document_count: number; progress?: string; result?: { output_folders?: string[]; export_error?: string | null; documents?: { id: string; revision: number }[] } }
+export interface DocumentationPhaseUsage {
+  phase: string; step: string; requests: number; reported_calls: number;
+  input_tokens: number; output_tokens: number; total_tokens: number;
+  input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  output_tokens_details?: { reasoning_tokens?: number };
+}
+export interface DocumentationGeneration {
+  workflow_id?: string;
+  job_id: string; mode: string; instructions: string; status: string; error: string | null; created_at: string; document_count: number; progress?: string;
+  service_id?: string; code_graph_hashes?: Record<string, string>;
+  token_usage?: DocumentationPhaseUsage[];
+  prompt_snapshot?: { id: string; version_id: string; version: number; name: string; kind: string; content: string; overridden: boolean }[];
+  result?: { output_folders?: string[]; export_error?: string | null; documents?: { id: string; revision: number; version_id: string }[] };
+}
+
+export interface ApiAnalysis {
+  inventory: null | {
+    coverage: { id: string; name: string; route_count: number; limitations: string }[];
+    batches: { key: string; project_name: string; source_characters?: number; gaps: string[];
+      routes: { id: string; name: string; file_path: string; start_line: number }[] }[] };
+  sections: { fingerprint: string; batch_key: string; position: number; title: string; markdown: string; reused_from: string | null }[];
+}
+export const getApiAnalysis = (jobId: string, signal?: AbortSignal) =>
+  request<ApiAnalysis>(`/api/documentation/generations/${jobId}/api-analysis`, { signal });
 
 export const getDocumentResources = (signal?: AbortSignal) => request<DocumentResources>('/api/documentation/resources', { signal });
 export const getDocuments = (params: URLSearchParams, signal?: AbortSignal) => request<{ documents: DocumentSummary[]; total: number }>(`/api/documentation/documents?${params}`, { signal });
 export const getDocument = (id: string, signal?: AbortSignal) => request<DocumentDetail>(`/api/documentation/documents/${id}`, { signal });
-export const getDocumentVersion = (id: string, versionId: string) => request<DocumentVersion>(`/api/documentation/documents/${id}/versions/${versionId}`);
+export const getDocumentVersion = (id: string, versionId: string, signal?: AbortSignal) => request<DocumentVersion>(`/api/documentation/documents/${id}/versions/${versionId}`, { signal });
 export const saveDocument = (value: DocumentInput, id?: string) => request<{ id: string; revision: number; version_id: string }>(`/api/documentation/documents${id ? `/${id}` : ''}`, {
   method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });
@@ -41,12 +65,21 @@ export const activateDocumentationPrompt = (id: string, versionId: string, revis
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision }),
 });
 export const deleteDocumentationPrompt = (id: string, revision: number, versionId?: string) => request(`/api/documentation/prompts/${id}${versionId ? `/versions/${versionId}` : ''}?revision=${revision}&confirmed=true`, { method: 'DELETE' });
-export const getDocumentationGenerations = (offset: number, signal?: AbortSignal) => request<{ generations: DocumentationGeneration[] }>(`/api/documentation/generations?offset=${offset}`, { signal });
+export const getDocumentationGenerations = (offset: number, signal?: AbortSignal, filter?: { serviceId?: string; kind?: string; workflowId?: string }) => {
+  const params = new URLSearchParams({ offset: String(offset) });
+  if (filter?.serviceId) params.set('service_id', filter.serviceId);
+  if (filter?.kind) params.set('kind', filter.kind);
+  if (filter?.workflowId) params.set('workflow_id', filter.workflowId);
+  return request<{ generations: DocumentationGeneration[] }>(`/api/documentation/generations?${params}`, { signal });
+};
 
 export interface GenerationInput {
+  workflow_id?: string;
+  code_graph_hashes?: Record<string, string>;
+  source_commits?: Record<string, string>;
   scope: 'service' | 'environment'; model_id: string;
   service_id: string | null; environment_id: string | null; code_project_ids: string[]; server_ids: string[];
-  units: { kind: 'code' | 'diagram' | 'deployment' | 'architecture' | 'infrastructure'; prompt_id: string; prompt_version_id: string; prompt_override?: string }[];
+  units: { kind: 'overview' | 'api' | 'messaging' | 'code' | 'diagram' | 'deployment' | 'deployment_diagram' | 'architecture' | 'infrastructure'; prompt_id: string; prompt_version_id: string; prompt_override?: string }[];
   instructions: string; update_existing: boolean;
 }
 export const generateDocumentation = (value: GenerationInput) => request<{ job_id: string }>('/api/documentation/generations', {
@@ -54,3 +87,16 @@ export const generateDocumentation = (value: GenerationInput) => request<{ job_i
 });
 
 export const exportDocument = (id: string) => request<{ folder: string }>(`/api/documentation/documents/${id}/export`, { method: "POST" });
+export type GenerationKind = GenerationInput['units'][number]['kind'];
+export interface DocumentationPromptSelection { id: string; versionId: string; version: number; activeContent: string; content: string; error?: string }
+export interface DocumentationWorkflow {
+  id: string; name: string; scope: 'service' | 'environment'; service_id: string | null; environment_id: string | null; created_at: string; updated_at: string;
+  drafts: { form?: { value: GenerationInput; kinds?: GenerationKind[]; environmentSelection?: GenerationKind[]; selection?: Partial<Record<GenerationKind, DocumentationPromptSelection>> };
+    overview?: { content: string; instructions: string }; api?: { content: string; instructions: string }; messaging?: { content: string; instructions: string } };
+  phases: {kind: GenerationKind;job_id:string;status:string;error:string|null;created_at:string}[];
+  graph_runs: {job_id:string;repository_id:string;status:string;error:string|null;result?:{source_hash?:string}}[];
+}
+export const getDocumentationWorkflows = (offset = 0, signal?: AbortSignal) => request<{workflows: DocumentationWorkflow[]}>(`/api/documentation/workflows?offset=${offset}`, {signal});
+export const getDocumentationWorkflow = (id: string, signal?: AbortSignal) => request<DocumentationWorkflow>(`/api/documentation/workflows/${id}`, {signal});
+export const createDocumentationWorkflow = (value: {scope:'service'|'environment';service_id:string|null;environment_id:string|null;model_id:string}) => request<{id:string}>('/api/documentation/workflows', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
+export const saveDocumentationDraft = (id:string, section:string, content:object, previous:object|null) => request(`/api/documentation/workflows/${id}/drafts/${section}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,previous})});

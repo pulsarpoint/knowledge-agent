@@ -111,7 +111,7 @@ services:
   admin-api:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
-    networks: [default, jira-test]
+    networks: [default, jira-test, agent-shell]
     # Use the host/VPN search domain for short SSH and Jira hostnames.
     dns_search: ${DOCKER_DNS_SEARCH:-.}
     volumes:
@@ -123,7 +123,13 @@ services:
         read_only: true
       - wiki-data:/data
       - ${GENERATED_DOCS_PATH:-../.local/generated-documents}:/work/generated-documents
+      - ${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index
+      - agent-workspaces:/work/agent-workspaces
     environment:
+      AGENT_SHELL_URL: http://shell-worker:8796
+      AGENT_WORKSPACE_ROOT: /work/agent-workspaces
+      CODE_INDEX_ROOT: /work/code-index
+      CODE_INDEX_PATH: ${CODE_INDEX_PATH:-../.local/code-index}
       DOCUMENT_OUTPUT_ROOT: /work/generated-documents
       GENERATED_DOCS_PATH: ${GENERATED_DOCS_PATH:-../.local/generated-documents}
       BOOTSTRAP_DOCS_ROOT: /work/docs
@@ -150,6 +156,7 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       rag: {condition: service_healthy}
+      shell-worker: {condition: service_healthy}
     healthcheck:
       test: [CMD, /services/admin-api/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/health', timeout=3)"]
       interval: 5s
@@ -175,8 +182,11 @@ services:
     restart: unless-stopped
     entrypoint: [uv, run, --frozen, --no-dev, knowledge-repo-worker]
     command: []
-    volumes: ["${CODE_PATH:-../.local/code}:/work/code"]
+    volumes:
+      - ${CODE_PATH:-../.local/code}:/work/code
+      - ${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index
     environment:
+      CODE_INDEX_ROOT: /work/code-index
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -190,6 +200,7 @@ services:
   documentation-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
+    networks: [default, agent-shell]
     dns_search: ${DOCKER_DNS_SEARCH:-.}
     entrypoint: [uv, run, --frozen, --no-dev, knowledge-doc-worker]
     command: []
@@ -197,7 +208,12 @@ services:
       - ${GENERATED_DOCS_PATH:-../.local/generated-documents}:/work/generated-documents
       - ${CODE_PATH:-../.local/code}:/work/code:ro
       - ${RG_DATA:?Run make setup}:/work/rag-data:ro
+      - ${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index
+      - agent-workspaces:/work/agent-workspaces
     environment:
+      AGENT_SHELL_URL: http://shell-worker:8796
+      AGENT_WORKSPACE_ROOT: /work/agent-workspaces
+      CODE_INDEX_ROOT: /work/code-index
       DOCUMENT_OUTPUT_ROOT: /work/generated-documents
       PGHOST: postgres
       PGDATABASE: knowledge_agent
@@ -211,6 +227,34 @@ services:
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
     depends_on:
       migrate: {condition: service_completed_successfully}
+      shell-worker: {condition: service_healthy}
+
+  shell-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    # Bubblewrap creates unprivileged namespaces for each command; no Docker socket or host capabilities.
+    security_opt: ["no-new-privileges:true", "seccomp:unconfined"]
+    networks: [agent-shell]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    volumes:
+      - ${CODE_PATH:-../.local/code}:/work/code:ro
+      - ${RG_DATA:?Run make setup}:/work/rag-data:ro
+      - ${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index:ro
+      - ${GENERATED_DOCS_PATH:-../.local/generated-documents}:/work/generated-documents:ro
+      - agent-workspaces:/work/agent-workspaces
+    entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.shell_worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
+    command: []
+    healthcheck:
+      test: [CMD, /services/admin-api/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8796/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   admin-web:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-web}
@@ -420,10 +464,13 @@ services:
       start_period: 20s
 
 networks:
+  agent-shell:
+    internal: true
   jira-test:
     internal: true
 
 volumes:
+  agent-workspaces:
   postgres-data:
   wiki-data:
   keycloak-data:

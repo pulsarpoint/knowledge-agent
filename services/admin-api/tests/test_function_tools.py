@@ -2,9 +2,6 @@
 
 import asyncio
 import json
-import shlex
-import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +9,9 @@ from agents import Agent, FunctionTool
 from agents.tool_context import ToolContext
 
 from knowledge_admin.tools.files import list_files, read_file, search_files
+from knowledge_admin.tools.ast_grep import ast_grep
+from knowledge_admin.tools.code_graph import code_graph
+from knowledge_admin.tools.code_search import code_search
 from knowledge_admin.tools.shell import shell_run
 from knowledge_admin.tools.ssh import ssh_run
 from test_ssh import ssh_server
@@ -37,7 +37,7 @@ async def invoke(tool, context, **arguments):
 
 
 def test_tools_register_directly_and_hide_backend_context():
-    tools = [list_files,read_file,search_files,ssh_run,shell_run]
+    tools = [list_files,read_file,search_files,ast_grep,code_search,ssh_run,shell_run]
     agent = Agent(name='Tool test',instructions='Use configured resources.',tools=tools)
     assert all(isinstance(tool,FunctionTool) for tool in agent.tools)
     for tool in tools:
@@ -91,36 +91,16 @@ def test_file_input_limits_binary_files_and_literal_search(context,tmp_path):
     assert 'max_bytes' in asyncio.run(invoke(read_file,context,path=str(code/'a.py'),max_bytes=100000))
 
 
-def test_shell_opt_in_outputs_failures_environment_and_redaction(context,monkeypatch):
-    assert 'disabled' in asyncio.run(invoke(shell_run,context,command='pwd'))
-    context['shell_enabled']=True
-    monkeypatch.setenv('TOOL_TEST_PARENT_SECRET','must-not-leak')
-    result = json.loads(asyncio.run(invoke(shell_run,context,
-        command="pwd; printf '%s' \"${TOOL_TEST_PARENT_SECRET-unset}\"; printf 'test-tool-secret'; printf 'failure' >&2; exit 7")))
-    assert result['exit_code']==7 and not result['timed_out']
-    assert str(context['workspace']) in result['stdout'] and 'unset' in result['stdout']
-    assert 'must-not-leak' not in json.dumps(result) and 'test-tool-secret' not in json.dumps(result)
-    assert result['stderr']=='failure'
-    big = shlex.quote(sys.executable)+" -c "+shlex.quote("print('x'*100000)")
-    limited = json.loads(asyncio.run(invoke(shell_run,context,command=big)))
-    assert len(limited['stdout'])==32768 and limited['truncated']['stdout']
-
-
-def test_shell_timeout_and_cancellation_terminate_child_processes(context):
-    context['shell_enabled']=True
-    start=time.monotonic()
-    result=json.loads(asyncio.run(invoke(shell_run,context,command='sleep 10',timeout_seconds=1)))
-    assert result['timed_out'] and time.monotonic()-start<4
-    marker=context['workspace']/'should-not-exist'
-    async def cancel():
-        task=asyncio.create_task(invoke(shell_run,context,command=f'(sleep 2; touch {shlex.quote(str(marker))}) & wait'))
-        await asyncio.sleep(0.2)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        await asyncio.sleep(2.1)
-    asyncio.run(cancel())
-    assert not marker.exists()
+def test_read_graph_line_ranges_without_loading_unrelated_source(context, tmp_path):
+    path = tmp_path / 'code' / 'handlers.py'
+    path.write_text('UNRELATED_BEFORE\ndef handler():\n    return "test-tool-secret"\nUNRELATED_AFTER\n')
+    result = json.loads(asyncio.run(invoke(read_file, context, path=str(path), start_line=2, end_line=3)))
+    assert result['start_line'] == 2 and result['end_line'] == 3
+    assert '2: def handler():' in result['content']
+    assert 'UNRELATED' not in result['content'] and 'test-tool-secret' not in result['content']
+    for args in ({'start_line': 0, 'end_line': 2}, {'start_line': 3, 'end_line': 2},
+                 {'start_line': 2}, {'start_line': 2, 'end_line': 3, 'offset': 1}):
+        assert 'Supply start_line' in asyncio.run(invoke(read_file, context, path=str(path), **args))
 
 
 def test_ssh_uses_selected_connection_and_secret_with_real_server(context,ssh_server):

@@ -1,6 +1,7 @@
+import CodeGraphExplorer from './CodeGraphExplorer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Folder, Plus, RefreshCw, X } from 'lucide-react';
-import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
+import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -16,10 +17,11 @@ import { Switch } from '~/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { Textarea } from '~/components/ui/textarea';
 
-const syncing = (project: CodeProject) => ['queued', 'running', 'waiting_input'].includes(project.sync_status ?? '');
+const syncing = (project: CodeProject) => ['queued', 'running', 'waiting_input'].includes(project.sync_status ?? '') || ['queued', 'running'].includes(project.processing?.status ?? '');
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : 'Could not reach administration.';
 
 export default function CodeProjectsView() {
+  const [graphProject, setGraphProject] = useState<string | null>(null);
   const [projects, setProjects] = useState<CodeProject[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -152,13 +154,19 @@ export default function CodeProjectsView() {
       </CardContent>
     </Card>
     {filePath !== null && <Card className="min-w-0"><CardHeader><div className="flex items-center justify-between gap-3"><CardTitle className="break-all">{filePath}</CardTitle><Button variant="ghost" size="icon" aria-label="Close file preview" onClick={() => setFilePath(null)}><X /></Button></div><CardDescription>File preview</CardDescription></CardHeader><CardContent>{fileError ? <Alert variant="destructive"><AlertDescription>{fileError}</AlertDescription></Alert> : !file ? <Spinner /> : <pre aria-label="Code file content" tabIndex={0} className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs">{file.text}</pre>}</CardContent></Card>}
-    <Card><CardHeader><CardTitle>Code projects</CardTitle><CardDescription>Each project groups one or more folders for agent and service configuration.</CardDescription></CardHeader><CardContent>
-      {loading ? <Spinner /> : projects.length === 0 ? <Empty><EmptyHeader><EmptyTitle>No code projects yet</EmptyTitle><EmptyDescription>Add a project to map existing folders or clone a Git repository.</EmptyDescription></EmptyHeader></Empty> : <Table><TableHeader><TableRow><TableHead>Project</TableHead><TableHead>Folders</TableHead><TableHead>Git sync</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{projects.map(project => <TableRow key={project.id}>
+    <Card><CardHeader><CardTitle>Code projects</CardTitle><CardDescription>Each project groups one or more folders. Phase 1 generates a CodeGraph index for inspection. Generate it again after changing source, then continue to documentation as a separate action.</CardDescription></CardHeader><CardContent>
+      {loading ? <Spinner /> : projects.length === 0 ? <Empty><EmptyHeader><EmptyTitle>No code projects yet</EmptyTitle><EmptyDescription>Add a project to map existing folders or clone a Git repository.</EmptyDescription></EmptyHeader></Empty> : <Table><TableHeader><TableRow><TableHead>Project</TableHead><TableHead>Folders</TableHead><TableHead>Git sync</TableHead><TableHead>Code processing</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{projects.map(project => <TableRow key={project.id}>
         <TableCell className="max-w-sm whitespace-normal"><p className="font-medium">{project.name}</p><p className="text-sm text-muted-foreground">{project.description}</p>{project.remote_url && <div className="flex flex-col items-start gap-2"><a href={project.remote_url} target="_blank" rel="noreferrer" className="break-all text-xs underline">{project.remote_url}</a><Badge variant="outline">{project.has_token ? 'Authentication saved' : 'Public access'}</Badge></div>}</TableCell>
         <TableCell className="max-w-sm whitespace-normal">{project.folder_paths.map(folder => <Button key={folder} variant="link" className="max-w-full whitespace-normal break-all" onClick={() => browse(folder)}>{folder}</Button>)}{project.folder_paths.length === 0 && <span className="text-muted-foreground">Not cloned yet</span>}</TableCell>
         <TableCell className="max-w-xs whitespace-normal">{project.remote_url ? <div className="flex flex-col items-start gap-2"><Badge variant={project.sync_status === 'failed' ? 'destructive' : 'secondary'}>{syncing(project) && <Spinner />}{project.sync_status ?? 'Not cloned'}</Badge><span className="text-xs">{project.sync_interval_minutes ? `Every ${project.sync_interval_minutes} minutes` : 'Manual pulls'}</span>{project.synced_at && <span className="text-xs text-muted-foreground">Last success: {new Date(project.synced_at).toLocaleString()}</span>}{project.next_sync_at && <span className="text-xs text-muted-foreground">Next pull: {new Date(project.next_sync_at).toLocaleString()}</span>}{project.sync_error && <span className="text-sm text-destructive">{project.sync_error}</span>}</div> : <Badge variant="outline">Local folders</Badge>}</TableCell>
-        <TableCell><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}</div></TableCell>
+        <TableCell className="max-w-xs whitespace-normal"><div className="flex flex-col items-start gap-2">
+          <Badge variant={project.processing?.status === 'failed' ? 'destructive' : 'secondary'}>{project.processing && ['queued', 'running', 'failed'].includes(project.processing.status) ? project.processing.status : project.code_index?.status ?? 'Not processed'}</Badge>
+          {project.code_index && <><span className="text-xs">{project.code_index.stats.fileCount} indexed files · {project.code_index.stats.nodeCount} symbols · {project.code_index.stats.edgeCount} relationships</span><span className="text-xs">{Object.keys(project.code_index.stats.filesByLanguage).join(', ')}</span><span className="text-xs text-muted-foreground">{project.code_index.unresolved_references} unresolved references · {project.code_index.parse_error_files.length} files with parse errors</span><span className="text-xs text-muted-foreground">Last processed: {new Date(project.code_index.processed_at).toLocaleString()}</span></>}
+          {project.processing?.error && <span className="text-sm text-destructive">{project.processing.error}</span>}
+        </div></TableCell>
+        <TableCell><div className="flex flex-wrap gap-2">{project.code_index && <Button type="button" variant="outline" size="sm" onClick={() => setGraphProject(project.id)}>View graph</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Generate graph for ${project.name}`} onClick={async () => { setBusy(true); setError(''); try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } }}>Generate graph</Button><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}</div></TableCell>
       </TableRow>)}</TableBody></Table>}
     </CardContent></Card>
+    {graphProject && projects.find(p => p.id === graphProject)?.code_index && <Card><CardHeader><CardTitle>{projects.find(p => p.id === graphProject)?.name} · Code graph</CardTitle><Button type="button" variant="outline" className="self-start" onClick={() => setGraphProject(null)}>Close graph</Button></CardHeader><CardContent><CodeGraphExplorer projectId={graphProject} sourceHash={projects.find(p => p.id === graphProject)!.code_index!.source_hash} /></CardContent></Card>}
   </div>;
 }

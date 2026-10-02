@@ -1,0 +1,8 @@
+{
+  "name": "knowledge-code-graph",
+  "private": true,
+  "dependencies": {
+    "@ast-grep/cli": "0.39.4",
+    "@colbymchenry/codegraph": "1.6.0"
+  }
+}

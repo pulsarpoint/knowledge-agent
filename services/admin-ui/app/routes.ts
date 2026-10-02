@@ -13,6 +13,8 @@ export default [
   route("documentation/prompts/new", "./routes/documentationPromptNew.tsx"),
   route("documentation/prompts/:promptId", "./routes/documentationPromptDetail.tsx"),
   route("documentation/generations", "./routes/documentationGenerations.tsx"),
+  route("documentation/generations/new", "./routes/documentationWorkflowNew.tsx"),
+  route("documentation/generations/:workflowId", "./routes/documentationWorkflow.tsx"),
   route("services", "./routes/services.tsx"),
   route("environments", "./routes/environments.tsx"),
   route("agents/:agentId", "./routes/agentDetail.tsx"),

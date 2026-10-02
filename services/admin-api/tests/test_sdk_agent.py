@@ -52,12 +52,35 @@ def responses_api():
             if 'SSH_TOOL_CYCLE' in json.dumps(body['input']) and not any(item.get('type')=='function_call_output' for item in body['input']):
                 output = [{'id':'fc_ssh','type':'function_call','call_id':'ssh-call','name':'ssh_run',
                     'arguments':json.dumps({'server_id':'host','command':'id -un','as_root':False,'timeout_seconds':5}), 'status':'completed'}]
+            if 'SHELL_TOOL_CYCLE' in json.dumps(body['input']) and not any(item.get('type')=='function_call_output' for item in body['input']):
+                output = [{'id':'fc_shell','type':'function_call','call_id':'shell-call','name':'shell_run',
+                    'arguments':json.dumps({'command':"python -c \"print('SHELL_FIXTURE_RESULT')\"",'timeout_seconds':5}), 'status':'completed'}]
             events = [
                 {'type': 'response.created', 'response': {'id': 'resp_fixture', 'status': 'in_progress', 'output': []}},
                 {'type': 'response.output_item.done', 'output_index': 0, 'item': output[0]},
                 {'type': 'response.completed', 'response': {'id': 'resp_fixture', 'status': 'completed', 'output': output,
                     'usage': {'input_tokens': 20, 'output_tokens': 10, 'total_tokens': 30}}},
             ]
+            if 'RESPONSES_REASONING_CYCLE' in json.dumps(body['input']):
+                if not any(item.get('type') == 'function_call_output' for item in body['input']):
+                    events[-1]['response']['output'] = [
+                        {'id': 'rs_fixture', 'type': 'reasoning', 'status': 'completed', 'summary': [],
+                         'content': [{'type': 'reasoning_text', 'text': 'Synthetic fixture reasoning.'}]},
+                        {'id': 'fc_files', 'type': 'function_call', 'call_id': 'files-call',
+                         'name': 'list_files', 'arguments': '{}', 'status': 'completed'},
+                    ]
+                events[-1]['response']['usage'] = {
+                    'input_tokens': 100, 'input_tokens_details': {'cached_tokens': 80},
+                    'output_tokens': 20, 'output_tokens_details': {'reasoning_tokens': 12}, 'total_tokens': 120,
+                }
+            if not body.get('stream'):
+                payload = json.dumps(events[-1]['response']).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             payload = ''.join('event: ' + event['type'] + '\ndata: ' + json.dumps(event) + '\n\n' for event in events).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
@@ -86,7 +109,7 @@ def config(responses_api, tmp_path):
     source.mkdir()
     (source/'README.md').write_text('Source fixture.', encoding='utf-8')
     docs = (tmp_path/'documents').resolve()
-    docs.mkdir()
+    docs.mkdir(exist_ok=True)
     return {
         'id': 'fixture', 'name': 'Fixture agent', 'description': 'Investigate configured resources.', 'enabled': True,
         'system_prompt': {'content': 'Use the active saved system prompt.'},
@@ -102,6 +125,27 @@ def config(responses_api, tmp_path):
         'ssh': {'enabled': False, 'servers': [{'hostname': 'must-not-connect.test'}]},
         'services': {'enabled': True, 'items': [{'name': 'Payments', 'operations_notes': 'Inspect the queue.'}]},
     }
+
+
+@pytest.mark.parametrize('stream', [False, True])
+@pytest.mark.parametrize('invalid_document', [False, True])
+def test_usage_is_reported_before_output_validation(config, stream, invalid_document):
+    from pydantic import BaseModel
+    from agents import ModelBehaviorError
+    class Document(BaseModel):
+        markdown: str
+    recorded = []
+    async def record(usage):
+        recorded.append((usage.input_tokens, usage.output_tokens, usage.total_tokens))
+    async def run():
+        return await agent(config, 'Reply with a message.', credentials={'model-key': 'fixture-secret'},
+            stream=stream, on_usage=record, output_type=Document if invalid_document else None)
+    if invalid_document:
+        with pytest.raises(ModelBehaviorError):
+            asyncio.run(run())
+    else:
+        asyncio.run(run())
+    assert recorded == [(20, 10, 30)]
 
 
 def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(config, responses_api, monkeypatch):
@@ -122,6 +166,13 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized
     assert config['code']['projects'][0]['folder_paths'][0] in serialized
+    structural = next(tool for tool in request['body']['tools'] if tool.get('name') == 'ast_grep')
+    assert 'SetPersonalLimits' in structural['description']
+    assert 'native rule' in structural['description']
+    source_search = next(tool for tool in request['body']['tools'] if tool.get('name') == 'code_search')
+    assert 'complete bodies' in source_search['description']
+    shell = next(tool for tool in request['body']['tools'] if tool.get('name') == 'shell_run')
+    assert 'Python scripts' in shell['description'] and 'Bash' in shell['description']
     assert request['body'].get('max_output_tokens') is None
 
 
@@ -144,6 +195,8 @@ def test_disabled_resources_are_not_used_or_validated(config, responses_api):
     for excluded in ('disabled-source', 'Operations docs', 'Inspection', 'Payments'):
         assert excluded not in serialized
     assert not any(tool.get('type') in ('local_shell', 'shell', 'custom') for tool in requests[0]['body'].get('tools', []))
+    assert not any(tool.get('name') == 'ast_grep' for tool in requests[0]['body'].get('tools', []))
+    assert 'ast_grep' not in serialized and 'shell_run' not in serialized and 'code_search' not in serialized
 
 
 @pytest.mark.parametrize('final_newline', [True, False])

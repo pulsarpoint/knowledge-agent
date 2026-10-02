@@ -14,6 +14,30 @@ VALUE = {'slug':'payments-runbook', 'title':'Payments runbook', 'description':'D
 PROMPT = {'name':'Code architecture', 'description':'Explain components', 'input_kind':'code', 'content':'Read source code; cite evidence.'}
 
 
+def test_document_commits_are_versioned_preserved_and_validated(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    repo = str(store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', ''))
+    value = {**VALUE, 'code_project_ids': [repo], 'source_commits': {repo: 'a' * 40}}
+    created = client.post('/api/documentation/documents', headers=HEADERS, json=value)
+    assert created.status_code == 201, created.text
+    endpoint = '/api/documentation/documents/' + created.json()['id']
+    first = client.get(endpoint, headers=HEADERS).json()['current_version']
+    assert first['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
+    value.pop('source_commits')
+    edited = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1})
+    assert edited.status_code == 200, edited.text
+    assert client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
+    updated = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 2, 'source_commits': {repo: 'b' * 40}})
+    assert updated.status_code == 200, updated.text
+    assert client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0]['git_commit'] == 'b' * 40
+    assert client.get(endpoint + '/versions/' + first['id'], headers=HEADERS).json()['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
+    assert client.put(endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {repo: 'HEAD'}}).status_code == 400
+    assert client.put(endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {str(uuid4()): 'b' * 40}}).status_code == 400
+    cleared = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {}})
+    assert cleared.status_code == 200
+    assert 'git_commit' not in client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0]
+
+
 def test_document_versions_filters_links_and_deletion(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     repo = str(store.save('shop', RepositoryInput(remote_url='example/api',token='never-show-this'), 'admin',''))
@@ -140,6 +164,11 @@ def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
     from pathlib import Path
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations/'0056_messaging_documentation.down.sql').read_text(),prepare=False)
+        conn.execute((migrations/'0055_documentation_sessions.down.sql').read_text(),prepare=False)
+        conn.execute((migrations/'0054_api_documentation.down.sql').read_text(),prepare=False)
+        conn.execute((migrations/'0053_application_overview.down.sql').read_text(),prepare=False)
+        conn.execute((migrations/'0052_codegraph_documentation.down.sql').read_text(),prepare=False)
         conn.execute((migrations/'0049_layered_environment_architecture.down.sql').read_text(),prepare=False)
         conn.execute((migrations/'0048_server_infrastructure_documentation.down.sql').read_text(),prepare=False)
         conn.execute((migrations/'0047_documentation_workflows.down.sql').read_text(),prepare=False)

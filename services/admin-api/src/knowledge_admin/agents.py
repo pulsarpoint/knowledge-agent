@@ -17,18 +17,23 @@ from fastapi.encoders import jsonable_encoder
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
-from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, redact
+from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.agent_tracing import trace_secrets
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.tools.files import list_files, read_file, search_files
+from knowledge_admin.tools.code_graph import code_graph
+from knowledge_admin.tools.ast_grep import ast_grep
+from knowledge_admin.tools.code_search import code_search
 from knowledge_admin.tools.ssh import ssh_run
+from knowledge_admin.tools.shell import shell_run
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
                 timeout_seconds: float = 300, output_type: type[BaseModel] | None = None,
                 on_activity: ActivityCallback | None = None,
-                history: list[dict[str, Any]] | None = None, max_turns: int = 20,
+                on_usage: UsageCallback | None = None,
+                history: list[dict[str, Any]] | None = None, max_turns: int | None = 20,
                 max_output_tokens: int | None = None, stream: bool = True) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
@@ -37,16 +42,17 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
     backend context. The caller supplies complete SDK history and persists
     run.to_input_list() after a successful turn.
     """
-    if not task.strip() or timeout_seconds <= 0 or max_turns < 1 or (max_output_tokens is not None and max_output_tokens < 1):
+    if not task.strip() or timeout_seconds <= 0 or (max_turns is not None and max_turns < 1) or (max_output_tokens is not None and max_output_tokens < 1):
         raise ValueError('Provide a task and positive execution limits.')
 
     task_input = [*(history or []), {'role': 'user', 'content': task}]
-    with TemporaryDirectory(prefix='knowledge-agent-work-') as directory:
+    with TemporaryDirectory(prefix='knowledge-agent-work-', dir=os.environ.get('AGENT_WORKSPACE_ROOT')) as directory:
         workspace = Path(directory).resolve()
-        # The administration process exposes bounded file and SSH tools only.
-        # Arbitrary local shell commands require an isolated execution worker.
-        context = {'config': config, 'credentials': credentials, 'workspace': workspace, 'shell_enabled': False}
-        activity = SdkActivity(credentials.values(), on_activity)
+        if os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
+            os.chown(workspace, 1000, 1000)  # The unprivileged shell-worker user owns its scratch files.
+        context = {'config': config, 'credentials': credentials, 'workspace': workspace,
+                   'shell_enabled': config['code']['enabled'] or config['documents']['enabled']}
+        activity = SdkActivity(credentials.values(), on_activity, on_usage)
         with trace_secrets(credentials.values()), trace(redact(config['name'], credentials.values())):
             try:
                 async with asyncio.timeout(timeout_seconds), create_agent(config, credentials=credentials,
@@ -162,7 +168,11 @@ def get_tools(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list
     """Return the function tools allowed by this agent's enabled capabilities."""
     tools = []
     if config['code']['enabled'] or config['documents']['enabled']:
-        tools.extend([list_files, read_file, search_files])
+        tools.extend([list_files, read_file, search_files, shell_run])
+    if config['code']['enabled']:
+        tools.extend([code_search, ast_grep])
+    if config['code']['enabled'] and config['code'].get('graphs'):
+        tools.append(code_graph)
     if ssh_servers:
         tools.append(ssh_run)
     return tools
@@ -175,8 +185,23 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
     if not prompt.strip():
         raise ValueError('The agent requires an active system prompt.')
     resources = {'name': config['name'], 'description': config['description']}
+    if config['code']['enabled'] or config['documents']['enabled']:
+        prompt += '\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. '
+        prompt += 'Selected resource paths are mounted read-only at the same absolute paths; pwd shows writable scratch space. '
+        prompt += 'Inspect focused source ranges; use code_graph for indexed relationships when available. '
+        prompt += 'Scratch files persist between tool calls within this run. Network access is disabled in the shell; use ssh_run for configured servers.'
     if config['code']['enabled']:
         resources['code_projects'] = config['code']['projects']
+        prompt += '\nUse code_search to find a function or method by name and read its complete body, imports and call sites. '
+        prompt += 'Calls returned by code_search are syntax, including nested closures; resolve package/receiver targets before following them. '
+        prompt += 'Use ast_grep for custom structural patterns, classes and other declaration forms. '
+        prompt += 'Use search_files for text discovery and read_file for surrounding comments, imports and targeted ranges.'
+        if config['code'].get('graphs'):
+            resources['code_graphs'] = config['code']['graphs']
+            prompt += '\nUse code_graph first: search for symbols, code for full bodies, context for imports/types, and traverse for reachable calls. '
+            prompt += 'It uses the CodeGraph SDK directly; follow pagination and inspect edge metadata and unresolved references. '
+            prompt += 'Then verify business rules, state changes, SQL and external effects with source-file tools. '
+            prompt += 'Graph paths are relative to CODE_ROOT, as returned by the tool. Static edges are evidence, not proof of runtime execution.'
     if config['documents']['enabled']:
         resources['documents'] = config['documents']['folders']
     if config['skills']['enabled']:

@@ -14,6 +14,9 @@ endpoints return HTTP 200 with plain text `TODO`. They do not run an SDK agent,
 call tools or models, or create a run/conversation. Existing history is retained.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
+**New here? Start with the [User Guide](docs/user-guide.md)** — how to use the Reader
+and Administration applications end to end, verified against the current code.
+
 ## Start locally
 
 Requires Docker with Compose, and Python 3.10+ for the setup script. No v2 checkout,

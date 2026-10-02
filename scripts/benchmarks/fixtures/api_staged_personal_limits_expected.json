@@ -1,0 +1,12 @@
+{
+  "snapshot_source_hash": "05e2e2669407889a65e0fe00596d1926063130bfaeb0346f8dc308595c93c1bc",
+  "answers": {
+    "handler.disabled_nil": "305", "handler.disabled_false": "yes",
+    "handler.feature_disabled": "no", "handler.zero_conflict": "yes",
+    "handler.read_error": "no", "handler.weekly_field": "WeeklyLimit",
+    "api.preview_live_write": "yes", "api.missing_cooldown": "create_defaults",
+    "api.cooldown_before_preview": "yes", "api.preview_storage": "sql_precheck_tables",
+    "api.atomicity": "no", "api.audit_preview": "no", "api.audit_error": "log_and_continue"
+  },
+  "note": "Known regression facts checked after model calls. Not an unseen evaluation, a completeness score or a semantic grade for open findings."
+}

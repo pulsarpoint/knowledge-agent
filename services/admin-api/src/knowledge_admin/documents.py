@@ -2,12 +2,13 @@
 
 import hashlib
 import io
+import json
 import os
 import re
 import zipfile
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -17,6 +18,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
+
+
+GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
 
 
 class DocumentInput(BaseModel):
@@ -33,6 +37,7 @@ class DocumentInput(BaseModel):
     server_ids: list[UUID] = Field(default_factory=list, max_length=100)
     deployment_ids: list[UUID] = Field(default_factory=list, max_length=100)
     environment_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    source_commits: dict[UUID, GitCommit] | None = Field(default=None, max_length=100)
     revision: int | None = Field(default=None, ge=1, strict=True)
 
     @field_validator('slug', 'title', 'description', 'purpose', 'markdown')
@@ -63,7 +68,7 @@ def document_files(markdown: str) -> dict[str, str]:
     return files
 
 
-def export_document(document: dict) -> str:
+def export_document(document: dict, *, phase_metadata: dict | None = None) -> str:
     """Materialize a saved version. PostgreSQL remains the source of truth."""
     configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
     root = Path(configured)
@@ -71,11 +76,25 @@ def export_document(document: dict) -> str:
         raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
     root = root.resolve(strict=True)
     folder = root / document['slug'] / f'v{document["revision"]}'
-    for parent in (folder.parent, folder):
+    files = document_files(document['markdown'])
+    if document.get('source_commits'):
+        files['metadata.json'] = json.dumps({'source_commits': document['source_commits']}, indent=2) + '\n'
+    if phase_metadata is not None:
+        service_folder = re.sub(r'[^a-z0-9]+', '-', phase_metadata['service_name'].lower()).strip('-')[:40] or 'service'
+        service_folder += '-' + str(UUID(phase_metadata['service_id']))[:8]
+        phase = phase_metadata['phase']
+        if phase not in ('overview', 'api', 'messaging'):
+            raise ValueError('Unknown code documentation phase')
+        folder = root / 'services' / service_folder / phase / f'v{document["revision"]}'
+        files[f'{phase}.md'] = files.pop('README.md')
+        files['metadata.json'] = json.dumps(phase_metadata, ensure_ascii=False, indent=2) + '\n'
+    for parent in reversed([folder, *folder.parents]):
+        if parent == root or not parent.is_relative_to(root):
+            continue
         if parent.is_symlink():
             raise ValueError('Document output folders cannot be symbolic links')
         parent.mkdir(exist_ok=True)
-    for name, content in document_files(document['markdown']).items():
+    for name, content in files.items():
         with NamedTemporaryFile(mode='w', encoding='utf-8', dir=folder, delete=False) as temporary:
             staging = Path(temporary.name)
             try:
@@ -121,6 +140,18 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
     if any(row['service_id'] not in value.service_ids or row['server_id'] not in value.server_ids for row in sources['deployments']):
         raise HTTPException(400, 'Select the service and server belonging to each selected deployment')
     snapshot = {key:[{k:str(v) if isinstance(v,UUID) else v for k,v in row.items()} for row in rows] for key,rows in sources.items()}
+    if value.source_commits is not None:
+        if not set(value.source_commits) <= set(value.code_project_ids):
+            raise HTTPException(400, 'Source commits must belong to the selected code projects')
+        source_commits = {str(key): commit for key, commit in value.source_commits.items()}
+    elif base is not None:
+        previous_sources = conn.execute('SELECT source_snapshot FROM ka.document_versions WHERE id=%s', (base,)).fetchone()['source_snapshot']
+        source_commits = {row['id']: row['git_commit'] for row in previous_sources['code_projects'] if row.get('git_commit')}
+    else:
+        source_commits = {}
+    for row in snapshot['code_projects']:
+        if row['id'] in source_commits:
+            row['git_commit'] = source_commits[row['id']]
     version_id = uuid4()
     conn.execute('''INSERT INTO ka.documents(id,project_id,slug,current_version_id,revision) VALUES (%s,%s,%s,%s,%s)
         ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug,current_version_id=EXCLUDED.current_version_id,revision=EXCLUDED.revision''',
@@ -201,6 +232,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             row['current_version'] = conn.execute('SELECT * FROM ka.document_versions WHERE id=%s', (row['current_version_id'],)).fetchone()
             row['versions'] = conn.execute('''SELECT id,version,title,origin,base_version_id,content_hash,created_at
                 FROM ka.document_versions WHERE document_id=%s ORDER BY version DESC''', (document_id,)).fetchall()
+            row['workflows'] = conn.execute('''SELECT DISTINCT w.id,w.name FROM ka.document_versions v
+                JOIN ka.documentation_workflow_jobs link ON link.job_id=v.generation_id
+                JOIN ka.documentation_workflows w ON w.id=link.workflow_id WHERE v.document_id=%s ORDER BY w.name,w.id''', (document_id,)).fetchall()
             return row
 
     @router.get('/documents/{document_id}/bundle')
@@ -219,8 +253,18 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def export(document_id: UUID, request: Request) -> dict:
         request_actor(request)
         document = get_document(document_id)
+        phase_metadata = None
+        if document['current_version']['generation_id'] is not None:
+            with database().connect() as conn:
+                job = conn.execute('SELECT result FROM ka.jobs WHERE id=%s AND project_id=%s',
+                    (document['current_version']['generation_id'],document['project_id'])).fetchone()
+                if job is not None:
+                    phase_metadata = job['result'].get('phase_metadata') or job['result'].get('overview_metadata')
         try:
-            folder = export_document({**document, 'markdown': document['current_version']['markdown']})
+            commits = {row['id']: row['git_commit'] for row in document['current_version']['source_snapshot']['code_projects'] if row.get('git_commit')}
+            if phase_metadata is not None:
+                phase_metadata['source_commits'] = commits
+            folder = export_document({**document, 'markdown': document['current_version']['markdown'], 'source_commits': commits}, phase_metadata=phase_metadata)
         except (ValueError, OSError):
             raise HTTPException(503, 'Could not export the document. Check the DOCUMENT_OUTPUT_ROOT mount and write permissions.') from None
         return {'folder': folder}
@@ -275,16 +319,39 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 VALUES (%s,%s,'document.deleted','document',%s,%s)''', (project,actor,document_id,Jsonb({'revision':revision})))
             return {'id':document_id}
 
+    @router.get('/generations/{job_id}/api-analysis')
+    def api_analysis(job_id: UUID) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            if conn.execute('SELECT 1 FROM ka.documentation_generations WHERE job_id=%s AND project_id=%s', (job_id, project)).fetchone() is None:
+                raise HTTPException(404, 'Documentation generation not found')
+            inventory = conn.execute("SELECT data FROM ka.job_events WHERE job_id=%s AND event_type='api_inventory' ORDER BY id DESC LIMIT 1", (job_id,)).fetchone()
+            sections = conn.execute("SELECT data FROM ka.job_events WHERE job_id=%s AND event_type='api_section' ORDER BY id", (job_id,)).fetchall()
+            return {'inventory': inventory['data'] if inventory is not None else None, 'sections': [row['data'] for row in sections]}
+
     @router.get('/generations')
-    def generations(offset: int = Query(default=0, ge=0)) -> dict:
+    def generations(offset: int = Query(default=0, ge=0), service_id: UUID | None = None,
+                    kind: str | None = Query(default=None, max_length=80), workflow_id: UUID | None = None) -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
             rows = conn.execute('''SELECT g.job_id,g.mode,g.instructions,g.created_at,j.status,j.error,j.result,
+                g.source_snapshot->'service_id' AS service_id, g.source_snapshot->'code_graph_hashes' AS code_graph_hashes,
+                g.prompt_snapshot,
+                (SELECT workflow_id FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id LIMIT 1) AS workflow_id,
+                COALESCE((SELECT jsonb_agg(u.data ORDER BY u.id) FROM (
+                    SELECT DISTINCT ON (e.data->>'phase',e.data->>'step') e.id,e.data
+                    FROM ka.job_events e WHERE e.job_id=g.job_id AND e.event_type='token_usage'
+                    ORDER BY e.data->>'phase',e.data->>'step',e.id DESC
+                ) u), '[]'::jsonb) AS token_usage,
                 (SELECT count(*) FROM ka.document_versions v WHERE v.generation_id=g.job_id) AS document_count,
-                (SELECT message FROM ka.job_events e WHERE e.job_id=g.job_id ORDER BY e.id DESC LIMIT 1) AS progress
+                (SELECT message FROM ka.job_events e WHERE e.job_id=g.job_id AND e.event_type<>'token_usage' ORDER BY e.id DESC LIMIT 1) AS progress
                 FROM ka.documentation_generations g JOIN ka.jobs j ON j.id=g.job_id
-                WHERE g.project_id=%s ORDER BY g.created_at DESC,g.job_id LIMIT 50 OFFSET %s''', (project,offset)).fetchall()
+                WHERE g.project_id=%s AND (%s::uuid IS NULL OR g.source_snapshot->>'service_id'=%s)
+                AND (%s::uuid IS NULL OR EXISTS(SELECT 1 FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id AND workflow_id=%s))
+                AND (%s::text IS NULL OR g.prompt_snapshot @> jsonb_build_array(jsonb_build_object('kind',%s::text)))
+                ORDER BY g.created_at DESC,g.job_id LIMIT 50 OFFSET %s''', (project,service_id,str(service_id),workflow_id,workflow_id,kind,kind,offset)).fetchall()
             return {'generations':rows}
 
     return router

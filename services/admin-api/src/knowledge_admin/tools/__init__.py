@@ -1,4 +1,4 @@
-"""Import function tools directly from files.py, ssh.py, and shell.py."""
+"""Import decorated function tools directly from their modules."""
 
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,8 +10,8 @@ class AgentContext(TypedDict):
 
     config is the existing get_agent_config() snapshot. Credentials have already
     been resolved by the caller. Neither field is a model-supplied tool argument.
-    shell_enabled may only be true in an execution environment isolated by the
-    caller; changing the working directory does not create a shell sandbox.
+    shell_enabled permits the shell tool to call the isolated execution worker;
+    commands are never executed inside the administration process.
     """
 
     config: dict[str, Any]

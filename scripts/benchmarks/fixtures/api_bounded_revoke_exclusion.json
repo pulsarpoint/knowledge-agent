@@ -1,0 +1,20 @@
+[
+  {
+    "id": "handler",
+    "scope": "Route, middleware and the HTTP handler's own control flow only. Describe its input structure, local checks, call arguments, errors, returns and final response. Inspect the selected middleware, but treat other application helpers as named dependencies; their internals belong to later steps. Finish once the handler questions and its local ordered walkthrough are supported.",
+    "question_ids": ["handler.missing_reason", "handler.user_missing", "handler.revoke_context", "handler.audit_failure", "handler.queue_failure"],
+    "findings": "Describe the route and middleware chain, input structures, and handler-local operations in source-established order. Include consequential branch conditions, early returns and dependency call arguments; leave the internals of application callees to other steps."
+  },
+  {
+    "id": "state",
+    "scope": "Database reads, writes and transaction boundaries of application functions called by this endpoint. Locate their implementations from source and trace the relevant SQL and query handles. Establish guards, error handling, cleanup, commit, and the placement of outside calls relative to SQL operations. External-call internals and remote receiver discovery belong to another step; name those boundaries without exploring them. Finish once the state questions and ordered state operations are supported.",
+    "question_ids": ["api.read_connection", "api.read_error", "api.infinite_guard", "api.atomicity"],
+    "findings": "Describe the relevant application state functions: query-handle ownership, exact SQL read predicates and write effects, guards, errors, transaction completion and cleanup. Preserve execution order and distinguish attempted operations from established outcomes."
+  },
+  {
+    "id": "external",
+    "scope": "External service interactions made by the endpoint and its application callees. Inspect the sending implementations, payload construction, synchronous/asynchronous behaviour, error handling, response validation and their positions in caller control flow. Database SQL internals are handled separately. The task is sender-side behaviour; determining which remote receiver is deployed is outside scope. State missing receiver evidence rather than exploring unrelated subscribers. Finish once these external-interaction questions and the sender-side walkthrough are supported.",
+    "question_ids": ["api.status_order", "api.response_error_field", "api.remote_effect"],
+    "findings": "Describe the consequential external interactions, sent data, call ordering, panic or returned-error handling, response checks and effects that require unavailable receiver or dependency evidence."
+  }
+]

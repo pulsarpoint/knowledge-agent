@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from agents.usage import Usage
 
 from knowledge_admin import documentation_generation as generation
 from test_api import _client
@@ -18,6 +19,7 @@ def setup_request(store, tmp_path, monkeypatch):
     from test_llm import create
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     monkeypatch.setenv('CODE_ROOT', '/work/code')
+    monkeypatch.setattr(generation, 'load_code_graph', lambda project, expected_hash=None: {'id': str(project['id']), 'name': project['name'], 'source_file_count': 1, 'missing_folders': [], 'source_hash': 'fixture'})
     client = _client(tmp_path, repository_store=store)
     model = create(client)
     with store.connect() as conn:
@@ -61,7 +63,7 @@ def test_generation_scopes_tools_saves_versions_and_diagram_bundle(store, tmp_pa
     assert calls[0][0]['code']['projects'][0]['id'] == value['code_project_ids'][0]
     assert not calls[0][0]['ssh']['enabled'] and not calls[0][0]['mcp']['enabled']
     assert json.loads(calls[0][1])['sources']['environment'] is None
-    assert not calls[1][0]['code']['enabled'] and not calls[1][0]['ssh']['enabled']
+    assert calls[1][0]['code']['enabled'] and not calls[1][0]['ssh']['enabled']
     assert calls[-1][0]['ssh']['servers'][0]['id'] == value['server_ids'][0]
     assert calls[-1][0]['ssh']['servers'][0]['username'] == 'inspector'
     assert not calls[-1][0]['code']['enabled']
@@ -103,9 +105,50 @@ def test_generation_rejects_unselected_resources(store, tmp_path, monkeypatch):
     assert client.post('/api/documentation/generations', json=value).status_code == 403
 
 
+@pytest.mark.parametrize('change_during_run', [False, True])
+def test_generation_records_and_checks_source_commit(store, tmp_path, monkeypatch, change_during_run):
+    import subprocess
+    client, value, _ = setup_request(store, tmp_path, monkeypatch)
+    root = tmp_path / 'code'
+    checkout = root / 'app'
+    checkout.mkdir(parents=True)
+    monkeypatch.setenv('CODE_ROOT', str(root))
+    def git(*args):
+        return subprocess.run(['git', '-C', str(checkout), *args], check=True, capture_output=True, text=True).stdout.strip()
+    git('init', '-q')
+    (checkout / 'main.py').write_text('print("hello")\n')
+    git('add', '.')
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@localhost', 'commit', '-qm', 'Baseline')
+    commit = git('rev-parse', 'HEAD')
+    value['units'] = [value['units'][0]]
+    value['server_ids'] = []
+    value['environment_id'] = None
+    value['source_commits'] = {value['code_project_ids'][0]: commit}
+    async def run(*args, **kwargs):
+        if change_during_run:
+            (checkout / 'main.py').write_text('print("changed")\n')
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='Code', description='Source', markdown='# Code'))
+    monkeypatch.setattr(generation, 'agent', run)
+    assert client.post('/api/documentation/generations', headers=HEADERS, json={**value, 'source_commits': {value['code_project_ids'][0]: 'a' * 40}}).status_code == 409
+    assert client.post('/api/documentation/generations', headers=HEADERS, json=value).status_code == 202
+    with store.connect() as conn:
+        snapshot = conn.execute('SELECT source_snapshot FROM ka.documentation_generations').fetchone()['source_snapshot']
+        assert snapshot['code_projects'][0]['current_commit'] == commit
+    assert generation.run_once(store)
+    rows = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
+    if change_during_run:
+        assert rows == []
+        assert client.get('/api/documentation/generations', headers=HEADERS).json()['generations'][0]['status'] == 'failed'
+    else:
+        document = client.get('/api/documentation/documents/' + rows[0]['id'], headers=HEADERS).json()
+        assert document['current_version']['source_snapshot']['code_projects'][0]['git_commit'] == commit
+
+
 def test_failure_publishes_no_partial_documents_or_sensitive_error(store, tmp_path, monkeypatch):
     client, value, _ = setup_request(store, tmp_path, monkeypatch)
     async def fail(*args, **kwargs):
+        await kwargs['on_usage'](Usage(requests=1, input_tokens=80, output_tokens=20, total_tokens=100))
+        await kwargs['on_usage'](Usage())  # A completed response without provider usage.
         raise ValueError('sensitive-provider-key')
     monkeypatch.setattr(generation, 'agent', fail)
     assert client.post('/api/documentation/generations', headers=HEADERS, json=value).status_code == 202
@@ -113,6 +156,11 @@ def test_failure_publishes_no_partial_documents_or_sensitive_error(store, tmp_pa
     assert client.get('/api/documentation/documents', headers=HEADERS).json()['total'] == 0
     response = client.get('/api/documentation/generations', headers=HEADERS)
     assert response.json()['generations'][0]['status'] == 'failed'
+    row = response.json()['generations'][0]
+    usage = row['token_usage'][0]
+    assert usage['phase'] == 'code' and usage['requests'] == 2 and usage['reported_calls'] == 1
+    assert usage['input_tokens'] == 80 and usage['output_tokens'] == 20 and usage['total_tokens'] == 100
+    assert row['progress'] != 'Recorded model token usage'
     assert 'sensitive-provider-key' not in response.text
 
 
@@ -173,17 +221,24 @@ def test_prompt_fixtures_are_active_idempotent_and_guarded_on_rollback(store, tm
     import psycopg
     client = _client(tmp_path, repository_store=store)
     prompts = client.get('/api/documentation/prompts', headers=HEADERS).json()['prompts']
-    assert len(prompts) == 7 and all(p['active_version'] in (1, 2) for p in prompts)
+    assert len(prompts) == 11 and all(p['active_version'] in (1, 2, 3) for p in prompts)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute('SELECT ka.seed_environment_documentation_prompt(%s)', (project,))
-        assert conn.execute('SELECT count(*) AS n FROM ka.documentation_prompts').fetchone()['n'] == 7
+        assert conn.execute('SELECT count(*) AS n FROM ka.documentation_prompts').fetchone()['n'] == len(prompts)
     fixture = next(p for p in prompts if p['name'] == 'Deployment and service operations')
     detail = client.get('/api/documentation/prompts/' + fixture['id'], headers=HEADERS).json()
     assert client.put('/api/documentation/prompts/' + fixture['id'], headers=HEADERS, json={
         'name': fixture['name'], 'input_kind': 'server', 'content': detail['versions'][0]['content'] + '\nCustom note.', 'revision': fixture['revision']}).status_code == 200
     migration = Path(__file__).resolve().parents[3] / 'db/migrations/0046_documentation_generation.down.sql'
     with store.connect() as conn:
+        conn.execute(migration.with_name('0058_graph_directed_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0057_bounded_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0056_messaging_documentation.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0055_documentation_sessions.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0054_api_documentation.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0053_application_overview.down.sql').read_text(), prepare=False)
+        conn.execute(migration.with_name('0052_codegraph_documentation.down.sql').read_text(), prepare=False)
         conn.execute(migration.with_name('0049_layered_environment_architecture.down.sql').read_text(), prepare=False)
         conn.execute(migration.with_name('0048_server_infrastructure_documentation.down.sql').read_text(), prepare=False)
         conn.execute(migration.with_name('0047_documentation_workflows.down.sql').read_text(), prepare=False)

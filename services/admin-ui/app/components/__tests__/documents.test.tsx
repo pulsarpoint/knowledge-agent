@@ -13,8 +13,8 @@ beforeEach(() => vi.stubGlobal('Request', class extends NativeRequest {
 }));
 afterEach(() => vi.unstubAllGlobals());
 const resources = { code_projects: [{ id:'repo-1',name:'Payments code' }], services:[{ id:'service-1',name:'Payments API' }], servers:[{ id:'server-1',name:'Production host' }], deployments:[{ id:'deployment-1',name:'Payments API / Production host / prod',service_id:'service-1',server_id:'server-1' }] };
-const first = { id:'v1',version:1,title:'Payments runbook',description:'Original description',purpose:'runbook',audience:'both',tags:[],markdown:'# Original',content_hash:'a'.repeat(64),source_snapshot:resources,origin:'manual',base_version_id:null,created_at:'2026-09-13T10:00:00Z' };
-const document = { id:'doc-1',slug:'payments-runbook',title:'Payments runbook',description:'Current description',purpose:'runbook',audience:'both',tags:[],code_project_ids:['repo-1'],service_ids:[],server_ids:[],deployment_ids:[],revision:2,version:2,current_version_id:'v2',published_version_id:null,current_version:{ ...first,id:'v2',version:2,markdown:'# Current' },versions:[{ ...first,id:'v2',version:2 },first],updated_at:'2026-09-13T11:00:00Z' };
+const first = { id:'v1',version:1,title:'Payments runbook',description:'Original description',purpose:'runbook',audience:'both',tags:[],markdown:'# Original',content_hash:'a'.repeat(64),source_snapshot:{ ...resources, code_projects:[{ ...resources.code_projects[0], git_commit:'a'.repeat(40) }] },origin:'manual',base_version_id:null,created_at:'2026-09-13T10:00:00Z' };
+const document = { id:'doc-1',slug:'payments-runbook',title:'Payments runbook',description:'Current description',purpose:'runbook',audience:'both',tags:[],code_project_ids:['repo-1'],service_ids:[],server_ids:[],deployment_ids:[],revision:2,version:2,current_version_id:'v2',published_version_id:null,current_version:{ ...first,id:'v2',version:2,markdown:'# Current', source_snapshot:{ ...resources, code_projects:[{ ...resources.code_projects[0], git_commit:'b'.repeat(40) }] } },versions:[{ ...first,id:'v2',version:2 },first],updated_at:'2026-09-13T11:00:00Z' };
 const response = (value: unknown,status=200) => new Response(JSON.stringify(value),{ status });
 function setup(url: string, saveStatus=200) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -63,7 +63,7 @@ test('previews a saved version and loads it as an unsaved draft without changing
   expect(fetch.mock.calls.some(([,init]) => init?.method === 'PUT')).toBe(false);
   fireEvent.click(screen.getByRole('button',{ name:'Save new version' }));
   await waitFor(() => expect(fetch.mock.calls.some(([,init]) => init?.method === 'PUT')).toBe(true));
-  expect(JSON.parse(fetch.mock.calls.find(([,init]) => init?.method === 'PUT')![1]!.body as string)).toMatchObject({ revision:2,markdown:'# Original' });
+  expect(JSON.parse(fetch.mock.calls.find(([,init]) => init?.method === 'PUT')![1]!.body as string)).toMatchObject({ revision:2,markdown:'# Original',source_commits:{'repo-1':'a'.repeat(40)} });
 });
 
 test('failed save retains edits and navigating away requires confirmation',async () => {

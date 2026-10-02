@@ -1,5 +1,17 @@
+FROM node:22-bookworm-slim AS codegraph
+WORKDIR /services/code-graph
+COPY services/code-graph/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+RUN node node_modules/@ast-grep/cli/postinstall.js
+COPY services/code-graph/index.cjs ./
+COPY services/code-graph/query.cjs ./
+
 FROM python:3.12-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=codegraph /usr/local/bin/node /usr/local/bin/node
+COPY --from=codegraph /services/code-graph /services/code-graph
+COPY --from=codegraph /services/code-graph/node_modules/@ast-grep/cli/ast-grep /usr/local/bin/ast-grep
+RUN ast-grep --version
+RUN apt-get update && apt-get install -y --no-install-recommends bash bubblewrap git openssh-client ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 WORKDIR /services/admin-api
 # The two applications reuse storage/configuration modules, but mount disjoint APIs.
@@ -7,6 +19,7 @@ COPY packages/llm-settings /packages/llm-settings
 COPY services/docs-wiki /services/docs-wiki
 COPY services/admin-api /services/admin-api
 RUN uv sync --frozen --no-dev
+RUN mkdir -p /work/agent-workspaces
 EXPOSE 8766
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "knowledge-admin"]
 CMD ["/work/docs", "--host", "0.0.0.0"]

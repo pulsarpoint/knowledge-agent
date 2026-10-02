@@ -7,9 +7,10 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-StorageArea = Literal['code', 'rag', 'documents', 'bootstrap']
+StorageArea = Literal['code', 'code_index', 'rag', 'documents', 'bootstrap']
 ROOTS = {
     'code': ('CODE_ROOT', 'CODE_PATH'),
+    'code_index': ('CODE_INDEX_ROOT', 'CODE_INDEX_PATH'),
     'rag': ('RAG_SOURCE_ROOT', 'RG_DATA'),
     'documents': ('DOCUMENT_OUTPUT_ROOT', 'GENERATED_DOCS_PATH'),
     'bootstrap': ('BOOTSTRAP_DOCS_ROOT', 'DOCS_PATH'),

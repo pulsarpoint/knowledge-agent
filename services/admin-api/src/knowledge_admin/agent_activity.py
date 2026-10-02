@@ -9,10 +9,12 @@ from typing import Any
 from uuid import uuid4
 
 from agents import ItemHelpers, RunHooks
+from agents.usage import Usage
 from openai.types.responses import ResponseTextDeltaEvent, ResponseTextDoneEvent
 from opentelemetry import trace
 
 ActivityCallback = Callable[[dict[str, Any]], Awaitable[None]]
+UsageCallback = Callable[[Usage], Awaitable[None]]
 logger = logging.getLogger(__name__)
 
 
@@ -37,12 +39,17 @@ def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
 class SdkActivity(RunHooks):
     """Publish Agents SDK messages and tool lifecycle events to the UI."""
 
-    def __init__(self, secrets: Iterable[str], callback: ActivityCallback | None):
+    def __init__(self, secrets: Iterable[str], callback: ActivityCallback | None, on_usage: UsageCallback | None = None):
         self.secrets = tuple(secrets)
         self.callback = callback
+        self.on_usage = on_usage
         self.run_id = uuid4().hex
         self.items: dict[str, dict[str, Any]] = {}
         self.published: dict[str, float] = {}
+
+    async def on_llm_end(self, context, agent, response) -> None:
+        if self.on_usage is not None:
+            await self.on_usage(response.usage)
 
     async def on_tool_start(self, context, agent, tool) -> None:
         key = context.tool_call_id

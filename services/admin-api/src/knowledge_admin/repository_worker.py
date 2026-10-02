@@ -19,6 +19,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.code_paths import code_path
+from knowledge_admin.code_processing import process_code, CodeProcessingError
 
 
 class PullError(Exception):
@@ -113,9 +114,9 @@ def pull_checkout(code_root: Path, repo: dict, job_id, username: str | None, tok
 def run_once(store: RepositoryStore, code_root: Path) -> bool:
     lease = uuid4()
     with store.connect() as conn:
-        conn.execute("""UPDATE ka.jobs SET status='failed', error='Worker stopped before completing this pull. Pull again to retry.',
+        conn.execute("""UPDATE ka.jobs SET status='failed', error='Worker stopped before completing this job. Run the action again to retry.',
             finished_at=clock_timestamp(), worker_id=NULL, lease_token=NULL, lease_expires_at=NULL
-            WHERE kind='repository_sync' AND status='running' AND lease_expires_at < clock_timestamp()""")
+            WHERE kind IN ('repository_sync','code_index') AND status='running' AND lease_expires_at < clock_timestamp()""")
         due = conn.execute('''SELECT r.id,r.project_id,r.sync_interval_minutes FROM ka.repositories r
             WHERE r.archived_at IS NULL AND r.remote_url IS NOT NULL AND r.sync_interval_minutes IS NOT NULL
                 AND r.next_sync_at<=now() AND NOT EXISTS (SELECT 1 FROM ka.jobs j WHERE j.repository_id=r.id
@@ -128,26 +129,30 @@ def run_once(store: RepositoryStore, code_root: Path) -> bool:
                 (job_id,source['project_id'],source['id'],str(job_id)))
             conn.execute('UPDATE ka.repositories SET next_sync_at=now()+make_interval(mins=>%s) WHERE id=%s',
                 (source['sync_interval_minutes'],source['id']))
-        job = conn.execute("""SELECT * FROM ka.jobs WHERE kind='repository_sync' AND status='queued'
+        job = conn.execute("""SELECT * FROM ka.jobs WHERE kind IN ('repository_sync','code_index') AND status='queued'
             ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1""").fetchone()
         if job is None:
             return False
         conn.execute("""UPDATE ka.jobs SET status='running', started_at=clock_timestamp(), attempt=attempt+1,
-            worker_id=%s, lease_token=%s, lease_expires_at=clock_timestamp()+interval '11 minutes'
+            worker_id=%s, lease_token=%s, lease_expires_at=clock_timestamp()+interval '20 minutes'
             WHERE id=%s""", (socket.gethostname(), lease, job["id"]))
         repo = conn.execute("""SELECT r.*, c.ciphertext, c.key_version FROM ka.repositories r
             LEFT JOIN ka.credentials c ON c.id=r.credential_id WHERE r.id=%s""", (job["repository_id"],)).fetchone()
+        repo['folder_paths'] = [r['path'] for r in conn.execute('SELECT path FROM ka.code_project_folders WHERE code_project_id=%s ORDER BY path', (repo['id'],))]
     error = None
     result = {}
     try:
-        username, token = None, None
-        if repo["credential_id"] is not None:
-            username, token = store.decrypt_git_credentials(repo)
-        commit, checkout_path = pull_checkout(code_root, repo, job["id"], username, token)
-        result = {"commit": commit, "checkout_path": checkout_path}
+        if job['kind'] == 'code_index':
+            result = process_code(repo)
+        else:
+            username, token = None, None
+            if repo["credential_id"] is not None:
+                username, token = store.decrypt_git_credentials(repo)
+            commit, checkout_path = pull_checkout(code_root, repo, job["id"], username, token)
+            result = {"commit": commit, "checkout_path": checkout_path}
     except InvalidTag:
         error = "The stored Git authentication cannot be decrypted. Restore the encryption key or save the username and token again"
-    except PullError as exc:
+    except (PullError, CodeProcessingError) as exc:
         error = str(exc)
     except OSError:
         error = "Unable to write the local checkout. Check the code folder mount, free space, and permissions"
@@ -158,7 +163,7 @@ def run_once(store: RepositoryStore, code_root: Path) -> bool:
             AND lease_expires_at > clock_timestamp() FOR UPDATE""", (job["id"], lease)).fetchone()
         if active is None:
             return True  # Stale workers never publish checkout metadata.
-        if error is None:
+        if error is None and job['kind'] == 'repository_sync':
             conn.execute("""UPDATE ka.repositories SET current_commit=%s, checkout_path=%s, synced_at=clock_timestamp()
                 WHERE id=%s""", (result["commit"], result["checkout_path"], repo["id"]))
             if repo['clone_path'] is None:
@@ -169,7 +174,7 @@ def run_once(store: RepositoryStore, code_root: Path) -> bool:
             worker_id=NULL, lease_token=NULL, lease_expires_at=NULL WHERE id=%s""",
             ("succeeded" if error is None else "failed", Jsonb(result), error, job["id"]))
         conn.execute("""INSERT INTO ka.job_events(job_id, event_type, message)
-            VALUES (%s,%s,%s)""", (job["id"], "succeeded" if error is None else "failed", error or "Checkout published"))
+            VALUES (%s,%s,%s)""", (job["id"], "succeeded" if error is None else "failed", error or ('Code processed' if job['kind'] == 'code_index' else 'Checkout published')))
     print(f"Repository job {job['id']}: {'succeeded' if error is None else 'failed'}", flush=True)
     return True
 

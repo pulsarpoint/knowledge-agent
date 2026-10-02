@@ -72,19 +72,38 @@ async def list_files(ctx: RunContextWrapper[AgentContext], path: str | None = No
 
 @function_tool
 async def read_file(ctx: RunContextWrapper[AgentContext], path: str,
-                    offset: int = 0, max_bytes: int = 32768) -> str:
-    """Read a bounded UTF-8 text excerpt from a selected file.
+                    offset: int = 0, max_bytes: int = 32768,
+                    start_line: int | None = None, end_line: int | None = None) -> str:
+    """Read a source line range or a paginated UTF-8 byte excerpt from a selected file.
 
     Args:
         path: Absolute file path from the configured folders or workspace.
         offset: Byte offset; use next_offset from an earlier result to continue.
-        max_bytes: Maximum bytes to read, from 1 to 65536.
+        max_bytes: Maximum bytes in byte mode, from 1 to 65536.
+        start_line: First line (1-based) from a graph symbol or search result. Supply end_line too.
+        end_line: Last line, inclusive. Line mode returns this range with line numbers; offset must be zero.
     """
     if offset < 0 or not 1 <= max_bytes <= 65536:
         raise ValueError('Use a nonnegative offset and max_bytes from 1 to 65536.')
     selected = _path(ctx.context, path)
     if not selected.is_file():
         raise ValueError('Choose a regular text file.')
+    if start_line is not None or end_line is not None:
+        if start_line is None or end_line is None or start_line < 1 or end_line < start_line or offset != 0:
+            raise ValueError('Supply start_line and end_line with 1 <= start_line <= end_line, and offset zero.')
+        with selected.open('rb') as stream:
+            if b'\0' in stream.read(8192):
+                raise ValueError('This is a binary file; choose a text file.')
+        with selected.open(encoding='utf-8', errors='replace') as stream:
+            content = []
+            for number, line in enumerate(stream, 1):
+                if number > end_line:
+                    break
+                if number >= start_line:
+                    content.append(f'{number}: {line}')
+        return json.dumps({'path': str(selected), 'start_line': start_line,
+            'end_line': start_line + len(content) - 1 if content else None,
+            'content': redact(''.join(content), ctx.context['credentials'].values())})
     with selected.open('rb') as stream:
         if b'\0' in stream.read(8192):
             raise ValueError('This is a binary file; choose a text file.')

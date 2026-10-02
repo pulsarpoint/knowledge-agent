@@ -1,0 +1,181 @@
+{
+  "endpoint": "POST /api/v1/external/revoke-self-exclusion",
+  "project_id": "926d0db6-2301-495d-a3be-a276d3f51097",
+  "snapshot_source_hash": "05e2e2669407889a65e0fe00596d1926063130bfaeb0346f8dc308595c93c1bc",
+  "units": [
+    {
+      "id": "handler",
+      "scope": "The selected HTTP handler body only; do not analyze startup, middleware or callee internals unless a listed question requires them.",
+      "resources": [
+        {
+          "path": "rg_external/main.go",
+          "function": "RevokeSelfExclusion"
+        }
+      ],
+      "questions": [
+        {
+          "id": "handler.missing_reason",
+          "question": "When Reason is empty, does the handler reach GetDomainGroupByName?",
+          "allowed_values": [
+            "yes",
+            "no"
+          ]
+        },
+        {
+          "id": "handler.user_missing",
+          "question": "If the user FindOne returns mongo.ErrNoDocuments, which numeric application error argument does the handler pass?",
+          "allowed_values": [
+            "304",
+            "501"
+          ]
+        },
+        {
+          "id": "handler.revoke_context",
+          "question": "Which context expression does the handler pass into self_exclusion_m.RevokeSelfExclusion?",
+          "allowed_values": [
+            "context.Background()",
+            "c.Request.Context()"
+          ]
+        },
+        {
+          "id": "handler.audit_failure",
+          "question": "When audit.LogOnlyUpdate returns an error after successful revocation, does the handler return before QueueActivity or continue into QueueActivity?",
+          "allowed_values": [
+            "return_before_queue",
+            "continue_to_queue"
+          ]
+        },
+        {
+          "id": "handler.queue_failure",
+          "question": "If QueueActivity returns an error, does the handler log and reach its normal JSON response or return an API error immediately?",
+          "allowed_values": [
+            "log_and_respond",
+            "return_api_error"
+          ]
+        },
+        {
+          "id": "handler.reason_log",
+          "question": "Which numeric code is literally present in the log message when Reason is empty, distinct from the response error argument?",
+          "allowed_values": [
+            "13",
+            "303"
+          ]
+        },
+        {
+          "id": "handler.database_log",
+          "question": "Which numeric code is literally present in the log message on a non-ErrNoDocuments user lookup error, distinct from the response error argument?",
+          "allowed_values": [
+            "51",
+            "501"
+          ]
+        },
+        {
+          "id": "handler.queue_invocation",
+          "question": "Does the handler wait for the direct QueueActivity call to return before continuing, or launch that call asynchronously? This asks about invocation, not remote delivery.",
+          "allowed_values": [
+            "sequential_call",
+            "asynchronous_launch"
+          ]
+        },
+        {
+          "id": "handler.local_flow",
+          "question": "Describe only this handler body in execution order. Preserve its consequential conditions, call arguments, returns and error handling; leave callee internals as named boundaries.",
+          "allowed_values": [
+            "described"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "transaction",
+      "scope": "The selected revocation function, its local ordering and transaction/error handling. Inspect a named dependency only when a listed question requires its implementation. No endpoint-level synthesis.",
+      "resources": [
+        {
+          "path": "self_exclusion_m/main.go",
+          "function": "RevokeSelfExclusion"
+        }
+      ],
+      "questions": [
+        {
+          "id": "api.read_connection",
+          "question": "Inside self_exclusion_m.RevokeSelfExclusion, does the GetSelfExclusion helper read using the caller's transaction or its own db.DB_POOL query handle?",
+          "allowed_values": [
+            "caller_transaction",
+            "db.DB_POOL"
+          ]
+        },
+        {
+          "id": "api.read_error",
+          "question": "If GetSelfExclusion returns an error, does the visible revocation function immediately return that error or proceed to attempt the revocation query?",
+          "allowed_values": [
+            "return_read_error",
+            "attempt_revoke"
+          ]
+        },
+        {
+          "id": "api.infinite_guard",
+          "question": "If the read succeeds, the stored interval equals SELF_EXCLUSION_INFINITE, and infinite is false, is the revocation query reached?",
+          "allowed_values": [
+            "yes",
+            "no"
+          ]
+        },
+        {
+          "id": "api.status_order",
+          "question": "Does the ChangeAccountStatus call occur before or after the revocation transaction's Commit call?",
+          "allowed_values": [
+            "before_commit",
+            "after_commit"
+          ]
+        },
+        {
+          "id": "transaction.rollback_result",
+          "question": "Does the deferred cleanup check the error returned by Rollback, or ignore it?",
+          "allowed_values": [
+            "checked",
+            "ignored"
+          ]
+        },
+        {
+          "id": "transaction.rollback_guarantee",
+          "question": "Does this implementation establish that rollback succeeds on every failure path, including a Commit error?",
+          "allowed_values": [
+            "established",
+            "not_established"
+          ]
+        },
+        {
+          "id": "transaction.commit_outcome",
+          "question": "After Commit returns an error, does the available function source establish that the writes were rolled back, or leave the final transaction outcome unresolved?",
+          "allowed_values": [
+            "rolled_back",
+            "unresolved"
+          ]
+        },
+        {
+          "id": "transaction.commit_error",
+          "question": "Does the function propagate the Commit error to its caller, or discard it?",
+          "allowed_values": [
+            "returned",
+            "discarded"
+          ]
+        },
+        {
+          "id": "transaction.history_reason",
+          "question": "Does the reason value passed to InsertSelfExclusionHistory already contain the external suffix added in this function, or is that suffix applied only afterward?",
+          "allowed_values": [
+            "suffix_already_applied",
+            "suffix_applied_afterward"
+          ]
+        },
+        {
+          "id": "transaction.local_flow",
+          "question": "Describe only this function body in execution order, including conditions, state-related calls, external call boundaries, error returns and cleanup. Distinguish attempted operations from guaranteed effects.",
+          "allowed_values": [
+            "described"
+          ]
+        }
+      ]
+    }
+  ]
+}

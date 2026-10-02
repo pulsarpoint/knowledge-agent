@@ -1,0 +1,33 @@
+{
+  "endpoint": "POST /api/v1/responsible-gaming/personal-limits/:type/:period",
+  "project_id": "926d0db6-2301-495d-a3be-a276d3f51097",
+  "snapshot_source_hash": "05e2e2669407889a65e0fe00596d1926063130bfaeb0346f8dc308595c93c1bc",
+  "handler": {"name": "SetPersonalLimits", "path": "controller/personal_limits.go"},
+  "middleware": [
+    {"name": "Throttle", "path": "middleware/main.go"},
+    {"name": "AddRequestID", "path": "middleware/main.go"},
+    {"name": "AuthMiddleware", "path": "middleware/main.go"}
+  ],
+  "route_ranges": [
+    {"path": "main.go", "start_line": 1, "end_line": 34},
+    {"path": "main.go", "start_line": 89, "end_line": 108}
+  ],
+  "handler_questions": [
+    {"id":"handler.disabled_nil","question":"When execution reaches the manual Disabled pointer check and Disabled is nil, which numeric error argument is passed?","allowed_values":["305","306","307"]},
+    {"id":"handler.disabled_false","question":"Does a non-nil Disabled pointer containing false pass the manual Disabled pointer check?","allowed_values":["yes","no"]},
+    {"id":"handler.feature_disabled","question":"If IsEnabledLimit returns false, can the subsequent manual Precheck pointer check return error 306 on that execution path?","allowed_values":["yes","no"]},
+    {"id":"handler.zero_conflict","question":"If execution reaches the conflict check with Disabled=true and a non-nil LimitDolars pointer holding zero, does it return error 307?","allowed_values":["yes","no"]},
+    {"id":"handler.read_error","question":"If the GetPersonalLimits call assigning oldLimitsAudit returns an error, does execution reach the dolars range comparison?","allowed_values":["yes","no"]},
+    {"id":"handler.weekly_field","question":"Which PersonalLimitsInput field receives &limit_input when requested_period is weekly?","allowed_values":["DailyLimit","WeeklyLimit","MonthlyLimit"]}
+  ],
+  "synthesis_questions": [
+    {"id":"api.flow","question":"Describe the endpoint's inputs and consequential operations in the execution order established by the source. Show branch conditions, early exits, effects and unresolved dependencies where they occur; distinguish asynchronous work from sequential execution. Do not impose an application lifecycle that the code does not establish.","allowed_values":["described"]},
+    {"id":"api.preview_live_write","question":"On requests that reach the pre-branch oldLimitsAudit GetPersonalLimits call with precheck requested, can an eligible pending limit already be promoted in the live personal_limit_info table?","allowed_values":["yes","no"]},
+    {"id":"api.missing_cooldown","question":"When the cooldown configuration SELECT returns pgx ErrNoRows, does GetCoolDownAdvanced create default configuration or immediately return that error?","allowed_values":["create_defaults","return_error"]},
+    {"id":"api.cooldown_before_preview","question":"Is GetCoolDownAdvanced called before the handler tests limit_input.Precheck?","allowed_values":["yes","no"]},
+    {"id":"api.preview_storage","question":"Does the preview branch only calculate in memory or also execute SQL against precheck tables?","allowed_values":["memory_only","sql_precheck_tables"]},
+    {"id":"api.atomicity","question":"Does the visible implementation place every endpoint database effect into one transaction that will all roll back if a later step fails?","allowed_values":["yes","no"]},
+    {"id":"api.audit_preview","question":"On a successful preview branch, does control reach the handler's AddLogPersonalLimit call?","allowed_values":["yes","no"]},
+    {"id":"api.audit_error","question":"If AddLogPersonalLimit returns an error after the live update/read, does the handler log the error and continue producing the normal response, or return an API error immediately?","allowed_values":["log_and_continue","return_api_error"]}
+  ]
+}

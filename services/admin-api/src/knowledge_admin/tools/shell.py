@@ -1,72 +1,55 @@
-"""Local command execution for an explicitly enabled, isolated agent worker.
+"""Run native commands in the separate shell worker, with the agent's selected paths."""
 
-The caller supplies process/filesystem isolation. This tool's cwd and clean
-subprocess environment are not a sandbox; do not enable it in the admin API.
-"""
-
-import asyncio
 import json
 import os
-import signal
 
+import httpx
 from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools.files import _roots
 
 
 @function_tool
 async def shell_run(ctx: RunContextWrapper[AgentContext], command: str,
                     timeout_seconds: int = 60) -> str:
-    """Execute a local shell command in this agent's working directory.
+    """Run Bash commands or Python scripts in an isolated Linux workspace.
 
-    Use this for local programs and command pipelines in an enabled execution
-    worker. Inspect exit_code; timeouts or cancellation do not undo completed work.
-    Use ssh_run for remote operations.
+    Available programs include bash, python/python3, rg, ast-grep, git, sed, awk,
+    find and standard Linux utilities. Pipelines, Bash arrays and heredocs work.
+    For Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY
+    Use rg -n 'symbol' /work/code/project to locate code, then ast-grep or sed
+    to inspect complete functions or focused ranges. Python's sqlite3 module can
+    query configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).
+    Quote paths and use single quotes around ast-grep patterns containing $.
+
+    The working directory is writable scratch space shared across shell calls
+    within this run. Selected code, documents and graph paths retain the absolute
+    paths in the agent resources and are read-only. Other projects, credentials
+    and network access are unavailable. Use ssh_run for configured remote servers.
+    Shell variables do not persist between calls; save intermediate work to files.
+    Inspect exit_code, stderr and timed_out. Output over 32 KiB per stream is
+    truncated: write large results to scratch files and inspect focused sections.
 
     Args:
-        command: Command to execute with /bin/sh; maximum 20000 characters.
-        timeout_seconds: Time limit for this command, from 1 to 300 seconds.
+        command: Bash command or multiline script, up to 20000 characters.
+        timeout_seconds: Command timeout from 1 to 300 seconds.
     """
     if not ctx.context['config']['enabled'] or not ctx.context['shell_enabled']:
         raise ValueError('Local command execution is disabled for this agent run.')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
+    endpoint = os.environ.get('AGENT_SHELL_URL')
+    if not endpoint:
+        raise ValueError('The shell worker is not configured. Set AGENT_SHELL_URL.')
     workspace = ctx.context['workspace']
-    if not workspace.is_absolute() or not workspace.is_dir() or workspace.resolve() != workspace:
-        raise ValueError('The agent workspace is unavailable.')
-    process = await asyncio.create_subprocess_exec('/bin/sh', '-c', command, cwd=workspace,
-        env={'PATH': os.defpath, 'HOME': str(workspace), 'LANG': 'C.UTF-8'},
-        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, start_new_session=True)
-    output = {'stdout': bytearray(), 'stderr': bytearray()}
-    truncated = {'stdout': False, 'stderr': False}
-
-    async def capture(name: str, stream: asyncio.StreamReader) -> None:
-        while chunk := await stream.read(4096):
-            available = 32768 - len(output[name])
-            output[name].extend(chunk[:available])
-            truncated[name] = truncated[name] or len(chunk) > available
-
-    readers = [asyncio.create_task(capture('stdout', process.stdout)),
-               asyncio.create_task(capture('stderr', process.stderr))]
-    timed_out = False
-    try:
-        async with asyncio.timeout(timeout_seconds):
-            await process.wait()
-            await asyncio.gather(*readers)
-    except TimeoutError:
-        timed_out = True
-    finally:
-        # Include background children, even if their parent shell has exited.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        await process.wait()
-        for reader in readers:
-            reader.cancel()
-        await asyncio.gather(*readers, return_exceptions=True)
-    return json.dumps({'exit_code': process.returncode, 'timed_out': timed_out,
-        **{name: redact(data.decode('utf-8', errors='replace'), ctx.context['credentials'].values())
-           for name, data in output.items()}, 'truncated': truncated})
+    paths = [str(path) for path in _roots(ctx.context) if path != workspace]
+    if ctx.context['config']['code']['enabled']:
+        paths.extend(graph['graph_path'] for graph in ctx.context['config']['code'].get('graphs', []))
+    async with httpx.AsyncClient(timeout=timeout_seconds + 10, trust_env=False) as client:
+        response = await client.post(endpoint.rstrip('/') + '/run', json={
+            'command': command, 'timeout_seconds': timeout_seconds,
+            'workspace': str(workspace), 'read_paths': paths})
+        response.raise_for_status()
+        return redact(json.dumps(response.json()), ctx.context['credentials'].values())

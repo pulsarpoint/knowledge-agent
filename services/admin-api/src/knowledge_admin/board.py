@@ -181,9 +181,12 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
                                 WHERE id=%s AND NOT cancel_requested RETURNING id''', (child_id,)).fetchone()
                         if current is None:
                             raise asyncio.CancelledError
-                        with TemporaryDirectory(prefix='knowledge-subagent-') as directory:
+                        with TemporaryDirectory(prefix='knowledge-subagent-', dir=os.environ.get('AGENT_WORKSPACE_ROOT')) as directory:
+                            if os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
+                                os.chown(directory, 1000, 1000)
                             context = replace(tool_context, usage=Usage(), context={'config': config,
-                                'credentials': keys, 'workspace': Path(directory).resolve(), 'shell_enabled': False, 'activity': activity})
+                                'credentials': keys, 'workspace': Path(directory).resolve(),
+                                'shell_enabled': config['code']['enabled'] or config['documents']['enabled'], 'activity': activity})
                             prompt = json.dumps({'main_task': task['task'], 'assigned_subtask': assignment}, ensure_ascii=False)
                             answer = await sdk_invoke(context, json.dumps({'input': prompt}))
                             usage = jsonable_encoder(context.usage)
