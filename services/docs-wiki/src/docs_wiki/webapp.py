@@ -138,10 +138,15 @@ def create_app(cfg: Config, server=None, rag_client=None, code_client=None) -> F
         from docs_wiki.search_api import build_api as build_search_api
         reader_router.routes[:] = [route for route in reader_router.routes
             if route.path not in {'/api/{app_name}/chat', '/api/{app_name}/chats', '/api/{app_name}/chats/{key}', '/api/{app_name}/chat/{session_key}/escalate'}]
+        reader = None
+        reader_url, reader_key = os.environ.get('READER_AGENT_URL'), os.environ.get('READER_AGENT_KEY')
+        if reader_url and reader_key:
+            from docs_wiki.reader_client import ReaderClient
+            reader = ReaderClient(reader_url, reader_key)
         for name in apps:
             app.include_router(build_search_api(f'/api/{name}', state_root(server) / 'search-conversations' / name,
-                workspace_rag, code_client,
-                audit_dir=state_root(server) / name))
+                workspace_rag, None if reader is not None else code_client,
+                audit_dir=state_root(server) / name, reader=reader, gaps_dir=state_root(server) / name))
     app.include_router(reader_router)
 
     from docs_wiki import sessions as sessions_mod

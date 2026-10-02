@@ -1,15 +1,17 @@
 """The shared search-agent API, with conversations scoped to the signed-in user."""
 import hashlib
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from docs_wiki import audit, sessions
+from docs_wiki import audit, gaps, sessions
 from docs_wiki.agent_context import AgentContext
 from docs_wiki.code_client import CodeAgentError
 from docs_wiki.rag_client import RagError
+from docs_wiki.reader_client import UNAVAILABLE, ReaderError
 from knowledge_llm import ModelUnavailable, managed
 from knowledge_llm.profiles import load_profile
 
@@ -29,7 +31,8 @@ class ChatInput(BaseModel):
 
 
 def build_api(prefix: str, state_root: Path, rag, code,
-              audit_dir: Path | None = None, profiles: bool = False) -> APIRouter:
+              audit_dir: Path | None = None, profiles: bool = False,
+              reader=None, gaps_dir: Path | None = None) -> APIRouter:
     router = APIRouter(prefix=prefix)
 
     def selected_profile(request: Request):
@@ -92,32 +95,126 @@ def build_api(prefix: str, state_root: Path, rag, code,
                 result['warnings'].append('Git repositories are unavailable. Try refreshing the context list.')
         return result
 
-    @router.get('/chats/{key}')
-    async def transcript(key: str, request: Request):
-        directory = conversation(request, key)
-        return {'session': key, 'messages': await sessions.transcript(directory, key),
-                **(sessions.context(directory, key) or {'context': AgentContext().model_dump(),
-                                                       'sources': {'docs': True, 'codex': code is not None}})}
+    if reader is None:
+        @router.get('/chats/{key}')
+        async def transcript(key: str, request: Request):
+            directory = conversation(request, key)
+            return {'session': key, 'messages': await sessions.transcript(directory, key),
+                    **(sessions.context(directory, key) or {'context': AgentContext().model_dump(),
+                                                           'sources': {'docs': True, 'codex': code is not None}})}
 
-    @router.delete('/chats/{key}', status_code=204)
-    async def delete(key: str, request: Request):
-        await sessions.delete(conversation(request, key), key)
-        return Response(status_code=204)
+        @router.delete('/chats/{key}', status_code=204)
+        async def delete(key: str, request: Request):
+            await sessions.delete(conversation(request, key), key)
+            return Response(status_code=204)
 
-    @router.get('/chats')
-    def history(request: Request):
-        directory, email = user_state(request)
-        return {'sessions': [row for row in audit.sessions_for(audit_dir or directory, email)
-                             if sessions.exists(directory, row['session_key'])][:50]}
+        @router.get('/chats')
+        def history(request: Request):
+            directory, email = user_state(request)
+            return {'sessions': [row for row in audit.sessions_for(audit_dir or directory, email)
+                                 if sessions.exists(directory, row['session_key'])][:50]}
 
-    @router.post('/chat')
-    async def chat(body: ChatInput, request: Request):
-        user_state(request)
-        if not body.question.strip():
-            raise HTTPException(400, 'Enter a question')
-        if body.session is not None:
-            conversation(request, body.session)
-        return PlainTextResponse('TODO')
+        @router.post('/chat')
+        async def chat(body: ChatInput, request: Request):
+            user_state(request)
+            if not body.question.strip():
+                raise HTTPException(400, 'Enter a question')
+            if body.session is not None:
+                conversation(request, body.session)
+            return PlainTextResponse('TODO')
+
+    def identity(request: Request) -> tuple[str, str]:
+        subject = request.headers.get('x-forwarded-user')
+        if not subject:
+            raise HTTPException(403, 'Authenticated user identity required')
+        return subject, request.headers.get('x-forwarded-email', subject)
+
+    def frame(name: str, data: dict) -> str:
+        return f'event: {name}\ndata: {json.dumps(data)}\n\n'
+
+    def session_ref(key: str) -> str:
+        return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+    def failure(exc: ReaderError) -> JSONResponse:
+        return JSONResponse({'error': {'message': exc.message}}, status_code=exc.status)
+
+    if reader is not None:
+        @router.post('/chat')
+        async def reader_chat(body: ChatInput, request: Request):
+            subject, email = identity(request)
+            if not body.question.strip():
+                raise HTTPException(400, 'Enter a question')
+            payload = {'question': body.question, 'folders': body.context.folders,
+                       'include_subfolders': body.context.include_subfolders}
+            if body.session is not None:
+                payload['session_id'] = body.session
+            try:
+                upstream = await reader.run(subject, email, payload)
+            except ReaderError as exc:
+                return failure(exc)
+
+            async def stream():
+                key = body.session
+                finished = False
+                async for name, data in upstream:
+                    if name == 'session':
+                        key = data['id']
+                        yield frame('session', {'key': key})
+                    elif name == 'activity':
+                        yield frame('tool', {'name': data['tool'], 'argument': data.get('argument', '')})
+                    elif name == 'completed':
+                        finished = True
+                        if data['status'] != 'completed':
+                            yield frame('error', {'message': data.get('error') or UNAVAILABLE})
+                            break
+                        found = data.get('grounding') or {}
+                        sources = found.get('sources', [])
+                        yield frame('sources', {'sources': sources})
+                        yield frame('done', {'text': data['answer'], 'not_covered': bool(found.get('not_covered')),
+                                             'escalation_offered': False, 'sources_used': ['docs'] if sources else []})
+                        if found.get('not_covered') and gaps_dir is not None:
+                            gaps.append_gap(gaps_dir, body.question, found.get('near_misses', []),
+                                            results=found.get('results'), session_ref=session_ref(key) if key else None)
+                        break
+                if not finished:
+                    yield frame('error', {'message': UNAVAILABLE})
+            return StreamingResponse(stream(), media_type='text/event-stream',
+                                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
+        @router.get('/chats')
+        async def reader_history(request: Request):
+            subject, email = identity(request)
+            try:
+                rows = await reader.sessions(subject, email)
+            except ReaderError as exc:
+                return failure(exc)
+            return {'sessions': [{'session_key': row['id'], 'first_question': row['title'],
+                                  'first_ts': row['created_at'], 'last_ts': row['last_activity_at']} for row in rows]}
+
+        @router.get('/chats/{key}')
+        async def reader_transcript(key: str, request: Request):
+            subject, email = identity(request)
+            try:
+                saved = await reader.transcript(subject, email, key)
+            except ReaderError as exc:
+                return failure(exc)
+            messages = [message if message['role'] == 'user' else {
+                'role': 'assistant', 'content': message['content'],
+                'sources_used': ['docs'] if message.get('sources') else [],
+                'sources': message.get('sources', []), 'not_covered': message.get('not_covered', False)}
+                for message in saved['messages']]
+            return {'session': saved['id'], 'messages': messages,
+                    'context': {'folders': saved['folders'], 'include_subfolders': saved['include_subfolders'], 'repositories': None},
+                    'sources': {'docs': True, 'codex': False}}
+
+        @router.delete('/chats/{key}', status_code=204)
+        async def reader_delete(key: str, request: Request):
+            subject, email = identity(request)
+            try:
+                await reader.delete(subject, email, key)
+            except ReaderError as exc:
+                return failure(exc)
+            return Response(status_code=204)
 
     @router.post('/chat/{key}/escalate')
     async def escalate(key: str, body: ChatInput, request: Request):

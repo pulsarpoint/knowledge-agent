@@ -97,6 +97,8 @@ services:
       DOCS_WIKI_ADMIN_GROUP: docs-admins
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+      READER_AGENT_URL: http://admin-api:8766
+      READER_AGENT_KEY: ${READER_AGENT_KEY:?Run make setup}
     depends_on:
       migrate: {condition: service_completed_successfully}
       rag: {condition: service_healthy}
