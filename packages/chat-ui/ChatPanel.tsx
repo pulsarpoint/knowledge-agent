@@ -13,6 +13,8 @@ import { Separator } from "~/components/ui/separator";
 import { Spinner } from "~/components/ui/spinner";
 
 const MAX_QUESTION = 10000;
+// The Reader's reply when a follow-up targets a closed or expired conversation.
+const CONVERSATION_ENDED = "This conversation has ended. Start a new one.";
 
 interface Turn {
   role: "user" | "assistant";
@@ -147,11 +149,11 @@ function parseJsonField(argument: string, field: string): string | undefined {
 // their bare name; known tools whose argument fails to parse fall back to the
 // bare verb (no raw JSON is ever rendered).
 function describeToolActivity(name: string, argument: string): string {
-  if (name === "search_docs") {
+  if (name === "search_docs" || name === "search_documents") {
     const query = parseJsonField(argument, "query");
     return query !== undefined ? `searching: ${query}` : "searching";
   }
-  if (name === "read_doc") {
+  if (name === "read_doc" || name === "read_document") {
     const path = parseJsonField(argument, "path");
     return path !== undefined ? `reading: ${path}` : "reading";
   }
@@ -670,7 +672,12 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
       {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
       {error && (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {error}
+            {error === CONVERSATION_ENDED && (<>
+              {" "}<Link to={`/${app}/chat`} className="font-semibold underline">New conversation</Link>
+            </>)}
+          </AlertDescription>
         </Alert>
       )}
       {advanced ?? <SourceSelector available={available} selection={selection} onToggle={toggleSource} />}

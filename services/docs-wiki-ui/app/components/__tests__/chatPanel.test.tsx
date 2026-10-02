@@ -227,3 +227,45 @@ test('the TODO footer is gone', () => {
   renderPanel();
   expect(screen.queryByText(/Agent execution is not implemented yet/)).not.toBeInTheDocument();
 });
+
+test("Reader tool events show human progress lines", async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+  const encode = (text: string) => new TextEncoder().encode(text);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })));
+  renderPanel();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox'), 'Explain retries');
+  await user.click(screen.getByRole('button', { name: 'Ask' }));
+  controller.enqueue(encode(`: heartbeat\n\nevent: tool\ndata: ${JSON.stringify({ name: 'search_documents', argument: '{"query":"retries"}' })}\n\n`));
+  expect(await screen.findByText('searching: retries')).toBeVisible();
+  controller.enqueue(encode(`event: tool\ndata: ${JSON.stringify({ name: 'read_document', argument: '{"path":"payments/retries.md"}' })}\n\n`));
+  expect(await screen.findByText('reading: payments/retries.md')).toBeVisible();
+  controller.enqueue(encode(`event: done\ndata: ${JSON.stringify({ text: 'Three.', not_covered: false })}\n\n`));
+  controller.close();
+  expect(await screen.findByText('Three.')).toBeVisible();
+});
+
+test("an ended conversation offers a New conversation link", async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/chats/old')) return Response.json({ session: 'old', messages: [{ role: 'assistant', content: 'Earlier answer' }] });
+    return Response.json({ error: { message: 'This conversation has ended. Start a new one.' } }, { status: 409 });
+  }));
+  renderPanel({ sessionKey: 'old' });
+  expect(await screen.findByText('Earlier answer')).toBeVisible();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox'), 'More?');
+  await user.click(screen.getByRole('button', { name: 'Ask' }));
+  expect(await screen.findByText('This conversation has ended. Start a new one.')).toBeVisible();
+  expect(screen.getByRole('link', { name: 'New conversation' })).toHaveAttribute('href', '/shop/chat');
+});
+
+test("other errors do not offer a New conversation link", async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Wait for the current answer.' } }, { status: 409 })));
+  renderPanel();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox'), 'More?');
+  await user.click(screen.getByRole('button', { name: 'Ask' }));
+  expect(await screen.findByText('Wait for the current answer.')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'New conversation' })).not.toBeInTheDocument();
+});
