@@ -95,7 +95,11 @@ def build_api(app_name: str, store) -> APIRouter:
                 channel='reader', idle_timeout=READER_IDLE_TIMEOUT, owner_only=True,
                 prepare=lambda config: narrow(config, value.folders, value.include_subfolders), validate=validate)
         except HTTPException as exc:
-            raise HTTPException(exc.status_code, FRIENDLY.get(exc.detail, exc.detail)) from None
+            detail = FRIENDLY.get(exc.detail, exc.detail)
+            if exc.status_code == 409 and detail not in (ENDED, BUSY, NOT_ALLOWED):
+                # A disabled agent or model, or an unreadable credential: Reader users can only ask an administrator.
+                detail = NOT_CONFIGURED
+            raise HTTPException(exc.status_code, detail) from None
 
         async def stream():
             async for event, data in turn:

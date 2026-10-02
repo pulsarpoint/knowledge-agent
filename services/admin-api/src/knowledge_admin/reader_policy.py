@@ -8,6 +8,10 @@ NOT_ALLOWED = "The assistant's configuration isn't allowed in the Reader."
 def knowledge_violations(config: dict[str, Any]) -> list[str]:
     """Readable reasons this configuration cannot serve every signed-in Reader user; empty when allowed."""
     reasons = []
+    if not config['enabled']:
+        reasons.append('agent is disabled')
+    if config['model'] is None or not config['model']['enabled']:
+        reasons.append('no enabled model')
     if config['ssh']['enabled']:
         reasons.append('uses SSH')
     if config['mcp']['enabled']:

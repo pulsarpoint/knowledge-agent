@@ -16,11 +16,17 @@ class SettingsInput(BaseModel):
 
 def violations(agent_id: str, conninfo: str) -> list[str]:
     try:
-        return knowledge_violations(get_agent_config(agent_id, conninfo=conninfo))
+        config = get_agent_config(agent_id, conninfo=conninfo)
     except LookupError:
         raise
     except ValueError as exc:
         return [str(exc)]
+    reasons = knowledge_violations(config)
+    if reasons and config.get('config_version'):
+        # Settings changes (including migration 0060) touch only the working copy, never a saved version.
+        reasons.append(f"active version v{config['config_version']['version']} predates these settings"
+                       ' — save and activate a new version')
+    return reasons
 
 
 def build_api(app_name: str, store) -> APIRouter:

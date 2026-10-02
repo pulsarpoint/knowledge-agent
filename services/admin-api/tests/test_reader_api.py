@@ -7,6 +7,7 @@ import pytest
 from agents.usage import Usage
 
 from knowledge_admin.reader_api import narrow
+from test_agent_versions import draft
 from test_api import _client
 from test_sdk_agent import responses_api
 from test_repositories import HEADERS
@@ -152,3 +153,56 @@ def test_narrow_keeps_only_intersection():
     assert [f['search_folder'] for f in narrowed['documents']['folders']] == ['payments', 'payments.runbooks']
     assert [f['search_folder'] for f in narrow(config, ['payments'], False)['documents']['folders']] == ['payments']
     assert narrow(config, ['finance'], True)['documents']['folders'] == []
+
+
+def test_reader_answers_with_the_active_version_snapshot(reader, store):
+    client, seen = reader
+    draft(client, 'search')
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET ssh_enabled=true WHERE id='search'")
+    events = sse(ask(client))
+    assert events[-1][1]['status'] == 'completed'
+    assert seen[-1]['config_version']['version'] == 1 and seen[-1]['ssh']['enabled'] is False
+
+
+def test_ungrounded_active_version_is_not_allowed(reader, store):
+    client, seen = reader
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET documents_grounded=false WHERE id='search'")
+    draft(client, 'search')
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET documents_grounded=true WHERE id='search'")
+    response = ask(client)
+    assert response.status_code == 409
+    assert response.json()['error']['message'] == "The assistant's configuration isn't allowed in the Reader."
+    assert seen == []
+
+
+def test_tool_activity_maps_to_reader_activity(reader, monkeypatch):
+    client, _ = reader
+    async def acting(config, task, *, on_activity, **kwargs):
+        await on_activity({'id': 'r:1', 'kind': 'message', 'title': 'Thinking', 'detail': '', 'status': 'inProgress'})
+        await on_activity({'id': 'r:2', 'kind': 'tool', 'title': 'search_documents', 'detail': '{"query":"retries"}', 'status': 'inProgress'})
+        await on_activity({'id': 'r:2', 'kind': 'tool', 'title': 'search_documents', 'detail': '[]', 'status': 'completed'})
+        return SimpleNamespace(final_output='Not documented.',
+            context_wrapper=SimpleNamespace(usage=Usage(), context={'grounding': {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}}),
+            to_input_list=lambda: [{'role': 'user', 'content': task}, {'role': 'assistant', 'content': 'Not documented.'}])
+    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', acting)
+    events = sse(ask(client))
+    assert [event for event in events if event[0] == 'activity'] == [
+        ('activity', {'tool': 'search_documents', 'argument': '{"query":"retries"}'})]
+    assert events[-1][0] == 'completed'
+
+
+@pytest.mark.parametrize('change', [
+    "UPDATE ka.agents SET enabled=false WHERE id='search'",
+    "UPDATE ka.llm_models SET enabled=false",
+])
+def test_follow_up_after_agent_or_model_disabled_is_not_configured(reader, store, change):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    with store.connect() as conn:
+        conn.execute(change)
+    response = ask(client, session_id=session_id, question='And after that?')
+    assert response.status_code == 409
+    assert response.json()['error']['message'] == "The assistant isn't configured yet. Ask an administrator."
