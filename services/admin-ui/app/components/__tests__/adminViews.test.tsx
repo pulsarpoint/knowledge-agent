@@ -38,21 +38,18 @@ test("sessions view lists a user's sessions linking to transcripts", async () =>
     .toHaveAttribute("href", "/activity/session/k1");
 });
 
-test("transcript renders q/a turns with badges", async () => {
+test("transcript renders q/a turns with sources and a link to the agent session", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ rows: [
-    { id: 1, ts: "2026-08-10 11:00:00", user_email: "a@x.io",
-      session_key: "k1", question: "q?", answer: "Refunds are async.",
-      sources_used: ["codex", "docs"], not_covered: false, escalated: false },
-    { id: 2, ts: "2026-08-10 11:05:00", user_email: "a@x.io",
-      session_key: "k1", question: "code?", answer: "From the code.",
-      sources_used: [], not_covered: false, escalated: true },
+    { id: "r1", ts: "2026-10-02 11:00:00", user_email: "a@x.io", session_key: "s1", agent_id: "search",
+      question: "q?", answer: "Refunds are async [1].", status: "completed", sources_used: ["docs"],
+      sources: [{ n: 1, path: "payments/refunds.md", heading_path: "payments", anchor: null }],
+      not_covered: true, escalated: false },
   ]})));
-  render(<MemoryRouter><AdminSessionView sessionKey="k1" /></MemoryRouter>);
-  await waitFor(() =>
-    expect(screen.getByText(/Refunds are async/)).toBeInTheDocument());
-  expect(screen.getByText("codex")).toBeInTheDocument();
-  expect(screen.getByText("docs")).toBeInTheDocument();
-  expect(screen.getByText(/code analysis/i)).toBeInTheDocument();
+  render(<MemoryRouter><AdminSessionView sessionKey="s1" /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByText("payments/refunds.md")).toBeInTheDocument());
+  expect(screen.getByText("not covered")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open in agent session" }))
+    .toHaveAttribute("href", "/agents/search?view=test&session_id=s1");
 });
 
 test("403 renders access-denied empty state", async () => {

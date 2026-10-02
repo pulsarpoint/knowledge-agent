@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Separator } from './ui/separator';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Spinner } from './ui/spinner';
+import GroundingSources from './GroundingSources';
 import { Textarea } from './ui/textarea';
 
 export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number }) {
@@ -139,13 +140,16 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       id: run.id, role: 'assistant', name: agentName, content: run.answer,
       pending: run.status === 'running', error: run.error,
       status: run.status === 'running' ? run.progress : run.status === 'completed' ? undefined : run.status,
-      details: (run.context.activity?.length || run.commands.length) ? <details className="text-sm text-muted-foreground">
+      details: <>
+        {run.context.grounding?.sources?.length ? <GroundingSources sources={run.context.grounding.sources} /> : null}
+        {(run.context.activity?.length || run.commands.length) ? <details className="text-sm text-muted-foreground">
         <summary className="cursor-pointer py-1">View activity · {run.context.model_name} · {run.context.config?.config_version ? `Agent v${(run.context.config.config_version as { version: number }).version}` : `Prompt v${run.context.prompt.version}`}</summary>
         <div aria-label="Agent activity" className="mt-3 flex flex-col gap-3">
           {run.context.activity?.map(item => <details key={item.id}><summary className="cursor-pointer">{item.title} · {item.status}</summary>{item.detail && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">{item.detail}</pre>}</details>)}
           {run.commands.map(command => <details key={command.id}><summary>{command.server_name} · {command.status} · exit {command.exit_code}</summary><pre>{command.command}</pre><pre aria-label="Standard output">{command.stdout}</pre>{command.stderr && <pre aria-label="Standard error">{command.stderr}</pre>}{command.error && <p>{command.error}</p>}</details>)}
         </div>
-      </details> : undefined,
+      </details> : undefined}
+      </>,
       actions: conversation && <Button variant="ghost" size="sm" disabled={busy || running} onClick={() => {
         setFeedbackRunId(run.id); setComment(''); setPanel('feedback'); setError('');
       }}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>,

@@ -6,8 +6,9 @@ export interface AuditSession {
   session_key: string; first_question: string; questions: number; first_ts: string; last_ts: string;
 }
 export interface AuditRow {
-  id: number; ts: string; user_email: string; session_key: string; question: string; answer: string;
-  sources_used: string[]; not_covered: boolean; escalated: boolean;
+  id: string; ts: string; user_email: string; session_key: string; agent_id: string; question: string; answer: string;
+  status: string; sources_used: string[]; sources: { n: number; path: string; heading_path: string; anchor: string | null }[];
+  not_covered: boolean; escalated: boolean;
 }
 export class ApiError extends Error {
   status: number;

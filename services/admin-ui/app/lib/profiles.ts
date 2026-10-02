@@ -1,7 +1,7 @@
 import { request } from './api';
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean; is_coordinator: boolean;
-  documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean;
+  documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   active_config_version_id?: string | null;
   revision: number; model_id: string | null; all_folders: boolean; all_repositories: boolean; include_subfolders: boolean;
   folder_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
@@ -22,8 +22,8 @@ export const getAgentConfig = (id: string, versionId?: string) => request<Record
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
 export const createAgent = (value: { name: string; description: string; when_to_use: string; system_prompt: string }) => request<AgentProfile>('/api/agents', json('POST', value));
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
-  const { revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled } = value;
-  return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled }));
+  const { revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded } = value;
+  return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded }));
 };
 export const saveProfileModel = (value: AgentProfile, model_id: string | null) => request<AgentProfile>(path(value.id) + '/model', json('PUT', { revision: value.revision, model_id }));
 

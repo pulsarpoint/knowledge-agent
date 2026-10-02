@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from 'react-router';
 import { ArrowRight, Plus, Sparkles, Trash2 } from 'lucide-react';
 import AgentWizard from './AgentWizard';
+import ReaderAssistantCard from './ReaderAssistantCard';
 import { createAgent, deleteAgent, getAgents, type AgentSummary } from '../lib/profiles';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -50,6 +51,7 @@ export default function AgentsView() {
   }
   const filtered = agents?.filter(a => `${a.name} ${a.description} ${a.is_coordinator ? 'coordinator' : ''}`.toLowerCase().includes(query.toLowerCase()));
   return <section className="flex flex-col gap-6" aria-label="Agent list">
+    <ReaderAssistantCard />
     <div className="flex flex-wrap items-center justify-between gap-3"><Input aria-label="Find agents" placeholder="Find an agent…" className="max-w-sm" value={query} onChange={e => setQuery(e.target.value)} /><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setCreating(true)} disabled={creating || wizard}><Plus />Create agent</Button><Button onClick={() => setWizard(true)} disabled={creating || wizard}><Sparkles data-icon="inline-start" />New Agent Wizard</Button></div></div>
     {wizard && <AgentWizard onClose={() => setWizard(false)} onCreated={id => navigate(`/agents/${id}`)} />}
     {error && !removing && <Alert variant="destructive"><AlertDescription>{error}<Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button></AlertDescription></Alert>}

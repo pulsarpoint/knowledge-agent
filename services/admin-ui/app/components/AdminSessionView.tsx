@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { getSessionAudit, type AuditRow, ApiError } from "../lib/api";
 import Markdown from "./Markdown";
+import GroundingSources from "./GroundingSources";
 import { Badge } from "~/components/ui/badge";
 import { Card, CardContent } from "~/components/ui/card";
 import { Empty, EmptyDescription } from "~/components/ui/empty";
@@ -26,6 +28,7 @@ export default function AdminSessionView({ sessionKey }: { sessionKey: string })
       {rows.length === 0
         ? <Empty><EmptyDescription>No recorded activity yet.</EmptyDescription></Empty>
         : <div className="flex flex-col gap-6">
+            <Link className="text-sm underline underline-offset-4" to={`/agents/${encodeURIComponent(rows[0].agent_id)}?view=test&session_id=${rows[0].session_key}`}>Open in agent session</Link>
             {rows.map((row) => (
               <div key={row.id} className="flex flex-col gap-2">
                 <div className="text-sm text-muted-foreground">
@@ -36,6 +39,7 @@ export default function AdminSessionView({ sessionKey }: { sessionKey: string })
                 <Card>
                   <CardContent className="pt-6">
                     <Markdown content={row.answer} />
+                    <GroundingSources sources={row.sources} />
                     <div className="mt-2 flex flex-wrap gap-2">
                       {row.sources_used.map((s) => (
                         <Badge key={s} variant="secondary">{s}</Badge>
