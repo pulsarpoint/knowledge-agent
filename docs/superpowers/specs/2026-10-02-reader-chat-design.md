@@ -1,31 +1,38 @@
 # Reader chat answers with a generic admin-configured agent
 
-Status: design approved 2026-10-02; awaiting spec review.
+Status: design approved 2026-10-02 (revised: grounding as agent configuration, sessions
+in `ka.agent_sessions`); awaiting spec review.
 
 ## Goal
 
 Signed-in employees ask questions in the Reader (`/:app/chat`) and receive answers
 grounded only in the RAG knowledge base, with clickable `[n]` citations. When the
 documentation does not cover a question, the answer says so and the question is
-recorded as a documentation gap. Conversations appear in Admin → Activity.
+recorded as a documentation gap. Administrators can review real Reader conversations
+and tune the agent from them.
 
 Success criteria:
 
-- A question covered by the docs returns a streamed answer whose `[n]` markers link
-  to the cited documents.
+- A question covered by the docs returns an answer whose `[n]` markers link to the
+  cited documents.
 - A question not covered by the docs shows the "not covered" badge, adds an entry to
   Reader → Gaps, and never invents an answer from general knowledge.
-- Every completed turn appears in Admin → Activity.
-- No new agent runtime exists outside admin-api; the Reader runs an agent defined and
-  versioned in Admin → Agents.
+- Every Reader conversation is a live session (`is_test = false`) in
+  `ka.agent_sessions`, visible in Admin → Activity, and reviewable with
+  **Suggest improvements**.
+- No agent runtime or session store is added outside admin-api; the Reader runs an
+  agent defined and versioned in Admin → Agents. `agents.agent()` and
+  `create_agent()` keep their signatures.
 
 ## Agreed decisions
 
 | Decision | Choice |
 | --- | --- |
 | Grounding | Docs only. Every claim is cited; uncovered questions are stated as such. |
+| Grounding switch | Agent configuration: **Answer only from documents** on the Documents capability (`documents.grounded`), versioned like every other setting. Not a run option. |
 | Gap signal | The agent calls `report_not_covered`, or at least one search ran and every search returned zero hits. |
-| Runtime | The generic runner `knowledge_admin.agents.agent()` in admin-api. docs-wiki is an adapter only. |
+| Runtime | The generic runner `knowledge_admin.agents.agent()` in admin-api. |
+| Sessions | The generic `ka.agent_sessions` / `ka.operations_runs` system, live sessions (`is_test = false`). docs-wiki stores no conversations. |
 | Agent selection | A *Reader assistant* setting in admin chooses the agent; default is the existing `search` agent. |
 | Access | Reader access tiers. Step 1 ships the **Knowledge** tier only. |
 
@@ -33,7 +40,7 @@ Success criteria:
 
 | Tier | Reader users | Allowed agent capabilities | Delivered |
 | --- | --- | --- | --- |
-| Knowledge | Any signed-in user | Documents, Skills, Services | This spec |
+| Knowledge | Any signed-in user | Documents (with **Answer only from documents** on), Skills, Services | This spec |
 | Support | Members of an admin-chosen Keycloak group | Knowledge + read-only SSH, MCP, Code | Step 1b, separate spec |
 
 Reason: `ssh_run` currently executes arbitrary commands (optionally with sudo) and the
@@ -44,145 +51,213 @@ group gating and per-user command audit before SSH reaches the Reader.
 ## Architecture
 
 ```
-Reader UI ─► docs-wiki POST /api/{app}/chat ──(internal network, X-Reader-Key)──► admin-api POST /internal/reader/runs
-              │ user identity, sessions,                           │ load reader settings + agent's active version
-              │ audit, gaps, event mapping                         │ enforce Knowledge tier, intersect folders
-              ◄──────────── NDJSON events ─────────────────────────┘ agents.agent(config, question, history, grounded=True)
+Reader UI ─► docs-wiki /api/{app}/chat|chats ──(internal network, X-Reader-Key, X-Reader-User)──► admin-api /internal/reader/*
+              │ identity from gateway,                          │ reader settings + tier check + folder narrowing
+              │ event mapping, gap logging                      │ shared session/turn service (same code as Test)
+              ◄──────── NDJSON events ──────────────────────────┘ agents.agent(config, question, history=session history)
+                                                                  ka.agent_sessions (is_test=false) · ka.operations_runs
 ```
 
-### Units
+## Units
 
-1. **`ka.reader_settings`** (migration `0060_reader_settings`): single-row table
-   `{singleton, knowledge_agent_id → ka.agents(id), revision, updated_by, updated_at}`,
-   seeded with `search`. The down migration drops it. Deleting an agent that is the
-   Reader agent is refused by the foreign key (`ON DELETE RESTRICT`) and surfaced as
-   "This agent is the Reader assistant. Choose another Reader agent first."
+### 1. Migration `0060_reader_assistant`
 
-2. **Reader settings API and UI** (admin-api + admin-ui): `GET/PUT /api/reader/settings`
-   with revision checks and audit events. A *Reader assistant* card on `/agents`
-   shows the selected agent and a select of agents that pass the tier rule; agents
-   that fail show the reason ("uses SSH", …) and are disabled in the select.
+- `ka.agents.documents_grounded boolean NOT NULL DEFAULT false`; set `true` for `search`.
+- `ka.agent_sessions.idle_timeout interval NOT NULL DEFAULT interval '1 hour'` — the
+  idle window before an active session expires. Existing sessions keep one hour.
+- `ka.agent_sessions.hidden_by_owner_at timestamptz NULL` — set when a Reader user
+  deletes a conversation from their list; the transcript stays available to admins.
+- `ka.reader_settings`: single row
+  `{singleton, knowledge_agent_id → ka.agents(id) ON DELETE RESTRICT, revision,
+  updated_by, updated_at}`, seeded with `search`.
+- The down migration drops the table and the three columns.
 
-3. **Tier policy** (`knowledge_admin/reader_policy.py`):
-   `knowledge_violations(config) -> list[str]` returns human-readable reasons when the
-   effective configuration enables SSH, MCP, or Code. Empty list = allowed. Used on
-   settings save and on every run.
+Deleting an agent that is the Reader agent fails with "This agent is the Reader
+assistant. Choose another Reader agent first."
 
-4. **`search_documents` tool** (`knowledge_admin/tools/documents.py`): added by
-   `get_tools` whenever the Documents capability is on (all agents, not only the
-   Reader). Arguments `query`, optional `folder` (must lie inside the allowed
-   folders). Calls the RAG `/search` API (hybrid, top 8) with the run's folder
-   selectors, using `RAG_BACKOFFICE_KEY`. Each hit gets a turn-wide number `n` and is
-   recorded in the run context. Output: `[n] path (folder)\n<chunk text>` blocks, or
-   "No matches in the documentation." RAG failures return an error string to the model.
-   A companion **`read_document(path)`** returns one RAG workspace file (≤ 64 KiB) when
-   its folder is allowed; its content is registered as a citable excerpt.
+### 2. "Answer only from documents" setting
 
-5. **Grounded run option** (`agents.agent(..., grounded=False)`): when true,
-   - appends the grounding policy to the instructions (answer only from retrieved
-     excerpts; cite claims with `[n]`; when the excerpts do not answer the question
-     call `report_not_covered(reason)` and tell the user what is missing; never use
-     general knowledge for factual claims; do not cite numbers that were not returned);
-   - adds the `report_not_covered(reason: str)` tool;
-   - requires the Documents capability (else `ValueError`).
-   The run result exposes `grounding = {excerpts, searches, empty_searches, reported}`
-   through the run context so callers can build sources and decide `not_covered`.
+A switch on the agent's **Documents** tab (shown while Documents is enabled), stored
+as `documents_grounded` and exposed as `config['documents']['grounded']`. It is part of
+the working configuration and version snapshots, so drafts, activation and rollback
+apply. When on:
 
-6. **Internal endpoint** (`knowledge_admin/reader_api.py`): `POST /internal/reader/runs`,
-   mounted outside `/api` so the admin gateway and nginx (`location /api/`) never
-   route to it. Authenticated by constant-time comparison of `X-Reader-Key` with
-   `READER_AGENT_KEY`; missing configuration → 503, wrong key → 401.
-   Request: `{question (1–10000), history (list, ≤ 40 items), folders: list[str] | null,
-   include_subfolders: bool, user_email}`.
-   Steps: load reader settings → load the agent's effective configuration with the
-   existing `agents.get_agent_config(agent_id)` (active configuration version if
-   present, otherwise working configuration; never `working_copy=True`) → tier check
-   → intersect document folders with the request's folders → resolve credentials →
-   `agents.agent(config, question, history=history, grounded=True, max_turns=20,
-   timeout_seconds=300)` streamed.
-   Response: `application/x-ndjson` with events
-   `tool {name, argument}`, `token {text}`, `final {text, sources, not_covered, near_misses, results, items}`,
-   `error {message}`. `sources` contains only excerpts whose `[n]` appears in the final
-   text, as `{n, path, heading_path, anchor: null}`. `items` is the SDK
-   `to_input_list()` for docs-wiki to persist. The email is used only for tracing
-   metadata.
+- `get_prompt(config)` appends the grounding policy: answer only from retrieved
+  excerpts; cite claims with `[n]`; when the excerpts do not answer the question call
+  `report_not_covered(reason)` and tell the user what is missing; never use general
+  knowledge for factual claims; never cite numbers that were not returned.
+- `get_tools(config)` adds `report_not_covered(reason: str)`.
 
-7. **Test tab toggle** (admin-ui): "Grounded (Reader mode)" switch on the agent Test
-   tab passes `grounded=true` to the existing runs endpoint, so admins can preview
-   Reader behavior. Sources are shown under the reply.
+Any agent may enable it; the Reader requires it.
 
-8. **docs-wiki adapter** (`search_api.py` `/chat`):
-   1. Resolve the user (existing `user_state`), validate the question, load or create
-      the session (`session` event for new keys), bind context (existing
-      `bind_context`).
-   2. Refuse a second concurrent turn in the same session with 409
-      "Wait for the current answer." (per-session asyncio lock in process).
-   3. Read history via `CappedSession.get_items()`, POST to
-      `READER_AGENT_URL/internal/reader/runs` with `X-Reader-Key`, stream the response.
-   4. Map events: `tool` → `tool`, `token` → `token`, `final` → `sources` then
-      `done {text, not_covered, escalation_offered: false, sources_used: ["docs"]}`,
-      `error` → `error`.
-   5. After `final`: persist `items` to the session, append an audit row
-      (`audit.append`), and when `not_covered` append a gap (`gaps.append_gap` with
-      the near misses, `results`, and the existing session-ref hash).
-   6. On error or disconnect: persist nothing.
-   `/chat/{key}/escalate` keeps returning `TODO`; the escalation button stays hidden.
+### 3. Document tools (`knowledge_admin/tools/documents.py`)
 
-9. **Reader UI** (`services/docs-wiki-ui/app/lib/api.ts`, `packages/chat-ui`):
-   `streamChat()` parses NDJSON (buffering partial lines; malformed lines become an
-   `error` event) into the existing `ChatEvent` union. Remove the "Agent execution is
-   not implemented yet" footer. Hide the repository portion of Advanced context.
+Added by `get_tools` whenever the Documents capability is on, for every agent:
+
+- `search_documents(query, folder?)` — RAG hybrid search (top 8) restricted to the
+  run's allowed folders (an optional `folder` must lie inside them), using
+  `RAG_BACKOFFICE_KEY`. Each hit receives a turn-wide number `n`. Output:
+  `[n] path (folder)\n<chunk text>` blocks, or "No matches in the documentation."
+  RAG failures return an error string to the model.
+- `read_document(path)` — one RAG workspace file (≤ 64 KiB) when its folder is
+  allowed; registered as a citable excerpt.
+
+Both record `grounding = {excerpts, searches, empty_searches, reported}` in the
+run-context dict that `agent()` already creates. Callers read it after the run via the
+SDK's `run.context_wrapper.context`. `report_not_covered` sets `reported`.
+
+### 4. Shared turn service (refactor of `agent_sessions.py`)
+
+Extract the body of `POST /api/agents/{id}/runs` into
+`start_turn(store, app_name, *, agent_id, value, actor, config_override=None,
+idle_timeout=None, owner_only=False) -> AsyncIterator[event]`, used unchanged by the
+admin route (behavior and SSE format unchanged) and by the Reader endpoint. Additions,
+all generic:
+
+- **Grounding result:** on completion, when `grounding` exists in the run context,
+  store `context['grounding'] = {sources, not_covered, near_misses, results}` on the
+  run row, where `sources` are the excerpts whose `[n]` appears in the answer
+  (`{n, path, heading_path, anchor: null}`) and `not_covered` follows the gap signal.
+  The `completed` event therefore carries it.
+- **Idle timeout:** expiry SQL uses `s.idle_timeout` instead of the literal one hour;
+  `expires_at` likewise. `create_session` takes an optional `idle_timeout`.
+- **Owner check (`owner_only`):** a follow-up turn on an existing session requires
+  `actor_id` to be the session owner and `hidden_by_owner_at IS NULL`; otherwise 404.
+- **Config override:** for a new session, the caller may pass the already-resolved
+  configuration to pin (used by the Reader for folder narrowing).
+
+### 5. Tier policy (`knowledge_admin/reader_policy.py`)
+
+`knowledge_violations(config) -> list[str]` returns readable reasons when SSH, MCP or
+Code is enabled, Documents is off, or **Answer only from documents** is off. Empty
+list = allowed. Checked when saving reader settings and before every Reader turn
+(against the pinned session configuration).
+
+### 6. Reader settings API and UI
+
+`GET/PUT /api/reader/settings` with revision checks and audit events. A *Reader
+assistant* card on `/agents` shows the selected agent and a select of agents; agents
+that violate the tier rule are disabled with their reason ("uses SSH", "Answer only
+from documents is off", …).
+
+### 7. Internal Reader endpoints (`knowledge_admin/reader_api.py`)
+
+Mounted under `/internal/reader`, outside `/api`, so the admin gateway and nginx
+(`location /api/`) never route to them. Authentication: constant-time comparison of
+`X-Reader-Key` with `READER_AGENT_KEY` (unset → 503, wrong → 401). The Reader user is
+`X-Reader-User` (subject) and `X-Reader-Email`, trusted only because the key matched;
+it becomes the session and run actor through the existing principals table.
+
+| Route | Behavior |
+| --- | --- |
+| `POST /internal/reader/runs` | `{id?, session_id?, question (1–10000), folders: list[str] \| null, include_subfolders}`. New session: load reader settings → `get_agent_config(agent_id)` (active version, never working copy) → tier check → narrow document folders to the intersection with `folders` → `start_turn(..., config_override, idle_timeout=interval '7 days', owner_only=True)` with `is_test=false`, `max_turns` 20, timeout 300 s. Existing session: owner check, tier check on the pinned config, `start_turn`. Streams `application/x-ndjson`: `session {id}` (new sessions), `activity {title, tool, argument}`, `completed {status, answer, error, grounding}`. |
+| `GET /internal/reader/sessions` | The user's visible live sessions for the Reader agent, newest first, max 50: `{id, title, status, last_activity_at}`. |
+| `GET /internal/reader/sessions/{id}` | Owner-only transcript: user/assistant messages from the session's runs, each assistant message with `sources` and `not_covered` from its run's grounding, plus pinned `folders`. |
+| `DELETE /internal/reader/sessions/{id}` | Owner-only: close the session and set `hidden_by_owner_at`. Transcript stays visible to admins. |
+
+### 8. docs-wiki adapter (`search_api.py`)
+
+docs-wiki keeps no conversation state. `sessions.py`, `audit.py` writers and the
+`search-conversations` state are no longer used by the workspace-mode routes.
+
+| Reader route | Adapter behavior |
+| --- | --- |
+| `POST /api/{app}/chat` | Require the gateway identity (existing `user_state`), validate, call `POST /internal/reader/runs`, map events: `session` → `session {key}`, `activity` → `tool {name, argument}`, `completed` (status completed) → `sources` then `done {text, not_covered, escalation_offered: false, sources_used: ["docs"]}`, otherwise → `error {message}`. When `not_covered`, append a gap (`gaps.append_gap` with near misses, `results`, and a session-ref hash). |
+| `GET /api/{app}/chats` | Proxy to `GET /internal/reader/sessions`, mapped to the existing `{session_key, first_question, …}` shape. |
+| `GET /api/{app}/chats/{key}` | Proxy to the transcript; map to the existing `Transcript` type. |
+| `DELETE /api/{app}/chats/{key}` | Proxy to delete. |
+| `POST /api/{app}/chat/{key}/escalate` | Unchanged: `TODO`; the escalation button stays hidden. |
+
+Gateway headers are never forwarded; docs-wiki sends only `X-Reader-Key`,
+`X-Reader-User` and `X-Reader-Email`.
+
+### 9. Reader UI (`services/docs-wiki-ui/app/lib/api.ts`, `packages/chat-ui`)
+
+- `streamChat()` parses NDJSON (buffers partial lines; a malformed line becomes an
+  `error` event) into the existing `ChatEvent` union.
+- The answer appears when the turn completes; activity lines ("searching: …",
+  "reading: …") show progress meanwhile. Token-by-token streaming is not provided,
+  because the generic runner reports activity, not text deltas.
+- Session keys are the session UUIDs.
+- Remove the "Agent execution is not implemented yet" footer; hide the repository
+  part of Advanced context; change the delete dialog text to "Remove this
+  conversation from your list?"
+- Continuing an expired conversation shows "This conversation has ended. Start a new
+  one." with a **New conversation** link.
+
+### 10. Admin: Activity and Test
+
+- **Activity** (`/activity`, user and session pages) reads live sessions
+  (`is_test = false`) for the Reader agent from `ka.agent_sessions` /
+  `ka.operations_runs` instead of the Reader's `audit.db`: users, their sessions, and
+  each question with answer, sources and the not-covered badge. A session page links to
+  the agent's session view, where **Suggest improvements** works on real
+  conversations. Historical `audit.db` rows are not migrated (nothing has written them
+  in v3).
+- **Test tab:** no new toggle. Replies whose run carries `grounding.sources` list
+  their sources under the reply.
 
 ## Error handling
 
-| Condition | HTTP / event | Message to the user |
+| Condition | HTTP / event | Message to the Reader user |
 | --- | --- | --- |
-| No reader agent, agent disabled, or no enabled model | 409 before streaming | "The assistant isn't configured yet. Ask an administrator." |
-| Tier violation at run time | 409 before streaming | "The assistant's configuration isn't allowed in the Reader." |
-| admin-api unreachable or 5xx | 503 / `error` | "Chat is temporarily unavailable." |
-| Model, timeout, turn limit, provider error | `error` | Existing redacted, generic messages from the agent runtime |
-| Concurrent turn in a session | 409 | "Wait for the current answer." |
-| Invalid key between services | 401 (logged in docs-wiki) | "Chat is temporarily unavailable." |
+| No Reader agent, agent disabled, or no enabled model | 409 before streaming | "The assistant isn't configured yet. Ask an administrator." |
+| Tier violation | 409 before streaming | "The assistant's configuration isn't allowed in the Reader." |
+| Session not owned, hidden, or unknown | 404 | "Unknown conversation" |
+| Session expired or closed | 409 | "This conversation has ended. Start a new one." |
+| Turn already running in the session | 409 | "Wait for the current answer." |
+| admin-api unreachable, 5xx, or key rejected | 503 / `error` | "Chat is temporarily unavailable." (key rejection is logged in docs-wiki) |
+| Model, timeout, turn limit, provider error | `error` | The turn service's existing redacted messages |
 
-Secrets are never forwarded: docs-wiki sends no gateway headers upstream, and the
-agent runtime's existing redaction applies to tool output, answers and traces.
+Reading and search never depend on admin-api.
 
 ## Configuration
 
-- `scripts/setup.py` generates `READER_AGENT_KEY` (32 random bytes, base64), added to
+- `scripts/setup.py` generates `READER_AGENT_KEY` (32 random bytes, base64); add it to
   `.env.example`.
 - `deploy/compose.yaml`: docs-wiki gets `READER_AGENT_URL=http://admin-api:8766` and
-  `READER_AGENT_KEY`; admin-api gets `READER_AGENT_KEY`. docs-wiki does **not** add a
-  `depends_on` on admin-api, so reading and search start and keep working while
-  admin-api is down; the adapter reports chat unavailability per request.
+  `READER_AGENT_KEY`; admin-api gets `READER_AGENT_KEY`. docs-wiki does not add a
+  `depends_on` on admin-api.
+- Reader session idle timeout: 7 days (constant in `reader_api.py`).
 
 ## Testing
 
 All new behavior is test-first. No test calls a real model; admin-api tests reuse the
-fake model approach in `tests/test_sdk_agent.py`.
+fake-model approach in `tests/test_sdk_agent.py`.
 
-- admin-api: `search_documents`/`read_document` scoping, numbering and RAG-error
-  handling; grounded policy text and tool injection; cited-only sources; empty-search
-  `not_covered`; tier policy on save and run; internal endpoint key handling and
-  absence from `/api`; active-version selection; reader settings revision checks and
-  FK refusal on agent delete.
-- docs-wiki: event mapping, session persistence only on success, audit and gap rows,
-  every error row in the table above, concurrent-turn refusal.
-- UI: NDJSON parser (split lines, malformed line), footer removal, Reader assistant
-  card, Test tab grounded toggle.
-- DB: `0060` up/down in `db/tests`.
-- `scripts/smoke.py`: internal endpoint rejects a request without the key. Smoke stays
+- admin-api
+  - document tools: folder scoping (agent ∩ request), numbering, RAG errors,
+    `read_document` limits;
+  - grounding setting: policy and `report_not_covered` only when on; saved, versioned,
+    shown on the Documents tab; `agent()` / `create_agent()` signatures unchanged;
+  - turn service: admin `/runs` behavior and SSE unchanged (existing tests stay
+    green); grounding result with cited-only sources and empty-search `not_covered`;
+    `idle_timeout` expiry; owner check;
+  - tier policy on settings save and per turn; reader settings revision checks;
+    FK refusal on agent delete;
+  - internal endpoints: key handling, unreachable through `/api`, owner isolation
+    between two users, hide-on-delete keeps the admin view, active version pinned;
+  - Activity endpoints read live sessions.
+- docs-wiki: event mapping for every event and error row; gap appended only when
+  `not_covered`; list/transcript/delete mapping; no gateway headers forwarded.
+- UI: NDJSON parser (split lines, malformed line); expired-conversation message;
+  footer and repository picker removed; Reader assistant card; Documents-tab switch;
+  Test-tab and Activity source lists.
+- DB: `0060_reader_assistant` up/down in `db/tests`.
+- `scripts/smoke.py`: internal endpoints reject a request without the key. Smoke stays
   model-free.
 
 ## Documentation
 
 Update `docs/user-guide.md` (Reader chat, Gaps, Activity, Agents, limitations,
-Appendix B) and the README sentence stating that chat returns `TODO`.
+Appendix B), `docs/agents.md` (Reader is connected; live sessions; idle timeout), and
+the README sentence stating that chat returns `TODO`.
 
 ## Out of scope
 
 - Step 1b: read-only SSH mode, Support tier, group gating, per-user command audit.
+- Token-by-token answer streaming.
 - "Ask the code" escalation.
 - Publishing generated documents to RAG automatically.
 - Per-folder reader permissions.
-- Moving Reader sessions, audit or gaps from SQLite to PostgreSQL.
+- Moving the Gaps log from `gaps.jsonl` to PostgreSQL.
