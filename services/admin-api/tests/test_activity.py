@@ -28,3 +28,13 @@ def test_activity_lists_reader_sessions_only(store, tmp_path):
     assert rows[0]['sources_used'] == ['docs'] and rows[0]['agent_id'] == 'search' and rows[0]['not_covered'] is False
     assert client.get('/api/admin/audit/session/not-a-uuid', headers=HEADERS).status_code == 404
     assert client.get(f'/api/admin/audit/session/{admin_session}', headers=HEADERS).json()['rows'] == []
+
+
+def test_activity_routes_are_admin_only(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    paths = ['/api/admin/audit/users', '/api/admin/audit/users/alice@example.test/sessions',
+             f'/api/admin/audit/session/{uuid4()}']
+    reader = {'X-Forwarded-Groups': 'readers', 'X-Forwarded-User': 'alice', 'X-Forwarded-Email': 'alice@example.test'}
+    for path in paths:
+        assert client.get(path).status_code == 403
+        assert client.get(path, headers=reader).status_code == 403
