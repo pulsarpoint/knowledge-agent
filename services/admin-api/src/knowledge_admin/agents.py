@@ -19,8 +19,10 @@ from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.agent_tracing import trace_secrets
+from knowledge_admin import grounding
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
 from knowledge_admin.tools.files import list_files, read_file, search_files
 from knowledge_admin.tools.code_graph import code_graph
 from knowledge_admin.tools.ast_grep import ast_grep
@@ -137,7 +139,7 @@ def get_paths(config: dict[str, Any]) -> list[Path]:
     paths = []
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
-    if config['documents']['enabled']:
+    if config['documents']['enabled'] and not documents_grounded(config):
         paths.extend(Path(folder['path']) for folder in config['documents']['folders'])
     return list(dict.fromkeys(paths))
 
@@ -167,8 +169,13 @@ def get_mcp(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list[d
 def get_tools(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list[FunctionTool]:
     """Return the function tools allowed by this agent's enabled capabilities."""
     tools = []
-    if config['code']['enabled'] or config['documents']['enabled']:
+    grounded = documents_grounded(config)
+    if config['code']['enabled'] or config['documents']['enabled'] and not grounded:
         tools.extend([list_files, read_file, search_files, shell_run])
+    if config['documents']['enabled']:
+        tools.extend([search_documents, read_document])
+    if grounded:
+        tools.append(report_not_covered)
     if config['code']['enabled']:
         tools.extend([code_search, ast_grep])
     if config['code']['enabled'] and config['code'].get('graphs'):
@@ -178,6 +185,10 @@ def get_tools(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list
     return tools
 
 
+def documents_grounded(config: dict[str, Any]) -> bool:
+    return config['documents']['enabled'] and config['documents'].get('grounded', False)
+
+
 def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
                selected_mcp: list[dict[str, Any]]) -> str:
     """Combine the active prompt with instructions and enabled resource descriptions."""
@@ -185,7 +196,7 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
     if not prompt.strip():
         raise ValueError('The agent requires an active system prompt.')
     resources = {'name': config['name'], 'description': config['description']}
-    if config['code']['enabled'] or config['documents']['enabled']:
+    if config['code']['enabled'] or config['documents']['enabled'] and not documents_grounded(config):
         prompt += '\nUse shell_run for Bash pipelines, rg, ast-grep and Python scripts. '
         prompt += 'Selected resource paths are mounted read-only at the same absolute paths; pwd shows writable scratch space. '
         prompt += 'Inspect focused source ranges; use code_graph for indexed relationships when available. '
@@ -204,6 +215,9 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
             prompt += 'Graph paths are relative to CODE_ROOT, as returned by the tool. Static edges are evidence, not proof of runtime execution.'
     if config['documents']['enabled']:
         resources['documents'] = config['documents']['folders']
+        prompt += '\nUse search_documents to find knowledge-base excerpts and read_document for a whole document.'
+    if documents_grounded(config):
+        prompt += grounding.POLICY
     if config['skills']['enabled']:
         resources['skills'] = [skill for skill in config['skills']['items'] if skill['enabled']]
     if config['services']['enabled']:
