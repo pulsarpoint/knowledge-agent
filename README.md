@@ -9,9 +9,10 @@ and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
-and connection tests work. Chat and agent Test screens remain, but execution
-endpoints return HTTP 200 with plain text `TODO`. They do not run an SDK agent,
-call tools or models, or create a run/conversation. Existing history is retained.
+and connection tests work. Reader chat answers from the knowledge base using the
+agent chosen in Admin → Agents → Reader assistant; agent Test and the multi-agent
+board run models. Only the "Ask the code" escalation and the code ask endpoint
+still return HTTP 200 with plain text `TODO`.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
 **New here? Start with the [User Guide](docs/user-guide.md)** — how to use the Reader
@@ -206,7 +207,7 @@ through Code projects.
 LLM Settings stores named OpenAI-compatible, Anthropic and Bedrock connections
 with encrypted credentials. Model connection tests still contact the configured
 provider. Agent pages store model selections, prompts and capabilities for future
-execution. Chat/Test currently returns `TODO` even without a model assignment.
+execution. Agent Test and Reader chat require a model assignment.
 
 
 ## Development and tests

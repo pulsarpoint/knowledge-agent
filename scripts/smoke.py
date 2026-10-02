@@ -138,6 +138,19 @@ def main() -> None:
     else:
         raise RuntimeError("Admin API exposes reader endpoints")
     print("PASS: independent reader/admin logins, isolated sessions, disjoint APIs and removed reader admin pages")
+    # The internal Reader API is not routed by the admin gateway (nginx only proxies /api/).
+    with admin.open(admin_origin + "/internal/reader/sessions", timeout=10) as response:
+        if "application/json" in response.headers.get("Content-Type", ""):
+            raise RuntimeError("The admin gateway exposes the internal Reader API")
+    rejected = subprocess.run(
+        [*compose, "exec", "-T", "docs-wiki", "/app/.venv/bin/python", "-c",
+         "import urllib.request,urllib.error\n"
+         "try:\n urllib.request.urlopen(urllib.request.Request('http://admin-api:8766/internal/reader/sessions',"
+         "headers={'X-Reader-User':'smoke'}),timeout=5)\nexcept urllib.error.HTTPError as e:\n print(e.code)"],
+        check=True, capture_output=True, text=True).stdout.strip()
+    if rejected != "401":
+        raise RuntimeError(f"Internal Reader API accepted a request without its key (HTTP {rejected or 'success'})")
+    print("PASS: internal Reader API requires its key and is not exposed by the admin gateway")
     if args.auth_only:
         return
 

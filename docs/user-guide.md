@@ -65,9 +65,8 @@ What you can actually do today:
   **multi-agent board**.
 - **Import Jira tickets** into the knowledge base as Markdown.
 
-What is **not** working yet (see [section 8](#8-current-limitations)): the Reader's
-chat returns the plain text `TODO`, and generated documents are not automatically
-published to the Reader.
+What is **not** working yet (see [section 8](#8-current-limitations)): generated
+documents are not automatically published to the Reader.
 
 ### Architecture at a glance
 
@@ -165,15 +164,27 @@ folder scope and search-mode control. Errors show as "no results".
 
 ### Chat — `/docs/chat`
 
-The chat screen (question box, **Advanced** context panel to choose doc folders and
-repositories, conversation list) is present, but **every question returns `TODO`**:
-no model is called and nothing is saved. Enter sends; Shift+Enter adds a new line.
-Existing historical conversations can still be opened and deleted.
+Ask a question and the assistant answers only from the knowledge base (the RAG
+documents). While it works you see activity lines such as "searching: …" and
+"reading: …"; the answer appears when it is complete. Claims carry `[n]` citations
+that link to the cited documents. Enter sends; Shift+Enter adds a new line. Which
+agent answers is chosen by an administrator (see [5.11](#511-agents)).
+
+If the documents do not cover a question, the answer says what is missing, shows a
+**not covered** badge, and the question is recorded on the **Gaps** page.
+
+Conversations expire after 7 days idle (a message in an expired one shows "This
+conversation has ended. Start a new one."). **Delete** removes a conversation from
+your list only; administrators can still see it in Activity. Only one answer runs at a
+time ("Wait for the current answer."). If an administrator has not configured the
+assistant you see "The assistant isn't configured yet. Ask an administrator.";
+"The assistant's configuration isn't allowed in the Reader." and "Chat is temporarily
+unavailable." mean the chosen agent is unsuitable or the service is down.
 
 ### Gaps — `/docs/gaps`
 
-Lists questions the chat agent previously could not answer from the docs. Nothing
-currently records new gaps, so this shows historical data only (or "No gaps recorded").
+Lists questions the chat agent could not answer from the docs. A new gap is recorded
+whenever a Reader answer is marked **not covered** (or "No gaps recorded").
 
 ---
 
@@ -426,7 +437,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 | --- | --- |
 | **General** | Name, purpose, when-to-use, **Enable agent**; **Model connection** (required to run); additional instructions |
 | **Skills** | Enable and pick skills (max 30) |
-| **Documents** | Enable and pick RAG folders, or "All document folders"; include subfolders |
+| **Documents** | Enable and pick RAG folders, or "All document folders"; include subfolders; **Answer only from documents** switch (cite every claim and report questions the documents do not cover) |
 | **Code projects** | Enable and pick code projects, or "All code projects" |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP |
 | **MCP** | Pick tested MCP servers (and their tools) |
@@ -450,6 +461,11 @@ that proposes prompt/instruction changes you can copy or **Save as new version**
 Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire after
 1 hour idle, one running message per session. A run is blocked if the agent is
 disabled, has no enabled model, or other tabs have unsaved changes.
+
+**Reader assistant.** A card at the top of `/agents` chooses which agent answers
+Reader chat (default: the Search agent). Agents that use SSH, MCP tools or code
+projects, or have Documents off, or have **Answer only from documents** off, are
+disabled in the list with the reason. The Reader agent cannot be deleted.
 
 Agents with sessions or board history cannot be removed — disable them instead.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
@@ -562,9 +578,11 @@ container paths, availability, and a file browser with text preview.
 ### 5.16 Activity
 
 `/activity` — Reader chat usage: users, their sessions, and each session's questions
-and answers. It reads the Reader's historical audit log. Because Reader chat currently
-returns `TODO` and nothing writes new entries, this only shows older data. It does not
-show admin changes, agent test sessions or board tasks.
+and answers with the cited sources and the **not covered** badge. It reads Reader
+conversations from the database. **Open in agent session** opens the conversation in
+the Reader agent's **Test** tab, where **Add feedback** → **Suggest improvements**
+works on real conversations. It does not show admin changes, agent test sessions or
+board tasks.
 
 ---
 
@@ -679,9 +697,8 @@ before exposing it beyond localhost.
 
 ## 8. Current limitations
 
-- **Reader chat returns `TODO`** (also the "Ask the code" escalation and
-  `/api/agents/code/ask`). Search and reading work.
-- **Gaps** and **Activity** show only historical data; nothing writes new entries.
+- **"Ask the code" escalation and `/api/agents/code/ask` return `TODO`.**
+- **Reader chat answers appear when complete** (no word-by-word streaming).
 - **Generated documents are not published to the Reader automatically**; publish
   manually through RAG.
 - The `api-analysis` skill is in the Skills library but is not used by API documentation generation.
@@ -705,6 +722,8 @@ before exposing it beyond localhost.
 | `code_graph` | Documentation generation only | Queries the Phase 1 code graph |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
+| `search_documents`, `read_document` | Documents capability on | Search and read only the selected RAG folders; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
+| `report_not_covered` | **Answer only from documents** on | Records the uncovered question as a gap and marks the answer **not covered** |
 
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and
@@ -720,7 +739,7 @@ and always save trusted host keys.
 
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
-| README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models. Only Reader chat and code "ask" return `TODO` |
+| README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models. Only the "Ask the code" escalation and code "ask" return `TODO` |
 | README.md | "docs live in `.local/docs`" | The Reader shows the RAG workspace (`RG_DATA`); `.local/docs` is only a bootstrap folder |
 | services/docs-wiki-ui/README.md | Freshness badges, streaming chat, highlighted snippets | Not present in workspace mode |
 | docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
