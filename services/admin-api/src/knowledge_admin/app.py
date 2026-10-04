@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from docs_wiki.config import Config, ServerConfig
+from knowledge_admin import document_publish
 from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
 from knowledge_admin.repositories import RepositoryStore
@@ -27,6 +28,9 @@ def create_app(cfg: Config, *, server: ServerConfig,
                 if repository_store is not None:
                     with suppress(psycopg.Error):
                         await asyncio.to_thread(expire_sessions, repository_store)
+                    with suppress(Exception):
+                        # Published documents whose indexing was busy get indexed on a later pass.
+                        await asyncio.to_thread(document_publish.retry_pending, repository_store, backoffice_client, cfg.apps[0].name)
                 await asyncio.sleep(60)
         expiry = asyncio.create_task(expire_idle_sessions())
         try:

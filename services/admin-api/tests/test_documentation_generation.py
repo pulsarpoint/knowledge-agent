@@ -504,3 +504,24 @@ def test_layered_fixture_upgrade_preserves_custom_prompt_and_rollback(store, tmp
     preserved = client.get(endpoint, headers=HEADERS).json()
     assert preserved['active_version_id'] == old['active_version_id']
     assert preserved['versions'][0]['content'] == 'Custom system architecture'
+
+
+def test_worker_republishes_saved_documents(store, tmp_path, monkeypatch):
+    from knowledge_admin import document_publish
+    client, value, _ = setup_request(store, tmp_path, monkeypatch)
+    async def run(config, task, **kwargs):
+        if kwargs['output_type'] is generation.ComponentGraph:
+            return SimpleNamespace(final_output=generation.ComponentGraph(nodes=[{'id': 'app', 'label': 'App', 'parent_id': None}], edges=[], explanation='x'))
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='Analysis', description='Evidence', markdown='# Analysis'))
+    monkeypatch.setattr(generation, 'agent', run)
+    calls = []
+    def republish(store_, client_, project, actor, ids):
+        calls.append((project, actor, sorted(str(i) for i in ids)))
+        raise RuntimeError('RAG exploded')  # must never fail the finished job
+    monkeypatch.setattr(document_publish, 'republish', republish)
+    assert client.post('/api/documentation/generations', headers=HEADERS, json=value).status_code == 202
+    assert generation.run_once(store)
+    jobs = client.get('/api/documentation/generations', headers=HEADERS).json()['generations']
+    assert jobs[0]['status'] == 'succeeded'
+    saved = sorted(d['id'] for d in client.get('/api/documentation/documents', headers=HEADERS).json()['documents'])
+    assert len(calls) == 1 and calls[0][2] == saved

@@ -5,9 +5,10 @@ import re
 from uuid import UUID
 
 import httpx
-from fastapi import HTTPException
 from jira2markdown import convert
 from pydantic import BaseModel, ConfigDict, Field
+
+from knowledge_admin.rag_files import RagFiles
 
 
 class TicketExportInput(BaseModel):
@@ -50,47 +51,4 @@ def ticket_markdown(base_url: str, issue: dict, comments: list[dict]) -> str:
 
 def publish_ticket(client: httpx.Client, key: str, project: UUID, actor: UUID,
                    folder: str, issue_key: str, content: str) -> dict:
-    prefix = f"/backoffice/projects/{project}/"
-    headers = {"x-rag-key": key, "x-rag-actor": str(actor)}
-
-    def request(method: str, resource: str, **kwargs: object) -> dict:
-        try:
-            response = client.request(method, prefix + resource, headers=headers, timeout=30, **kwargs)
-            result = response.json()
-            if not isinstance(result, dict):
-                raise ValueError("Invalid RAG response")
-        except (httpx.HTTPError, ValueError):
-            raise HTTPException(502, "RAG service is unavailable. Retry the export to check the file") from None
-        if response.status_code >= 300:
-            message = result.get("error", {}).get("message") or "RAG could not save the ticket"
-            raise HTTPException(response.status_code, message)
-        return result
-
-    for attempt in range(3):
-        tree = request("GET", "tree")
-        target = next((entry for entry in tree["folders"] if entry["path"] == folder), None)
-        if target is not None and target["present"]:
-            break
-        try:
-            target = request("POST", "folders", json={"path": folder,
-                "description": target["description"] if target is not None else "Jira tickets and comments",
-                "revision": tree["revision"]})
-            break
-        except HTTPException as error:
-            if error.status_code != 409 or attempt == 2:
-                raise
-    path = f"{folder}/{issue_key}.md"
-    try:
-        previous = request("GET", "file", params={"path": path})
-    except HTTPException as error:
-        if error.status_code != 404:
-            raise
-        previous = None
-    if previous is not None:
-        if previous["content"].partition("\n")[0] != content.partition("\n")[0]:
-            raise HTTPException(409, f"{path} belongs to another source. Choose a different folder; the existing file was preserved")
-        if previous["content"] == content:
-            return {"path": path, "folder_id": target["id"], "status": "unchanged", "hash": previous["hash"]}
-    saved = request("PUT", "file", json={"path": path, "content": content,
-                                        "expected_hash": previous["hash"] if previous is not None else None})
-    return {"path": path, "folder_id": target["id"], "status": "updated" if previous is not None else "created", "hash": saved["hash"]}
+    return RagFiles(client, key, project, actor).write_markdown(folder, f"{issue_key}.md", content, "Jira tickets and comments")

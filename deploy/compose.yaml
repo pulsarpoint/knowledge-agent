@@ -226,6 +226,8 @@ services:
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
       CODE_ROOT: /work/code
       RAG_SOURCE_ROOT: /work/rag-data
+      DOCS_WIKI_RAG_URL: http://rag:8790
+      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
     depends_on:
