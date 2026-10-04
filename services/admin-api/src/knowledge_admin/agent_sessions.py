@@ -190,7 +190,9 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
             context['activity'] = [previous for previous in context['activity'] if previous['id'] != item['id']] + [item]
             await conn.execute('UPDATE ka.operations_runs SET context=%s,progress=%s WHERE id=%s', (Jsonb(context),item['title'],value.id))
             publish('activity',item)
-        turn = asyncio.create_task(agent(config,value.task,credentials=credentials,on_activity=on_activity,history=history))
+        recorded = {**config, 'record': {'run_key': f'run:{value.id}', 'project_id': str(project),
+            'actor_id': str(actor_id), 'kind': 'reader' if channel == 'reader' else 'test', 'title': value.task[:200]}}
+        turn = asyncio.create_task(agent(recorded,value.task,credentials=credentials,on_activity=on_activity,history=history))
         try:
             while not turn.done():
                 await asyncio.wait({turn},timeout=1)

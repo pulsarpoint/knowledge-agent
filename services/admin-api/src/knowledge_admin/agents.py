@@ -22,6 +22,7 @@ from knowledge_admin.agent_tracing import trace_secrets
 from knowledge_admin import grounding
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
 from knowledge_admin.tools.files import list_files, read_file, search_files
 from knowledge_admin.tools.code_graph import code_graph
@@ -55,6 +56,16 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
         context = {'config': config, 'credentials': credentials, 'workspace': workspace,
                    'shell_enabled': config['code']['enabled'] or config['documents']['enabled']}
         activity = SdkActivity(credentials.values(), on_activity, on_usage)
+        record = config.get('record')
+        recorder = None
+        if record:
+            recorder = RunRecorder(run_key=record['run_key'], project_id=record.get('project_id'),
+                agent_id=config['id'], actor_id=record.get('actor_id'), secrets=credentials.values())
+            recorder.add('start', {'kind': record.get('kind', 'run'), 'title': record.get('title', task[:200]),
+                                   'agent': config['name']})
+            recorder.add('input', {'task': task, 'history': history or []})
+        hooks = CompositeHooks(activity, recorder) if recorder else activity
+        status = 'failed'
         with trace_secrets(credentials.values()), trace(redact(config['name'], credentials.values())):
             try:
                 async with asyncio.timeout(timeout_seconds), create_agent(config, credentials=credentials,
@@ -62,7 +73,7 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                     run_config = RunConfig(tracing={'include_task_and_turn_spans': False},
                                            model_settings=ModelSettings(max_tokens=max_output_tokens))
                     if stream:
-                        run = Runner.run_streamed(assistant, task_input, context=context, hooks=activity,
+                        run = Runner.run_streamed(assistant, task_input, context=context, hooks=hooks,
                                                  max_turns=max_turns, run_config=run_config)
                         try:
                             async for event in run.stream_events():
@@ -75,14 +86,25 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                             except (Exception, asyncio.CancelledError):
                                 pass
                     else:
-                        run = await Runner.run(assistant, task_input, context=context, hooks=activity,
+                        run = await Runner.run(assistant, task_input, context=context, hooks=hooks,
                                                max_turns=max_turns, run_config=run_config)
                     final = run.final_output.model_dump_json() if isinstance(run.final_output, BaseModel) else str(run.final_output)
                     final = redact(final, activity.secrets)
                     run.final_output = output_type.model_validate_json(final) if output_type is not None else final
+                    status = 'completed'
                     return run
+            except asyncio.CancelledError:
+                status = 'cancelled'
+                raise
+            except BaseException as exc:
+                if recorder:
+                    recorder.add('error', {'type': type(exc).__name__, 'message': str(exc)})
+                raise
             finally:
                 activity.close()
+                if recorder:
+                    recorder.add('end', {'status': status})
+                    await asyncio.shield(asyncio.to_thread(recorder.flush))
 
 
 @asynccontextmanager

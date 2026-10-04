@@ -3,16 +3,17 @@
 import asyncio
 from typing import Any
 
-from agents import Agent, FunctionTool, Model, ModelSettings, RunConfig, Runner, RunResultStreaming, trace
+from agents import Agent, FunctionTool, Model, ModelSettings, RunConfig, RunHooks, Runner, RunResultStreaming, trace
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, redact
 from knowledge_admin.agent_tracing import trace_secrets
+from knowledge_admin.run_record import CompositeHooks
 
 
 async def coordinator(*, model: Model, model_settings: ModelSettings, system_prompt: str,
                       summary_prompt: str, task: str | list[dict[str, Any]], tools: list[FunctionTool],
                       on_activity: ActivityCallback, secrets: list[str], max_turns: int,
-                      max_subtasks: int, timeout_seconds: int) -> RunResultStreaming:
+                      max_subtasks: int, timeout_seconds: int, recorder: RunHooks | None = None) -> RunResultStreaming:
     """Run selected specialist tools, then pass their returned evidence to a summarizer."""
     if not system_prompt.strip() or not summary_prompt.strip() or not task or not tools:
         raise ValueError('Provide both prompts, a task, and at least one subagent tool.')
@@ -27,12 +28,13 @@ async def coordinator(*, model: Model, model_settings: ModelSettings, system_pro
                          model_settings=model_settings, tools=tools)
     summarizer = Agent(name='Summary', instructions=summary_prompt, model=model, model_settings=model_settings)
     activity = SdkActivity(secrets, on_activity)
+    hooks = CompositeHooks(activity, recorder) if recorder is not None else activity
     with trace_secrets(secrets), trace('Agent board task'):
         async with asyncio.timeout(timeout_seconds):
             conversation = task
             usage = None
             for assistant in (orchestrator, summarizer):
-                run = Runner.run_streamed(assistant, conversation, hooks=activity,
+                run = Runner.run_streamed(assistant, conversation, hooks=hooks,
                     max_turns=max_turns if assistant is orchestrator else 1,
                     run_config=RunConfig(tracing={'include_task_and_turn_spans': False}))
                 try:

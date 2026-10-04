@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_activity import SdkActivity, redact
 from knowledge_admin.agents import create_agent, get_agent_config, load_credentials
+from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.coordinator import coordinator
 from knowledge_admin.model_adapter import agent_model
@@ -84,6 +85,11 @@ class SubagentActivity(RunHooks):
 async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyncio.Semaphore) -> None:
     """Load the team, persist task lifecycle, and call the SDK coordinator."""
     credentials, secrets, active = [], [], set()
+    recorder = RunRecorder(run_key=f"board:{task['id']}", project_id=None, agent_id='coordinator',
+                           actor_id=str(task['created_by']) if task.get('created_by') else None, secrets=secrets)
+    recorder.add('start', {'kind': 'board', 'title': task['task'][:200], 'agent': 'Coordinator'})
+    recorder.add('input', {'task': task['task'], 'history': []})
+    status = 'failed'
 
     async def on_activity(value):
         value = {'task_id': str(task['id']), **value,
@@ -131,7 +137,7 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
 
             tool = assistant.as_tool(tool_name='delegate_' + config['id'],
                 tool_description=f"{config['name']}: {config['description']}\nWhen to use: {config['when_to_use']}",
-                on_stream=stream, hooks=SubagentActivity(), custom_output_extractor=output, max_turns=20,
+                on_stream=stream, hooks=CompositeHooks(SubagentActivity(), recorder), custom_output_extractor=output, max_turns=20,
                 run_config=RunConfig(tracing={'include_task_and_turn_spans': False}), failure_error_function=None)
             sdk_invoke = tool.on_invoke_tool
 
@@ -230,7 +236,8 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
             try:
                 result = await coordinator(model=sdk_model, model_settings=options, system_prompt=prompt,
                     summary_prompt=summary_prompt, task=task['task'], tools=tools, on_activity=on_activity,
-                    secrets=secrets, max_turns=settings['max_turns'], max_subtasks=settings['max_subtasks'], timeout_seconds=settings['timeout_seconds'])
+                    secrets=secrets, max_turns=settings['max_turns'], max_subtasks=settings['max_subtasks'], timeout_seconds=settings['timeout_seconds'],
+                    recorder=recorder)
             finally:
                 remaining = tuple(active)
                 for running in remaining:
@@ -239,7 +246,9 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
         with store.connect() as conn:
             conn.execute('''UPDATE ka.agent_board_tasks SET status='completed',phase='done',result=%s,usage=%s,finished_at=now()
                 WHERE id=%s AND status='running' ''', (redact(str(result.final_output), secrets), Jsonb(jsonable_encoder(result.context_wrapper.usage)), task['id']))
+        status = 'completed'
     except asyncio.CancelledError:
+        status = 'cancelled'
         with store.connect() as conn:
             conn.execute('''UPDATE ka.agent_board_tasks SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'failed' END,
                 error=CASE WHEN cancel_requested THEN NULL ELSE 'Execution was interrupted. Review before running again.' END,
@@ -252,9 +261,15 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
         elif isinstance(exc, (ValueError, LookupError, InvalidTag)):
             error = 'The agent configuration or credentials are unavailable. Check its settings.'
         logger.warning('Board task %s failed (%s)', task['id'], type(exc).__name__)
+        recorder.add('error', {'type': type(exc).__name__, 'message': str(exc)})
         with store.connect() as conn:
             conn.execute("UPDATE ka.agent_board_tasks SET status='failed',error=%s,finished_at=now() WHERE id=%s AND status IN ('queued','running')", (error, task['id']))
     finally:
+        recorder.add('end', {'status': status})
+        try:
+            await asyncio.shield(asyncio.to_thread(recorder.flush))
+        except Exception:
+            logger.warning('Board task %s record could not be saved.', task['id'])
         for keys in credentials:
             keys.clear()
         secrets.clear()

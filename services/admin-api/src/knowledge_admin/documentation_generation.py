@@ -12,7 +12,7 @@ import socket
 import threading
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -158,6 +158,12 @@ API_CONTRACT_OUTPUT = (
     'after these completion checks pass, and assembles it with the other endpoint contracts.')
 
 
+def with_record(config: dict[str, Any], job: dict[str, Any], title: str) -> dict[str, Any]:
+    """Return a copy of a step configuration that records its run under this documentation job."""
+    return {**config, 'record': {'run_key': f"doc:{job['id']}:{uuid4().hex[:12]}", 'project_id': str(job['project_id']),
+        'actor_id': str(job['requested_by']) if job.get('requested_by') else None, 'kind': 'documentation', 'title': title[:200]}}
+
+
 async def generate_api_endpoint(config, service, instructions, batch, credentials, record_usage) -> GeneratedDocument:
     """Inspect one registration and accept a finished Markdown contract, not tool-loop notes."""
     model_config = copy.deepcopy(config)
@@ -243,7 +249,7 @@ async def generate_api_document(store, job, config, graphs, credentials, record_
             section = {**cached['data'], 'reused_from': str(cached['job_id']), 'position': position}
         else:
             try:
-                document = await generate_api_endpoint(config,
+                document = await generate_api_endpoint(with_record(config, job, f"API endpoint {position}: " + ', '.join(r['name'] for r in batch['routes'])),
                     {k: sources['service'][k] for k in ('id', 'name', 'description', 'service_type')},
                     sources['instructions'], batch, credentials, record_usage)
                 section = {'fingerprint': fingerprint, 'batch_key': batch['key'], 'position': position,
@@ -636,7 +642,8 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
                 conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'progress','Analyzing the application with source and graph tools')", (job['id'],))
         # Use complete responses: Bedrock streaming can drop long JSON fields.
         try:
-            result = await agent(config, task, credentials=credentials, timeout_seconds=1200 if kind in ('code','messaging') else 600,
+            result = await agent(with_record(config, job, f'{kind}: ' + ('source inspection' if phased_code else 'generation')), task,
+                                 credentials=credentials, timeout_seconds=1200 if kind in ('code','messaging') else 600,
                                  max_turns=20 if kind == 'overview' else 40 if kind == 'messaging' else 60 if kind == 'code' else 30,
                                  max_output_tokens=16384, stream=False,
                                  on_usage=record_usage,
@@ -658,7 +665,7 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
             await record_usage(None)
             with store.connect() as conn:
                 conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'progress',%s)", (job['id'], f'Writing {phase_name} from the collected source and graph evidence'))
-            result = await agent(config,
+            result = await agent(with_record(config, job, f'{kind}: writing'),
                 'Use the source and graph evidence already in this conversation. '
                 f'Write the final {phase_name}, including an explicit coverage and remaining gaps section. '
                 'Do not request further tools or invent unverified details.',
@@ -797,6 +804,8 @@ def main() -> None:
     from knowledge_admin.agent_tracing import setup
     setup()
     store = RepositoryStore('', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL'])
+    from knowledge_admin import run_record
+    run_record.configure(store, None)
     stopped = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     signal.signal(signal.SIGINT, lambda *_: stopped.set())
