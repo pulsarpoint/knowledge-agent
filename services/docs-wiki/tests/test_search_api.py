@@ -7,14 +7,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from docs_wiki import config, search_api
-from docs_wiki.code_client import CodeAgentClient
 from docs_wiki.workspace_client import WorkspaceRagClient
 
 
 @pytest.fixture
-def scoped_api(tmp_path, fake_llm, fake_code_agent):
+def scoped_api(tmp_path, fake_llm):
     model_transport, model = fake_llm
-    code_transport, code_state = fake_code_agent
     calls = []
     paths = ['payments/retries.md', 'payments/runbooks/oncall.md', 'payments-old/secret.md', 'people/private.md']
     catalog = [{'path': path, 'folder': path.rsplit('/', 1)[0], 'description': f'Description of {path}'} for path in paths]
@@ -33,28 +31,25 @@ def scoped_api(tmp_path, fake_llm, fake_code_agent):
             return httpx.Response(200, json={'path': request.url.params['path'], 'content': 'Allowed file content'})
         raise AssertionError(str(request.url))
     rag = WorkspaceRagClient('http://rag.test', 'key', httpx.MockTransport(source))
-    code = CodeAgentClient('http://code.test', transport=code_transport)
     cfg = config.resolve_llm({'base_url': 'http://llm.local/v1', 'chat_model': 'c'}, env={})
     app = FastAPI()
-    app.include_router(search_api.build_api('/agent', tmp_path, rag, code))
+    app.include_router(search_api.build_api('/agent', tmp_path, rag))
     with TestClient(app, headers={'X-Forwarded-User': 'alice'}) as client:
-        yield client, model, calls, code_state
-    rag.close(); code.close()
+        yield client, model, calls, rag
+    rag.close()
 
 
-def test_context_discovery_degrades_independently(scoped_api):
-    client, _, _, code_state = scoped_api
+def test_context_lists_document_folders_only(scoped_api):
+    client, _, _, _ = scoped_api
     response = client.get('/agent/context')
     assert response.status_code == 200
-    assert response.json()['repositories'] == [{'id': 'shop', 'name': 'shop', 'synced': True}]
+    assert response.json()['repositories'] == [] and response.json()['warnings'] == []
     assert response.json()['folders'][0]['path'] == 'payments'
-    code_state['fail'] = True
-    response = client.get('/agent/context').json()
-    assert response['folders'] and not response['repositories'] and response['warnings']
+    assert client.get('/agent/status').json()['sources'] == {'docs': True}
 
 
 def test_chat_todo_has_no_outbound_calls_or_session(scoped_api, tmp_path):
-    client, model, calls, code_state = scoped_api
+    client, model, calls, _ = scoped_api
     before = sorted(str(p) for p in tmp_path.rglob('*'))
     for _ in range(2):
         response = client.post('/agent/chat', json={'question': 'Inspect'})
@@ -80,13 +75,12 @@ def test_existing_conversations_remain_private(tmp_path):
         await session.add_items([{'role': 'user', 'content': 'Private old question'}, {'role': 'assistant', 'content': 'Private old answer'}])
     asyncio.run(seed())
     app = FastAPI()
-    app.include_router(search_api.build_api('/agent', tmp_path, None, None))
+    app.include_router(search_api.build_api('/agent', tmp_path, None))
     client = TestClient(app, headers={'X-Forwarded-User': 'alice'})
     before = (root / 'sessions.db').read_bytes()
     assert client.get(f'/agent/chats/{key}').status_code == 200
     assert client.post('/agent/chat', json={'question': 'Another', 'session': key}).text == 'TODO'
-    assert client.post(f'/agent/chat/{key}/escalate', json={'question': 'Inspect'}).text == 'TODO'
-    assert client.post(f'/agent/chat/{key}/escalate', headers={'X-Forwarded-User': 'bob'}, json={'question': 'Inspect'}).status_code == 404
+    assert client.post(f'/agent/chat/{key}/escalate', json={'question': 'Inspect'}).status_code in (404, 405)
     assert (root / 'sessions.db').read_bytes() == before
     for method, path, body in [('get', f'/agent/chats/{key}', None), ('post', '/agent/chat', {'question': 'Read', 'session': key})]:
         kwargs = {'headers': {'X-Forwarded-User': 'bob'}}

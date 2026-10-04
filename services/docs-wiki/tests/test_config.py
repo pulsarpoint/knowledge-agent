@@ -206,50 +206,6 @@ name = "shop"
     assert cfg.rag == {"url": "http://rag.local:8790"}
 
 
-def test_code_agent_section_must_be_table(tmp_path):
-    cfg_file = tmp_path / "cfg.toml"
-    cfg_file.write_text('code_agent = 5\n[[apps]]\nname = "x"\n',
-                        encoding="utf-8")
-    with pytest.raises(config.ConfigError):
-        config.load_config(cfg_file)
-
-
-def test_resolve_code_agent_env_overrides_file():
-    assert config.resolve_code_agent(
-        {"url": "http://file.local:8795"}, env={}) == "http://file.local:8795"
-    assert config.resolve_code_agent(
-        {"url": "http://file.local:8795"},
-        env={"DOCS_WIKI_CODE_AGENT_URL": "http://env.local:8795"},
-    ) == "http://env.local:8795"
-    assert config.resolve_code_agent(None, env={}) is None
-    assert config.resolve_code_agent({"url": ""}, env={}) is None
-    assert config.resolve_code_agent(
-        None, env={"DOCS_WIKI_CODE_AGENT_URL": "http://env.local:8795"}
-    ) == "http://env.local:8795"
-
-
-def test_config_exposes_code_agent_section(tmp_path):
-    cfg_file = write_toml(tmp_path / "cfg.toml", """
-[code_agent]
-url = "http://code.local:8795"
-
-[[apps]]
-name = "shop"
-""")
-    cfg = config.load_config(cfg_file)
-    assert cfg.apps[0].name == "shop"
-    assert cfg.code_agent == {"url": "http://code.local:8795"}
-
-
-def test_config_code_agent_defaults_to_none(tmp_path):
-    cfg_file = write_toml(tmp_path / "cfg.toml", """
-[[apps]]
-name = "shop"
-""")
-    cfg = config.load_config(cfg_file)
-    assert cfg.code_agent is None
-
-
 def test_llm_max_turns_from_env_and_file():
     # Env wins; file works; absent -> None (agent applies its defaults).
     cfg = config.resolve_llm({"base_url": "http://x", "chat_model": "m",

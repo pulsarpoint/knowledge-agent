@@ -30,7 +30,6 @@ build: build-api build-ui
 build-api: build-mermaid
 	cd services/docs-wiki && uv sync --frozen
 	cd services/rag && uv sync --frozen
-	cd services/code-agent && uv sync --frozen
 	cd services/admin-api && uv sync --frozen
 
 build-ui:
@@ -54,7 +53,6 @@ test-setup:
 test-api: db-test-image
 	cd services/docs-wiki && uv run --frozen pytest -q
 	cd services/rag && uv run --frozen pytest -q
-	cd services/code-agent && uv run --frozen pytest -q
 	cd services/admin-api && uv run --frozen pytest -q
 
 test-ui:

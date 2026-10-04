@@ -87,7 +87,7 @@ Document folders have an absolute `path` under `RAG_SOURCE_ROOT` and a separate
 `search_folder` identifier (for example, `payments.runbooks`) for the search API.
 Both root environment variables must be absolute paths in the agent container.
 Compose mounts the same code and document directories read-only at `/work/code`
-and `/work/rag-data` in `admin-api` and `code-agent`. The config joins the stored
+and `/work/rag-data` in `admin-api`. The config joins the stored
 relative paths to these roots without resolving paths on the host. `CODE_PATH`
 and `RG_DATA` are host-side mount sources and never enter the generated paths.
 Service repository checkout paths use the same code root; remote deployment log

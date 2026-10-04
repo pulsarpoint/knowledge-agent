@@ -11,8 +11,8 @@ Phoenix remains available for tracing.
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
 and connection tests work. Reader chat answers from the knowledge base using the
 agent chosen in Admin → Agents → Reader assistant; agent Test and the multi-agent
-board run models. Only the "Ask the code" escalation and the code ask endpoint
-still return HTTP 200 with plain text `TODO`.
+board run models. The legacy admin search chat endpoint
+(`/api/agents/search/chat`) still returns HTTP 200 with plain text `TODO`.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
 **New here? Start with the [User Guide](docs/user-guide.md)** — how to use the Reader
@@ -221,7 +221,7 @@ make compose-validate
 ```
 
 Dependency resolution uses copied lockfiles and frozen installs. Internal
-package names (`docs-wiki`, `rag`, `code-agent`) remain stable so their tested
+package names (`docs-wiki`, `rag`) remain stable so their tested
 imports and CLI entry points stay intact.
 
 Database-only commands remain available: `make db-up`, `make db-migrate`,

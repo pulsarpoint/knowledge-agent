@@ -4,7 +4,7 @@ import json
 from agents.tool_context import ToolContext
 
 from docs_wiki.rag_client import RagNotFound
-from docs_wiki.tools.search import SearchContext, search_docs, read_doc, list_docs, list_repositories, ask_code
+from docs_wiki.tools.search import SearchContext, search_docs, read_doc, list_docs
 
 
 class Documents:
@@ -28,5 +28,3 @@ def test_retained_document_function_tools():
     assert 'not part' in invoke(read_doc, {'path': 'outside.md'})
     assert 'payments/guide.md' in invoke(list_docs, {})
     assert context.used == {'docs'}
-    assert invoke(list_repositories, {}) == 'Repository service unavailable'
-    assert invoke(ask_code, {'question': 'Inspect', 'repository': 'x'}) == 'Repository service unavailable'

@@ -734,7 +734,6 @@ before exposing it beyond localhost.
 
 ## 8. Current limitations
 
-- **"Ask the code" escalation and `/api/agents/code/ask` return `TODO`.**
 - **Reader chat answers appear when complete** (no word-by-word streaming).
 - **Documents reach the knowledge base only after Publish to knowledge base**; from then
   on new versions follow automatically.
@@ -776,7 +775,7 @@ and always save trusted host keys.
 
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
-| README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models. Only the "Ask the code" escalation and code "ask" return `TODO` |
+| README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models |
 | README.md | "docs live in `.local/docs`" | The Reader shows the RAG workspace (`RG_DATA`); `.local/docs` is only a bootstrap folder |
 | services/docs-wiki-ui/README.md | Freshness badges, streaming chat, highlighted snippets | Not present in workspace mode |
 | docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |

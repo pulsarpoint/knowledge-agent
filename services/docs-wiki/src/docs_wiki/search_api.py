@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from docs_wiki import audit, gaps, sessions
 from docs_wiki.agent_context import AgentContext
-from docs_wiki.code_client import CodeAgentError
 from docs_wiki.rag_client import RagError
 from docs_wiki.reader_client import UNAVAILABLE, ReaderError
 from knowledge_llm import ModelUnavailable, managed
@@ -20,7 +19,6 @@ from knowledge_llm.profiles import load_profile
 class Sources(BaseModel):
     model_config = ConfigDict(extra='forbid')
     docs: StrictBool = True
-    codex: StrictBool = True
 
 
 class ChatInput(BaseModel):
@@ -31,7 +29,7 @@ class ChatInput(BaseModel):
     context: AgentContext = Field(default_factory=AgentContext)
 
 
-def build_api(prefix: str, state_root: Path, rag, code,
+def build_api(prefix: str, state_root: Path, rag,
               audit_dir: Path | None = None, profiles: bool = False,
               reader=None, gaps_dir: Path | None = None) -> APIRouter:
     router = APIRouter(prefix=prefix)
@@ -50,9 +48,6 @@ def build_api(prefix: str, state_root: Path, rag, code,
         return selected is None or selected['documents_enabled'] and (selected['all_folders'] or any(
             row['path'] == path or selected['include_subfolders'] and row['path'].startswith(path + '/')
             for path in selected['folders']))
-
-    def repository_allowed(row, selected):
-        return selected is None or selected['repositories_enabled'] and (selected['all_repositories'] or row['name'] in selected['repository_ids'])
 
     def user_state(request: Request) -> tuple[Path, str]:
         subject = request.headers.get('x-forwarded-user')
@@ -74,8 +69,7 @@ def build_api(prefix: str, state_root: Path, rag, code,
         selected = selected_profile(request)
         return {'name': selected['name'] if selected else 'Search agent',
                 'ask_enabled': True, 'ask_reason': None, 'model': None,
-                'sources': {'docs': rag is not None and (selected is None or selected['documents_enabled']),
-                            'codex': code is not None and (selected is None or selected['repositories_enabled'])}}
+                'sources': {'docs': rag is not None and (selected is None or selected['documents_enabled'])}}
 
     @router.get('/context')
     def available_context(request: Request):
@@ -88,12 +82,6 @@ def build_api(prefix: str, state_root: Path, rag, code,
                                       'indexed_files': row.get('indexed_files', 0)} for row in rag.folders() if folder_allowed(row, selected)]
             except RagError:
                 result['warnings'].append('Document folders are unavailable. Try refreshing the context list.')
-        if code is not None:
-            try:
-                result['repositories'] = [{'id': row['name'], 'name': row.get('label') or row['name'],
-                                           'synced': row.get('path_exists', False)} for row in code.repos() if repository_allowed(row, selected)]
-            except CodeAgentError:
-                result['warnings'].append('Git repositories are unavailable. Try refreshing the context list.')
         return result
 
     if reader is None:
@@ -102,7 +90,7 @@ def build_api(prefix: str, state_root: Path, rag, code,
             directory = conversation(request, key)
             return {'session': key, 'messages': await sessions.transcript(directory, key),
                     **(sessions.context(directory, key) or {'context': AgentContext().model_dump(),
-                                                           'sources': {'docs': True, 'codex': code is not None}})}
+                                                           'sources': {'docs': True}})}
 
         @router.delete('/chats/{key}', status_code=204)
         async def delete(key: str, request: Request):
@@ -190,7 +178,7 @@ def build_api(prefix: str, state_root: Path, rag, code,
                                             results=found.get('results'), session_ref=session_ref(key) if key else None)
                         yield frame('sources', {'sources': sources})
                         yield frame('done', {'text': data['answer'], 'not_covered': bool(found.get('not_covered')),
-                                             'escalation_offered': False, 'sources_used': ['docs'] if sources else []})
+                                             'sources_used': ['docs'] if sources else []})
                         break
                 if not finished:
                     yield frame('error', {'message': UNAVAILABLE})
@@ -223,7 +211,7 @@ def build_api(prefix: str, state_root: Path, rag, code,
                 for message in saved['messages']]
             return {'session': saved['id'], 'messages': messages,
                     'context': {'folders': saved['folders'], 'include_subfolders': saved['include_subfolders'], 'repositories': None},
-                    'sources': {'docs': True, 'codex': False}}
+                    'sources': {'docs': True}}
 
         @router.delete('/chats/{key}', status_code=204)
         async def reader_delete(key: str, request: Request):
@@ -235,12 +223,5 @@ def build_api(prefix: str, state_root: Path, rag, code,
             except ReaderError as exc:
                 return failure(exc)
             return Response(status_code=204)
-
-    @router.post('/chat/{key}/escalate')
-    async def escalate(key: str, body: ChatInput, request: Request):
-        conversation(request, key)
-        if not body.question.strip():
-            raise HTTPException(400, 'Enter a question')
-        return PlainTextResponse('TODO')
 
     return router

@@ -28,7 +28,6 @@ TOOL_SOURCES = {
     "search_docs": "docs",
     "read_doc": "docs",
     "list_docs": "docs",
-    "ask_code": "codex",
 }
 
 

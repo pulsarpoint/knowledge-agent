@@ -3,13 +3,13 @@ import { MemoryRouter } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import SearchAgentView from "../SearchAgentView";
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
-const contextOptions = { folders: [{ path: 'payments', description: 'Payment operations', indexed_files: 2 }], repositories: [], warnings: [] };
+const contextOptions = { folders: [{ path: 'payments', description: 'Payment operations', indexed_files: 2 }], warnings: [] };
 
 test("search TODO preserves context and input without creating or loading a session", async () => {
   const payloads: Record<string, unknown>[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.split('?')[0].endsWith('/context')) return Response.json(contextOptions);
-    if (url.split('?')[0].endsWith('/status')) return Response.json({ name: 'Search agent', ask_enabled: true, ask_reason: null, model: null, sources: { docs: true, codex: false } });
+    if (url.split('?')[0].endsWith('/status')) return Response.json({ name: 'Search agent', ask_enabled: true, ask_reason: null, model: null, sources: { docs: true } });
     if (url.split('?')[0].endsWith('/chat')) { payloads.push(JSON.parse(init!.body as string)); return new Response('TODO'); }
     throw new Error(`Unexpected URL ${url}`);
   });
@@ -35,7 +35,7 @@ test("search TODO preserves context and input without creating or loading a sess
 });
 
 test("an unavailable agent shows the API reason and cannot submit", async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.split('?')[0].endsWith('/context') ? contextOptions : { name: 'Search agent', ask_enabled: false, ask_reason: 'This agent is disabled.', model: null, sources: { docs: true, codex: false } })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.split('?')[0].endsWith('/context') ? contextOptions : { name: 'Search agent', ask_enabled: false, ask_reason: 'This agent is disabled.', model: null, sources: { docs: true } })));
   render(<MemoryRouter><SearchAgentView /></MemoryRouter>);
   expect(await screen.findByText('This agent is disabled.')).toBeVisible();
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();

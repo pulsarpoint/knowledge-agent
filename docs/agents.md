@@ -97,15 +97,11 @@ uses the new settings — until then the card lists "active version vN predates 
 settings" and the Reader replies "The assistant's configuration isn't allowed in the
 Reader."
 
-The code chat endpoints below still return HTTP 200 `text/plain` `TODO`. They do not
-execute agents or create new conversations.
-
-| Application | POST route |
-| --- | --- |
-| Administration | `/api/agents/search/chat?agent_id={id}` |
-| Administration | `/api/agents/code/ask?agent_id={id}` |
-| Reader | `/api/{workspace}/chat/{session_key}/escalate` |
-| Code service | `/repos/{name}/ask` |
+The legacy admin search chat endpoint `POST /api/agents/search/chat?agent_id={id}`
+still returns HTTP 200 `text/plain` `TODO`. It does not execute agents or create new
+conversations. The former code-agent service and its "Ask the code" escalation were
+removed; agents read code with their own tools (`list_files`, `read_file`,
+`code_search`, `ast_grep`, `code_graph`).
 
 `knowledge_admin.agents.agent()` runs a configured specialist with the Agents SDK.
 The caller provides a saved config, task, history, and decrypted credentials. The

@@ -93,7 +93,6 @@ services:
       DOCS_WIKI_RAG_URL: http://rag:8790
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       DOCS_WIKI_STATE_DIR: /data/docs-wiki
-      DOCS_WIKI_CODE_AGENT_URL: http://code-agent:8795
       DOCS_WIKI_ADMIN_GROUP: docs-admins
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
@@ -102,7 +101,6 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       rag: {condition: service_healthy}
-      code-agent: {condition: service_healthy}
     healthcheck:
       test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/apps', timeout=3)"]
       interval: 5s
@@ -143,7 +141,6 @@ services:
       LLM_SETTINGS_SOURCE: database
       PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:8182}
       DOCS_WIKI_RAG_URL: http://rag:8790
-      DOCS_WIKI_CODE_AGENT_URL: http://code-agent:8795
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
       DOCS_WIKI_STATE_DIR: /data/docs-wiki
@@ -271,34 +268,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
-  code-agent:
-    build: {context: .., dockerfile: deploy/Dockerfile.code-agent}
-    dns_search: ${DOCKER_DNS_SEARCH:-.}
-    restart: unless-stopped
-    volumes:
-      - ${CODE_PATH:-../.local/code}:/work/code:ro
-      - type: bind
-        source: ${RG_DATA:?Run make setup}
-        target: /work/rag-data
-        read_only: true
-    environment:
-      LLM_SETTINGS_SOURCE: database
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-      CODE_ROOT: /work/code
-      RAG_SOURCE_ROOT: /work/rag-data
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-    depends_on:
-      rag: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8795/health', timeout=3)"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
 
   litellm:
     image: ghcr.io/berriai/litellm:v1.95.0

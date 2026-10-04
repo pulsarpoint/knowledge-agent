@@ -90,29 +90,6 @@ test("stored NOT_COVERED transcripts render the friendly panel, never the sentin
   expect(screen.queryByText("NOT_COVERED")).toBeNull();
 });
 
-test("source selector renders the two available sources", () => {
-  renderPanel({ sources: { docs: true, codex: true } });
-  expect(screen.getByRole("checkbox", { name: "RAG" })).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "Source code" })).toBeInTheDocument();
-});
-
-test("selector is hidden when docs is the only available source", () => {
-  renderPanel({ sources: { docs: true, codex: false } });
-  expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-});
-
-test("selector is hidden when the sources capability is absent (old server)", () => {
-  renderPanel();
-  expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-});
-
-test("restores a persisted selection from localStorage on mount", () => {
-  localStorage.setItem("chat-sources:shop", JSON.stringify({ docs: true, codex: true }));
-  renderPanel({ sources: { docs: true, codex: true } });
-  expect(screen.getByRole("checkbox", { name: "RAG" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "Source code" })).toBeChecked();
-});
-
 test("streamChat call omits sources entirely when the selector is hidden", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -132,19 +109,9 @@ test("streamChat call omits sources entirely when the selector is hidden", async
   expect(body).not.toHaveProperty("sources");
 });
 
-test("cannot uncheck the last remaining selected source", async () => {
-  renderPanel({ sources: { docs: true, codex: true } });
-  await userEvent.click(screen.getByRole("checkbox", { name: "Source code" }));
-  expect(screen.getByRole("checkbox", { name: "RAG" })).toBeChecked();
-  // Attempting to uncheck the last remaining checked source is a no-op —
-  // the UI must prevent the request that would otherwise 400 server-side.
-  await userEvent.click(screen.getByRole("checkbox", { name: "RAG" }));
-  expect(screen.getByRole("checkbox", { name: "RAG" })).toBeChecked();
-});
-
 // Field report 2026-08-05: typing in the input re-rendered (and re-parsed)
 // every prior turn's markdown on each keystroke — visible flicker/jank once
-// transcripts carry heavy codex/graph-code answers. Completed turns must
+// transcripts carry heavy answers. Completed turns must
 // not re-render while the user types.
 test("typing does not re-render completed assistant turns", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ session: 'k9', messages: [{ role: 'assistant', content: 'Answer one.' }] })));
@@ -161,14 +128,13 @@ test("historical assistant turns render sources_used badges", async () => {
     messages: [
       { role: "user", content: "how do refunds work?" },
       { role: "assistant", content: "Refunds are async.",
-        sources_used: ["codex", "docs"] },
+        sources_used: ["docs"] },
       { role: "user", content: "and cancellations?" },
       { role: "assistant", content: "Same flow." },
     ],
   }), { status: 200, headers: { "Content-Type": "application/json" } })));
   renderPanel({ sessionKey: "k9" });
   await waitFor(() => expect(screen.getByText("Refunds are async.")).toBeInTheDocument());
-  expect(screen.getByText("Source code")).toBeInTheDocument();
   expect(screen.getByText("RAG")).toBeInTheDocument();
   // the tool-less turn renders no badges
   expect(screen.queryByText("docs")).toBeNull();
@@ -190,12 +156,12 @@ test("a streamed answer renders and creates the session", async () => {
 test("a follow-up keeps an existing transcript and its advanced context", async () => {
   const context = { folders: ['payments'], include_subfolders: false, repositories: null };
   const fetchMock = vi.fn(async (url: string) => {
-    if (url.endsWith('/context')) return Response.json({ folders: [{ path: 'payments', description: '', indexed_files: 1 }], repositories: [], warnings: [] });
-    if (url.endsWith('/chats/saved')) return Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Historical answer' }], context, sources: { docs: true, codex: false } });
+    if (url.endsWith('/context')) return Response.json({ folders: [{ path: 'payments', description: '', indexed_files: 1 }], warnings: [] });
+    if (url.endsWith('/chats/saved')) return Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Historical answer' }], context, sources: { docs: true } });
     return doneResponse('Follow-up answer');
   });
   vi.stubGlobal('fetch', fetchMock);
-  const onSession = renderPanel({ sessionKey: 'saved', contextEnabled: true, sources: { docs: true, codex: true } });
+  const onSession = renderPanel({ sessionKey: 'saved', contextEnabled: true, sources: { docs: true } });
   expect(await screen.findByText('Historical answer')).toBeVisible();
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Advanced' }));

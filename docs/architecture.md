@@ -54,7 +54,7 @@ services/admin-api/            Standalone FastAPI administration service
 services/docs-wiki-ui/         User-facing reader, search and chat application
 services/docs-wiki/            Reader API and preserved storage/domain modules
 services/rag/                  Retrieval engine, document processing and retrieval
-services/code-agent/           Read-only source analysis
+services/code-graph/           CodeGraph indexing/query scripts bundled into admin-api
 plugins/app-docs/              Preserved plugin, explicit SDK loading
 db/migrations/                Ordered application migrations
 deploy/                       Separate web/API/auth services and shared infrastructure
@@ -69,7 +69,7 @@ for every settings page. The frontend apps have no cross-package source imports.
 ## Admin navigation
 
 The sidebar has a project switcher and these sections. Reader navigation keeps
-documentation, search, chat, and "Ask the code" available in the separate reader application.
+documentation, search and chat available in the separate reader application.
 
 | Page | Main content and actions |
 | --- | --- |
@@ -183,9 +183,7 @@ must explicitly supply this invocation contract before the feature ships:
   Omitted files are not implicitly deleted; deletions belong in the proposed
   manifest and must preserve uploaded content unless explicitly selected.
 
-The documentation writer must have its own SDK permission policy. V2's
-read-only code-agent runtime remains read-only; do not enable Write/Edit/Bash
-there to implement this new feature. Scope writable mounts to job output, keep
+The documentation writer must have its own SDK permission policy. Scope writable mounts to job output, keep
 application code read-only, and keep unrelated Jira/SSH credentials out of the
 Claude worker subprocess environment.
 

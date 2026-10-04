@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import type { AgentContext, ContextOptions, ChatEvent, ChatSource, CodeCitation, Transcript, EscalateEvent } from "./types";
+import type { AgentContext, ContextOptions, ChatEvent, ChatSource, Transcript } from "./types";
 import AdvancedContext, { DEFAULT_CONTEXT } from "./AdvancedContext";
 import Markdown from "~/components/Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -21,110 +21,41 @@ interface Turn {
   content: string;
   sources?: ChatSource[];
   notCovered?: boolean;
-  // The question this assistant turn answered — carried onto not-covered
-  // turns so a later "Ask the code" click can escalate the same question
-  // without the user retyping it.
-  question?: string;
-  // Set from the chat `done` event's `escalation_offered` flag: renders the
-  // "Ask the code" button under a not-covered turn's copy.
-  escalationOffered?: boolean;
-  // True from the moment "Ask the code" is clicked onward — disables the
-  // button; escalation is one-shot per turn, so this never resets to false.
-  escalating?: boolean;
-  // Marks a turn as the streamed answer from a code-agent escalation
-  // (renders the "from code analysis" badge and any citations below).
-  fromCodeAnalysis?: boolean;
-  citations?: CodeCitation[];
-  codeNotFound?: boolean;
   // Provenance badges: from the chat `done` event's `sources_used` while
   // streaming, and from the transcript's derived `sources_used` on reload.
-  // Escalated answers still lose their "from code analysis" badge on
-  // reload (no tool calls are stored for them — accepted limitation).
   sourcesUsed?: string[];
 }
 
-// Public source keys are shared by the reader and administration APIs.
-const SOURCE_KEYS = ["docs", "codex"] as const;
-type SourceKey = (typeof SOURCE_KEYS)[number];
-
-// Which sources are actually toggleable for this app: capability `true` in
-// AppInfo.sources. Absent `sources` (old server) means "docs only" — same
-// as a present-but-docs-only capability map, both render no selector.
-function availableSources(sources?: { docs: boolean; codex: boolean }): SourceKey[] {
-  if (!sources) return ["docs"];
-  return SOURCE_KEYS.filter((key) => sources[key]);
-}
-
-function storageKey(app: string): string {
-  return `chat-sources:${app}`;
-}
-
-// Restores a persisted selection for this app, defaulting every available
-// source to checked. Storage keys for sources that are no longer available
-// (or never were) are ignored; a missing/corrupt entry falls back to
-// all-enabled, same as a first-ever visit.
-function loadSelection(app: string, available: SourceKey[]): Record<SourceKey, boolean> {
-  const selection = {} as Record<SourceKey, boolean>;
-  for (const key of available) selection[key] = true;
-  try {
-    const raw = localStorage.getItem(storageKey(app));
-    if (raw) {
-      const stored = JSON.parse(raw) as Record<string, boolean>;
-      for (const key of available) {
-        if (typeof stored[key] === "boolean") selection[key] = stored[key];
-      }
-    }
-  } catch { /* corrupt/unavailable storage — fall back to all-enabled */ }
-  return selection;
-}
-
-// The server-side sentinels the docs agent (NOT_COVERED) and the code
-// agent (NOT_FOUND) answer with when they can't help. Never shown to
-// users: live streams flip to the friendly panel on `done`, stored
-// transcripts are mapped on load (docs agent only — see the "accepted v1
-// limitation" note on the escalate handler below), and mid-stream token
-// prefixes of either are held back from rendering.
+// The server-side sentinel the docs agent answers with when it can't help.
+// Never shown to users: live streams flip to the friendly panel on `done`,
+// stored transcripts are mapped on load, and mid-stream token prefixes of it
+// are held back from rendering.
 const NOT_COVERED_SENTINEL = "NOT_COVERED";
-const CODE_NOT_FOUND_SENTINEL = "NOT_FOUND";
 
 function isSentinelPrefix(content: string, sentinel: string): boolean {
   const trimmed = content.trim();
   return trimmed !== "" && sentinel.startsWith(trimmed);
 }
 
-// The not-covered copy, reused verbatim (optionally prefixed) for both a
-// docs-agent NOT_COVERED turn and a code-agent escalation that also came
-// back not_found.
-function NoDataCopy({ app, prefix }: { app: string; prefix?: string }) {
+// The copy shown for a NOT_COVERED turn.
+function NoDataCopy() {
   return (
     <p>
-      {prefix}
       The selected sources do not contain enough information to answer this question.
     </p>
   );
 }
 
-// The main content area of an assistant turn: the not-covered panel, the
-// "also found nothing" variant for a not_found code answer, a pulsing
-// placeholder while a streaming sentinel prefix is ambiguous, or the
-// rendered markdown answer. A code-analysis turn checks the NOT_FOUND
-// sentinel the same way the docs turn checks NOT_COVERED — only while
-// `codeNotFound` is still unknown (i.e. before that turn's `done` event
-// has landed) — since it's still being told apart from a real answer that
-// coincidentally starts the same way.
+// The main content area of an assistant turn: the not-covered panel, a
+// pulsing placeholder while a streaming sentinel prefix is ambiguous, or the
+// rendered markdown answer.
 // memo: completed turns keep their object identity across renders, so this
 // skips the markdown re-parse (and mermaid work) that every keystroke in the
 // input and every stream token of a LATER turn would otherwise trigger for
 // the whole transcript — the 2026-08-05 typing-flicker field report.
 const AssistantBody = memo(function AssistantBody({ turn, app, isStreaming }: { turn: Turn; app: string; isStreaming: boolean }) {
-  if (turn.notCovered) return <NoDataCopy app={app} />;
-  if (turn.fromCodeAnalysis && turn.codeNotFound) {
-    return <NoDataCopy app={app} prefix="Code analysis also found nothing — " />;
-  }
-  const pending = turn.fromCodeAnalysis
-    ? turn.codeNotFound === undefined && isSentinelPrefix(turn.content, CODE_NOT_FOUND_SENTINEL)
-    : isSentinelPrefix(turn.content, NOT_COVERED_SENTINEL);
-  if (pending) return <p className="text-sm text-muted-foreground animate-pulse">…</p>;
+  if (turn.notCovered) return <NoDataCopy />;
+  if (isSentinelPrefix(turn.content, NOT_COVERED_SENTINEL)) return <p className="text-sm text-muted-foreground animate-pulse">…</p>;
   const content = turn.sources && turn.sources.length > 0
     ? linkifySourceRefs(turn.content, turn.sources)
     : turn.content;
@@ -159,23 +90,7 @@ function describeToolActivity(name: string, argument: string): string {
   }
   if (name === "list_docs") return "listing documents";
   if (name === "validate_mermaid") return "checking diagram syntax";
-  if (name.startsWith("codex:")) {
-    // ask_code forwards code-agent frames with the plain-text detail as
-    // `argument`. Interim agent messages ARE the narrative — show them
-    // bare under a codex label; other frames keep their kind visible.
-    const kind = name.slice("codex:".length);
-    if (kind === "agent_message") return argument ? `codex: ${argument}` : "codex";
-    return argument ? `codex ${kind}: ${argument}` : `codex ${kind}`;
-  }
   return name;
-}
-
-// Code-agent tool events carry a plain-text `detail` (already truncated
-// server-side) rather than the docs agent's JSON argument blob, so this
-// mirrors describeToolActivity's phrasing without the JSON parsing step.
-function describeCodeToolActivity(name: string, detail: string): string {
-  if (name === "agent_message") return detail ? `codex: ${detail}` : "codex";
-  return detail ? `${name}: ${detail}` : name;
 }
 
 // Rewrites `[n]` markers in a completed answer into markdown links pointing
@@ -201,61 +116,25 @@ function linkifySourceRefs(content: string, sources: ChatSource[]): string {
   }).join("");
 }
 
-// A row of checkboxes — one per available source — above the input. Purely
-// a testing aid (per the design spec), so it's kept visually quiet: small
-// text, no card/border. Renders nothing when there's zero or one available
-// source (e.g. old server, or docs-only), matching today's look.
-function SourceSelector({ available, selection, onToggle }: {
-  available: SourceKey[];
-  selection: Record<SourceKey, boolean>;
-  onToggle: (key: SourceKey) => void;
-}) {
-  if (available.length <= 1) return null;
-  const checkedCount = available.filter((key) => selection[key]).length;
-  return (
-    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-      {available.map((key) => {
-        // Disable the sole remaining checked box so the user can't uncheck
-        // it — the server 400s a request that disables every available
-        // source, and the UI prevents that request rather than surface it.
-        const isLastChecked = selection[key] && checkedCount === 1;
-        return (
-          <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={selection[key] ?? false}
-              disabled={isLastChecked}
-              onChange={() => onToggle(key)}
-              className="size-3.5 accent-primary"
-            />
-            {key === "docs" ? "RAG" : "Source code"}
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
 export interface ChatPanelProps {
   app: string;
   askEnabled: boolean;
   askReason: string | null;
   sessionKey?: string;
   onSession: (key: string) => void;
-  sources?: { docs: boolean; codex: boolean };
+  sources?: { docs: boolean };
   contextEnabled?: boolean;
   client: {
     streamChat: (app: string, question: string, session?: string, sources?: Record<string, boolean>, context?: AgentContext) => AsyncGenerator<ChatEvent>;
     getChat: (app: string, key: string) => Promise<Transcript>;
     getContext?: (app: string) => Promise<ContextOptions>;
-    escalateStream?: (app: string, key: string, question: string) => AsyncGenerator<EscalateEvent>;
   };
   onRecent?: (app: string, entry: { key: string; firstQuestion: string; ts: number }) => void;
   documentHref?: (source: ChatSource) => string;
 }
 
 export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSession, sources, contextEnabled = false, client, onRecent, documentHref }: ChatPanelProps) {
-  const { streamChat, getChat, escalateStream } = client;
+  const { streamChat, getChat } = client;
   const addRecent = onRecent ?? (() => {});
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
@@ -294,38 +173,6 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
   // submit() never writes into the freshly-reset state.
   const generation = useRef(0);
 
-  const available = availableSources(sources);
-  const [selection, setSelection] = useState<Record<SourceKey, boolean>>(
-    () => loadSelection(app, available),
-  );
-  // Re-syncs the selection when the app's source capabilities change —
-  // notably the real-world case where `sources` arrives asynchronously
-  // after the initial render (the parent route fetches /api/apps in an
-  // effect of its own). Re-reads localStorage each time rather than just
-  // trusting the lazy initializer above, so a capability that flips
-  // true→false→true within one mount doesn't strand a stale selection.
-  useEffect(() => {
-    if (!contextEnabled || !session.current) setSelection(loadSelection(app, availableSources(sources)));
-  }, [app, sources]);
-
-  function toggleSource(key: SourceKey) {
-    setSelection((prev) => {
-      const checkedCount = available.filter((k) => prev[k]).length;
-      // Guard: refuse to uncheck the last remaining checked source. The
-      // server 400s a request that disables every effectively-available
-      // source — the UI prevents that request rather than surface it.
-      if (prev[key] && checkedCount <= 1) return prev;
-      const next = { ...prev, [key]: !prev[key] };
-      try {
-        localStorage.setItem(
-          storageKey(app),
-          JSON.stringify(Object.fromEntries(available.map((k) => [k, next[k]]))),
-        );
-      } catch { /* storage unavailable — selection still works for this session */ }
-      return next;
-    });
-  }
-
   useEffect(() => {
     // sessionKey === session.current means this prop change is our own
     // onSession()-triggered URL push (see submit()) reflecting back down —
@@ -345,10 +192,7 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
     // waiting on a background loop that (per the guard in submit()'s
     // `finally`) will no longer clear it itself.
     setBusy(false);
-    if (!sessionKey) {
-      setSelection(loadSelection(app, availableSources(sources)));
-      return;
-    }
+    if (!sessionKey) return;
     // session.current was just set to sessionKey above; capture it as
     // `requested` so the async callbacks below can tell whether they're
     // still the most recent request by the time they resolve. Without this,
@@ -359,7 +203,6 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
       .then((t) => {
         if (session.current !== requested) return;
         setContext(t.context ?? DEFAULT_CONTEXT);
-        if (t.sources) setSelection(t.sources);
         setHistoryLoading(false);
         setTurns(t.messages.map((m) => ({
           role: m.role === "user" ? "user" : "assistant", content: m.content,
@@ -375,10 +218,9 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
       });
   }, [app, sessionKey]);
 
-  const invalidContext = contextEnabled && ((selection.docs && context.folders?.length === 0)
-    || (selection.codex && context.repositories?.length === 0));
+  const invalidContext = contextEnabled && context.folders?.length === 0;
   const advanced = contextEnabled ? <AdvancedContext value={context} onChange={setContext}
-    sources={selection} available={sources ?? { docs: true, codex: false }} onToggle={toggleSource}
+    available={sources ?? { docs: true }}
     locked={busy || !!session.current || !!sessionKey} options={contextOptions} loading={contextLoading}
     error={contextError} refresh={() => setContextRevision((revision) => revision + 1)} /> : null;
 
@@ -409,14 +251,8 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
     setQuestion("");
     setTurns((t) => [...t, { role: "user", content: q }, { role: "assistant", content: "" }]);
     const isFirst = session.current === undefined;
-    // Sent with every streamChat call, but only once there's an actual
-    // selector to reflect — one or zero available sources (old server, or
-    // docs-only) omits it entirely, same as before this feature existed.
-    const sourcesParam = contextEnabled ? { docs: !!selection.docs, codex: !!selection.codex } : available.length > 1
-      ? (Object.fromEntries(available.map((k) => [k, selection[k]])) as Record<string, boolean>)
-      : undefined;
     try {
-      for await (const event of streamChat(app, q, session.current, sourcesParam, contextEnabled ? context : undefined)) {
+      for await (const event of streamChat(app, q, session.current, undefined, contextEnabled ? context : undefined)) {
         if (generation.current !== myGeneration) break;
         if (event.type === "todo") {
           setNotice(event.text);
@@ -465,7 +301,6 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
             const next = [...t];
             next[next.length - 1] = {
               ...last, content: event.text, notCovered: event.not_covered,
-              question: q, escalationOffered: event.escalation_offered && Boolean(escalateStream),
               sourcesUsed: event.sources_used,
             };
             return next;
@@ -505,99 +340,6 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
     }
   }
 
-  // Escalates the question a not-covered turn (at index `i`) answered to
-  // the code agent, over the session already open for this conversation
-  // (the backend requires an existing session — escalation is only ever
-  // offered once one exists). Reuses submit()'s generation/busy discipline
-  // — setting `busy` mid-escalation also disables the main Ask
-  // button/input, so a normal question can't stream into the same "last
-  // turn" this loop is writing into.
-  //
-  // ACCEPTED V1 LIMITATION (see task-6-report.md): the escalated answer is
-  // persisted server-side as a plain user+assistant turn with no stored
-  // tool calls, so on transcript reload it carries no badges — the "from
-  // code analysis" badge and citations exist only in live component state.
-  async function escalate(i: number) {
-    const key = session.current;
-    const turn = turns[i];
-    if (!turn || turn.escalating || busy || !key) return;
-    const q = turn.question ?? "";
-    const myGeneration = generation.current;
-    setError(null);
-    setNotice(null);
-    setBusy(true);
-    setTurns((t) => {
-      const next = [...t];
-      if (next[i]) next[i] = { ...next[i], escalating: true };
-      return [...next, { role: "assistant", content: "", fromCodeAnalysis: true }];
-    });
-    try {
-      for await (const event of escalateStream!(app, key, q)) {
-        if (generation.current !== myGeneration) break;
-        if (event.type === "todo") {
-          setNotice(event.text);
-          setTurns((current) => {
-            const next = current.slice(0, -1);
-            next[i] = { ...next[i], escalating: false };
-            return next;
-          });
-        } else if (event.type === "tool") {
-          setActivity(describeCodeToolActivity(event.name, event.detail));
-        } else if (event.type === "token") {
-          setActivity(null);
-          setTurns((t) => {
-            const last = t[t.length - 1];
-            if (!last || last.role !== "assistant") return t;
-            const next = [...t];
-            next[next.length - 1] = { ...last, content: last.content + event.text };
-            return next;
-          });
-        } else if (event.type === "done") {
-          setTurns((t) => {
-            const last = t[t.length - 1];
-            if (!last || last.role !== "assistant") return t;
-            const next = [...t];
-            next[next.length - 1] = {
-              ...last, content: event.answer, citations: event.citations, codeNotFound: event.not_found,
-            };
-            return next;
-          });
-        } else if (event.type === "error") {
-          setError(event.message);
-          setTurns((t) => {
-            // Same partial-answer-stays-visible discipline as submit()'s
-            // error handling, extended: a bare sentinel prefix (e.g.
-            // "NOT_F" from an interrupted NOT_FOUND stream) is exactly
-            // as unusable as an empty answer here — AssistantBody's
-            // `pending` check treats any sentinel-prefix content on a
-            // fromCodeAnalysis turn as "still streaming" (codeNotFound
-            // undefined) and would otherwise pulse the placeholder
-            // forever, since codeNotFound only ever gets set by a
-            // `done` event this turn now never receives.
-            const last = t[t.length - 1];
-            const unusable = last && last.role === "assistant"
-              && (last.content === ""
-                  || isSentinelPrefix(last.content, CODE_NOT_FOUND_SENTINEL));
-            const dropped = unusable ? t.slice(0, -1) : t;
-            // A failed escalation isn't a permanent latch — only a
-            // successful one (the `done` branch above) keeps "Ask the
-            // code" disabled forever. Reset it here, mirroring `busy`'s
-            // reset-on-error semantics, so the user can retry.
-            if (!dropped[i]?.escalating) return dropped;
-            const next = [...dropped];
-            next[i] = { ...next[i], escalating: false };
-            return next;
-          });
-        }
-      }
-    } finally {
-      if (generation.current === myGeneration) {
-        setActivity(null);
-        setBusy(false);
-      }
-    }
-  }
-
   return (
     <div className="max-w-3xl flex flex-col gap-4">
       {turns.map((turn, i) =>
@@ -608,39 +350,14 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
         ) : (
           <Card key={i}>
             <CardContent className="flex flex-col gap-3 p-4">
-              {turn.fromCodeAnalysis && (
-                <Badge variant="secondary" className="self-start">from code analysis</Badge>
-              )}
               {turn.sourcesUsed && turn.sourcesUsed.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {turn.sourcesUsed.map((s) => (
-                    <Badge key={s} variant="secondary" className="self-start">{s === "docs" ? "RAG" : s === "codex" ? "Source code" : s}</Badge>
+                    <Badge key={s} variant="secondary" className="self-start">{s === "docs" ? "RAG" : s}</Badge>
                   ))}
                 </div>
               )}
               <AssistantBody turn={turn} app={app} isStreaming={busy && i === turns.length - 1} />
-              {turn.notCovered && turn.escalationOffered && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  disabled={turn.escalating || busy}
-                  onClick={() => void escalate(i)}
-                >
-                  Ask the code
-                </Button>
-              )}
-              {turn.citations && turn.citations.length > 0 && (
-                <>
-                  <Separator />
-                  <ul className="flex flex-col gap-1 font-mono text-sm">
-                    {turn.citations.map((c, idx) => (
-                      <li key={idx}>{c.file}:{c.lines}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
               {turn.sources && turn.sources.length > 0 && (
                 <>
                   <Separator />
@@ -680,7 +397,7 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
           </AlertDescription>
         </Alert>
       )}
-      {advanced ?? <SourceSelector available={available} selection={selection} onToggle={toggleSource} />}
+      {advanced}
       <form
         onSubmit={(e) => { e.preventDefault(); void submit(); }}
         className="flex gap-2"

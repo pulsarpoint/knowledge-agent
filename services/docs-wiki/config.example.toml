@@ -42,12 +42,6 @@ base_url = "http://localhost:11434/v1"
 chat_model = "qwen2.5:14b"
 # reasoning_effort = "none"   # optional; overrides per-model profiles
 
-# Optional: enables "Ask the code" — escalating a NOT_COVERED chat turn to
-# a separate, read-only code-question service (services/code-agent). Omit
-# entirely to leave escalation off; nothing else changes.
-# [code_agent]
-# url = "http://localhost:8795"
-
 # Optional: service settings.
 # [server]
 # cors_origin = "http://localhost:5173"   # allow the React dev server

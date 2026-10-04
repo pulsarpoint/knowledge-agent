@@ -7,8 +7,8 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 ## Service boundaries
 
 - Reader traffic enters through `oauth2-proxy` on port 8180; administration enters
-  through `admin-oauth2-proxy` on port 8183. The two web servers and APIs, `rag`,
-  `code-agent` and `litellm` have no published host ports.
+  through `admin-oauth2-proxy` on port 8183. The two web servers and APIs, `rag`
+  and `litellm` have no published host ports.
 - The proxies use separate `knowledge-agent-v3` and `knowledge-agent-v3-admin`
   Keycloak clients, client secrets and cookie names. The admin gateway also
   requires the `docs-admins` group, which the admin API checks independently.

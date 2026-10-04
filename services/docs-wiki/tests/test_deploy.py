@@ -11,7 +11,7 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
     compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
     assert compose["name"] == "knowledge-agent-v3"
     services = compose["services"]
-    assert set(services) == {"postgres", "migrate", "rag", "docs-wiki", "code-agent", "web", "keycloak", "oauth2-proxy", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker"}
+    assert set(services) == {"postgres", "migrate", "rag", "docs-wiki", "web", "keycloak", "oauth2-proxy", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "documentation-worker", "shell-worker"}
     assert services["docs-wiki"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert services["migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     for service in services.values():
@@ -23,18 +23,18 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
 
 def test_private_services_and_separate_persistent_state():
     compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
-    for name in ("rag", "docs-wiki", "code-agent", "web", "litellm", "migrate", "admin-api", "admin-web", "keycloak-configure", "repository-worker"):
+    for name in ("rag", "docs-wiki", "web", "litellm", "migrate", "admin-api", "admin-web", "keycloak-configure", "repository-worker"):
         assert not compose["services"][name].get("ports")
     for name in ("postgres", "oauth2-proxy", "admin-oauth2-proxy", "keycloak", "phoenix"):
         assert all(port.startswith("127.0.0.1:") for port in compose["services"][name]["ports"])
-    assert set(compose["volumes"]) == {"postgres-data", "wiki-data", "keycloak-data", "phoenix-data"}
+    assert set(compose["volumes"]) == {"postgres-data", "wiki-data", "keycloak-data", "phoenix-data", "agent-workspaces"}
     assert all(not value or not value.get("external") for value in compose["volumes"].values())
 
 
 def test_repository_worker_has_exclusive_write_mount_and_credentials():
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
     worker = services["repository-worker"]
-    assert worker["volumes"] == ["${CODE_PATH:-../.local/code}:/work/code"]
+    assert worker["volumes"] == ["${CODE_PATH:-../.local/code}:/work/code", "${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index"]
     assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     for name in ("admin-api", "repository-worker"):
         assert "CREDENTIAL_ENCRYPTION_KEY" in services[name]["environment"]
@@ -44,7 +44,7 @@ def test_repository_worker_has_exclusive_write_mount_and_credentials():
 
 def test_agent_config_paths_match_code_and_document_mounts():
     services = yaml.safe_load((DEPLOY / 'compose.yaml').read_text())['services']
-    for name in ('admin-api', 'code-agent'):
+    for name in ('admin-api',):
         service = services[name]
         code_root = service['environment']['CODE_ROOT']
         rag_root = service['environment']['RAG_SOURCE_ROOT']
@@ -91,17 +91,18 @@ def test_administration_has_a_separate_client_session_and_upstream():
 
 
 def test_images_use_local_source_and_frozen_dependencies():
-    for name in ("rag", "docs-wiki", "code-agent"):
+    for name in ("rag", "docs-wiki"):
         text = (DEPLOY / f"Dockerfile.{name}").read_text(encoding="utf-8")
         assert "uv sync --frozen --no-dev" in text
         assert f"COPY services/{name}/src" in text
         assert "knowledge-agent-v2" not in text
     assert "pnpm install --frozen-lockfile" in (DEPLOY / "Dockerfile.web").read_text(encoding="utf-8")
+    assert not (DEPLOY / "Dockerfile.code-agent").exists()
 
 
 def test_agents_use_database_models_and_keep_keys_out_of_web_containers():
     services = yaml.safe_load((DEPLOY / 'compose.yaml').read_text())['services']
-    for name in ('docs-wiki', 'admin-api', 'code-agent'):
+    for name in ('docs-wiki', 'admin-api'):
         env = services[name]['environment']
         assert env['LLM_SETTINGS_SOURCE'] == 'database'
         assert 'CREDENTIAL_ENCRYPTION_KEY' in env and 'PGHOST' in env

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { ApiError, escalateStream, getDoc, streamChat } from "../api";
+import { ApiError, getDoc, streamChat } from "../api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,15 +18,6 @@ test("non-ok responses raise ApiError with the server message", async () => {
   expect(new ApiError("x", 400)).toBeInstanceOf(Error);
 });
 
-test("escalate reads the plain TODO response without session events", async () => {
-  const fetchMock = vi.fn(async () => new Response('TODO', { headers: { 'Content-Type': 'text/plain' } }));
-  vi.stubGlobal('fetch', fetchMock);
-  const events = [];
-  for await (const event of escalateStream('shop', 'saved', 'hello?')) events.push(event);
-  expect(events).toEqual([{ type: 'todo', text: 'TODO' }]);
-  expect(fetchMock).toHaveBeenCalledWith('/api/shop/chat/saved/escalate', expect.objectContaining({ method: 'POST', body: JSON.stringify({ question: 'hello?' }) }));
-});
-
 function sseResponse(text: string, chunks = 1) {
   const bytes = new TextEncoder().encode(text);
   const size = Math.ceil(bytes.length / chunks);
@@ -40,7 +31,7 @@ test('streamChat parses reader events across chunk boundaries', async () => {
   const text = 'event: session\ndata: {"key":"s1"}\n\n' +
     'event: tool\ndata: {"name":"search_documents","argument":"{\\"query\\":\\"retries\\"}"}\n\n' +
     'event: sources\ndata: {"sources":[{"n":1,"path":"p/r.md","heading_path":"p","anchor":null}]}\n\n' +
-    'event: done\ndata: {"text":"Three [1].","not_covered":false,"escalation_offered":false,"sources_used":["docs"]}\n\n';
+    'event: done\ndata: {"text":"Three [1].","not_covered":false,"sources_used":["docs"]}\n\n';
   vi.stubGlobal('fetch', vi.fn(async () => sseResponse(text, 7)));
   const events = [];
   for await (const event of streamChat('shop', 'retries?')) events.push(event);
@@ -66,13 +57,13 @@ test("streamChat includes sources in the body when passed", async () => {
   const fetchMock = vi.fn(async () => new Response(body, { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   const events = [];
-  for await (const ev of streamChat("shop", "hello?", undefined, { docs: true, codex: true })) {
+  for await (const ev of streamChat("shop", "hello?", undefined, { docs: true })) {
     events.push(ev);
   }
   expect(fetchMock).toHaveBeenCalledWith("/api/shop/chat", expect.objectContaining({
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question: "hello?", sources: { docs: true, codex: true } }),
+    body: JSON.stringify({ question: "hello?", sources: { docs: true } }),
   }));
 });
 
@@ -80,9 +71,9 @@ test("reader chat sends advanced context with the selected sources", async () =>
   const fetchMock = vi.fn(async () => new Response('event: done\ndata: {"text":"ok","not_covered":false}\n\n'));
   vi.stubGlobal("fetch", fetchMock);
   const context = { folders: ['payments', 'support/incidents'], include_subfolders: true, repositories: null };
-  for await (const _event of streamChat('docs', 'Explain', undefined, { docs: true, codex: false }, context)) { /* drain */ }
+  for await (const _event of streamChat('docs', 'Explain', undefined, { docs: true }, context)) { /* drain */ }
   expect(fetchMock).toHaveBeenCalledWith('/api/docs/chat', expect.objectContaining({
-    body: JSON.stringify({ question: 'Explain', sources: { docs: true, codex: false }, context }),
+    body: JSON.stringify({ question: 'Explain', sources: { docs: true }, context }),
   }));
 });
 
@@ -92,12 +83,4 @@ test("streamChat surfaces pre-stream API errors as an error event", async () => 
   const events = [];
   for await (const ev of streamChat("shop", "hello?")) events.push(ev);
   expect(events).toEqual([{ type: "error", message: "Ask is not configured" }]);
-});
-
-test("escalateStream surfaces pre-stream API errors as an error event", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () =>
-    new Response(JSON.stringify({ error: { message: "code analysis is not configured" } }), { status: 400 })));
-  const events = [];
-  for await (const ev of escalateStream("shop", "k1", "hello?")) events.push(ev);
-  expect(events).toEqual([{ type: "error", message: "code analysis is not configured" }]);
 });

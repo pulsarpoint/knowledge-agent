@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse, Response, PlainTextResponse
 from pydantic import BaseModel
 
 from docs_wiki import audit, freshness, gaps, sessions, webapp
-from docs_wiki.code_client import CodeAgentClient
 from docs_wiki.config import App, ServerConfig
 from docs_wiki.rag_client import RagClient, RagError, RagNotFound
 from docs_wiki.webapp import MAX_QUESTION
@@ -34,8 +33,6 @@ class ChatRequest(BaseModel):
     sources: dict[str, bool] | None = None
 
 
-class EscalateRequest(BaseModel):
-    question: str = ""
 
 
 def _rag_unavailable() -> JSONResponse:
@@ -61,7 +58,6 @@ def _doc_freshness(target: App, meta: dict, cache: dict) -> str:
 
 def build_api(apps: dict[str, App], server: ServerConfig,
               rag_client: RagClient | None,
-              code_client: CodeAgentClient | None = None,
               context_enabled: bool = False) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -70,8 +66,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
         return [{"name": name, "ask_enabled": True,
                  **({'context_enabled': True} if context_enabled else {}),
                  "ask_reason": None,
-                 "sources": {"docs": rag_client is not None,
-                             "codex": code_client is not None}}
+                 "sources": {"docs": rag_client is not None}}
                 for name in apps]
 
     @router.get("/{app_name}/toc")
@@ -203,25 +198,5 @@ def build_api(apps: dict[str, App], server: ServerConfig,
             return _error(404, "unknown conversation")
         await sessions.delete(state_dir, key)
         return Response(status_code=204)
-
-    @router.post("/{app_name}/chat/{session_key}/escalate")
-    async def escalate(app_name: str, session_key: str,
-                       body: EscalateRequest, request: Request):
-        target = apps.get(app_name)
-        if target is None:
-            return _error(404, "unknown app")
-        state_dir = webapp.app_state_dir(server, app_name)
-        # Same session-key discipline as GET/DELETE /chats/{key}: only a
-        # conversation the server actually issued can be escalated.
-        if not sessions.KEY_RE.fullmatch(session_key) or not sessions.exists(
-                state_dir, session_key):
-            return _error(404, "unknown conversation")
-        question = body.question.strip()
-        if not question:
-            return _error(400, "Ask needs a question.")
-        if len(question) > MAX_QUESTION:
-            return _error(400, "Question too long (10,000 character limit).")
-
-        return PlainTextResponse("TODO")
 
     return router

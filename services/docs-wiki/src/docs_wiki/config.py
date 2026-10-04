@@ -27,7 +27,6 @@ class Config:
     llm: dict | None
     server: dict | None = None
     rag: dict | None = None
-    code_agent: dict | None = None
 
 
 def load_config(target: Path) -> Config:
@@ -51,9 +50,6 @@ def load_config(target: Path) -> Config:
     raw_rag = data.get("rag")
     if raw_rag is not None and not isinstance(raw_rag, dict):
         raise ConfigError(f"{target}: rag must be a table")
-    raw_code_agent = data.get("code_agent")
-    if raw_code_agent is not None and not isinstance(raw_code_agent, dict):
-        raise ConfigError(f"{target}: code_agent must be a table")
     apps: list[App] = []
     seen: set[str] = set()
     for i, entry in enumerate(raw_apps):
@@ -87,8 +83,7 @@ def load_config(target: Path) -> Config:
     server = data.get("server")
     if server is not None and not isinstance(server, dict):
         raise ConfigError(f"{target}: server must be a table")
-    return Config(apps=apps, llm=llm, server=server, rag=raw_rag,
-                 code_agent=raw_code_agent)
+    return Config(apps=apps, llm=llm, server=server, rag=raw_rag)
 
 
 @dataclass
@@ -193,20 +188,6 @@ def resolve_rag(rag_section: dict | None,
         env = os.environ
     section = rag_section or {}
     url = env.get("DOCS_WIKI_RAG_URL") or section.get("url")
-    return url if isinstance(url, str) and url else None
-
-
-def resolve_code_agent(code_agent_section: dict | None,
-                       env: Mapping[str, str] | None = None) -> str | None:
-    # The code-agent service is always optional (README: "a deploy
-    # without [code_agent] configured on docs-wiki behaves exactly as
-    # if this service did not exist") — same empty-section shape as
-    # resolve_rag above, deliberately mirrored rather than shared, since
-    # each config surface is free to diverge independently later.
-    if env is None:
-        env = os.environ
-    section = code_agent_section or {}
-    url = env.get("DOCS_WIKI_CODE_AGENT_URL") or section.get("url")
     return url if isinstance(url, str) and url else None
 
 

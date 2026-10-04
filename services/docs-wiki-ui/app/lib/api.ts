@@ -1,6 +1,6 @@
-import type { AgentContext, ContextOptions, ChatEvent, ChatSource, CodeCitation, EscalateEvent, Transcript } from "@knowledge-agent/chat-ui/types";
+import type { AgentContext, ContextOptions, ChatEvent, ChatSource, Transcript } from "@knowledge-agent/chat-ui/types";
 import { parseSse } from "./sse";
-export type { ChatEvent, ChatSource, CodeCitation, EscalateEvent, Transcript } from "@knowledge-agent/chat-ui/types";
+export type { ChatEvent, ChatSource, Transcript } from "@knowledge-agent/chat-ui/types";
 
 export interface AppInfo {
   name: string;
@@ -9,7 +9,7 @@ export interface AppInfo {
   context_enabled?: boolean;
   // Capability discovery for the chat source selector. Absent on older
   // servers — callers should treat that as "docs only" (no selector).
-  sources?: { docs: boolean; codex: boolean };
+  sources?: { docs: boolean };
 }
 export interface TocGroup { group: string; docs: { title: string; path: string; freshness: string }[] }
 export interface DocData {
@@ -18,6 +18,8 @@ export interface DocData {
   headings: { text: string; anchor: string; level: number }[];
 }
 export interface SearchHit { path: string; title: string; heading_path: string; snippet: string; anchor: string | null }
+// Code answers recorded in the gaps log by the former "Ask the code" escalation.
+export interface CodeCitation { file: string; lines: string; quote?: string }
 export interface CodeAnswer { answer: string; citations: CodeCitation[]; not_found: boolean; timestamp: string }
 export interface GapsData {
   gaps: {
@@ -105,30 +107,4 @@ export async function* streamChat(
     if (finished) return;
   }
   if (!finished) yield { type: "error", message: "Chat is temporarily unavailable." };
-}
-
-export async function* escalateStream(
-  app: string, sessionKey: string, question: string,
-): AsyncGenerator<EscalateEvent> {
-  let response: Response;
-  try {
-    response = await fetch(`/api/${encodeURIComponent(app)}/chat/${encodeURIComponent(sessionKey)}/escalate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
-    });
-  } catch {
-    yield { type: "error", message: "network error — is the server running?" };
-    return;
-  }
-  if (!response.ok) {
-    let message = `request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      if (body?.error?.message) message = body.error.message;
-    } catch { /* keep status message */ }
-    yield { type: "error", message };
-    return;
-  }
-  yield { type: "todo", text: await response.text() };
 }

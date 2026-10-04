@@ -10,7 +10,6 @@ to the Reader's SSE protocol (`session`, `tool`, `sources`, `done`, `error`, plu
 timeout); docs-wiki stores none. Questions the documents do not cover are recorded
 locally as gaps before the answer is sent. Keys that are not admin-api conversation
 IDs (such as old file-based conversations) are reported as `Unknown conversation`.
-Legacy escalation still returns plain text `TODO`.
 
 The retained search tools live in `src/docs_wiki/tools/`.
 Keycloak protects the deployed application. Phoenix configuration is unchanged.

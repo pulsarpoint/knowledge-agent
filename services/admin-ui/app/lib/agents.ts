@@ -1,7 +1,7 @@
 import type { AgentContext, ContextOptions, ChatEvent, Transcript } from "@knowledge-agent/chat-ui/types";
 export interface AgentStatus {
   name: string; ask_enabled: boolean; ask_reason: string | null; model: string | null;
-  sources: { docs: boolean; codex: boolean };
+  sources: { docs: boolean };
 }
 const base = "/api/agents/search";
 async function request<T>(path: string, agentId = "search"): Promise<T> {

@@ -1,9 +1,7 @@
 """Retained search tools. Execution endpoints do not invoke these tools."""
 import asyncio
-import json
 from dataclasses import dataclass, field
 from agents import RunContextWrapper, function_tool
-from docs_wiki.code_client import CodeAgentClient, CodeAgentError
 from docs_wiki.rag_client import RagClient, RagError, RagNotFound
 
 @dataclass
@@ -12,8 +10,6 @@ class SearchContext:
     collection: str
     excerpts: list[dict] = field(default_factory=list)
     last_search: list[dict] = field(default_factory=list)
-    code: CodeAgentClient | None = None
-    code_repo: str = ""
     used: set[str] = field(default_factory=set)
 
 
@@ -74,27 +70,3 @@ async def list_docs(ctx: RunContextWrapper[SearchContext]) -> str:
     return "\n".join(f"{r['quadrant']}: {r['path']} — {r['title']}"
                      for r in rows) or "No documents indexed."
 
-
-@function_tool
-async def ask_code(ctx: RunContextWrapper[SearchContext], question: str, repository: str = "") -> str:
-    """Submit a repository question. Agent execution currently returns TODO."""
-    state = ctx.context
-    if state.code is None:
-        return "Repository service unavailable"
-    try:
-        return await asyncio.to_thread(state.code.ask, repository or state.code_repo, question)
-    except CodeAgentError as exc:
-        return f"ask_code failed: {exc}"
-
-
-@function_tool
-async def list_repositories(ctx: RunContextWrapper[SearchContext]) -> str:
-    """List synced repositories by name."""
-    state = ctx.context
-    if state.code is None:
-        return "Repository service unavailable"
-    try:
-        rows = await asyncio.to_thread(state.code.repos)
-        return json.dumps(rows)
-    except CodeAgentError:
-        return 'Repository service unavailable'

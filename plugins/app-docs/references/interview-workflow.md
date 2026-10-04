@@ -122,9 +122,8 @@ will be recorded in `index.md`. Ask for explicit confirmation.
 3. Detect new surface no document covers: new services, endpoints,
    configuration, jobs. Propose documentation for it.
 4. Read reader gaps: docs-wiki's Ask feature logs unanswerable
-   questions — and, when a reader escalated one to docs-wiki's optional
-   code-agent service ("Ask the code"), that service's draft answer too
-   — to a central state directory now, not the docs folder. Ask the
+   questions — older files may also hold draft answers from the former
+   "Ask the code" escalation — to a central state directory now, not the docs folder. Ask the
    developer for the gaps-file path if it isn't already known (the
    documented default is `~/.local/state/docs-wiki/<app>/gaps.jsonl`,
    where `<app>` is the app's name in docs-wiki's config); when no file

@@ -4,7 +4,6 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from docs_wiki.code_client import CodeAgentClient, CodeAgentError
 from docs_wiki.rag_client import RagNotFound
 from docs_wiki.workspace_client import WorkspaceRagClient
 
@@ -62,17 +61,3 @@ class ScopedDocuments:
             for path in self.context.folders]
         return [row for row in self.client.search_folders(query, selectors, top, mode)
                 if self.allows_folder(row['folder'].replace('.', '/'))]
-
-
-class ScopedRepositories:
-    def __init__(self, client: CodeAgentClient, repositories: list[str]):
-        self.client = client
-        self.allowed = frozenset(repositories)
-
-    def repos(self) -> list[dict]:
-        return [row for row in self.client.repos() if row['name'] in self.allowed]
-
-    def ask(self, repo: str, question: str, context: str | None = None):
-        if repo not in self.allowed:
-            raise CodeAgentError('Repository is outside this conversation context')
-        return self.client.ask(repo, question, context)

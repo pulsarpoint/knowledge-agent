@@ -110,17 +110,15 @@ def test_transcript_derives_sources_used_from_tool_calls(tmp_path):
          "arguments": "{}", "call_id": "c1"},
         {"type": "function_call", "name": "read_doc",
          "arguments": "{}", "call_id": "c2"},
-        {"type": "function_call", "name": "ask_code",
-         "arguments": "{}", "call_id": "c3"},
         {"type": "message", "role": "assistant", "status": "completed",
          "content": [{"type": "output_text", "text": "Async via events."}]},
     ])
     messages = asyncio.run(sessions.transcript(tmp_path, key))
     assert messages == [
         {"role": "user", "content": "how do refunds work?"},
-        # deduped (search_docs + read_doc -> one "docs") and sorted
+        # deduped: search_docs + read_doc -> one "docs"
         {"role": "assistant", "content": "Async via events.",
-         "sources_used": ["codex", "docs"]},
+         "sources_used": ["docs"]},
     ]
 
 
@@ -128,7 +126,7 @@ def test_transcript_sources_reset_between_turns(tmp_path):
     key = sessions.new_key()
     _add(tmp_path, key, [
         {"role": "user", "content": "q1"},
-        {"type": "function_call", "name": "ask_code",
+        {"type": "function_call", "name": "search_docs",
          "arguments": "{}", "call_id": "c1"},
         {"type": "message", "role": "assistant", "status": "completed",
          "content": [{"type": "output_text", "text": "a1"}]},
@@ -138,7 +136,7 @@ def test_transcript_sources_reset_between_turns(tmp_path):
     ])
     messages = asyncio.run(sessions.transcript(tmp_path, key))
     assert messages[1] == {"role": "assistant", "content": "a1",
-                           "sources_used": ["codex"]}
+                           "sources_used": ["docs"]}
     # second turn used no tools: no key at all, not an empty list
     assert messages[3] == {"role": "assistant", "content": "a2"}
 

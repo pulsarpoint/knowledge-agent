@@ -294,7 +294,6 @@ def test_cors_enabled_only_when_configured(tmp_path):
 import re
 
 from docs_wiki import sessions
-from docs_wiki.code_client import CodeAgentClient
 from docs_wiki.config import resolve_llm
 
 LLM = {"base_url": "http://llm.local/v1", "chat_model": "c"}
@@ -322,26 +321,6 @@ def live_client(tmp_path, fake_llm, rag):
                      rag_client=rag_client)
     state_dir = webapp.app_state_dir(server, "shop")
     return TestClient(app), llm_state, state_dir, rag_state
-
-
-@pytest.fixture()
-def live_client_with_code(tmp_path, fake_llm, rag, fake_code_agent):
-    # Same wiring as `live_client` plus a code_client backed by
-    # `fake_code_agent` — the escalation route's own dedicated client,
-    # kept separate from `live_client` so every other test stays
-    # unaffected by (and unaware of) the code-agent's existence.
-    import httpx
-    llm_transport, llm_state = fake_llm
-    rag_client, rag_state = rag
-    code_transport, code_state = fake_code_agent
-    llm_cfg = resolve_llm(LLM, env={})
-    code_client = CodeAgentClient("http://code.test", transport=code_transport)
-    server = _server(tmp_path)
-    app = create_app(Config(apps=[App(name="shop", app_root=None)], llm=None),
-                     server=server,
-                     rag_client=rag_client, code_client=code_client)
-    state_dir = webapp.app_state_dir(server, "shop")
-    return TestClient(app), llm_state, state_dir, rag_state, code_state
 
 
 def test_chat_rejects_unissued_session_key(live_client):
@@ -399,25 +378,6 @@ def test_validation_handler_leaves_non_api_routes_on_default_422(tmp_path):
     assert isinstance(body["detail"], list)
 
 
-# --- POST /{app}/chat/{session_key}/escalate --------------------------------
-
-
-def test_escalate_unknown_session_404(live_client_with_code):
-    client, *_rest = live_client_with_code
-    response = client.post(
-        "/api/shop/chat/unknownkey1234567890/escalate",
-        json={"question": "hi"})
-    assert response.status_code == 404
-
-
-def test_escalate_unknown_app_404(live_client_with_code):
-    client, *_rest = live_client_with_code
-    response = client.post(
-        "/api/ghost/chat/unknownkey1234567890/escalate",
-        json={"question": "hi"})
-    assert response.status_code == 404
-
-
 # --- source selection: ChatRequest.sources + /api/apps capability discovery -
 #
 # See .superpowers/sdd/2026-08-05-chat-source-selection/task-2-brief.md.
@@ -436,42 +396,15 @@ def test_apps_sources_docs_only(tmp_path, fake_llm, rag):
     llm_cfg = resolve_llm(LLM, env={})
     client = _client(tmp_path, rag_client=rag_client)
     body = client.get("/api/apps").json()
-    assert body[0]["sources"] == {"docs": True, "codex": False}
-
-
-def test_apps_sources_full_config(tmp_path, fake_llm, rag, fake_code_agent):
-    llm_transport, _llm_state = fake_llm
-    rag_client, rag_state = rag
-    rag_state["collections"] = [CODE_COLLECTION_ROW]
-    code_transport, _code_state = fake_code_agent
-    code_client = CodeAgentClient("http://code.test", transport=code_transport)
-    llm_cfg = resolve_llm(LLM, env={})
-    client = _client(tmp_path, rag_client=rag_client,
-                     code_client=code_client)
-    body = client.get("/api/apps").json()
-    assert body[0]["sources"] == {"docs": True, "codex": True}
+    assert body[0]["sources"] == {"docs": True}
 
 
 def test_apps_sources_all_false_when_ask_not_configured(tmp_path):
     # ask_enabled False (no llm/rag) must force every source off in the
-    # capability report, regardless of code_client configuration.
+    # capability report.
     client = _client(tmp_path)
     body = client.get("/api/apps").json()
-    assert body[0]["sources"] == {"docs": False, "codex": False}
-
-
-# --- degenerate all-sources-off rejection (controller resolution #2) --------
-
-
-def test_chat_docs_off_alone_is_legitimate_when_codex_available(
-        live_client_with_code):
-    # docs-off alone is legitimate (e.g. codex-only testing) as long as
-    # another source is effectively available — must NOT 400.
-    client, state, _state_dir, _rag_state, _code_state = live_client_with_code
-    state["chat_script"] = [{"text": "codex-only answer [1]."}]
-    response = client.post("/api/shop/chat",
-                           json={"question": "hi", "sources": {"docs": False}})
-    assert response.status_code == 200
+    assert body[0]["sources"] == {"docs": False}
 
 
 # --- ChatRequest.sources typing (controller resolution #1) ------------------
@@ -546,7 +479,7 @@ def test_my_chats_capped_at_50(tmp_path, monkeypatch):
     assert mine[0]["session_key"] == "k0"
 
 
-def test_legacy_chat_and_escalation_are_todo_without_execution(tmp_path, monkeypatch):
+def test_legacy_chat_is_todo_without_execution(tmp_path, monkeypatch):
     import asyncio
     import httpx
     async def forbidden(*args, **kwargs):
@@ -565,12 +498,9 @@ def test_legacy_chat_and_escalation_are_todo_without_execution(tmp_path, monkeyp
         await sessions.open_session(directory, key).add_items([{'role': 'user', 'content': 'Old question'}])
     asyncio.run(seed())
     before = (directory / 'sessions.db').read_bytes()
-    response = client.post(f'/api/shop/chat/{key}/escalate', json={'question': 'Inspect'})
-    assert response.status_code == 200 and response.text == 'TODO'
+    assert client.post(f'/api/shop/chat/{key}/escalate', json={'question': 'Inspect'}).status_code in (404, 405)
     assert client.get(f'/api/shop/chats/{key}').json()['messages'] == [{'role': 'user', 'content': 'Old question'}]
     assert (directory / 'sessions.db').read_bytes() == before
     assert client.post('/api/missing/chat', json={'question': 'Inspect'}).status_code == 404
-    assert client.post('/api/shop/chat/missing-key/escalate', json={'question': 'Inspect'}).status_code == 404
     for question in [' ', 'x' * 10001]:
         assert client.post('/api/shop/chat', json={'question': question}).status_code == 400
-        assert client.post(f'/api/shop/chat/{key}/escalate', json={'question': question}).status_code == 400

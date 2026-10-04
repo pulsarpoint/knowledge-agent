@@ -12,9 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from docs_wiki import tracing
-from docs_wiki.code_client import CodeAgentClient
-from docs_wiki.config import (App, Config, ServerConfig, resolve_code_agent,
-                              resolve_rag, state_root)
+from docs_wiki.config import App, Config, ServerConfig, resolve_rag, state_root
 from docs_wiki.rag_client import RagClient
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -80,7 +78,7 @@ def _validation_message(exc: RequestValidationError) -> str:
     return "; ".join(parts)
 
 
-def create_app(cfg: Config, server=None, rag_client=None, code_client=None) -> FastAPI:
+def create_app(cfg: Config, server=None, rag_client=None) -> FastAPI:
     app = FastAPI()
 
     @app.exception_handler(RequestValidationError)
@@ -117,10 +115,6 @@ def create_app(cfg: Config, server=None, rag_client=None, code_client=None) -> F
         rag_url = resolve_rag(cfg.rag)
         if rag_url:
             rag_client = RagClient(rag_url)
-    if code_client is None:
-        code_url = resolve_code_agent(cfg.code_agent)
-        if code_url:
-            code_client = CodeAgentClient(code_url)
     if server.cors_origin:
         from fastapi.middleware.cors import CORSMiddleware
         app.add_middleware(CORSMiddleware,
@@ -133,11 +127,11 @@ def create_app(cfg: Config, server=None, rag_client=None, code_client=None) -> F
         workspace_rag = WorkspaceRagClient(resolve_rag(cfg.rag), workspace_key)
         rag_client = workspace_rag
     reader_router = api_mod.build_api(
-        apps, server, rag_client, code_client=code_client, context_enabled=workspace_rag is not None)
+        apps, server, rag_client, context_enabled=workspace_rag is not None)
     if workspace_rag is not None:
         from docs_wiki.search_api import build_api as build_search_api
         reader_router.routes[:] = [route for route in reader_router.routes
-            if route.path not in {'/api/{app_name}/chat', '/api/{app_name}/chats', '/api/{app_name}/chats/{key}', '/api/{app_name}/chat/{session_key}/escalate'}]
+            if route.path not in {'/api/{app_name}/chat', '/api/{app_name}/chats', '/api/{app_name}/chats/{key}'}]
         reader = None
         reader_url, reader_key = os.environ.get('READER_AGENT_URL'), os.environ.get('READER_AGENT_KEY')
         if reader_url and reader_key:
@@ -145,7 +139,7 @@ def create_app(cfg: Config, server=None, rag_client=None, code_client=None) -> F
             reader = ReaderClient(reader_url, reader_key)
         for name in apps:
             app.include_router(build_search_api(f'/api/{name}', state_root(server) / 'search-conversations' / name,
-                workspace_rag, None if reader is not None else code_client,
+                workspace_rag,
                 audit_dir=state_root(server) / name, reader=reader, gaps_dir=state_root(server) / name))
     app.include_router(reader_router)
 

@@ -71,7 +71,7 @@ def test_answer_maps_to_reader_events(client, upstream, tmp_path):
     assert parse(response) == [
         ('session', {'key': SESSION}), ('tool', {'name': 'search_documents', 'argument': '{"query":"retries"}'}),
         ('sources', {'sources': grounding['sources']}),
-        ('done', {'text': 'Three [1].', 'not_covered': False, 'escalation_offered': False, 'sources_used': ['docs']})]
+        ('done', {'text': 'Three [1].', 'not_covered': False, 'sources_used': ['docs']})]
     sent = state['requests'][0]
     assert sent.headers['x-reader-key'] == 'reader-key' and sent.headers['x-reader-user'] == 'alice'
     assert 'x-forwarded-groups' not in sent.headers and 'x-forwarded-user' not in sent.headers
@@ -84,7 +84,7 @@ def test_not_covered_logs_a_gap(client, upstream, tmp_path):
     state['events'] = [('session', {'id': SESSION}), ('completed', {'status': 'completed', 'answer': 'Not documented.', 'error': '',
         'grounding': {'sources': [], 'not_covered': True, 'near_misses': [{'path': 'p/r.md', 'heading_path': 'p'}], 'results': 1, 'reason': 'x'}})]
     events = parse(client.post('/api/docs/chat', json={'question': 'Refund SLA?'}))
-    assert events[-1] == ('done', {'text': 'Not documented.', 'not_covered': True, 'escalation_offered': False, 'sources_used': []})
+    assert events[-1] == ('done', {'text': 'Not documented.', 'not_covered': True, 'sources_used': []})
     logged, skipped = gaps.load_gaps(tmp_path / 'gaps')
     assert skipped == 0 and logged[0]['question'] == 'Refund SLA?' and logged[0]['near_misses'][0]['path'] == 'p/r.md'
     assert 'session_ref' in logged[0] and SESSION not in json.dumps(logged)
@@ -135,7 +135,7 @@ def test_history_transcript_and_delete(client):
     transcript = client.get(f'/api/docs/chats/{SESSION}').json()
     assert transcript['session'] == SESSION
     assert transcript['context'] == {'folders': ['payments'], 'include_subfolders': True, 'repositories': None}
-    assert transcript['sources'] == {'docs': True, 'codex': False}
+    assert transcript['sources'] == {'docs': True}
     assert transcript['messages'][1] == {'role': 'assistant', 'content': 'a [1]', 'sources_used': ['docs'],
         'sources': [{'n': 1, 'path': 'p/r.md', 'heading_path': 'p', 'anchor': None}], 'not_covered': False}
     assert client.delete(f'/api/docs/chats/{SESSION}').status_code == 204

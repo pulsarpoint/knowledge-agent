@@ -1,15 +1,11 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { startOperationsRun, cancelOperationsRun, getAgentSessions } from '../operations';
-import { askCode } from '../codeAgent';
 import { streamChat } from '../agents';
 import { deleteAgent } from '../profiles';
 afterEach(() => vi.unstubAllGlobals());
 
 test('legacy execution clients still read TODO', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('TODO')));
-  const code = [];
-  for await (const event of askCode('repo', 'Explain', '', new AbortController().signal, 'custom')) code.push(event);
-  expect(code).toEqual([{ type: 'todo', text: 'TODO' }]);
   const chat = [];
   for await (const event of streamChat('app', 'Explain', undefined, undefined, undefined, 'custom')) chat.push(event);
   expect(chat).toEqual([{ type: 'todo', text: 'TODO' }]);
@@ -18,7 +14,6 @@ test('legacy execution clients still read TODO', async () => {
 test('execution clients preserve structured access errors', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Agent disabled' } }, { status: 409 })));
   await expect(startOperationsRun('Inspect', 'custom', new AbortController().signal, vi.fn())).rejects.toMatchObject({ status: 409, message: 'Agent disabled' });
-  await expect(askCode('repo', 'Explain', '', new AbortController().signal).next()).rejects.toThrow('Agent disabled');
   await expect(streamChat('app', 'Explain').next()).rejects.toThrow('Agent disabled');
 });
 
