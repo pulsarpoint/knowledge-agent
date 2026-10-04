@@ -184,3 +184,24 @@ def test_generation_failure_is_safe_and_leaves_no_agent(wizard, monkeypatch, fai
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 502 and 'test-model-secret' not in result.text
     assert client.get('/api/agents', headers=HEADERS).json() == before
+
+
+BLANK = {'name': 'Blank agent', 'description': '', 'when_to_use': '', 'system_prompt': 'Answer carefully.',
+         'instructions': '', 'model_id': None, 'enabled': True,
+         'documents_enabled': False, 'repositories_enabled': False, 'ssh_enabled': False,
+         'skills_enabled': False, 'mcp_enabled': False, 'services_enabled': False,
+         'all_folders': False, 'all_repositories': False, 'include_subfolders': True,
+         'folder_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': []}
+
+
+def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch):
+    from test_api import _client
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    client = _client(tmp_path, repository_store=store)
+    response = client.post('/api/agents/wizard', headers=HEADERS, json=BLANK)
+    assert response.status_code == 201, response.text
+    agent = client.get('/api/agents/' + response.json()['id'], headers=HEADERS).json()
+    assert agent['name'] == 'Blank agent' and agent['model_id'] is None
+    assert agent['active_prompt']['version'] == 1
+    assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Other', 'system_prompt': ' '}).status_code == 400

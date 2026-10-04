@@ -12,10 +12,24 @@ from test_operations import configured
 from test_repositories import HEADERS
 
 
+def wizard_payload(name, **overrides):
+    """A blank wizard proposal (no model, no resources)."""
+    return {'name': name, 'description': 'Purpose', 'when_to_use': 'For tests', 'system_prompt': f'Instructions for {name}.',
+            'instructions': '', 'model_id': None, 'enabled': True,
+            'documents_enabled': False, 'repositories_enabled': False, 'ssh_enabled': False,
+            'skills_enabled': False, 'mcp_enabled': False, 'services_enabled': False,
+            'all_folders': False, 'all_repositories': False, 'include_subfolders': True,
+            'folder_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': [],
+            **overrides}
+
+
 def create(client, name):
-    response = client.post('/api/agents', headers=HEADERS, json={'name': name, 'description': 'Purpose', 'when_to_use': 'For tests', 'system_prompt': f'Instructions for {name}.'})
+    """Create an agent through the wizard (the only creation path) and return its full profile."""
+    response = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(name))
     assert response.status_code == 201, response.text
-    return response.json()
+    agent = client.get('/api/agents/' + response.json()['id'], headers=HEADERS)
+    assert agent.status_code == 200, agent.text
+    return agent.json()
 
 
 def test_coordinator_is_a_protected_agent_with_editable_identity(store, tmp_path):
@@ -33,8 +47,8 @@ def test_coordinator_is_a_protected_agent_with_editable_identity(store, tmp_path
     denied = client.request('DELETE', '/api/agents/coordinator', headers=HEADERS,
         json={'revision': result.json()['revision'], 'confirmed': True})
     assert denied.status_code == 409 and 'cannot be removed' in denied.text
-    assert client.post('/api/agents', headers=HEADERS, json={'name':'Another coordinator',
-        'system_prompt':'Coordinate.', 'is_coordinator':True}).status_code == 400
+    assert client.post('/api/agents/wizard', headers=HEADERS,
+        json=wizard_payload('Another coordinator', is_coordinator=True)).status_code == 400
     assert client.get('/api/agents/coordinator/config', headers=HEADERS).status_code == 409
     for statement in ("DELETE FROM ka.agents WHERE is_coordinator",
                       "UPDATE ka.agents SET enabled=false WHERE is_coordinator",
@@ -73,7 +87,7 @@ def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
     assert activation.status_code == 200, activation.text
     assert client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()['active_prompt']['title'] == 'Payments only'
     assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['active_prompt'] == second['active_prompt']
-    assert client.post('/api/agents', headers=HEADERS, json={'name': 'Payments', 'system_prompt': 'Duplicate name'}).status_code == 409
+    assert client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Payments')).status_code == 409
     assert client.get('/api/agents/missing', headers=HEADERS).status_code == 404
     assert update(client, first, name='Renamed').status_code == 200
     assert update(client, first, name='Stale').status_code == 409
@@ -125,8 +139,13 @@ def test_mcp_selections_are_independent_and_available_to_every_agent(store, tmp_
 
 def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    for payload in [{}, {'system_prompt': ''}, {'system_prompt': ' \n\t '}, {'system_prompt': None}, {'system_prompt': 'bad\x00prompt'}]:
-        response = client.post('/api/agents', headers=HEADERS, json={'name': 'Incomplete', **payload})
+    for payload in [{'system_prompt': ''}, {'system_prompt': ' \n\t '}, {'system_prompt': None}, {'system_prompt': 'bad\x00prompt'}]:
+        response = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Incomplete', **payload))
+        assert response.status_code == 400, response.text
+    missing = wizard_payload('Incomplete')
+    del missing['system_prompt']
+    for payload in [missing]:
+        response = client.post('/api/agents/wizard', headers=HEADERS, json=payload)
         assert response.status_code == 400, response.text
     assert len(client.get('/api/agents', headers=HEADERS).json()['agents']) == 4
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
@@ -191,3 +210,9 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
     assert kept.json()['documents_grounded'] is True
     config = client.get(f"/api/agents/{agent['id']}/config", headers=HEADERS).json()
     assert config['documents']['grounded'] is True
+
+
+def test_plain_create_endpoint_is_removed(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    response = client.post('/api/agents', headers=HEADERS, json={'name': 'Direct', 'system_prompt': 'x'})
+    assert response.status_code == 405

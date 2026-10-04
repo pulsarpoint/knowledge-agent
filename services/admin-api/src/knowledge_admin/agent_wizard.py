@@ -16,7 +16,6 @@ from starlette.concurrency import run_in_threadpool
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent
 from knowledge_admin.operations_store import SSHInput
-from knowledge_admin.profiles_api import CreateInput
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -66,11 +65,14 @@ class ServerProposal(BaseModel):
     connection: ConnectionProposal | None
 
 
-class AgentProposal(CreateInput):
+class AgentProposal(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=100)
     description: str = Field(max_length=4000)
     when_to_use: str = Field(max_length=4000)
+    system_prompt: str = Field(min_length=1, max_length=40000)
     instructions: str = Field(max_length=40000)
-    model_id: UUID
+    model_id: UUID | None
     enabled: bool = Field(strict=True)
     documents_enabled: bool = Field(strict=True)
     repositories_enabled: bool = Field(strict=True)
@@ -98,7 +100,7 @@ class AgentProposal(CreateInput):
                     *[s.mcp_server_ids for s in self.servers]):
             if ids is not None and len(ids) != len(set(ids)):
                 raise ValueError('Selections must be unique.')
-        for text in (self.name, self.description, self.when_to_use, self.instructions,
+        for text in (self.name, self.description, self.when_to_use, self.system_prompt, self.instructions,
                      *[s.instructions for s in self.servers]):
             if text is not None and '\x00' in text:
                 raise ValueError('Text cannot contain null characters.')
@@ -142,7 +144,7 @@ def inventory(conn, project):
 
 def validate_resources(proposal, catalog):
     selections = [
-        ('models', [proposal.model_id]), ('folders', proposal.folder_ids),
+        ('models', [proposal.model_id] if proposal.model_id is not None else []), ('folders', proposal.folder_ids),
         ('code_projects', proposal.repository_ids), ('skills', proposal.skill_ids),
         ('mcp_servers', proposal.mcp_server_ids), ('services', proposal.service_ids),
         ('servers', [s.server_id for s in proposal.servers]),

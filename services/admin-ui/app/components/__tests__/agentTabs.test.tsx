@@ -10,7 +10,7 @@ import * as prompts from '../../lib/prompts';
 import * as llm from '../../lib/llm';
 import * as profiles from '../../lib/profiles';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), createAgent: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn() }));
+vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn() }));
 vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })), getCodeMCP: vi.fn(async () => ({ revision: 1, mcp_server_ids: [] })), saveCodeMCP: vi.fn() }));
 vi.mock('../SearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Search test {agentId}</div> }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
@@ -156,26 +156,11 @@ test('old prompt links open the matching agent detail', async () => {
   expect(await screen.findByRole('region', { name: 'Code search agent system prompts' })).toBeVisible();
 });
 
-test('create agent opens its empty independent configuration', async () => {
-  const user = userEvent.setup();
-  vi.mocked(profiles.createAgent).mockImplementation(async value => {
-    const created = { ...agents[3], ...value, id: 'new-agent' };
-    agents.push(created); data.agents.push({ agent: created.id, active_version_id: 'new-prompt', revision: 1 });
-    data.versions.push({ ...data.versions[0], id: 'new-prompt', agent: created.id });
-    return created;
-  });
+test('agents are created only through the wizard', async () => {
   render(app('/agents'));
-  await user.click(await screen.findByRole('button', { name: 'Create agent' }));
-  await user.type(screen.getByLabelText('Name'), 'Billing specialist');
-  await user.type(screen.getByLabelText('When to use this agent'), 'Billing questions');
-  expect(screen.getByRole('button', { name: 'Create and configure' })).toBeDisabled();
-  await user.type(screen.getByLabelText('System prompt'), 'Investigate billing questions using evidence.');
-  await user.click(screen.getByRole('button', { name: 'Create and configure' }));
-  expect(await screen.findByRole('heading', { name: 'Billing specialist' })).toBeVisible();
-  expect(profiles.createAgent).toHaveBeenCalledWith({ name: 'Billing specialist', description: '', when_to_use: 'Billing questions', system_prompt: 'Investigate billing questions using evidence.' });
-  expect(screen.queryByLabelText('Agent type')).toBeNull();
-  await user.click(screen.getByRole('tab', { name: 'SSH' }));
-  expect(await screen.findByRole('switch', { name: 'Enable SSH access' })).not.toBeChecked();
+  expect(await screen.findByRole('button', { name: 'New Agent Wizard' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Create agent' })).toBeNull();
+  expect(screen.queryByLabelText('System prompt')).toBeNull();
 });
 
 test.each(['search','operations','code','custom-code'])('every agent has the same capability tabs: %s', async id => {

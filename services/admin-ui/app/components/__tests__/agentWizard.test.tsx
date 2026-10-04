@@ -90,9 +90,26 @@ test('requires a prompt before saving and can cancel without creating', async ()
   await user.click(screen.getByRole('tab', { name: 'Prompt' }));
   fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: '' } });
   await user.click(screen.getByRole('tab', { name: 'General' }));
-  await user.click(screen.getByRole('button', { name: 'Create agent' }));
-  expect(await screen.findByLabelText('System prompt')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled();
   expect(api.createWizardAgent).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(close).toHaveBeenCalledTimes(1);
+});
+
+
+test('start blank opens an empty proposal without generating and can create without a model', async () => {
+  const user = userEvent.setup(); const created = vi.fn();
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: null, catalog: { ...structuredClone(options.catalog), models: [] } });
+  render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={created} /></MemoryRouter>);
+  await user.click(await screen.findByRole('button', { name: 'Start blank' }));
+  expect(api.generateAgent).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Agent name')).toHaveValue('');
+  expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled();
+  await user.type(screen.getByLabelText('Agent name'), 'Blank helper');
+  await user.click(screen.getByRole('tab', { name: 'Prompt' }));
+  fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Answer carefully.' } });
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Blank helper', system_prompt: 'Answer carefully.',
+    model_id: null, documents_enabled: false, ssh_enabled: false, folder_ids: [], servers: [] }));
+  expect(created).toHaveBeenCalledWith('new-agent');
 });

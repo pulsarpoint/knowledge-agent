@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 
 from test_api import _client
+from test_profiles import create
 from test_repositories import HEADERS
 
 
@@ -40,7 +41,7 @@ def test_historical_run_can_be_cancelled_and_history_stays_readable(store, tmp_p
 
 def test_agent_delete_preserves_prompt_invariants_and_other_agents(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    created = client.post('/api/agents', headers=HEADERS, json={'name': 'Disposable', 'system_prompt': 'Inspect.'}).json()
+    created = create(client, 'Disposable')
     agent_id = created['id']
     path = f'/api/agents/{agent_id}'
     assert client.request('DELETE', path, headers=HEADERS, json={'revision': 1, 'confirmed': False}).status_code == 400
@@ -76,7 +77,7 @@ def test_delete_cleans_owned_settings_and_keeps_shared_ssh_key(store, tmp_path):
     from test_agent_ssh import save
     client = _client(tmp_path, repository_store=store)
     server, _ = setup(client)
-    created = client.post('/api/agents', headers=HEADERS, json={'name': 'Disposable', 'system_prompt': 'Inspect.'}).json()
+    created = create(client, 'Disposable')
     agent_id = created['id']
     settings = client.get(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS).json()['settings']
     response = client.put(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS,
@@ -103,7 +104,7 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
     from test_profiles import update
     client = _client(tmp_path, repository_store=store)
     server, _ = setup(client)
-    agent = client.post('/api/agents', headers=HEADERS, json={'name': 'Disposable', 'system_prompt': 'Inspect.'}).json()
+    agent = create(client, 'Disposable')
     agent_id = agent['id']
     repository = client.post('/api/repositories', headers=HEADERS, json={'remote_url': 'example/repo'}).json()
     service = client.post('/api/services', headers=HEADERS, json={'name': 'Shared service'}).json()
@@ -118,7 +119,8 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
     agent = update(client, agent, folder_ids=[str(folder)], repository_ids=[repository['id']], service_ids=[service['id']], skill_ids=[skill['id']]).json()
     response = client.put(f'/api/agents/{agent_id}/model', headers=HEADERS, json={'revision': agent['revision'], 'model_id': model['id']})
     assert response.status_code == 200, response.text
-    response = client.put(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS, json={'revision': 1, 'server_ids': [server['id']], 'skill_ids': [skill['id']], 'mcp_server_ids': [mcp['id']], 'instructions': 'Inspect.'})
+    settings = client.get(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS).json()['settings']
+    response = client.put(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS, json={'revision': settings['revision'], 'server_ids': [server['id']], 'skill_ids': [skill['id']], 'mcp_server_ids': [mcp['id']], 'instructions': 'Inspect.'})
     assert response.status_code == 200, response.text
     key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
     save(client, f"/api/agents/{agent_id}/servers/{server['id']}/ssh", private_key=key)

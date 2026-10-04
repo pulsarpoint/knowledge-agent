@@ -1,5 +1,5 @@
 """Named agent profiles and their explicit knowledge and asset selections."""
-from uuid import UUID, uuid4
+from uuid import UUID
 from typing import Literal
 
 import psycopg
@@ -11,21 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import get_agent_config
-
-
-class CreateInput(BaseModel):
-    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
-    name: str = Field(min_length=1, max_length=100)
-    description: str = Field(default='', max_length=4000)
-    when_to_use: str = Field(default='', max_length=4000)
-    system_prompt: str = Field(min_length=1, max_length=40000)
-
-    @field_validator('system_prompt')
-    @classmethod
-    def valid_prompt(cls, value: str) -> str:
-        if '\x00' in value:
-            raise ValueError('System prompt cannot contain null characters')
-        return value
 
 
 class ProfileInput(BaseModel):
@@ -117,23 +102,6 @@ def build_api(app_name, store):
                     for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
                         row[flag] = config[capability]['enabled']
             return {'agents': rows}
-
-    @router.post('', status_code=201)
-    def create(value: CreateInput, request: Request):
-        agent_id, prompt_id = str(uuid4()), uuid4()
-        try:
-            with database().connect() as conn:
-                actor = audit(conn, request, agent_id, 'agent.created')
-                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,%s,%s)''', (agent_id, value.name, value.description, value.when_to_use, actor, actor))
-                conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)', (agent_id, prompt_id))
-                conn.execute('''INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,created_by,updated_by,published_at)
-                    VALUES (%s,%s,1,%s,%s,%s,%s,now())''', (prompt_id, agent_id, value.name + ' instructions' if len(value.name)<87 else value.name, value.system_prompt, actor, actor))
-                conn.execute('''INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
-                    VALUES (%s,%s,'',false)''', (store.project(conn, app_name), agent_id))
-                return read(conn, agent_id)
-        except psycopg.errors.UniqueViolation:
-            raise HTTPException(409, 'An agent with this name already exists.') from None
 
     @router.get('/{agent_id}')
     def detail(agent_id: str):

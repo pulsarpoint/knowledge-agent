@@ -20,7 +20,6 @@ export const getAgents = () => request<{ agents: AgentSummary[] }>('/api/agents'
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string, versionId?: string) => request<Record<string, unknown>>(path(id) + '/config' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
-export const createAgent = (value: { name: string; description: string; when_to_use: string; system_prompt: string }) => request<AgentProfile>('/api/agents', json('POST', value));
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
   const { revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_folders, all_repositories, include_subfolders, folder_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded }));

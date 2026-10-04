@@ -72,7 +72,9 @@ resources and saves the agent, first active prompt version, settings, and joins
 in one PostgreSQL transaction. Duplicate names and unavailable resources return
 an error without leaving a partially configured agent. All existing agent
 editing, prompt versioning, config preview, and deletion pages work afterward.
-The manual Create agent form remains available.
+The wizard is the only way to create agents. **Start blank** skips generation and opens
+the review tabs with an empty proposal, so agents can be created without a model;
+`model_id` may be `null`.
 
 Implementation: `knowledge_admin/agent_wizard.py` defines the proposal schema,
 design prompt, catalog, and three administration endpoints. It calls the existing
@@ -91,7 +93,6 @@ runtime, SDK wrapper, dependency, or migration is introduced.
 Migration `0020_agent_profiles` introduced agent identity and resource joins. Migration `0021_agent_capabilities` replaces the fixed `kind` with six independent boolean fields: `documents_enabled`, `repositories_enabled`, `ssh_enabled`, `skills_enabled`, `mcp_enabled`, and `services_enabled`. Existing profiles receive the capabilities their previous runtime supported. Prompts, models, server overrides, encrypted credentials, resource selections and run history remain intact. Migration `0022_required_agent_prompt` adds a deferred foreign key so an agent cannot be persisted without its own prompt record and active version.
 
 - `GET /api/agents` lists profiles and active model/prompt summaries.
-- `POST /api/agents` requires `name` and `system_prompt`; description and when-to-use text are optional. Creation saves the agent and its active prompt atomically.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model.

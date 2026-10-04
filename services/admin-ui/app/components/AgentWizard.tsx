@@ -32,6 +32,13 @@ function Selection({ label, options, selected, onChange }: { label: string; opti
   </FieldGroup></FieldSet>;
 }
 
+function blankProposal(model_id: string | null): AgentProposal {
+  return { name: '', description: '', when_to_use: '', system_prompt: '', instructions: '', model_id, enabled: true,
+    documents_enabled: false, repositories_enabled: false, ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false,
+    all_folders: false, all_repositories: false, include_subfolders: true,
+    folder_ids: [], repository_ids: [], skill_ids: [], mcp_server_ids: [], service_ids: [], servers: [] };
+}
+
 export default function AgentWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [options, setOptions] = useState<WizardOptions>();
   const [role, setRole] = useState('');
@@ -64,10 +71,13 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not generate an agent.'); }
     finally { setBusy(null); }
   }
+  function startBlank() {
+    setError(''); setProposal(blankProposal(model || null)); setStep('review'); setTab('general');
+  }
   async function create() {
     if (!proposal) return;
-    if (!proposal.name.trim() || !proposal.system_prompt.trim() || !proposal.model_id) {
-      setError('Name, model, and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
+    if (!proposal.name.trim() || !proposal.system_prompt.trim()) {
+      setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
     try { const saved = await createWizardAgent(proposal); onCreated(saved.id); }
@@ -76,7 +86,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }
   return <Card aria-label="New Agent Wizard"><CardHeader>
     <CardTitle>New Agent Wizard</CardTitle><CardDescription>{step === 'describe'
-      ? '1. Describe the role. AI will propose a configuration using your available resources.'
+      ? '1. Describe the role and let AI propose a configuration from your resources, or start blank and fill it in yourself.'
       : '2. Review and edit. Nothing is saved until you create the agent.'}</CardDescription>
   </CardHeader><CardContent className="flex flex-col gap-6 pb-6">
     {error && <Alert variant="destructive"><AlertDescription>{error}{!options && <Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button>}</AlertDescription></Alert>}
@@ -101,7 +111,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>
-          <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={proposal.model_id} onValueChange={model_id => edit({ model_id })}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{catalog.models.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+          <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={proposal.model_id ?? 'none'} onValueChange={value => edit({ model_id: value === 'none' ? null : value })}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{catalog.models.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>An agent runs only after a model is selected.</FieldDescription></Field>
           <Toggle label="Enable agent" checked={proposal.enabled} onChange={enabled => edit({ enabled })} />
           <Field><FieldLabel htmlFor="wizard-instructions">Additional instructions</FieldLabel><Textarea id="wizard-instructions" rows={5} maxLength={40000} value={proposal.instructions} onChange={e => edit({ instructions: e.target.value })} /></Field>
           <FieldSet><FieldLegend>Proposed access</FieldLegend><div className="flex flex-wrap gap-2">{([['documents_enabled','Documents'],['repositories_enabled','Code projects'],['ssh_enabled','SSH'],['skills_enabled','Skills'],['mcp_enabled','MCP'],['services_enabled','Services']] as const).map(([key,label]) => <Badge key={key} variant={proposal[key] ? 'default' : 'outline'}>{label}: {proposal[key] ? 'on' : 'off'}</Badge>)}</div><FieldDescription>Review each tab to change access and resource selections.</FieldDescription></FieldSet>
@@ -148,8 +158,9 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   </CardContent><CardFooter className="flex-wrap gap-2">
     {step === 'describe' ? <>
       <Button disabled={busy !== null || !role.trim() || !model || !options} onClick={() => void generate()}>{busy === 'generate' ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}{busy === 'generate' ? 'Generating proposal…' : proposal ? 'Generate new proposal' : 'Generate proposal'}</Button>
+      <Button variant="outline" disabled={busy !== null || !options} onClick={startBlank}>Start blank</Button>
       {proposal && <Button variant="outline" disabled={busy !== null} onClick={() => setStep('review')}>Back to proposal</Button>}
-    </> : <><Button disabled={busy !== null} onClick={() => void create()}>{busy === 'create' && <Spinner data-icon="inline-start" />}{busy === 'create' ? 'Creating…' : 'Create agent'}</Button><Button variant="outline" disabled={busy !== null} onClick={() => { setError(''); setStep('describe'); }}>Edit role</Button></>}
+    </> : <><Button disabled={busy !== null || !proposal?.name.trim() || !proposal?.system_prompt.trim()} onClick={() => void create()}>{busy === 'create' && <Spinner data-icon="inline-start" />}{busy === 'create' ? 'Creating…' : 'Create agent'}</Button><Button variant="outline" disabled={busy !== null} onClick={() => { setError(''); setStep('describe'); }}>Edit role</Button></>}
     <Button variant="ghost" disabled={busy !== null} onClick={onClose}>Cancel</Button>
   </CardFooter></Card>;
 }

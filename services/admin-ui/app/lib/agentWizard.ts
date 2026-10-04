@@ -10,7 +10,7 @@ export interface WizardServer {
 }
 export interface AgentProposal {
   name: string; description: string; when_to_use: string; system_prompt: string; instructions: string;
-  model_id: string; enabled: boolean;
+  model_id: string | null; enabled: boolean;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean;
   skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean;
   all_folders: boolean; all_repositories: boolean; include_subfolders: boolean;

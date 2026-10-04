@@ -250,6 +250,7 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
     agent = create(client, 'Independent agent')
     with store.connect() as conn:
         conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (agent['id'],))
+        conn.execute('DELETE FROM ka.operations_settings WHERE agent=%s', (agent['id'],))
         parameters = conn.info.get_parameters()
     for name in ('host', 'port', 'user', 'dbname'):
         monkeypatch.setenv('PGDATABASE' if name == 'dbname' else 'PG' + name.upper(), parameters[name])

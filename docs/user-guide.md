@@ -423,13 +423,16 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 `/agents` lists agents with capabilities, model, active system prompt and status.
 
-**Create an agent** in one of two ways:
+**Create an agent** with the **New Agent Wizard** (the only way to create agents):
 
-- **Create agent** — name, purpose, when to use, system prompt. The agent starts
-  **without a model**.
-- **New Agent Wizard** — describe the role, choose a generator model, **Generate
-  proposal**, review the proposed prompt, documents, code projects, SSH, skills, MCP
-  and services, then **Create agent**.
+- **Generate proposal** — describe the role, choose a generator model, and the model
+  proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
+- **Start blank** — skip generation (no model needed) and fill in the same review tabs
+  yourself.
+
+Review and edit the tabs, then **Create agent** (enabled once name and system prompt are
+filled in). The agent model is optional at this point — an agent without a model is
+saved but runs only after you choose one on its General tab.
 
 **Agent detail tabs** (`/agents/:id`):
 
@@ -647,7 +650,7 @@ Records are kept until deleted; only administrators can see them.
 
 ### D. Build and test an operations agent
 
-1. **Agents → Create agent** (or the Wizard).
+1. **Agents → New Agent Wizard** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect **View activity**.
 4. Use **Add feedback → Suggest improvements**, then **Versions → Save draft → Activate**.
