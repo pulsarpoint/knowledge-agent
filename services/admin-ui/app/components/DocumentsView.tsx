@@ -57,7 +57,7 @@ export default function DocumentsView() {
         {rows.map((doc) => <TableRow key={doc.id}><TableCell className="max-w-md whitespace-normal"><Link className="font-medium underline-offset-4 hover:underline" to={`/documents/${doc.id}`}>{doc.title}</Link><p className="mt-1 text-sm text-muted-foreground">{doc.description}</p>
           <p className="mt-1 text-xs text-muted-foreground">{doc.code_project_ids.length} code projects · {doc.service_ids.length} services · {doc.server_ids.length} servers</p></TableCell>
           <TableCell><p>{doc.purpose}</p><span className="text-sm text-muted-foreground">{doc.audience === 'both' ? 'People and agents' : doc.audience === 'people' ? 'People' : 'Agents'}</span></TableCell>
-          <TableCell><Badge variant="secondary">v{doc.version}</Badge></TableCell><TableCell>{new Date(doc.updated_at).toLocaleString()}</TableCell></TableRow>)}
+          <TableCell><Badge variant="secondary">v{doc.version}</Badge>{doc.published_path && <Badge variant="outline" className="ml-1">Published</Badge>}</TableCell><TableCell>{new Date(doc.updated_at).toLocaleString()}</TableCell></TableRow>)}
       </TableBody></Table></div>
     </>)}
     {total > 50 && <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted-foreground">{offset + 1}–{Math.min(offset + 50, total)} of {total}</span><div className="flex gap-2">

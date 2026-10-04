@@ -9,6 +9,7 @@ export interface DocumentInput {
 }
 export interface DocumentSummary extends Omit<DocumentInput, 'markdown' | 'revision'> {
   id: string; current_version_id: string; published_version_id: string | null; revision: number;
+  published_path: string | null; published_version: number | null; publish_error: string | null; index_pending: boolean;
   version: number; content_hash: string; created_at: string; updated_at: string;
 }
 export interface DocumentVersion {
@@ -55,6 +56,10 @@ export const getDocumentVersion = (id: string, versionId: string, signal?: Abort
 export const saveDocument = (value: DocumentInput, id?: string) => request<{ id: string; revision: number; version_id: string }>(`/api/documentation/documents${id ? `/${id}` : ''}`, {
   method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });
+export const publishDocument = (id: string, folder: string) => request<{ path: string; status: string; index_pending: boolean }>(`/api/documentation/documents/${id}/publish`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder }),
+});
+export const unpublishDocument = (id: string) => request<{ path: string }>(`/api/documentation/documents/${id}/publish`, { method: 'DELETE' });
 export const deleteDocument = (id: string, revision: number) => request(`/api/documentation/documents/${id}?revision=${revision}&confirmed=true`, { method: 'DELETE' });
 export const getDocumentationPrompts = (signal?: AbortSignal) => request<{ prompts: DocumentationPrompt[] }>('/api/documentation/prompts', { signal });
 export const getDocumentationPrompt = (id: string, signal?: AbortSignal) => request<DocumentationPromptDetail>(`/api/documentation/prompts/${id}`, { signal });

@@ -65,8 +65,8 @@ What you can actually do today:
   **multi-agent board**.
 - **Import Jira tickets** into the knowledge base as Markdown.
 
-What is **not** working yet (see [section 8](#8-current-limitations)): generated
-documents are not automatically published to the Reader.
+Generated or hand-written documents reach the Reader and agents once you **Publish to
+knowledge base** (see [5.14](#514-documents-and-documentation-prompts)).
 
 ### Architecture at a glance
 
@@ -573,8 +573,16 @@ draft**). Actions: **Save new version** (every save is a full immutable version)
 **Export to folder**, **Download document folder** (ZIP), **Delete**, and links back
 to the workflow that produced it.
 
-> Documents are **not** automatically visible in the Reader. To publish one, export or
-> download it and upload the Markdown into a RAG folder, then **Process folder**.
+**Publish to knowledge base** (in the editor) writes the current version as
+`<folder>/<slug>.md` into a RAG folder (default `documents`) and indexes it, so the
+Reader's search and chat and the agents' document search can find it. The editor shows
+**In knowledge base: path · vN**. Every new saved version — from the editor or a
+documentation workflow — replaces the file and re-indexes it automatically. If that fails
+(for example RAG is down) the version is still saved and the editor shows **Publishing vN
+failed … Retry**; **Indexing pending** means the file is written and will be indexed when
+the running indexing job finishes. **Unpublish** removes the file. Publishing never
+overwrites a file it did not create, and a published document must be unpublished before it
+can be deleted. Published documents show a **Published** badge in the list.
 
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
 generation. Saving changed text creates a draft version; **Activate vN** makes it the
@@ -635,8 +643,8 @@ Records are kept until deleted; only administrators can see them.
 5. Phase 1 **Generate graph** → inspect the graph.
 6. Run Phase 2 (overview), then Phase 3 (API), then Phase 4 (messaging) — one at a time.
 7. Review each document in **Docs → Documents**, edit, **Save new version**.
-8. To publish to readers: **Download document folder**, upload the Markdown into a RAG
-   folder, **Process folder**.
+8. **Publish to knowledge base** on each document; later versions are republished
+   automatically.
 
 ### C. Document deployments and infrastructure
 
@@ -728,8 +736,8 @@ before exposing it beyond localhost.
 
 - **"Ask the code" escalation and `/api/agents/code/ask` return `TODO`.**
 - **Reader chat answers appear when complete** (no word-by-word streaming).
-- **Generated documents are not published to the Reader automatically**; publish
-  manually through RAG.
+- **Documents reach the knowledge base only after Publish to knowledge base**; from then
+  on new versions follow automatically.
 - The `api-analysis` skill is in the Skills library but is not used by API documentation generation.
 - The `code_graph` tool is only available to documentation generation, not to agent
   Test chats or the board.
