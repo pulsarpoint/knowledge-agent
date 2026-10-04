@@ -23,16 +23,16 @@ Success criteria:
 
 ## Context and roadmap
 
-This is the first of four specs that build controlled server access:
+This is the second of four specs that build controlled server access:
 
-1. **Server profiles** (this spec).
-2. Per-agent tool grants and SSH policies (full / read-only diagnostics / logs-only),
-   structured SSH actions, audit.
+1. Per-agent tool grants and SSH policies (`2026-10-04-tool-grants-design.md`, migration 0061).
+2. **Server profiles** (this spec).
 3. Who may use which agent (Reader Support tier, Keycloak group gating).
 4. Runbooks built on tool grants and profiles.
 
-Until spec 2 lands, "an agent can use SSH on a server" means the agent's SSH capability is
-on and the server is in its allowed servers with SSH enabled (today's `config['ssh']`).
+"An agent can use SSH on a server" means the agent has an **enabled `ssh` grant** whose scope
+includes that server, and the server is enabled and SSH-allowed (any SSH policy: full,
+readonly or logs).
 
 ## Agreed decisions
 
@@ -47,7 +47,7 @@ on and the server is in its allowed servers with SSH enabled (today's `config['s
 | People's input | People edit the draft; the next refresh takes the draft as input and verifies it. |
 | Delivery to agents | Latest published profile auto-attached per server, capped at 12 000 characters, live per turn. |
 
-## Data model — migration `0061_server_profiles`
+## Data model — migration `0062_server_profiles`
 
 ```sql
 CREATE TABLE ka.server_profiles (
@@ -161,14 +161,14 @@ Token usage is recorded even for failed writer calls.
 ## Delivery to agents
 
 - Helper `attach_server_profiles(conn, config) -> config` (in `knowledge_admin/server_profiles.py`):
-  for each server in `config['ssh']['servers']` that is enabled and SSH-allowed while
-  `config['ssh']['enabled']` is true, it sets `server['profile']` to the latest published
+  for each server in the scope of the agent's enabled `ssh` grant (`config['tools']`) that is
+  enabled and SSH-allowed, it sets `server['profile']` to the latest published
   content, cut at 12 000 characters with the suffix `\n\n(profile truncated)`, or to `None`.
 - Called when each turn starts: in the shared turn service (`start_turn`, for both new and
   pinned configurations), the multi-agent board's specialist runs, and the documentation
   worker's deployment/infrastructure runs. It is never written into agent versions or
   session snapshots, so an activation reaches the next turn of an existing conversation.
-- `get_prompt` includes each host's `profile` in the SSH server entries it already serialises,
+- `get_prompt` includes each host's `profile` in the SSH server resource context it already serialises,
   with the line: "Each SSH server includes its current profile; use it before investigating,
   and treat it as possibly outdated."
 - `agents.agent()` and `agents.create_agent()` signatures are unchanged.
@@ -231,7 +231,6 @@ fake Responses API model).
 
 ## Out of scope
 
-- Per-agent tool grants and SSH policies (spec 2).
 - Reader / Support-tier access to profiles.
 - Runbooks.
 - Scheduled automatic refreshes.
