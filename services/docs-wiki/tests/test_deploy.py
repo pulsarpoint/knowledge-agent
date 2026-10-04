@@ -107,3 +107,12 @@ def test_agents_use_database_models_and_keep_keys_out_of_web_containers():
         assert 'CREDENTIAL_ENCRYPTION_KEY' in env and 'PGHOST' in env
         assert 'DOCS_WIKI_CHAT_MODEL' not in env and 'CODE_AGENT_MODEL' not in env
         assert 'DOCS_WIKI_LLM_API_KEY' not in env and 'CODE_AGENT_API_KEY' not in env
+
+
+def test_gateways_accept_large_session_cookies():
+    # Browsers send every localhost cookie to every port: the reader and admin
+    # oauth2-proxy sessions (~3.5 KB each) plus Keycloak/Phoenix cookies exceed
+    # nginx's default 8 KB header buffer and every page returns 400.
+    for name in ("nginx.conf", "nginx-admin.conf"):
+        conf = (DEPLOY / name).read_text(encoding="utf-8")
+        assert "large_client_header_buffers 4 32k;" in conf, name
