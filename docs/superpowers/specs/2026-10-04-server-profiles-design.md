@@ -25,14 +25,14 @@ Success criteria:
 
 This is the second of four specs that build controlled server access:
 
-1. Per-agent tool grants and SSH policies (`2026-10-04-tool-grants-design.md`, migration 0061).
+1. Agent tools and resources (`2026-10-04-agent-tools-resources-design.md`, migration 0061).
 2. **Server profiles** (this spec).
 3. Who may use which agent (Reader Support tier, Keycloak group gating).
-4. Runbooks built on tool grants and profiles.
+4. Runbooks built on agent tools and server profiles.
 
-"An agent can use SSH on a server" means the agent has an **enabled `ssh` grant** whose scope
-includes that server, and the server is enabled and SSH-allowed (any SSH policy: full,
-readonly or logs).
+"An agent can use SSH on a server" means the agent has any SSH tool (`ssh_logs`,
+`ssh_diagnostics` or `ssh_commands`) and the server is one of its **effective servers**
+(selected directly or through a selected service's deployments, enabled and SSH-allowed).
 
 ## Agreed decisions
 
@@ -161,8 +161,8 @@ Token usage is recorded even for failed writer calls.
 ## Delivery to agents
 
 - Helper `attach_server_profiles(conn, config) -> config` (in `knowledge_admin/server_profiles.py`):
-  for each server in the scope of the agent's enabled `ssh` grant (`config['tools']`) that is
-  enabled and SSH-allowed, it sets `server['profile']` to the latest published
+  when the agent has an SSH tool, for each server in `config['resources']['servers']` (the
+  effective servers), it sets `server['profile']` to the latest published
   content, cut at 12 000 characters with the suffix `\n\n(profile truncated)`, or to `None`.
 - Called when each turn starts: in the shared turn service (`start_turn`, for both new and
   pinned configurations), the multi-agent board's specialist runs, and the documentation
