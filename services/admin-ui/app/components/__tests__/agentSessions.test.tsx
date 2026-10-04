@@ -165,3 +165,10 @@ it('keeps completed usage visible while a new reply is pending',async()=>{
   expect(stats).toHaveTextContent('Current reply’s usage is pending.');
   expect(stats).not.toHaveTextContent('not recorded');
 });
+
+
+it('links every reply to its full run record',async()=>{
+  renderPage('?view=test&session_id=session-1');
+  await screen.findByText('Initial answer');
+  expect(screen.getByRole('link',{name:'Full record'})).toHaveAttribute('href','/activity/runs/run%3Arun-1');
+});

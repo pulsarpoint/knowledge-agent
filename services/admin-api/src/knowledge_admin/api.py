@@ -29,6 +29,8 @@ def build_api(apps: dict[str, App], server: ServerConfig,
 
     router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
     router.include_router(storage.build_api())
+    from knowledge_admin import agent_runs_api
+    router.include_router(agent_runs_api.build_api(app_name, repository_store))
     router.include_router(activity.build_api(app_name, repository_store))
     router.include_router(board.build_api(app_name, repository_store))
     router.include_router(agent_versions.build_api(app_name, repository_store))

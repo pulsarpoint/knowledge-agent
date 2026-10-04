@@ -594,6 +594,22 @@ the Reader agent's **Test** tab, where **Add feedback** → **Suggest improvemen
 works on real conversations. It does not show admin changes, agent test sessions or
 board tasks.
 
+**Agent runs** (`/activity/runs`) — a complete record of every agent run: agent Test
+conversations, Reader chat, multi-agent board tasks (coordinator, every specialist and
+the summary in one record) and documentation steps. Each record shows, in order:
+
+- the full instructions sent to the model and the input (with conversation history);
+- the model's reasoning when the provider returns it (otherwise "Reasoning not returned
+  by the provider.");
+- every tool call with its full arguments and full output (SSH, shell, code, documents,
+  MCP…);
+- messages, token usage per model call, errors, and the final status.
+
+Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
+characters. Filter by run type or user. **Full record** links lead here from each reply in
+an agent's Test tab, from a board task, and **Run records** from each documentation job.
+Records are kept until deleted; only administrators can see them.
+
 ---
 
 ## 6. End-to-end workflows

@@ -32,6 +32,8 @@ export default [
   route("rag/settings", "./routes/ragSettings.tsx"),
   route("rag/search", "./routes/ragSearch.tsx"),
   route("activity", "./routes/admin.tsx"),
+  route("activity/runs", "./routes/runs.tsx"),
+  route("activity/runs/:runKey", "./routes/runRecord.tsx"),
   route("activity/user/:email", "./routes/adminUser.tsx"),
   route("activity/session/:key", "./routes/adminSession.tsx"),
 ] satisfies RouteConfig;

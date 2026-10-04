@@ -1,3 +1,4 @@
+import { runPath } from '../lib/runs';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { ArrowRight, Bot, Play, Plus, RefreshCw, Settings2, Square } from 'lucide-react';
@@ -202,6 +203,7 @@ export default function AgentBoardView() {
         </CardContent>
         <CardFooter className="flex-wrap gap-3">
           {['queued', 'running'].includes(main.status) && <Button variant="outline" disabled={cancelling || main.cancel_requested} onClick={() => void cancel(main)}><Square data-icon="inline-start" />Stop task</Button>}
+          <Button variant="ghost" asChild><Link to={runPath(`board:${main.id}`)}>Full record</Link></Button>
           <Button variant="ghost" onClick={() => { requestId.current = undefined; setDraft({ subagent_ids: main.subagents.map(a => a.id), task: main.task }); setNewTask(true); }}>Use task again</Button>
           <p className="text-sm text-muted-foreground">{main.subtasks.filter(t => t.status === 'completed').length} of {main.subtasks.length} subtasks completed{main.subtasks.some(t => t.status === 'failed') && ` · ${main.subtasks.filter(t => t.status === 'failed').length} failed`}</p>
         </CardFooter>

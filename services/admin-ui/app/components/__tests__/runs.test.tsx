@@ -1,0 +1,61 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import { afterEach, expect, test, vi } from 'vitest';
+import RunsView from '../RunsView';
+import RunRecordView from '../RunRecordView';
+import DocumentationGenerationsView from '../DocumentationGenerationsView';
+
+afterEach(() => vi.unstubAllGlobals());
+const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+const runs = { next: null, runs: [
+  { run_key: 'run:1', agent_id: 'search', agent: 'Search agent', kind: 'reader', title: 'How many retries?', user: 'alice@example.test', status: 'completed', total_tokens: 15, started_at: '2026-10-04T10:00:00Z' },
+] };
+
+test('runs list shows each run and filters by kind', async () => {
+  const fetchMock = vi.fn(async (_url: string) => json(runs));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<MemoryRouter><RunsView /></MemoryRouter>);
+  expect(await screen.findByText('How many retries?')).toBeInTheDocument();
+  expect(screen.getByText('alice@example.test')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'How many retries?' })).toHaveAttribute('href', '/activity/runs/run%3A1');
+  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'reader' } });
+  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=reader'));
+});
+
+test('runs list passes a key prefix from the URL', async () => {
+  const fetchMock = vi.fn(async (_url: string) => json(runs));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<MemoryRouter initialEntries={['/activity/runs?key_prefix=doc%3Aj1%3A']}><RunsView /></MemoryRouter>);
+  await screen.findByText('How many retries?');
+  expect(fetchMock.mock.calls[0][0]).toContain('key_prefix=doc%3Aj1%3A');
+});
+
+test('run record shows the full timeline', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json({ run_key: 'run:1', agent_id: 'search', user: 'alice@example.test', events: [
+    { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'reader', title: 'How many retries?', agent: 'Search agent' }, created_at: '2026-10-04T10:00:00Z' },
+    { seq: 2, kind: 'instructions', agent_id: 'search', payload: { agent: 'Search agent', text: 'SYSTEM PROMPT TEXT' }, created_at: '2026-10-04T10:00:00Z' },
+    { seq: 3, kind: 'reasoning', agent_id: 'search', payload: { agent: 'Search agent', available: false }, created_at: '2026-10-04T10:00:01Z' },
+    { seq: 4, kind: 'tool_call', agent_id: 'search', payload: { agent: 'Search agent', name: 'search_documents', arguments: '{"query":"retries"}' }, created_at: '2026-10-04T10:00:01Z' },
+    { seq: 5, kind: 'tool_result', agent_id: 'search', payload: { agent: 'Search agent', name: 'search_documents', output: 'LONG OUTPUT ' + 'x'.repeat(5000) }, created_at: '2026-10-04T10:00:02Z' },
+    { seq: 6, kind: 'message', agent_id: 'search', payload: { agent: 'Search agent', text: 'Three retries [1].' }, created_at: '2026-10-04T10:00:03Z' },
+    { seq: 7, kind: 'usage', agent_id: 'search', payload: { agent: 'Search agent', input_tokens: 10, output_tokens: 5, total_tokens: 15 }, created_at: '2026-10-04T10:00:03Z' },
+    { seq: 8, kind: 'end', agent_id: 'search', payload: { status: 'completed' }, created_at: '2026-10-04T10:00:03Z' },
+  ] })));
+  render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: 'How many retries?' })).toBeInTheDocument();
+  expect(screen.getByText('completed')).toBeInTheDocument();
+  expect(screen.getByText('15 tokens')).toBeInTheDocument();
+  expect(screen.getByText('SYSTEM PROMPT TEXT')).not.toBeVisible();
+  expect(screen.getByText('Reasoning not returned by the provider.')).toBeInTheDocument();
+  expect(screen.getByText('{"query":"retries"}')).toBeInTheDocument();
+  expect(screen.getByText(/LONG OUTPUT x{5000}/)).toBeInTheDocument();
+  expect(screen.getByText('Three retries [1].')).toBeInTheDocument();
+});
+
+test('documentation history links each job to its run records', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json({ generations: [{ job_id: 'j1', instructions: 'Write docs', mode: 'create', status: 'succeeded', created_at: '2026-10-04T10:00:00Z', document_count: 0, result: {} }] })));
+  render(<MemoryRouter><DocumentationGenerationsView /></MemoryRouter>);
+  const row = (await screen.findByText('Write docs')).closest('tr')!;
+  expect(within(row).getByRole('link', { name: 'Run records' })).toHaveAttribute('href', '/activity/runs?key_prefix=doc%3Aj1%3A');
+});

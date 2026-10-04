@@ -1,3 +1,4 @@
+import { runPath } from '../lib/runs';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Plus, X } from 'lucide-react';
@@ -150,9 +151,9 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
         </div>
       </details> : undefined}
       </>,
-      actions: conversation && <Button variant="ghost" size="sm" disabled={busy || running} onClick={() => {
+      actions: <><Button variant="ghost" size="sm" asChild><Link to={runPath(`run:${run.id}`)}>Full record</Link></Button>{conversation && <Button variant="ghost" size="sm" disabled={busy || running} onClick={() => {
         setFeedbackRunId(run.id); setComment(''); setPanel('feedback'); setError('');
-      }}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>,
+      }}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>}</>,
     },
   ]);
 
