@@ -10,6 +10,10 @@ from knowledge_admin.rag_collections import Owner, RagCollections
 from knowledge_admin.repositories import RepositoryStore
 
 OWNER_KIND = 'code_project'
+# A collection created for a code project indexes common code and docs; RAG → Collections can tune it.
+CODE_INCLUDE = ['**/*.md', '**/*.markdown', '**/*.txt', '**/*.py', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx',
+                '**/*.java', '**/*.kt', '**/*.go', '**/*.rs', '**/*.cs', '**/*.rb', '**/*.php', '**/*.sql', '**/*.sh',
+                '**/*.yaml', '**/*.yml', '**/*.toml', '**/*.json']
 
 
 def default_collection(name: str, project_id: UUID) -> str:
@@ -33,11 +37,16 @@ def sync_paths(rag: RagCollections, project_id: UUID, collection: str | None, fo
         if row['owner_key'] not in wanted:
             rag.remove_paths(Owner(OWNER_KIND, project_id, row['owner_key']))
     for folder in wanted:  # adding an owned path again moves it here from another collection
-        rag.add_path(collection, f'code/{folder}', Owner(OWNER_KIND, project_id, folder))
+        try:
+            rag.add_path(collection, f'code/{folder}', Owner(OWNER_KIND, project_id, folder), include=CODE_INCLUDE)
+        except HTTPException as exc:
+            if exc.status_code == 400:  # RAG accepts only portable folder names
+                raise HTTPException(400, f"Folder {folder} cannot be indexed: names may use letters, numbers, '.', '_' and '-'") from None
+            raise
 
 
 def reconcile(store: RepositoryStore, app_name: str, client: httpx.Client | None, repository_id: UUID,
-              actor: UUID, *, release: bool = False) -> str | None:
+              actor: UUID | None, *, release: bool = False) -> str | None:
     """Bring RAG in line with the committed project row and record the outcome in search_error.
 
     Projects that are not searchable are left alone unless `release` (Searchable switched off, or a
@@ -46,6 +55,13 @@ def reconcile(store: RepositoryStore, app_name: str, client: httpx.Client | None
     """
     with store.connect() as conn:
         project = store.project(conn, app_name)
+    return reconcile_project(store, project, client, repository_id, actor, release=release)
+
+
+def reconcile_project(store: RepositoryStore, project: UUID, client: httpx.Client | None, repository_id: UUID,
+                      actor: UUID | None, *, release: bool = False) -> str | None:
+    """`reconcile` for a known project id, e.g. from the repository worker after a pull."""
+    with store.connect() as conn:
         row = conn.execute('''SELECT r.search_collection, r.archived_at,
             ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folders
             FROM ka.repositories r WHERE r.id=%s AND r.project_id=%s''', (repository_id, project)).fetchone()

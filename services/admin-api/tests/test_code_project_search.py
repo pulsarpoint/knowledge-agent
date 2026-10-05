@@ -1,11 +1,12 @@
 """Searchable code projects keep one RAG path per mapped folder in their chosen collection."""
 import json
+import re
 from uuid import UUID
 
 import httpx
 import pytest
 
-from knowledge_admin.code_project_search import default_collection, top_folders
+from knowledge_admin.code_project_search import CODE_INCLUDE, default_collection, top_folders
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -17,6 +18,7 @@ class FakeRag:
         self.paths: dict[tuple, dict] = {}
         self.down = False
         self.calls: list[tuple] = []
+        self.bodies: list[dict] = []
 
     def __call__(self, request):
         self.calls.append((request.method, request.url.path, dict(request.url.params)))
@@ -30,6 +32,9 @@ class FakeRag:
                 for k, p in self.paths.items() if p['collection'] == name]} for name in names]})
         if request.method == 'PUT' and path.endswith('/paths'):
             body = json.loads(request.content)
+            self.bodies.append(body)
+            if not re.fullmatch(r'code(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*', body['source_path']):
+                return httpx.Response(400, json={'error': {'message': 'Choose a folder inside code, code-index, rag-data, generated-documents or docs'}})
             name = path.split('/by-name/')[1].split('/')[0]
             self.paths[(body['owner_kind'], body.get('owner_id'), body.get('owner_key'))] = {
                 'collection': name, 'source_path': body['source_path']}
@@ -51,7 +56,7 @@ class FakeRag:
 def searchable(store, tmp_path, monkeypatch):
     root = tmp_path / 'code'
     root.mkdir()
-    for folder in ('api', 'shared', 'other'):
+    for folder in ('api', 'shared', 'other', 'my api'):
         (root / folder).mkdir()
     monkeypatch.setenv('CODE_ROOT', str(root))
     monkeypatch.setenv('RAG_BACKOFFICE_KEY', 'rag-key')
@@ -184,3 +189,32 @@ def test_retry_without_collection_keeps_the_stored_collection(searchable):
     search(client, project_id, enabled=True, collection='payments')
     assert search(client, project_id, enabled=True).json()['collection'] == 'payments'
     assert rag.owned(project_id) == {('payments', 'code/api'), ('payments', 'code/shared')}
+
+
+def test_a_new_collection_indexes_code_and_docs(searchable):
+    client, rag, project_id = searchable
+    search(client, project_id, enabled=True)
+    assert rag.bodies and all(body['include'] == CODE_INCLUDE for body in rag.bodies)
+    assert {'**/*.md', '**/*.py', '**/*.ts', '**/*.java', '**/*.go', '**/*.yaml', '**/*.json'} <= set(CODE_INCLUDE)
+
+
+def test_a_folder_rag_cannot_index_is_named_in_the_error(searchable):
+    client, rag, project_id = searchable
+    edit_folders(client, project_id, ['my api'])
+    response = search(client, project_id, enabled=True)
+    message = "Folder my api cannot be indexed: names may use letters, numbers, '.', '_' and '-'"
+    assert response.status_code == 200 and response.json()['search_error'] == message
+    assert project(client, project_id)['search_error'] == message
+
+
+def test_archive_after_a_failed_switch_off_still_releases_paths(searchable):
+    client, rag, project_id = searchable
+    search(client, project_id, enabled=True)
+    rag.down = True
+    off = search(client, project_id, enabled=False)
+    assert off.json()['searchable'] is False and off.json()['search_error']
+    assert rag.owned(project_id)  # the paths are still in RAG
+    rag.down = False
+    archived = client.post(f'/api/code-projects/{project_id}/archive', headers=HEADERS)
+    assert archived.status_code == 200 and archived.json() == {'id': project_id, 'search_error': None}
+    assert rag.owned(project_id) == set()

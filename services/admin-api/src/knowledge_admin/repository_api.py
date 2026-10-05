@@ -110,20 +110,21 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
         selected = repository_store()
         with selected.connect() as conn:
             project = selected.project(conn, app_name)
-            repo = conn.execute('''SELECT id,search_collection FROM ka.repositories WHERE id=%s AND project_id=%s
+            repo = conn.execute('''SELECT id,search_collection,search_error FROM ka.repositories WHERE id=%s AND project_id=%s
                 AND archived_at IS NULL FOR UPDATE''', (repository_id, project)).fetchone()
             if repo is None:
                 raise HTTPException(404, 'Code project not found')
             selected.require_idle(conn, repository_id)
             actor = selected.actor(conn, *request_actor(request))
-        if repo['search_collection'] is not None:  # paths leave RAG first; a failure leaves the project listed to retry
+        # Paths leave RAG first, also after a failed switch-off (no collection, an error kept); a failure
+        # leaves the project listed to retry.
+        if repo['search_collection'] is not None or repo['search_error'] is not None:
             error = release_paths(selected, app_name, backoffice_client, repository_id, actor)
             if error is not None:
                 raise HTTPException(502, error)
         with selected.connect() as conn:
             conn.execute('UPDATE ka.repositories SET archived_at=now(),search_collection=NULL,search_error=NULL WHERE id=%s AND archived_at IS NULL', (repository_id,))
-        error = None
-        return {'id': repository_id, 'search_error': error}
+        return {'id': repository_id, 'search_error': None}
 
     @router.get('/code-projects/{repository_id}/graph')
     def view_code_graph(repository_id: UUID, file: str = Query(default='', max_length=1000),
