@@ -1,4 +1,4 @@
-"""Write and remove Markdown files in RAG collections through the RAG backoffice API."""
+"""Read and write files under rag-data through the RAG backoffice API."""
 from uuid import UUID
 
 import httpx
@@ -6,12 +6,11 @@ from fastapi import HTTPException
 
 
 class RagFiles:
-    """One project's RAG collections, acting for one principal."""
+    """One project's RAG service, acting for one principal."""
 
     def __init__(self, client: httpx.Client, key: str, project: UUID, actor: UUID | None):
         self.client, self.prefix = client, f'/backoffice/projects/{project}/'
         self.headers = {'x-rag-key': key, **({'x-rag-actor': str(actor)} if actor else {})}
-        self._collections: list[dict] | None = None
 
     def request(self, method: str, resource: str, **kwargs: object) -> dict:
         try:
@@ -20,19 +19,10 @@ class RagFiles:
             if not isinstance(result, dict):
                 raise ValueError('Invalid RAG response')
         except (httpx.HTTPError, ValueError):
-            raise HTTPException(502, 'RAG service is unavailable. Retry to check the file') from None
+            raise HTTPException(502, 'RAG service is unavailable. Retry later.') from None
         if response.status_code >= 300:
-            raise HTTPException(response.status_code, result.get('error', {}).get('message') or 'RAG could not save the file')
+            raise HTTPException(response.status_code, result.get('error', {}).get('message') or 'RAG request failed')
         return result
-
-    def collection(self, name: str) -> dict:
-        # Fetched once per instance (one export batch), without folder walks.
-        if self._collections is None:
-            self._collections = self.request('GET', 'collections', params={'status': 'false'})['collections']
-        row = next((r for r in self._collections if r['name'] == name), None)
-        if row is None:
-            raise HTTPException(404, f'Unknown collection: {name}. Create it in RAG → Collections.')
-        return row
 
     def get_file(self, collection: str, path: str) -> dict | None:
         try:
@@ -42,25 +32,17 @@ class RagFiles:
                 return None
             raise
 
-    def write_markdown(self, collection: str, filename: str, content: str) -> dict:
-        """Create or replace a file in a collection. A file whose first line differs belongs to another source and is kept."""
-        self.collection(collection)
-        previous = self.get_file(collection, filename)
+    def write_markdown(self, collection: str, path: str, content: str) -> dict:
+        """Create or replace `path` (full, under rag-data) indexed by `collection`.
+
+        A file whose first line differs belongs to another source and is kept.
+        """
+        previous = self.get_file(collection, path)
         if previous is not None:
             if previous['content'].partition('\n')[0] != content.partition('\n')[0]:
-                raise HTTPException(409, f'{collection}/{filename} belongs to another source. Choose a different collection; the existing file was preserved')
+                raise HTTPException(409, f'{path} belongs to another source. The existing file was preserved')
             if previous['content'] == content:
-                return {'collection': collection, 'path': filename, 'status': 'unchanged', 'hash': previous['hash']}
-        saved = self.request('PUT', 'file', json={'collection': collection, 'path': filename, 'content': content,
+                return {'collection': collection, 'path': path, 'status': 'unchanged', 'hash': previous['hash']}
+        saved = self.request('PUT', 'file', json={'path': path, 'content': content,
                                                   'expected_hash': previous['hash'] if previous is not None else None})
-        return {'collection': collection, 'path': filename, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}
-
-    def delete_file(self, collection: str, path: str, first_line: str) -> bool:
-        """Delete path when it still starts with first_line; return False when it is already gone."""
-        previous = self.get_file(collection, path)
-        if previous is None:
-            return False
-        if previous['content'].partition('\n')[0] != first_line:
-            raise HTTPException(409, f'{collection}/{path} belongs to another source; it was not removed')
-        self.request('DELETE', 'file', params={'collection': collection, 'path': path, 'expected_hash': previous['hash']})
-        return True
+        return {'collection': collection, 'path': path, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}

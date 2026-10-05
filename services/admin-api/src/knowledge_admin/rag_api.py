@@ -14,9 +14,10 @@ from knowledge_admin.access import request_actor
 
 ALLOWED = {
     "GET": r"settings|collections|collections/[0-9a-f-]{36}(/files|/chunks)?|file|jobs",
-    "PUT": r"settings|file|collections/[0-9a-f-]{36}",
-    "POST": r"collections|collections/sync-stale|collections/[0-9a-f-]{36}/sync|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
-    "DELETE": r"file|collections/[0-9a-f-]{36}",
+    "PUT": r"settings|collections/[0-9a-f-]{36}",
+    "POST": r"collections/sync-stale|collections/[0-9a-f-]{36}/sync|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
+    # Admins detach unowned paths; sources add and remove their own paths server-side.
+    "DELETE": r"collections/[0-9a-f-]{36}|collections/by-name/[a-z0-9]+(-[a-z0-9]+)*/paths",
 }
 
 

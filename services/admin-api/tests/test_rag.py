@@ -27,13 +27,16 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
         collection = str(uuid4())
         for method, resource in (("GET", "tree"), ("POST", "folders"), ("POST", "jobs"), ("PUT", f"folders/{collection}"),
                                  ("DELETE", f"folders/{collection}"), ("GET", f"collections/{collection}/other"),
-                                 ("POST", f"collections/{collection}/files"), ("DELETE", "collections")):
+                                 ("POST", f"collections/{collection}/files"), ("DELETE", "collections"),
+                                 ("POST", "collections"), ("PUT", "file"), ("DELETE", "file"), ("DELETE", "paths"),
+                                 ("PUT", "collections/by-name/jira"), ("PUT", "collections/by-name/jira/paths"),
+                                 ("DELETE", "collections/by-name/Jira/paths")):
             assert client.request(method, f"/api/rag/{resource}", headers=HEADERS).status_code == 404, resource
         assert calls == []
         with store.connect() as conn:
             project = store.project(conn, "docs")
         prefix = f"/backoffice/projects/{project}/"
-        for method, resource in (("GET", "collections"), ("POST", "collections"), ("GET", f"collections/{collection}"),
+        for method, resource in (("GET", "collections"), ("DELETE", "collections/by-name/jira/paths"), ("GET", f"collections/{collection}"),
                                  ("PUT", f"collections/{collection}"), ("DELETE", f"collections/{collection}"),
                                  ("POST", f"collections/{collection}/sync"), ("POST", "collections/sync-stale"),
                                  ("GET", f"collections/{collection}/files"), ("GET", f"collections/{collection}/chunks"),
