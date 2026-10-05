@@ -42,7 +42,7 @@ Examples:
 | --- | --- | --- |
 | `jira` | `rag-data/jira` (Jira) | One Markdown file per ticket |
 | `payments` | `code/payments` (Code project), `rag-data/jira` (Jira), `docs/runbooks` (unowned) | One collection searching code, tickets and runbooks |
-| `documents` | `generated-documents` (Documents) | Created automatically by migration `0063`; excludes `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` so old `<slug>/v<n>/` and `services/<svc>/<phase>/v<n>/` version folders are not indexed (a slug that itself starts with `v<digit>`, such as `v2-api-design`, is). It starts unsynced and shows **Refresh** |
+| `documents` | `generated-documents` (Documents) | Created by migration `0063` on upgrades, and by admin-api at startup on a fresh install (or whenever Documents owns no path); excludes `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` so old `<slug>/v<n>/` and `services/<svc>/<phase>/v<n>/` version folders are not indexed (a slug that itself starts with `v<digit>`, such as `v2-api-design`, is). It starts unsynced and shows **Refresh** |
 
 Migration `0063` converted every top-level folder of `rag-data` into a collection (folder
 `X` became collection `X` with folder `rag-data/X`) and rewrote indexed files and agent
@@ -60,9 +60,14 @@ Sources own their files and decide which collection they go into:
 | --- | --- | --- |
 | Docs → Documents | `generated-documents` | `documents` |
 | Jira | `rag-data/jira` | Chosen in the Jira export dialog, default `jira`; created if missing |
-| Code project | each mapped folder, `code/<path>` | Chosen on the code project page when **Searchable** is on, default the project's slug; created if missing |
+| Code project | each mapped folder, `code/<path>` | Chosen on the code project page when **Searchable** is on, default the project's slug; created if missing, including common code and docs files (`**/*.md`, `**/*.py`, `**/*.ts`, `**/*.java`, `**/*.go`, `**/*.yaml`, `**/*.json` and more) |
 
-- An owner has one path per collection; adding it again moves (re-points) it.
+- An owner (Documents, Jira, or one code project folder) has one path across all
+  collections; adding it again, to the same or another collection, moves (re-points) it.
+- A collection a source creates gets that source's include and exclude patterns; an
+  existing collection keeps its settings.
+- A searchable Git code project's paths follow each pull (the first clone, or a new
+  checkout); a failure shows on the project page with **Retry** and never fails the pull.
 - Removing a path removes its indexed files from the index. Files on disk stay.
 - **Remove** collection is refused with `Remove this collection's sources first: …` while a
   source owns a path.
@@ -77,6 +82,10 @@ Sources own their files and decide which collection they go into:
   **Up to date**.
 - Rolling back refuses while any collection has more than one path; remove the extra paths
   first.
+- Jira exports made before `0065` into another `rag-data` collection (for example
+  `rag-data/tickets`) stay there as an unowned path, while new exports go to `rag-data/jira`.
+  Both are searched, so tickets can appear twice: detach the old path on the collection
+  detail page, or remove that collection or folder.
 
 ### Upgrading to collections
 
@@ -253,10 +262,13 @@ Browser/admin API prefix: `/api/rag`. All these routes require a Keycloak user i
 
 | Call | Purpose |
 | --- | --- |
-| `PUT collections/by-name/{name}` | Create the collection if missing (default settings) and return it; idempotent, never changes an existing collection's settings |
-| `PUT collections/by-name/{name}/paths` with `{source_path, owner_kind?, owner_id?, owner_key?}` | Add a path, creating the collection if missing; the same owner's path is replaced; 409 `Path overlaps <other> in collection <name>` |
+| `PUT collections/by-name/{name}` with `{description?, include?, exclude?}` | Create the collection if missing (the given settings, defaults otherwise) and return it; idempotent, never changes an existing collection's settings |
+| `PUT collections/by-name/{name}/paths` with `{source_path, owner_kind?, owner_id?, owner_key?, description?, include?, exclude?}` | Add a path, creating the collection if missing (the optional settings apply only then); the same owner's path is replaced; 409 `Path overlaps <other> in collection <name>`, or 409 `The source path changed concurrently; retry` when a concurrent change of the same owner wins twice |
 | `DELETE collections/by-name/{name}/paths?source_path=` or `?owner_kind=&owner_id=&owner_key=` | Remove a path and its indexed files; idempotent |
 | `DELETE paths?owner_kind=&owner_id=&owner_key=` | Remove an owner's path from every collection |
+
+The admin RAG proxy forwards only `source_path` detaches; `owner_*` parameters are refused
+with 400 there, so administrators cannot remove a source's paths.
 | `GET file?collection=&path=<full path>` | Read an indexable file |
 | `PUT file {path, content, expected_hash}` | Write a file under `rag-data` only (Jira export) |
 

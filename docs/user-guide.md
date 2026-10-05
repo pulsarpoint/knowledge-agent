@@ -355,12 +355,21 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
 
 **Searchable** — a switch plus a collection name. Turning it on adds all mapped folders
-(`code/<path>`) to the collection, creating it if missing. The name defaults to the
+(`code/<path>`) to the collection, creating it if missing; a collection created this way
+indexes common code and docs files (Markdown, text, Python, TypeScript/JavaScript, Java,
+Kotlin, Go, Rust, C#, Ruby, PHP, SQL, shell, YAML, TOML, JSON), and its include patterns
+can be tuned in RAG → Collections. The name defaults to the
 project's slug and an existing collection can be picked; changing it moves the project's
-paths (**Move to another collection**). Turning it off, or archiving the project, removes
-its paths from every collection. Editing the mapped folders adds and removes paths to
-match. If RAG is unavailable an error shows on the page with **Retry**; the project itself
-is never rolled back. If RAG is unavailable, archiving a searchable project fails with an error and can simply be retried (the project stays listed). **Refresh** the collection in RAG → Collections afterwards.
+paths (**Move to another collection**). Turning it off removes its paths from every
+collection. Editing the mapped folders, and each pull of a Git project, adds and removes
+paths to match. A folder whose name has characters other than letters, numbers, `.`, `_`
+and `-` cannot be indexed and is named in the error. If RAG is unavailable an error shows
+on the page with **Retry**; the project itself is never rolled back. **Refresh** the
+collection in RAG → Collections afterwards.
+
+Archiving a project is available through the API only (`POST /api/code-projects/{id}/archive`);
+it removes the project's paths from every collection first. If RAG is unavailable it fails
+with an error and can be retried (the project stays listed).
 
 Projects cannot be edited while a job runs, and there is no delete action.
 
