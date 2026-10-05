@@ -306,3 +306,12 @@ def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
     request=next(r for r in responses_api[1] if r['path']=='/v1/responses')
     names=[t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]
     assert len(names)==len(set(names))==2
+
+
+def test_a_missing_document_collection_path_is_skipped_not_fatal(config, responses_api, caplog):
+    config['documents']['collections'] = [{'id': 'jira', 'name': 'jira', 'description': 'Tickets',
+                                           'paths': [config['documents']['collections'][0]['path'], '/missing/rag-data/jira']}]
+    with caplog.at_level('WARNING', logger='knowledge_admin.tools.files'):
+        result = asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45))
+    assert result.final_output
+    assert 'Skipping unavailable document collection folder: /missing/rag-data/jira' in caplog.text

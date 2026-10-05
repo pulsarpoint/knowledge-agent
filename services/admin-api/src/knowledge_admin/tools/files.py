@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import logging
+from collections.abc import Iterable
 from pathlib import Path
 
 from agents import RunContextWrapper, function_tool
@@ -10,23 +12,39 @@ from knowledge_admin.agent_activity import redact
 from knowledge_admin.collections import document_collections
 from knowledge_admin.tools import AgentContext
 
+logger = logging.getLogger(__name__)
+
+
+def mounted(path: Path) -> bool:
+    """An absolute, canonical path to an existing directory."""
+    return path.is_absolute() and path.resolve() == path and path.is_dir()
+
+
+def available_documents(paths: Iterable[Path]) -> list[Path]:
+    """Document collection paths that are mounted. A collection path may be missing (e.g. until its
+    source writes it); it is skipped with a warning instead of disabling the agent."""
+    available = []
+    for path in paths:
+        if mounted(path):
+            available.append(path)
+        else:
+            logger.warning('Skipping unavailable document collection folder: %s', path)
+    return available
+
 
 def _roots(context: AgentContext) -> list[Path]:
     config = context['config']
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
-    paths = [context['workspace']]
+    paths = [context['workspace']]  # the workspace and code folders must be mounted
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
-    if config['documents']['enabled']:
-        paths.extend(Path(path) for item in document_collections(config)[1] for path in item['paths'])
-    roots = []
     for path in paths:
-        if not path.is_absolute() or path.resolve() != path or not path.is_dir():
+        if not mounted(path):
             raise ValueError(f'Configured folder is unavailable: {path}')
-        if path not in roots:
-            roots.append(path)
-    return roots
+    if config['documents']['enabled']:
+        paths.extend(available_documents(Path(path) for item in document_collections(config)[1] for path in item['paths']))
+    return list(dict.fromkeys(paths))
 
 
 def _path(context: AgentContext, path: str) -> Path:

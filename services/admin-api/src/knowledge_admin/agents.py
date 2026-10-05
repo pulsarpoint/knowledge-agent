@@ -25,7 +25,7 @@ from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
-from knowledge_admin.tools.files import list_files, read_file, search_files
+from knowledge_admin.tools.files import available_documents, list_files, mounted, read_file, search_files
 from knowledge_admin.tools.code_graph import code_graph
 from knowledge_admin.tools.ast_grep import ast_grep
 from knowledge_admin.tools.code_search import code_search
@@ -127,9 +127,10 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
     selected_mcp = get_mcp(config, ssh_servers)
     prompt = get_prompt(config, ssh_servers, selected_mcp)
     tools = get_tools(config, ssh_servers)
-    for path in get_paths(config):
-        if not path.is_absolute() or not path.is_dir() or path.resolve() != path:
+    for path in code_paths(config):  # a missing document collection path is skipped, not fatal
+        if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
+    available_documents(document_paths(config))
     async with AsyncExitStack() as connections:
         sdk_model, model_settings = await connections.enter_async_context(agent_model(model, model_api_key, timeout_seconds))
         mcp_servers = []
@@ -157,14 +158,23 @@ def get_model(config: dict[str, Any]) -> dict[str, Any]:
     return model
 
 
+def code_paths(config: dict[str, Any]) -> list[Path]:
+    """The code project folders enabled for this agent."""
+    if not config['code']['enabled']:
+        return []
+    return [Path(path) for project in config['code']['projects'] for path in project['folder_paths']]
+
+
+def document_paths(config: dict[str, Any]) -> list[Path]:
+    """The document collection folders an ungrounded agent reads directly."""
+    if not config['documents']['enabled'] or documents_grounded(config):
+        return []
+    return [Path(path) for item in document_collections(config)[1] for path in item['paths']]
+
+
 def get_paths(config: dict[str, Any]) -> list[Path]:
-    """Collect the mounted code/document folders enabled for this agent."""
-    paths = []
-    if config['code']['enabled']:
-        paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
-    if config['documents']['enabled'] and not documents_grounded(config):
-        paths.extend(Path(path) for item in document_collections(config)[1] for path in item['paths'])
-    return list(dict.fromkeys(paths))
+    """Collect the code/document folders enabled for this agent."""
+    return list(dict.fromkeys([*code_paths(config), *document_paths(config)]))
 
 
 def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:
