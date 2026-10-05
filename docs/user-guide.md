@@ -124,7 +124,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for vector search.
 2. **RAG → Settings** → select the embeddings model if you added one.
-3. **RAG → Collections** → **New collection**, choose a folder, **Refresh**.
+3. Let a source add its path (Docs → Documents → `documents`; Jira export → its chosen collection; code project **Searchable** → its chosen collection), then **RAG → Collections** → **Refresh**.
 4. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
 5. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
@@ -360,7 +360,7 @@ project's slug and an existing collection can be picked; changing it moves the p
 paths (**Move to another collection**). Turning it off, or archiving the project, removes
 its paths from every collection. Editing the mapped folders adds and removes paths to
 match. If RAG is unavailable an error shows on the page with **Retry**; the project itself
-is never rolled back. **Refresh** the collection in RAG → Collections afterwards.
+is never rolled back. If RAG is unavailable, archiving a searchable project fails with an error and can simply be retried (the project stays listed). **Refresh** the collection in RAG → Collections afterwards.
 
 Projects cannot be edited while a job runs, and there is no delete action.
 
@@ -631,7 +631,7 @@ workflow page is open, generating fails with "An active prompt changed. Reload i
 ### 5.15 Storage
 
 `/storage` — read-only overview of the five storage areas: source code
-(`CODE_PATH`), code graphs (`CODE_INDEX_PATH`), RAG source files (`RG_DATA`, where collections under `rag-data` live), document
+(`CODE_PATH`), code graphs (`CODE_INDEX_PATH`), RAG source files (`RG_DATA`, where Jira exports are written), document
 exports (`GENERATED_DOCS_PATH`) and bootstrap docs (`DOCS_PATH`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
@@ -666,10 +666,11 @@ Records are kept until deleted; only administrators can see them.
 
 ### A. Make internal documentation searchable for everyone
 
-1. Admin → **RAG → Collections** → **New collection** named `handbook`, folder
-   `rag-data/handbook` (type the path), with a description.
-2. Open the collection and upload Markdown files (or **New file**).
-3. **Refresh**; watch **Processing jobs** until it succeeds.
+1. Write the pages in **Docs → Documents**; they land in the `documents` collection.
+   (Code is made searchable from the code project page with **Searchable**.)
+2. Admin → **RAG → Collections** → **Refresh** `documents`; watch **Processing jobs**
+   until it succeeds.
+3. Check the collection's files under its detail page.
 4. Check results in **RAG → Search**.
 5. Readers open http://localhost:8180 → the collection appears in the sidebar; use **Search**.
 
@@ -724,7 +725,7 @@ selected** into the target collection (default `jira`) → follow the notice's l
 | `WEB_PORT` 8180, `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
 | `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
-| `RG_DATA` | Optional override for the `rag-data` area, the writable collection folder (default `DATA_ROOT/rag-data`) |
+| `RG_DATA` | Optional override for the `rag-data` area, the writable folder for Jira exports (default `DATA_ROOT/rag-data`) |
 | `CODE_PATH` | Optional override for code projects and Git clones (default `DATA_ROOT/code`) |
 | `CODE_INDEX_PATH` | Optional override for code graph snapshots (default `DATA_ROOT/code-index`) |
 | `GENERATED_DOCS_PATH` | Optional override for document exports (default `DATA_ROOT/generated-documents`) |

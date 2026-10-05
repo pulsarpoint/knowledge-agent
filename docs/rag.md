@@ -93,7 +93,7 @@ After upgrading:
 ## Data areas and mounts
 
 All five areas are mounted into `rag` and `rag-worker` at their existing container paths.
-`rag-data` is read-write, so uploads and edits still work; the other four are read-only.
+`rag-data` is read-write only for Jira exports (RAG writes them through its internal file endpoint); the other four are read-only.
 
 | Area | Container path | Setting |
 | --- | --- | --- |
