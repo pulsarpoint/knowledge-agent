@@ -316,11 +316,3 @@ class Areas:
                     os.unlink(temporary, dir_fd=fd)
                 except FileNotFoundError:
                     pass
-
-    def delete(self, source: str, path: str) -> None:
-        if not self.writable(source):
-            raise HTTPException(400, 'This collection folder is read-only; only rag-data collections accept files')
-        *parents, name = relative_path(path).split('/')
-        refuse_hidden(path)
-        with self._directory(source, parents) as fd:
-            os.unlink(name, dir_fd=fd)

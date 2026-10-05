@@ -80,3 +80,17 @@ class Workspace:
         if row is None:
             raise HTTPException(404, f"Unknown collection: {name}")
         return row
+
+    def paths(self, conn, collection_id: UUID) -> list[dict]:
+        return conn.execute("SELECT * FROM ka.rag_collection_paths WHERE collection_id=%s ORDER BY source_path",
+                            (collection_id,)).fetchall()
+
+    def ensure_collection(self, conn, project: UUID, name: str, description: str = "") -> dict:
+        """The named collection, created with default settings when missing; never changes an existing one.
+
+        The row is locked, so path changes to one collection are serialized with its edits and syncs.
+        """
+        conn.execute("""INSERT INTO ka.rag_collections(project_id,name,description) VALUES (%s,%s,%s)
+            ON CONFLICT (project_id,name) WHERE deleted_at IS NULL DO NOTHING""", (project, name, description))
+        return conn.execute("""SELECT * FROM ka.rag_collections WHERE project_id=%s AND name=%s AND deleted_at IS NULL
+            FOR UPDATE""", (project, name)).fetchone()

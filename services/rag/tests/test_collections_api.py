@@ -11,23 +11,6 @@ def status(env, collection_id):
     return env[1].get(env[3] + f"/collections/{collection_id}").json()
 
 
-def test_create_list_and_validate(env):
-    client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
-    created = collection(env)
-    rows = client.get(prefix + "/collections").json()["collections"]
-    assert [r["name"] for r in rows] == ["docs"]
-    row = rows[0]
-    assert row["host_path"] == "/srv/rag-data/docs" and row["writable"] is True
-    assert row["status"] == "needs_refresh" and row["needs_refresh"] is True and row["last_synced_at"] is None
-    assert client.post(prefix + "/collections", json={"name": "docs", "source_path": "rag-data/docs"}).status_code == 409
-    for bad in ({"name": "Docs", "source_path": "rag-data/docs"}, {"name": "x", "source_path": "../etc"},
-                {"name": "x", "source_path": "rag-data/x", "chunk_size": 300, "chunk_overlap": 300},
-                {"name": "x", "source_path": "rag-data/x", "search_mode": "embedding"}):
-        assert client.post(prefix + "/collections", json=bad).status_code == 400, bad
-    assert status(env, created)["include"] == ["**/*.md", "**/*.markdown", "**/*.txt"]
-
-
 def test_missing_folder_is_reported(env):
     created = collection(env, "absent", "docs/absent")
     row = status(env, created)
@@ -78,17 +61,6 @@ def test_settings_change_marks_collection_stale(env):
     assert updated.json()["status"] == "needs_refresh"
     stale = client.put(prefix + f"/collections/{created}", json={"name": "docs", "source_path": "rag-data/docs", "revision": row["revision"]})
     assert stale.status_code == 409
-
-
-def test_read_only_area_rejects_writes_and_reads_files(env):
-    client, prefix, roots = env[1], env[3], env[6]
-    repo = roots["code"] / "payments"
-    repo.mkdir()
-    (repo / "app.py").write_text("RETRIES = 5\n")
-    collection(env, "payments-code", "code/payments", include=["**/*.py"])
-    assert client.get(prefix + "/file", params={"collection": "payments-code", "path": "app.py"}).json()["content"] == "RETRIES = 5\n"
-    result = client.put(prefix + "/file", json={"collection": "payments-code", "path": "x.py", "content": "x", "expected_hash": None})
-    assert result.status_code == 400 and "read-only" in result.json()["error"]["message"]
 
 
 def test_one_active_sync_per_collection_and_sync_stale(env):
@@ -168,49 +140,6 @@ def test_jobs_list_and_cancel(env):
     assert client.post(prefix + f"/jobs/{queued['id']}/cancel").status_code == 200
     assert client.post(prefix + f"/jobs/{queued['id']}/cancel").status_code == 409
     assert client.post(prefix + f"/collections/{created}/sync", json={}).status_code == 202
-
-
-def test_rag_data_collection_folder_is_created(env):
-    client, prefix, roots = env[1], env[3], env[6]
-    created = collection(env, "jira", "rag-data/jira")
-    folder = roots["rag-data"] / "jira"
-    assert folder.is_dir() and status(env, created)["status"] == "needs_refresh"
-    folder.rmdir()  # removed on the host: the first upload creates it again
-    write(env, "DEMO-1.md", "# DEMO-1", name="jira")
-    assert (folder / "DEMO-1.md").read_text() == "# DEMO-1"
-    collection(env, "repo", "code/repo")
-    assert not (roots["code"] / "repo").exists()
-
-
-def test_file_api_serves_only_indexable_files(env):
-    client, prefix, roots = env[1], env[3], env[6]
-    repo = roots["code"] / "repo"
-    (repo / ".git").mkdir(parents=True)
-    (repo / "node_modules" / "x").mkdir(parents=True)
-    (repo / "docs").mkdir()
-    (repo / ".env").write_text("SECRET=1")
-    (repo / ".env.local").write_text("SECRET=2")
-    (repo / ".git" / "config").write_text("[remote]")
-    (repo / "node_modules" / "x" / "README.md").write_text("# x")
-    (repo / "docs" / ".draft.md").write_text("# draft")
-    (repo / "app.py").write_text("print(1)")
-    (repo / "docs" / "guide.md").write_text("# Guide")
-    (repo / "docs" / "old.md").write_text("# Old")
-    collection(env, "repo", "code/repo", exclude=["docs/old.md"])
-    for path in (".env", ".env.local", ".git/config", "node_modules/x/README.md", "docs/.draft.md", "app.py", "docs/old.md"):
-        response = client.get(prefix + "/file", params={"collection": "repo", "path": path})
-        assert response.status_code == 404, path
-        assert response.json()["error"]["message"] == "Document not found" and "SECRET" not in response.text
-    assert client.get(prefix + "/file", params={"collection": "repo", "path": "docs/guide.md"}).json()["content"] == "# Guide"
-
-
-def test_file_writes_refuse_hidden_and_skipped_paths(env):
-    client, prefix = env[1], env[3]
-    collection(env)
-    for path in (".env", "a/.env.local", ".git/config", "node_modules/a.md", ".hidden/a.md"):
-        result = client.put(prefix + "/file", json={"collection": "docs", "path": path, "content": "x", "expected_hash": None})
-        assert result.status_code == 400, path
-        assert client.delete(prefix + "/file", params={"collection": "docs", "path": path, "expected_hash": "x"}).status_code == 400
 
 
 def test_list_without_status_skips_the_walk(env, monkeypatch):

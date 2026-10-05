@@ -98,15 +98,13 @@ def test_walk_limit_and_missing_folder(areas):
         areas.walk('rag-data/absent', ['**/*.md'], [])
 
 
-def test_read_write_delete_confined_to_rag_data(areas):
+def test_read_write_confined_to_rag_data(areas):
     areas, roots = areas
     (roots['rag-data'] / 'notes').mkdir()
     areas.write('rag-data/notes', 'sub/a.md', b'# A')
     assert areas.read('rag-data/notes', 'sub/a.md', 100) == b'# A'
     with pytest.raises(HTTPException, match='size limit'):
         areas.read('rag-data/notes', 'sub/a.md', 1)
-    areas.delete('rag-data/notes', 'sub/a.md')
-    assert not (roots['rag-data'] / 'notes' / 'sub' / 'a.md').exists()
     (roots['code'] / 'repo').mkdir()
     with pytest.raises(HTTPException, match='read-only'):
         areas.write('code/repo', 'a.md', b'x')
@@ -254,13 +252,11 @@ def test_first_write_creates_the_collection_folder(areas):
 
 
 @pytest.mark.parametrize('path', ['.env', 'sub/.env.local', '.git/config', 'node_modules/a.md', '.hidden/a.md'])
-def test_write_and_delete_refuse_hidden_and_skipped_paths(areas, path):
+def test_write_refuses_hidden_and_skipped_paths(areas, path):
     areas, roots = areas
     with pytest.raises(HTTPException) as error:
         areas.write('rag-data/notes', path, b'x')
     assert error.value.status_code == 400
-    with pytest.raises(HTTPException):
-        areas.delete('rag-data/notes', path)
 
 
 def _umask():

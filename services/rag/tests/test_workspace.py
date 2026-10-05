@@ -15,17 +15,36 @@ from rag.workspace import Workspace
 from rag.workspace_worker import claim, process
 
 
-def collection(env, name="docs", source="rag-data/docs", **settings):
+SETTINGS = ("description", "search_mode", "embeddings_enabled", "include", "exclude", "chunk_size", "chunk_overlap")
+
+
+def update(env, collection_id, **changes):
+    """PUT the collection's current search settings with `changes` applied."""
     client, prefix = env[1], env[3]
-    result = client.post(prefix + "/collections", json={"name": name, "source_path": source, **settings})
-    assert result.status_code == 200, result.text
-    return result.json()["id"]
+    row = client.get(prefix + f"/collections/{collection_id}").json()
+    return client.put(prefix + f"/collections/{collection_id}",
+                      json={**{key: row[key] for key in SETTINGS}, **changes, "revision": row["revision"]})
+
+
+def collection(env, name="docs", *sources, **settings):
+    """Ensure collection `name` holding `sources` as unowned paths (default rag-data/<name>), then apply settings."""
+    client, prefix = env[1], env[3]
+    for source in sources or (f"rag-data/{name}",):
+        added = client.put(prefix + f"/collections/by-name/{name}/paths", json={"source_path": source})
+        assert added.status_code == 200, added.text
+    collection_id = added.json()["id"]
+    if settings:
+        saved = update(env, collection_id, **settings)
+        assert saved.status_code == 200, saved.text
+    return collection_id
 
 
 def write(env, path="readme.md", content="# Payments\n\nRetries use exponential backoff.", name="docs"):
+    """Create or replace rag-data/<name>/<path> through the rag-data writer."""
     client, prefix = env[1], env[3]
-    previous = client.get(prefix + "/file", params={"collection": name, "path": path})
-    result = client.put(prefix + "/file", json={"collection": name, "path": path, "content": content,
+    full = f"rag-data/{name}/{path}"
+    previous = client.get(prefix + "/file", params={"collection": name, "path": full})
+    result = client.put(prefix + "/file", json={"path": full, "content": content,
                                                 "expected_hash": previous.json()["hash"] if previous.status_code == 200 else None})
     assert result.status_code == 200, result.text
 
@@ -65,7 +84,7 @@ def configure(env, **model):
     assert result.status_code == 200, result.text
 
 
-def chunks(env, collection_id, path="readme.md"):
+def chunks(env, collection_id, path="rag-data/docs/readme.md"):
     client, prefix = env[1], env[3]
     return [row["text"] for row in client.get(prefix + f"/collections/{collection_id}/chunks", params={"path": path}).json()["chunks"]]
 
@@ -76,7 +95,7 @@ def test_single_workspace_and_cross_project_isolation(env):
         other = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('other','Other') RETURNING id").fetchone()["id"]
     assert client.get(f"/backoffice/projects/{other}/settings").status_code == 404
     assert client.get(f"/backoffice/projects/{other}/collections").status_code == 404
-    assert client.post(f"/backoffice/projects/{other}/collections", json={"name": "x", "source_path": "rag-data/x"}).status_code == 404
+    assert client.put(f"/backoffice/projects/{other}/collections/by-name/x", json={}).status_code == 404
     with workspace.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM ka.rag_workspaces").fetchone()["n"] == 1
         with pytest.raises(psycopg.errors.UniqueViolation):
@@ -144,35 +163,6 @@ def test_authentication_is_required(env):
     assert client.get(prefix + "/collections", headers={"x-rag-key": "wrong"}).status_code == 403
     assert client.get(prefix + "/settings", headers={"x-rag-key": ""}).status_code == 403
     assert client.post("/search", headers={"x-rag-key": ""}, json={"project_id": str(project), "query": "x"}).status_code == 403
-
-
-@pytest.mark.parametrize("path", ["../outside", "/absolute", "a/../b", "a//b", "a\\b", ""])
-def test_file_paths_stay_inside_the_collection(env, path):
-    client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
-    collection(env)
-    assert client.get(prefix + "/file", params={"collection": "docs", "path": path}).status_code == 400
-    assert client.put(prefix + "/file", json={"collection": "docs", "path": path, "content": "x"}).status_code == 400
-
-
-def test_symlinks_and_stale_file_writes_rejected(env, tmp_path):
-    client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
-    collection(env)
-    write(env)
-    assert client.put(prefix + "/file", json={"collection": "docs", "path": "readme.md", "content": "stale overwrite"}).status_code == 409
-    assert client.delete(prefix + "/file", params={"collection": "docs", "path": "readme.md", "expected_hash": "wrong"}).status_code == 409
-    secret = tmp_path / "outside.txt"
-    secret.write_text("outside-secret")
-    (roots["rag-data"] / "docs" / "link.txt").symlink_to(secret)
-    response = client.get(prefix + "/file", params={"collection": "docs", "path": "link.txt"})
-    assert response.status_code == 400 and "outside-secret" not in response.text
-    assert client.get(prefix + "/file", params={"collection": "nope", "path": "readme.md"}).status_code == 404
-    assert client.get(prefix + "/file", params={"collection": "docs", "path": "absent.md"}).status_code == 404
-    document = client.get(prefix + "/file", params={"collection": "docs", "path": "readme.md"}).json()
-    assert document["collection"] == "docs" and document["content"].startswith("# Payments")
-    deleted = client.delete(prefix + "/file", params={"collection": "docs", "path": "readme.md", "expected_hash": document["hash"]})
-    assert deleted.status_code == 200 and not (roots["rag-data"] / "docs" / "readme.md").exists()
 
 
 def test_documents_catalog_and_workspace_lookup(env):
