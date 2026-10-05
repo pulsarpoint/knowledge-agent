@@ -1,9 +1,10 @@
 # RAG retrieval and processing
 
 The v3 runtime stores processed text, file hashes, and vectors in PostgreSQL. It indexes
-**collections**: each is a folder inside one of five data areas mounted at `/work/code`,
+**collections**: each holds one or more paths (folders), added by sources such as Jira,
+Documents and code projects, inside five data areas mounted at `/work/code`,
 `/work/code-index`, `/work/rag-data`, `/work/generated-documents` and `/work/docs`
-(read-only except `rag-data`). Manage collections, refresh, uploads (under `rag-data`),
+(read-only except `rag-data`). View collections and their paths, refresh,
 processing jobs and search in **Administration → RAG**. Manage embedding
 connections in **LLM Settings**, then select one in **RAG → Settings**.
 

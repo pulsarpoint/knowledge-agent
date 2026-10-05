@@ -50,8 +50,8 @@ applications sharing one Keycloak realm and one PostgreSQL database:
 
 What you can actually do today:
 
-- **Curate a searchable knowledge base** (RAG): define **collections**, each mapping to
-  a folder under `DATA_ROOT` (documents, Jira exports, uploaded files or source code),
+- **Curate a searchable knowledge base** (RAG): review **collections**, each holding
+  paths under `DATA_ROOT` that sources add (documents, Jira exports or source code),
   index them into a full-text (and optionally vector) index with **Refresh**, and
   search them — from the admin RAG pages, agents and the Reader.
 - **Map source code**: register local folders or clone Git repositories, keep them
@@ -255,41 +255,41 @@ no delete — disable a model instead.
 
 ### 5.3 RAG: collections, processing, settings, search
 
-A **collection** is a name, one folder under `DATA_ROOT`, and its own settings. RAG indexes
-the files where they already are — nothing is copied. Collections replace the old
-"Files & folders" tree: there are no subfolder scopes, grants or searches; everything is
-by whole collection. Migration `0063` turned each former top-level `rag-data` folder into a
-collection, and created a `documents` collection (folder `generated-documents`)
-automatically. The `documents` collection excludes old `v<n>/` version folders, starts
-unsynced and shows **Refresh**.
+A **collection** is a named search index with its own settings and one or more paths
+(folders under `DATA_ROOT`). RAG indexes the files where they already are — nothing is
+copied. Everything is by whole collection: agents are granted collections, not subfolders.
+Sources add and remove their own paths; collections are not created or filled by hand here.
 
 **Workflow**
 
-1. Admin → **RAG → Collections** → **New collection**.
-2. Choose a folder: one of the five data folders (`code`, `code-index`, `rag-data`,
-   `generated-documents`, `docs`), then a subfolder (free text for deeper paths).
-3. **Refresh**.
-4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
+1. A source adds its path to a collection: **Docs → Documents** (`documents`), a **Jira
+   export** ([5.8](#58-jira), default `jira`) or a **Searchable** code project
+   ([5.4](#54-code-projects), default the project's slug).
+2. Admin → **RAG → Collections** → **Refresh** the collection.
+3. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
 
 **Collections** (`/rag/collections`)
 
-- The table shows name and description, folder, files on disk, indexed files, embedded
-  chunks, folder last changed, last synced, status and a **Refresh** button.
-- **Status**: *Up to date*; *Needs refresh* (never synced, the folder changed after the
-  last sync, or the settings changed since); *Syncing*; *Failed* (the previous index
-  stays); *Folder missing* (shown instead of Refresh; sync is refused).
+- The table shows name and description, paths with their sources (Documents, Jira, Code
+  project linked to its page, or Unowned), files, embedded chunks, last synced, status and
+  a **Refresh** button.
+- **Status**: *Up to date*; *Needs refresh* (never synced, a folder changed after the last
+  sync, a path was added or removed, or the settings changed since); *Syncing*; *Failed*
+  (the previous index stays); *Folder missing* (any path is missing; Refresh is refused and
+  the index is kept).
 - **Refresh all stale** queues every collection that needs it. Nothing refreshes
   automatically.
-- **New / Edit collection**: name (lowercase letters, digits, hyphens), description,
-  folder, search mode (Full text / Embedding / Hybrid), embeddings on/off, include and
-  exclude patterns (default include `**/*.md`, `**/*.markdown`, `**/*.txt`), chunk size
-  (default 2000) and overlap (default 200). Changing settings makes the collection need
-  refresh. Several collections may share one folder with different patterns.
-- **Collection detail**: indexed files with chunk count and embedding state, a file's
-  chunks, and a read-only file browser. **Upload** and **New file / Edit** exist only for
-  collections under `rag-data` (UTF-8 `.md`, `.markdown`, `.txt`, `.json`, limited by the
-  *Maximum file size* setting).
-- **Delete collection** removes its index rows and agent grants; the files stay on disk.
+- **Edit collection** shows search settings only: description, search mode (Full text /
+  Embedding / Hybrid), embeddings on/off, include and exclude patterns (default include
+  `**/*.md`, `**/*.markdown`, `**/*.txt`; matched relative to each path), chunk size
+  (default 2000) and overlap (default 200). The name cannot be changed. Changing settings
+  makes the collection need refresh. There is no New collection.
+- **Collection detail**: indexed files with full paths, chunk count and embedding state,
+  and a file's chunks. There is no upload or edit. **Detach** removes an unowned path and
+  its indexed files (the files stay on disk).
+- **Remove** appears only when no source owns a path; it removes the index rows and agent
+  grants and keeps the files on disk. Otherwise remove the sources first (`Remove this
+  collection's sources first: …`).
 - Skipped and counted (never fatal): symbolic links, special and unreadable files, invalid
   names, binary files and files over the maximum size; `.git`, `node_modules` and `.env*`
   are always ignored. A sync fails if a collection has more than 20,000 files or 200 MB —
@@ -317,7 +317,7 @@ collections that should use them, then **Refresh** them.
 **Search** (`/rag/search`) — query, a collection picker (empty means all), type
 (**Full text**, **Embedding**, **Hybrid**) and 1–30 results. A collection without
 embeddings (or with no model configured) falls back to full text, and the result lists
-which ones did ("Keyword search used for: ..."). Results show a citation number, collection, path, chunk text and hash.
+which ones did ("Keyword search used for: ..."). Results show a citation number, collection, full path, chunk text and hash.
 This is retrieval only; it does not generate answers.
 
 ### 5.4 Code projects
@@ -353,6 +353,14 @@ symbols, relationships, routes, languages and parse errors. It skips `.env*`, ke
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
 **View graph** opens an explorer (files → symbols, filter, paging). The graph is a
 prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
+
+**Searchable** — a switch plus a collection name. Turning it on adds all mapped folders
+(`code/<path>`) to the collection, creating it if missing. The name defaults to the
+project's slug and an existing collection can be picked; changing it moves the project's
+paths (**Move to another collection**). Turning it off, or archiving the project, removes
+its paths from every collection. Editing the mapped folders adds and removes paths to
+match. If RAG is unavailable an error shows on the page with **Retry**; the project itself
+is never rolled back. **Refresh** the collection in RAG → Collections afterwards.
 
 Projects cannot be edited while a job runs, and there is no delete action.
 
@@ -426,11 +434,13 @@ and search permission).
 1. Enter a **JQL** query (default `ORDER BY updated DESC, key DESC`) and the number of
    tickets (1–200), then **Fetch tickets**. Results are stored locally.
 2. Filter by text, project and status; tick tickets.
-3. **Export selected** to a RAG folder (default `jira`). Each ticket becomes
-   `<folder>/<KEY>.md` with metadata, description and comments. Keep the page open
-   until it finishes; failed tickets stay selected.
-4. Go to **RAG → Collections** and **Refresh** the collection that covers that folder
-   (`jira`) to make them searchable.
+3. **Export selected** into a **Target collection**: any valid name or an existing one,
+   default `jira`. The export adds `rag-data/jira` to that collection (moving it from a
+   previous one) and writes each ticket to `rag-data/jira/<KEY>.md` with metadata,
+   description and comments. Keep the page open until it finishes; failed tickets stay
+   selected. A RAG error fails the export with its message.
+4. Follow the link in the notice to the collection and **Refresh** it to make the tickets
+   searchable.
 
 For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
@@ -700,7 +710,8 @@ Records are kept until deleted; only administrators can see them.
 ### F. Bring Jira knowledge into RAG
 
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
-selected** to `jira` → **RAG → Collections** → **Refresh** `jira`.
+selected** into the target collection (default `jira`) → follow the notice's link →
+**Refresh** it.
 
 ---
 

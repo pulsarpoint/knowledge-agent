@@ -97,8 +97,8 @@ python3 scripts/admin_user.py --username local-admin --reset-password
 
 The auth-only check verifies real SSO and protected admin access. `make smoke`
 checks the RAG collections workspace, full-text search, PostgreSQL and Phoenix without
-processing data or calling a model. Admin → RAG manages collections (each a folder
-under `DATA_ROOT`, with its own search and processing settings), refresh, the global
+processing data or calling a model. Admin → RAG shows collections (each one or more
+paths under `DATA_ROOT`, with its own search and processing settings), refresh, the global
 embedding model and job history. Activity shows usage/audit data; Code
 projects manages local folder mappings and Git pulls. Services and Servers record
 deployed applications and their hosts. Configure AI connections in LLM Settings.
@@ -201,11 +201,11 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-RAG indexes **collections**: each maps to one folder in `DATA_ROOT` (`code`, `code-index`,
+RAG indexes **collections**: each holds one or more paths in `DATA_ROOT` (`code`, `code-index`,
 `rag-data`, `generated-documents` or `docs`) and is indexed where it is, with no copy step.
+Sources add their own paths: Docs → Documents, the Jira export and Searchable code projects.
 The RAG services mount all five areas, read-only except `rag-data` (override with an
-absolute `RG_DATA`); uploads and edits apply only to collections under `rag-data`. Create
-collections, **Refresh** them when files change, and review jobs through RAG
+absolute `RG_DATA`). **Refresh** collections when files change, and review jobs through RAG
 administration. Unchanged files are identified by content hash so processing can be reused. Add and pull Git repositories
 through Code projects.
 

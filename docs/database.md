@@ -28,7 +28,7 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `documentation_generations` | Immutable generation input snapshots associated with jobs; execution is a later stage |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
-| `rag_workspaces`, `rag_collections`, `rag_files`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: one folder under `DATA_ROOT` with its own search and processing settings); per-collection file hashes, searchable text and cached embeddings |
+| `rag_workspaces`, `rag_collections`, `rag_files`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its paths are in `ka.rag_collection_paths`); per-collection file hashes, searchable text and cached embeddings |
 | `agent_collections`, `agents.all_collections` | Which RAG collections an agent may search and read (whole collections; `all_collections` grants every one) |
 | `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |

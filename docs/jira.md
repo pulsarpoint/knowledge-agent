@@ -107,13 +107,16 @@ downloads and Cloud authentication remain future work.
 1. Fetch a JQL query, optionally narrow the saved list, and select tickets. Changing
    a saved-list filter clears the selection; **Select all filtered tickets** selects
    only the currently displayed rows.
-2. Choose a **Target collection** (default `jira`). Only collections whose source
-   lives under `rag-data` accept files; create one in **RAG → Collections** if none
-   is listed. Select **Export selected** and keep the page open. Each ticket is an
+2. Choose a **Target collection**: any valid name (lowercase letters, digits and single
+   hyphens) or an existing one, default `jira`. Tickets are written to
+   `rag-data/jira/<KEY>.md`. The export first adds `rag-data/jira` (owner Jira) to the
+   chosen collection, creating the collection if it is missing. A RAG error, such as an
+   overlap 409 or the RAG service being unavailable, fails the export with its message and
+   writes nothing. Choosing another collection on a later export moves the folder to it.
+   Select **Export selected** and keep the page open. Each ticket is an
    independent export; successes remain saved if another ticket fails, and failed
    tickets remain selected for retry. Leaving the page stops the remaining requests;
-   an in-flight server request may still finish. A collection that is missing
-   returns 404, and a read-only one returns 400.
+   an in-flight server request may still finish.
 3. Open **RAG → Collections** and **Refresh** the collection. This uses the existing
    incremental processing and embedding pipeline. Exports do not automatically
    refresh the collection or configure an embedding provider.
@@ -137,8 +140,8 @@ Files carry a source marker identifying the Jira server and remote issue ID.
 Existing files from another source are preserved with a conflict error. Refreshing
 an export replaces the complete generated file, including any manual edits below
 its marker. RAG compare-and-set hashes also protect changes made during publishing.
-Exporting a smaller selection never removes previously exported files; use RAG file
-or collection file deletion to remove them and clean their search data. Ticket key changes
+Exporting a smaller selection never removes previously exported files; delete the files
+from `rag-data/jira` on the host and **Refresh** the collection to clean their search data. Ticket key changes
 require fetching the list again; any export under the previous key remains until
 explicitly removed. `jira.ticket_exported` audit events record path, result and
 comment count, without ticket bodies or tokens.
