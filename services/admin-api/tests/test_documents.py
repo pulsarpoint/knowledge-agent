@@ -163,19 +163,12 @@ def test_invalid_document_input(tmp_path,change):
 def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
     from pathlib import Path
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
+    # Every migration from 0039 to the latest, so later migrations never collide with the restored legacy schema.
+    newer = sorted(path.name.removesuffix('.up.sql') for path in migrations.glob('*.up.sql')
+                   if path.name >= '0039_retire_document_pipeline.up.sql')
     with store.connect() as conn:
-        conn.execute((migrations/'0056_messaging_documentation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0055_documentation_sessions.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0054_api_documentation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0053_application_overview.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0052_codegraph_documentation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0049_layered_environment_architecture.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0048_server_infrastructure_documentation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0047_documentation_workflows.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0046_documentation_generation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0041_app_docs_prompt.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0040_documentation.down.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0039_retire_document_pipeline.down.sql').read_text(),prepare=False)
+        for name in reversed(newer):
+            conn.execute((migrations/f'{name}.down.sql').read_text(),prepare=False)
         project = store.project(conn,'shop')
         conn.execute("INSERT INTO ka.document_sets(project_id,slug,name) VALUES (%s,'legacy','Legacy')",(project,))
         conn.commit()
@@ -185,10 +178,10 @@ def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
         assert conn.execute('SELECT count(*) AS n FROM ka.document_sets').fetchone()['n'] == 1
         conn.execute('DELETE FROM ka.document_sets')
         conn.commit()
-        conn.execute((migrations/'0039_retire_document_pipeline.up.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0040_documentation.up.sql').read_text(),prepare=False)
-        conn.execute((migrations/'0041_app_docs_prompt.up.sql').read_text(),prepare=False)
+        for name in newer:
+            conn.execute((migrations/f'{name}.up.sql').read_text(),prepare=False)
         assert conn.execute("SELECT to_regclass('ka.document_details') AS name").fetchone()['name'] is not None
+        assert conn.execute("SELECT to_regclass('ka.agent_collections') AS name").fetchone()['name'] is not None
 
 
 def test_edit_service_can_swap_deployments_without_losing_document_links(store,tmp_path):

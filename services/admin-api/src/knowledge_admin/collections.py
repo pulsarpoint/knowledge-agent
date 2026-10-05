@@ -28,6 +28,13 @@ def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, A
     rag_root = PurePosixPath(os.environ.get('RAG_SOURCE_ROOT', '/work/rag-data'))
     items: dict[str, dict[str, Any]] = {}
     for folder in documents.get('folders', []):
-        top = folder['search_folder'].split('.')[0]
+        if 'search_folder' in folder:
+            top = folder['search_folder'].split('.')[0]
+        else:
+            # Older configs may carry only the container path; keep its first segment below RAG_SOURCE_ROOT.
+            path = PurePosixPath(folder['path'])
+            if not path.is_relative_to(rag_root) or path == rag_root:
+                continue
+            top = path.relative_to(rag_root).parts[0]
         items.setdefault(slug(top), {'name': slug(top), 'description': folder.get('description', ''), 'path': str(rag_root / top)})
     return bool(documents.get('all_folders')), list(items.values())

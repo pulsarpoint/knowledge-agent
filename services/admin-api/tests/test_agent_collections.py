@@ -59,6 +59,16 @@ def test_legacy_folder_config_maps_to_collections(monkeypatch):
     assert slug('Old_Stuff') == 'old-stuff'
 
 
+def test_legacy_folders_without_search_folder_use_their_path(monkeypatch):
+    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
+    legacy = {'documents': {'enabled': True, 'all_folders': False, 'folders': [
+        {'path': '/work/rag-data/Runbooks/payments', 'description': 'r'},
+        {'path': '/work/rag-data/Runbooks', 'description': 'duplicate top'},
+        {'path': '/elsewhere/notes', 'description': 'outside the RAG root'},
+        {'path': '/work/rag-data', 'description': 'the root itself'}]}}
+    assert document_collections(legacy) == (False, [{'name': 'runbooks', 'description': 'r', 'path': '/work/rag-data/Runbooks'}])
+
+
 def test_ungrounded_document_agents_read_collection_folders(monkeypatch):
     config = {'code': {'enabled': False, 'projects': []}, 'documents': {'enabled': True, 'grounded': False,
               'all_collections': False, 'collections': [{'id': 'a', 'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}]}}

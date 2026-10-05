@@ -162,3 +162,12 @@ def test_rag_reads_every_data_area_and_writes_only_rag_data():
         assert env["CODE_INDEX_ROOT"] == "/work/code-index"
         for key, folder in (("CODE_PATH", "code"), ("CODE_INDEX_PATH", "code-index"), ("RG_DATA", "rag-data"), ("GENERATED_DOCS_PATH", "generated-documents"), ("DOCS_PATH", "docs")):
             assert env[key] == host(key, folder)
+
+
+def test_shell_worker_reads_every_collection_area_read_only():
+    """Shell agents may be granted a collection in any area; each one must be mounted read-only."""
+    volumes = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))["services"]["shell-worker"]["volumes"]
+    for variable, folder in (("CODE_PATH", "code"), ("CODE_INDEX_PATH", "code-index"), ("RG_DATA", "rag-data"),
+                             ("GENERATED_DOCS_PATH", "generated-documents"), ("DOCS_PATH", "docs")):
+        assert host(variable, folder) + ":/work/" + folder + ":ro" in volumes
+    assert "agent-workspaces:/work/agent-workspaces" in volumes

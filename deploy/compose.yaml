@@ -273,6 +273,7 @@ services:
       - ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}:/work/rag-data:ro
       - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index:ro
       - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents:ro
+      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
       - agent-workspaces:/work/agent-workspaces
     entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.shell_worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
     command: []
