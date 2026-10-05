@@ -58,9 +58,10 @@ def test_folders_become_collections_and_index_survives(legacy):
     assert rows['old-stuff']['source_path'] == 'rag-data/Old_Stuff'
     assert rows['jira']['include'] == ['**/*.md', '**/*.txt'] and rows['jira']['embeddings_enabled'] is True
     assert (rows['jira']['chunk_size'], rows['jira']['chunk_overlap']) == (1500, 100)
-    assert rows['jira']['last_synced_at'] is not None and rows['jira']['synced_revision'] == rows['jira']['revision']
+    # Migrated collections keep their last sync time but need a refresh (old processing fingerprint).
+    assert rows['jira']['last_synced_at'] is not None and rows['jira']['synced_revision'] is None
     assert rows['documents']['source_path'] == 'generated-documents'
-    assert rows['documents']['exclude'] == ['**/v[0-9]*/**'] and rows['documents']['last_synced_at'] is None
+    assert rows['documents']['exclude'] == ['*/v[0-9]*/**', 'services/*/*/v[0-9]*/**'] and rows['documents']['last_synced_at'] is None
     files = {r['path']: r['collection_id'] for r in conn.execute("SELECT path,collection_id FROM ka.rag_files").fetchall()}
     assert files == {'DEMO-1.md': rows['jira']['id'], 'payments/operations.md': rows['demo']['id']}
     assert conn.execute("SELECT count(*) AS n FROM ka.rag_chunks").fetchone()['n'] == 2

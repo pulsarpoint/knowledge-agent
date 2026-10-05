@@ -26,6 +26,8 @@ CREATE UNIQUE INDEX rag_collections_active_name ON rag_collections(project_id, n
 COMMENT ON TABLE rag_collections IS 'Searchable unit: one folder under DATA_ROOT indexed in place with its own settings.';
 
 -- One collection per live top-level folder; names are slugs of the folder name.
+-- Migrated files carry the old processing fingerprint, so each collection starts
+-- with synced_revision NULL and shows Needs refresh (last_synced_at is kept).
 WITH tops AS (
     SELECT d.project_id, d.path, d.description,
            trim(both '-' from lower(regexp_replace(d.path, '[^A-Za-z0-9]+', '-', 'g'))) AS slug
@@ -36,26 +38,27 @@ WITH tops AS (
     FROM tops
 )
 INSERT INTO rag_collections(project_id, name, description, source_path, embeddings_enabled, include,
-                            chunk_size, chunk_overlap, last_synced_at, synced_revision)
+                            chunk_size, chunk_overlap, last_synced_at)
 SELECT n.project_id, n.name, left(n.description, 2000), 'rag-data/' || n.path,
        coalesce((w.settings->>'embedding_enabled')::boolean, false),
        coalesce((SELECT array_agg('**/*' || e ORDER BY e) FROM jsonb_array_elements_text(w.settings->'extensions') e),
                 '{**/*.md,**/*.markdown,**/*.txt}'),
        coalesce((w.settings->>'chunk_size')::int, 2000), coalesce((w.settings->>'chunk_overlap')::int, 200),
-       synced.at, CASE WHEN synced.at IS NULL THEN NULL ELSE 1 END
+       synced.at
 FROM named n JOIN rag_workspaces w ON w.project_id = n.project_id
 LEFT JOIN LATERAL (
     SELECT max(f.indexed_at) AS at FROM rag_files f JOIN rag_folders s ON s.id = f.folder_id
     WHERE s.project_id = n.project_id AND (s.path = n.path OR starts_with(s.path, n.path || '/')) AND f.kind = 'file'
 ) synced ON true;
 
--- The documentation export folder; old v<n>/ version folders are not indexed.
+-- The documentation export folder; old <slug>/v<n>/ and services/<svc>/<phase>/v<n>/
+-- version folders are not indexed (a slug that itself starts with v<digit> is).
 INSERT INTO rag_collections(project_id, name, description, source_path, embeddings_enabled, exclude)
 SELECT w.project_id,
        CASE WHEN EXISTS (SELECT 1 FROM rag_collections c WHERE c.project_id = w.project_id AND c.name = 'documents')
             THEN 'generated-documents' ELSE 'documents' END,
        'Documents from Docs → Documents (current version of each document).', 'generated-documents',
-       coalesce((w.settings->>'embedding_enabled')::boolean, false), '{**/v[0-9]*/**}'
+       coalesce((w.settings->>'embedding_enabled')::boolean, false), '{*/v[0-9]*/**,services/*/*/v[0-9]*/**}'
 FROM rag_workspaces w;
 
 -- Indexed files move into their collection with collection-relative paths.
