@@ -114,7 +114,7 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}') ON CONFLICT DO NOTHING", (project,))
-        collection = conn.execute("INSERT INTO ka.rag_collections(project_id,name,source_path) VALUES (%s,'shared','rag-data/shared') RETURNING id", (project,)).fetchone()['id']
+        collection = conn.execute("INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'shared') RETURNING id", (project,)).fetchone()['id']
         conn.execute("UPDATE ka.mcp_servers SET tools='[{\"name\":\"lookup\"}]',last_tested_at=now() WHERE id=%s", (mcp['id'],))
     agent = update(client, agent, collection_ids=[str(collection)], repository_ids=[repository['id']], service_ids=[service['id']], skill_ids=[skill['id']]).json()
     response = client.put(f'/api/agents/{agent_id}/model', headers=HEADERS, json={'revision': agent['revision'], 'model_id': model['id']})
