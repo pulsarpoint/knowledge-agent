@@ -118,13 +118,23 @@ its Markdown.
 
 ## Files and mounts
 
-- Each of the five data folders is mounted at `/work/data/<name>`. This uses the
-  same host folders as today, including per-folder overrides.
-  - `rag` and `rag-worker` get them all **read-only**, except `rag-data`, which
-    stays read-write so uploads and edits still work.
-  - `admin-api` gets them all read-only, for agent file reading.
-- The RAG root becomes `RAG_DATA_ROOT=/work/data`. A collection folder is
-  `RAG_DATA_ROOT/source_path`.
+- **Container paths stay as they are today.** Each data folder keeps its existing
+  container path and setting:
+
+  | Area | Container path | Setting |
+  | --- | --- | --- |
+  | `code` | `/work/code` | `CODE_ROOT` |
+  | `code-index` | `/work/code-index` | `CODE_INDEX_ROOT` |
+  | `rag-data` | `/work/rag-data` | `RAG_SOURCE_ROOT` |
+  | `generated-documents` | `/work/generated-documents` | `DOCUMENT_OUTPUT_ROOT` |
+  | `docs` | `/work/docs` | `BOOTSTRAP_DOCS_ROOT` |
+
+  admin-api's Storage page already maps the same areas.
+- **`rag` and `rag-worker` mount all five.** `rag-data` stays read-write so uploads
+  and edits still work; the other four are read-only. Both services also receive
+  the host paths (`CODE_PATH` etc.) so the UI can show where each collection lives.
+- **Collection folders:** a collection's folder is the area root of its first
+  `source_path` segment, plus the remaining segments.
 - Paths are confined as they are today: the fd-based `O_NOFOLLOW` walk starts at
   the collection folder.
   - Symlinks and special files are **skipped and counted**; they no longer fail
@@ -313,8 +323,8 @@ Each problem is shown to the user, and none of them break other collections:
   - the collection form;
   - collection pickers in agent settings, the wizard, the chat panel and the Jira
     dialog.
-- **Deploy:** the five folders are mounted at `/work/data/<name>`, with
-  `rag-data` writable only in rag and rag-worker.
+- **Deploy:** rag and rag-worker mount all five areas at their existing container
+  paths, with `rag-data` the only writable one, and receive the host paths.
 
 ## Delivery order
 
