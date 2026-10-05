@@ -162,3 +162,25 @@ def test_projects_that_are_not_searchable_never_call_rag(searchable):
     client, rag, project_id = searchable
     assert edit_folders(client, project_id, ['other']).status_code == 200
     assert rag.calls == []
+
+
+def test_archive_with_rag_down_keeps_project_and_retry_releases_paths(searchable):
+    client, rag, project_id = searchable
+    search(client, project_id, enabled=True)
+    rag.down = True
+    failed = client.post(f'/api/code-projects/{project_id}/archive', headers=HEADERS)
+    assert failed.status_code == 502
+    row = project(client, project_id)
+    assert row['searchable'] is True and row['search_error']
+    assert rag.owned(project_id) == {('payments-api', 'code/api'), ('payments-api', 'code/shared')}
+    rag.down = False
+    assert client.post(f'/api/code-projects/{project_id}/archive', headers=HEADERS).status_code == 200
+    assert rag.owned(project_id) == set()
+    assert all(p['id'] != project_id for p in client.get('/api/code-projects', headers=HEADERS).json()['projects'])
+
+
+def test_retry_without_collection_keeps_the_stored_collection(searchable):
+    client, rag, project_id = searchable
+    search(client, project_id, enabled=True, collection='payments')
+    assert search(client, project_id, enabled=True).json()['collection'] == 'payments'
+    assert rag.owned(project_id) == {('payments', 'code/api'), ('payments', 'code/shared')}

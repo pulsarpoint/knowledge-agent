@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
 from knowledge_admin.code_paths import code_path, code_root
-from knowledge_admin.code_project_search import default_collection, reconcile
+from knowledge_admin.code_project_search import default_collection, reconcile, release_paths
 from knowledge_admin.code_processing import index_directory, CodeProcessingError
 
 
@@ -95,11 +95,11 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
         selected = repository_store()
         with selected.connect() as conn:
             project = selected.project(conn, app_name)
-            repo = conn.execute('''SELECT id,name FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
+            repo = conn.execute('''SELECT id,name,search_collection FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
                 FOR UPDATE''', (repository_id, project)).fetchone()
             if repo is None:
                 raise HTTPException(404, 'Code project not found')
-            collection = (value.collection or default_collection(repo['name'], repository_id)) if value.enabled else None
+            collection = (value.collection or repo['search_collection'] or default_collection(repo['name'], repository_id)) if value.enabled else None
             conn.execute('UPDATE ka.repositories SET search_collection=%s,search_error=NULL WHERE id=%s', (collection, repository_id))
         error = refresh_search(repository_id, request, release=True)
         return {'searchable': collection is not None, 'collection': collection, 'search_error': error}
@@ -115,8 +115,14 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
             if repo is None:
                 raise HTTPException(404, 'Code project not found')
             selected.require_idle(conn, repository_id)
-            conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repository_id,))
-        error = refresh_search(repository_id, request, release=repo['search_collection'] is not None)
+            actor = selected.actor(conn, *request_actor(request))
+        if repo['search_collection'] is not None:  # paths leave RAG first; a failure leaves the project listed to retry
+            error = release_paths(selected, app_name, backoffice_client, repository_id, actor)
+            if error is not None:
+                raise HTTPException(502, error)
+        with selected.connect() as conn:
+            conn.execute('UPDATE ka.repositories SET archived_at=now(),search_collection=NULL,search_error=NULL WHERE id=%s AND archived_at IS NULL', (repository_id,))
+        error = None
         return {'id': repository_id, 'search_error': error}
 
     @router.get('/code-projects/{repository_id}/graph')

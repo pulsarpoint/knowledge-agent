@@ -63,3 +63,21 @@ def reconcile(store: RepositoryStore, app_name: str, client: httpx.Client | None
     with store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET search_error=%s WHERE id=%s', (error, repository_id))
     return error
+
+
+def release_paths(store: RepositoryStore, app_name: str, client: httpx.Client | None, repository_id: UUID,
+                  actor: UUID) -> str | None:
+    """Remove the project's paths from every collection before it is archived; returns None or the failure message."""
+    key = os.environ.get('RAG_BACKOFFICE_KEY')
+    error = None
+    try:
+        if client is None or not key:
+            raise HTTPException(503, 'RAG administration is not configured')
+        with store.connect() as conn:
+            project = store.project(conn, app_name)
+        RagCollections(client, key, project, actor).remove_paths(Owner(OWNER_KIND, repository_id))
+    except HTTPException as exc:
+        error = str(exc.detail)[:2000]
+    with store.connect() as conn:
+        conn.execute('UPDATE ka.repositories SET search_error=%s WHERE id=%s', (error, repository_id))
+    return error
