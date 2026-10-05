@@ -7,6 +7,7 @@ from pathlib import Path
 from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
+from knowledge_admin.collections import document_collections
 from knowledge_admin.tools import AgentContext
 
 
@@ -18,7 +19,7 @@ def _roots(context: AgentContext) -> list[Path]:
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
     if config['documents']['enabled']:
-        paths.extend(Path(folder['path']) for folder in config['documents']['folders'])
+        paths.extend(Path(item['path']) for item in document_collections(config)[1])
     roots = []
     for path in paths:
         if not path.is_absolute() or path.resolve() != path or not path.is_dir():

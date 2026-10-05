@@ -498,7 +498,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     'system_prompt': {'content': row['content']}, 'instructions': '',
                     'code': {'enabled': reads_code, 'projects': code_projects if reads_code else [], 'graphs': graphs if reads_code else []},
                     'ssh': {'enabled': uses_ssh, 'servers': servers if uses_ssh else []},
-                    'documents': {'enabled': False, 'folders': []}, 'mcp': {'enabled': False, 'servers': []},
+                    'documents': {'enabled': False, 'all_collections': False, 'collections': []}, 'mcp': {'enabled': False, 'servers': []},
                     'skills': {'enabled': False, 'items': []}, 'services': {'enabled': False, 'items': []},
                 })
                 subject_asset = environment if value.scope == 'environment' else service

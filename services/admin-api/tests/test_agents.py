@@ -44,10 +44,10 @@ def saved_agent(store, tmp_path):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (project,))
-        for path in ('payments', 'payments/runbooks', 'payments-old', 'private'):
-            conn.execute('INSERT INTO ka.rag_folders(project_id,path,description) VALUES (%s,%s,%s)',
-                (project, path, f'Description of {path}'))
-        conn.execute("INSERT INTO ka.agent_knowledge_folders SELECT 'operations',id FROM ka.rag_folders WHERE path='payments'")
+        for name, path in (('payments', 'payments'), ('runbooks', 'payments/runbooks'), ('payments-old', 'payments-old'), ('private', 'private')):
+            conn.execute('INSERT INTO ka.rag_collections(project_id,name,description,source_path) VALUES (%s,%s,%s,%s)',
+                (project, name, f'Description of {path}', 'rag-data/' + path))
+        conn.execute("INSERT INTO ka.agent_collections SELECT 'operations',id FROM ka.rag_collections WHERE name='payments'")
         conn.execute("INSERT INTO ka.agent_repositories VALUES ('operations',%s)", (UUID(repo['id']),))
         conn.execute("UPDATE ka.repositories SET checkout_path='managed/payments',current_commit=%s WHERE id=%s",
             ('a' * 40, UUID(repo['id'])))
@@ -72,10 +72,9 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['system_prompt']['content'] and config['system_prompt']['version'] == 1
     assert config['instructions'] == 'Verify every change.'
     assert config['model']['provider'] == 'bedrock' and config['model']['aws_region'] == 'eu-west-1'
-    assert [f['path'] for f in config['documents']['folders']] == ['/work/rag-data/payments', '/work/rag-data/payments/runbooks']
-    assert [f['search_folder'] for f in config['documents']['folders']] == ['payments', 'payments.runbooks']
-    assert [f['selected'] for f in config['documents']['folders']] == [True, False]
-    assert config['documents']['folders'][1]['description'] == 'Description of payments/runbooks'
+    assert config['documents']['all_collections'] is False and 'folders' not in config['documents']
+    assert [(c['name'], c['path']) for c in config['documents']['collections']] == [('payments', '/work/rag-data/payments')]
+    assert config['documents']['collections'][0]['description'] == 'Description of payments'
     assert [r['id'] for r in config['code']['projects']] == [repo['id']]
     assert config['code']['projects'][0] == {
         'id': repo['id'], 'name': 'Payments', 'description': '',
@@ -166,17 +165,17 @@ def test_disabled_capabilities_preserve_selections_and_all_scope_is_current(stor
     with store.connect() as conn:
         conn.execute("""UPDATE ka.agents SET enabled=false,documents_enabled=false,repositories_enabled=false,
             ssh_enabled=false,skills_enabled=false,mcp_enabled=false,services_enabled=false,
-            all_folders=true,all_repositories=true WHERE id='operations'""")
+            all_collections=true,all_repositories=true WHERE id='operations'""")
         conn.execute('UPDATE ka.servers SET ssh_allowed=false WHERE id=%s', (UUID(server['id']),))
         conn.execute('UPDATE ka.agent_skills SET enabled=false WHERE id=%s', (UUID(skill['id']),))
         conn.execute('UPDATE ka.mcp_servers SET enabled=false WHERE id=%s', (UUID(mcp['id']),))
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (UUID(repo['id']),))
-        conn.execute("UPDATE ka.rag_folders SET deleted_at=now() WHERE path='private'")
+        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='private'")
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert not config['enabled']
     assert config['code']['all_projects'] is True
     assert all(not config[key]['enabled'] for key in ('documents','code','ssh','skills','mcp','services'))
-    assert {f['path'] for f in config['documents']['folders']} == {
+    assert {c['path'] for c in config['documents']['collections']} == {
         '/work/rag-data/payments', '/work/rag-data/payments/runbooks', '/work/rag-data/payments-old'}
     assert len(config['code']['projects']) == 1 and config['code']['projects'][0]['id'] != repo['id']
     assert not config['ssh']['servers'][0]['ssh_allowed']
@@ -215,9 +214,6 @@ def test_multiple_servers_have_independent_runbooks_skills_and_mcp(store, saved_
     assert all(item['id'] != skill['id'] for item in config['skills']['items'])
     isolated = get_agent_config(other['id'], conninfo=store.conninfo)
     assert isolated['ssh']['servers'] == isolated['mcp']['servers'] == isolated['skills']['items'] == []
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET include_subfolders=false WHERE id='operations'")
-    assert [f['path'] for f in get_agent_config('operations', conninfo=store.conninfo)['documents']['folders']] == ['/work/rag-data/payments']
 
 
 def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(store, saved_agent, tmp_path, monkeypatch):
@@ -229,12 +225,11 @@ def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(st
     monkeypatch.chdir(tmp_path)
     assert get_agent_config('operations', conninfo=store.conninfo) == config
     assert config['code']['projects'][0]['folder_paths'] == ['/agent/source/managed/payments']
-    assert config['documents']['folders'][1]['path'] == '/agent/documents/payments/runbooks'
-    assert config['documents']['folders'][1]['search_folder'] == 'payments.runbooks'
+    assert config['documents']['collections'][0]['path'] == '/agent/documents/payments'
     assert config['services']['items'][0]['repositories'][0]['checkout_path'] == '/agent/source/managed/unselected'
     with store.connect() as conn:
         assert conn.execute('SELECT path FROM ka.code_project_folders').fetchone()['path'] == 'managed/payments'
-        assert conn.execute("SELECT path FROM ka.rag_folders WHERE path='payments/runbooks'").fetchone() is not None
+        assert conn.execute("SELECT source_path FROM ka.rag_collections WHERE name='runbooks'").fetchone()['source_path'] == 'rag-data/payments/runbooks'
 
 
 @pytest.mark.parametrize('variable', ['CODE_ROOT', 'RAG_SOURCE_ROOT'])

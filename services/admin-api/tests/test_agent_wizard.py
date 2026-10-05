@@ -26,8 +26,8 @@ def wizard(store, saved_agent):
         'instructions': 'Check exit codes.', 'model_id': model['id'], 'enabled': True,
         'documents_enabled': True, 'repositories_enabled': True, 'ssh_enabled': True,
         'skills_enabled': True, 'mcp_enabled': True, 'services_enabled': True,
-        'all_folders': False, 'all_repositories': False, 'include_subfolders': True,
-        'folder_ids': [next(f['id'] for f in catalog['folders'] if f['path'] == 'payments')],
+        'all_collections': False, 'all_repositories': False,
+        'collection_ids': [next(c['id'] for c in catalog['collections'] if c['name'] == 'payments')],
         'repository_ids': [repo['id']], 'skill_ids': [skill['id']], 'mcp_server_ids': [mcp['id']],
         'service_ids': [catalog['services'][0]['id']],
         'servers': [{'server_id': server['id'], 'instructions': 'Inspect the queue first.',
@@ -63,7 +63,7 @@ def test_wizard_roundtrip_every_resource_and_ssh_override(store, wizard):
     assert config['instructions'] == proposal['instructions']
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
     assert [p['id'] for p in config['code']['projects']] == proposal['repository_ids']
-    assert len(config['documents']['folders']) == 2
+    assert [c['name'] for c in config['documents']['collections']] == ['payments']
     assert [s['id'] for s in config['skills']['items']] == proposal['skill_ids']
     assert [s['id'] for s in config['mcp']['servers']] == proposal['mcp_server_ids']
     assert [s['id'] for s in config['services']['items']] == proposal['service_ids']
@@ -85,12 +85,12 @@ def test_wizard_roundtrip_every_resource_and_ssh_override(store, wizard):
 
 def test_wizard_server_defaults_and_all_resources(store, wizard):
     client, _, proposal, _ = wizard
-    proposal.update(all_folders=True, folder_ids=[], all_repositories=True, repository_ids=[])
+    proposal.update(all_collections=True, collection_ids=[], all_repositories=True, repository_ids=[])
     proposal['servers'][0].update(instructions=None, skill_ids=None, mcp_server_ids=[], connection=None)
     response = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert response.status_code == 201, response.text
     config = get_agent_config(response.json()['id'], conninfo=store.conninfo)
-    assert len(config['code']['projects']) == 2 and len(config['documents']['folders']) == 4
+    assert len(config['code']['projects']) == 2 and len(config['documents']['collections']) == 4
     server = config['ssh']['servers'][0]
     assert server['connection_source'] == 'server' and server['username'] == 'operator'
     assert server['instructions'] == proposal['instructions'] and server['skills'] == config['skills']['items']
@@ -98,7 +98,7 @@ def test_wizard_server_defaults_and_all_resources(store, wizard):
 
 
 @pytest.mark.parametrize('change', [
-    {'folder_ids':[str(uuid4())]}, {'model_id':str(uuid4())}, {'system_prompt':' '},
+    {'collection_ids':[str(uuid4())]}, {'model_id':str(uuid4())}, {'system_prompt':' '},
     {'all_repositories':True}, {'is_coordinator':True}, {'private_key':'not allowed'},
 ])
 def test_wizard_invalid_proposal_writes_nothing(store, wizard, change):
@@ -190,8 +190,8 @@ BLANK = {'name': 'Blank agent', 'description': '', 'when_to_use': '', 'system_pr
          'instructions': '', 'model_id': None, 'enabled': True,
          'documents_enabled': False, 'repositories_enabled': False, 'ssh_enabled': False,
          'skills_enabled': False, 'mcp_enabled': False, 'services_enabled': False,
-         'all_folders': False, 'all_repositories': False, 'include_subfolders': True,
-         'folder_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': []}
+         'all_collections': False, 'all_repositories': False,
+         'collection_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': []}
 
 
 def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch):

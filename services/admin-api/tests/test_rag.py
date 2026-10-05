@@ -21,15 +21,28 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
     server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
     with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
         client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
-        assert client.get("/api/rag/tree").status_code == 403
-        assert client.get("/api/rag/tree", headers={"x-forwarded-groups": "docs-admins"}).status_code == 403
-        assert client.get("/api/other/rag/tree", headers=HEADERS).status_code == 404
-        assert client.get("/api/rag/collections", headers=HEADERS).status_code == 404
+        assert client.get("/api/rag/collections").status_code == 403
+        assert client.get("/api/rag/collections", headers={"x-forwarded-groups": "docs-admins"}).status_code == 403
+        assert client.get("/api/other/rag/collections", headers=HEADERS).status_code == 404
+        collection = str(uuid4())
+        for method, resource in (("GET", "tree"), ("POST", "folders"), ("POST", "jobs"), ("PUT", f"folders/{collection}"),
+                                 ("DELETE", f"folders/{collection}"), ("GET", f"collections/{collection}/other"),
+                                 ("POST", f"collections/{collection}/files"), ("DELETE", "collections")):
+            assert client.request(method, f"/api/rag/{resource}", headers=HEADERS).status_code == 404, resource
         assert calls == []
-        response = client.post("/api/rag/search", headers=HEADERS, json={"project_id": str(uuid4()), "query": "test"})
-        assert response.status_code == 200
         with store.connect() as conn:
             project = store.project(conn, "docs")
+        prefix = f"/backoffice/projects/{project}/"
+        for method, resource in (("GET", "collections"), ("POST", "collections"), ("GET", f"collections/{collection}"),
+                                 ("PUT", f"collections/{collection}"), ("DELETE", f"collections/{collection}"),
+                                 ("POST", f"collections/{collection}/sync"), ("POST", "collections/sync-stale"),
+                                 ("GET", f"collections/{collection}/files"), ("GET", f"collections/{collection}/chunks"),
+                                 ("POST", f"jobs/{collection}/cancel"), ("GET", "jobs")):
+            body = {"json": {}} if method in ("POST", "PUT") else {}
+            assert client.request(method, f"/api/rag/{resource}", headers=HEADERS, **body).status_code == 200, resource
+            assert (calls[-1].method, calls[-1].url.path) == (method, prefix + resource)
+        response = client.post("/api/rag/search", headers=HEADERS, json={"project_id": str(uuid4()), "query": "test"})
+        assert response.status_code == 200
         assert json.loads(calls[-1].content)["project_id"] == str(project)
         assert calls[-1].url.path == "/search"
         assert calls[-1].headers["x-rag-key"] == "private-service-key"

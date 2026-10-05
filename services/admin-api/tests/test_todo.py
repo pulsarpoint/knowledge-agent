@@ -114,9 +114,9 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}') ON CONFLICT DO NOTHING", (project,))
-        folder = conn.execute("INSERT INTO ka.rag_folders(project_id,path) VALUES (%s,'shared') RETURNING id", (project,)).fetchone()['id']
+        collection = conn.execute("INSERT INTO ka.rag_collections(project_id,name,source_path) VALUES (%s,'shared','rag-data/shared') RETURNING id", (project,)).fetchone()['id']
         conn.execute("UPDATE ka.mcp_servers SET tools='[{\"name\":\"lookup\"}]',last_tested_at=now() WHERE id=%s", (mcp['id'],))
-    agent = update(client, agent, folder_ids=[str(folder)], repository_ids=[repository['id']], service_ids=[service['id']], skill_ids=[skill['id']]).json()
+    agent = update(client, agent, collection_ids=[str(collection)], repository_ids=[repository['id']], service_ids=[service['id']], skill_ids=[skill['id']]).json()
     response = client.put(f'/api/agents/{agent_id}/model', headers=HEADERS, json={'revision': agent['revision'], 'model_id': model['id']})
     assert response.status_code == 200, response.text
     settings = client.get(f'/api/operations/settings?agent_id={agent_id}', headers=HEADERS).json()['settings']
@@ -131,11 +131,11 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
     agent = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
     assert client.request('DELETE', f'/api/agents/{agent_id}', headers=HEADERS, json={'revision': agent['revision'], 'confirmed': True}).status_code == 204
     with store.connect() as conn:
-        for table in ['agent_knowledge_folders', 'agent_repositories', 'agent_services', 'skills_agents', 'agent_server_connections']:
+        for table in ['agent_collections', 'agent_repositories', 'agent_services', 'skills_agents', 'agent_server_connections']:
             assert conn.execute(f'SELECT 1 FROM ka.{table} WHERE agent_id=%s', (agent_id,)).fetchone() is None
         assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (owned_credential,)).fetchone() is None
         assert conn.execute('SELECT 1 FROM ka.agent_config_mcp_servers WHERE config_id=%s', (config_id,)).fetchone() is None
-        for table, resource_id in [('rag_folders', folder), ('repositories', repository['id']), ('services', service['id']), ('agent_skills', skill['id']), ('llm_models', model['id']), ('mcp_servers', mcp['id']), ('servers', server['id'])]:
+        for table, resource_id in [('rag_collections', collection), ('repositories', repository['id']), ('services', service['id']), ('agent_skills', skill['id']), ('llm_models', model['id']), ('mcp_servers', mcp['id']), ('servers', server['id'])]:
             assert conn.execute(f'SELECT 1 FROM ka.{table} WHERE id=%s', (resource_id,)).fetchone()
         assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 4
         assert conn.execute("SELECT 1 FROM ka.audit_events WHERE action='agent.deleted' AND details->>'agent_id'=%s", (agent_id,)).fetchone()

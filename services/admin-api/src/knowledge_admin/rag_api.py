@@ -13,10 +13,10 @@ from knowledge_admin.access import request_actor
 
 
 ALLOWED = {
-    "GET": r"settings|tree|file|jobs",
-    "PUT": r"settings|file|folders/[0-9a-f-]{36}",
-    "POST": r"folders|jobs|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
-    "DELETE": r"file|folders/[0-9a-f-]{36}",
+    "GET": r"settings|collections|collections/[0-9a-f-]{36}(/files|/chunks)?|file|jobs",
+    "PUT": r"settings|file|collections/[0-9a-f-]{36}",
+    "POST": r"collections|collections/sync-stale|collections/[0-9a-f-]{36}/sync|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
+    "DELETE": r"file|collections/[0-9a-f-]{36}",
 }
 
 

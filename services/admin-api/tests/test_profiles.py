@@ -18,8 +18,8 @@ def wizard_payload(name, **overrides):
             'instructions': '', 'model_id': None, 'enabled': True,
             'documents_enabled': False, 'repositories_enabled': False, 'ssh_enabled': False,
             'skills_enabled': False, 'mcp_enabled': False, 'services_enabled': False,
-            'all_folders': False, 'all_repositories': False, 'include_subfolders': True,
-            'folder_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': [],
+            'all_collections': False, 'all_repositories': False,
+            'collection_ids': [], 'repository_ids': [], 'skill_ids': [], 'mcp_server_ids': [], 'service_ids': [], 'servers': [],
             **overrides}
 
 
@@ -75,8 +75,8 @@ def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
     second = create(client, 'Documentation')
     assert first['id'] != second['id'] and 'kind' not in first
     assert not any(first[name + '_enabled'] for name in ('documents','repositories','ssh','skills','mcp','services'))
-    assert first['model_id'] is None and first['folder_ids'] == first['repository_ids'] == first['skill_ids'] == []
-    assert not first['all_folders'] and not first['all_repositories']
+    assert first['model_id'] is None and first['collection_ids'] == first['repository_ids'] == first['skill_ids'] == []
+    assert not first['all_collections'] and not first['all_repositories']
     assert first['active_prompt']['id'] != second['active_prompt']['id']
     versions = client.get('/api/llm/prompts', headers=HEADERS).json()
     assert next(v for v in versions['versions'] if v['agent'] == first['id'])['content'] == 'Instructions for Payments.'
@@ -109,7 +109,7 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     first = client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()
     assert update(client, first, repository_ids=[str(uuid4())]).status_code == 400
     assert update(client, first, all_repositories=True).status_code == 400
-    assert update(client, first, all_folders=True).status_code == 200
+    assert update(client, first, all_collections=True).status_code == 200
     first = client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()
     assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['repository_ids'] == []
     model = client.post('/api/llm/models', headers=HEADERS, json={'name': 'Model', 'provider': 'openai', 'model': 'test', 'api_format': 'responses', 'base_url': 'http://model.test/v1'}).json()
@@ -198,8 +198,8 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
     agent = create(client, 'Grounded docs')
     saved = client.get(f"/api/agents/{agent['id']}", headers=HEADERS).json()
     assert saved['documents_grounded'] is False
-    payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'all_folders',
-        'all_repositories', 'include_subfolders', 'folder_ids', 'repository_ids', 'service_ids', 'documents_enabled',
+    payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'all_collections',
+        'all_repositories', 'collection_ids', 'repository_ids', 'service_ids', 'documents_enabled',
         'repositories_enabled', 'ssh_enabled', 'skills_enabled', 'mcp_enabled', 'services_enabled')}
     updated = client.put(f"/api/agents/{agent['id']}", headers=HEADERS,
                          json={**payload, 'documents_enabled': True, 'documents_grounded': True})

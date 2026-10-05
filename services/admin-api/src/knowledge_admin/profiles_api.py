@@ -20,10 +20,9 @@ class ProfileInput(BaseModel):
     description: str = Field(max_length=4000)
     when_to_use: str = Field(max_length=4000)
     enabled: bool = Field(strict=True)
-    all_folders: bool = Field(strict=True)
+    all_collections: bool = Field(strict=True)
     all_repositories: bool = Field(strict=True)
-    include_subfolders: bool = Field(strict=True)
-    folder_ids: list[UUID] = Field(max_length=200)
+    collection_ids: list[UUID] = Field(max_length=200)
     repository_ids: list[UUID] = Field(max_length=200)
     service_ids: list[UUID] = Field(max_length=100)
     skill_ids: list[UUID] | None = Field(default=None, max_length=30)
@@ -35,7 +34,7 @@ class ProfileInput(BaseModel):
     mcp_enabled: bool = Field(strict=True)
     services_enabled: bool = Field(strict=True)
 
-    @field_validator('folder_ids','repository_ids','service_ids','skill_ids')
+    @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
     def unique(cls, value):
         if value is not None and len(value) != len(set(value)):
@@ -68,7 +67,7 @@ def build_api(app_name, store):
             row = profile(conn, agent_id)
         except ModelUnavailable:
             raise HTTPException(404, 'Agent not found') from None
-        row['folder_ids'] = [r['folder_id'] for r in conn.execute('SELECT a.folder_id FROM ka.agent_knowledge_folders a JOIN ka.rag_folders f ON f.id=a.folder_id WHERE a.agent_id=%s AND f.deleted_at IS NULL ORDER BY a.folder_id', (agent_id,))]
+        row['collection_ids'] = [r['collection_id'] for r in conn.execute('SELECT a.collection_id FROM ka.agent_collections a JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY a.collection_id', (agent_id,))]
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
         row['active_prompt'] = conn.execute('''SELECT v.id,v.title,v.version FROM ka.agent_prompts p
@@ -124,7 +123,7 @@ def build_api(app_name, store):
             read(conn, agent_id)
             project = store.project(conn, app_name)
             return {
-                'folders': conn.execute('SELECT id,path,description FROM ka.rag_folders WHERE project_id=%s AND deleted_at IS NULL ORDER BY path', (project,)).fetchall(),
+                'collections': conn.execute('SELECT id,name,description FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name', (project,)).fetchall(),
                 'repositories': conn.execute('SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL ORDER BY name', (project,)).fetchall(),
                 'services': conn.execute('SELECT id,name,description FROM ka.services WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
                 'skills': conn.execute('SELECT id,name,description,enabled FROM ka.agent_skills WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
@@ -141,10 +140,10 @@ def build_api(app_name, store):
                 if old['is_coordinator'] and not value.enabled:
                     raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
                 if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
-                        value.skills_enabled,value.mcp_enabled,value.services_enabled,value.folder_ids,value.repository_ids,
+                        value.skills_enabled,value.mcp_enabled,value.services_enabled,value.collection_ids,value.repository_ids,
                         value.service_ids,value.skill_ids)):
                     raise HTTPException(400, 'Configure resource access on the specialists the coordinator delegates to.')
-                if value.all_folders and value.folder_ids or value.all_repositories and value.repository_ids:
+                if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 project = store.project(conn, app_name)
                 actor = audit(conn, request, agent_id, 'agent.updated')
@@ -157,7 +156,7 @@ def build_api(app_name, store):
                         conn.execute('INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)', (agent_id,skill_id,project))
                     conn.execute('UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s', (actor,project,agent_id))
                 for table, column, source, ids, condition in [
-                    ('agent_knowledge_folders','folder_id','rag_folders',value.folder_ids,' AND deleted_at IS NULL'),
+                    ('agent_collections','collection_id','rag_collections',value.collection_ids,' AND deleted_at IS NULL'),
                     ('agent_repositories','repository_id','repositories',value.repository_ids,' AND archived_at IS NULL'),
                     ('agent_services','service_id','services',value.service_ids,''),
                 ]:
@@ -168,9 +167,9 @@ def build_api(app_name, store):
                     for resource_id in ids:
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
-                conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_folders=%s,
-                    all_repositories=%s,include_subfolders=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_folders,value.all_repositories,value.include_subfolders,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
+                conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
@@ -195,7 +194,7 @@ def build_api(app_name, store):
             conn.execute('SELECT agent FROM ka.agent_prompts WHERE agent=%s FOR UPDATE', (agent_id,))
             audit(conn, request, agent_id, 'agent.deleted')
             credentials = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)).fetchall()
-            for table in ('agent_knowledge_folders', 'agent_repositories', 'agent_services', 'skills_agents'):
+            for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents'):
                 conn.execute(f'DELETE FROM ka.{table} WHERE agent_id=%s', (agent_id,))
             conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.operations_settings WHERE agent=%s', (agent_id,))

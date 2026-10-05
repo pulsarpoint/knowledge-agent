@@ -11,8 +11,8 @@ def profile(conn, agent_id: str, *, runnable: bool = False) -> dict:
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and not row['enabled']:
         raise ModelUnavailable('This agent is disabled. Enable it in its settings before running a task.')
-    row['folders'] = [r['path'] for r in conn.execute('''SELECT f.path FROM ka.agent_knowledge_folders a
-        JOIN ka.rag_folders f ON f.id=a.folder_id WHERE a.agent_id=%s AND f.deleted_at IS NULL ORDER BY f.path''', (agent_id,))]
+    row['collections'] = [r['name'] for r in conn.execute('''SELECT c.name FROM ka.agent_collections a
+        JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY c.name''', (agent_id,))]
     row['repository_ids'] = [str(r['repository_id']) for r in conn.execute('SELECT a.repository_id FROM ka.agent_repositories a JOIN ka.repositories r ON r.id=a.repository_id WHERE a.agent_id=%s AND r.archived_at IS NULL ORDER BY a.repository_id', (agent_id,))]
     row['services'] = conn.execute('SELECT s.id,s.name,s.description FROM ka.agent_services a JOIN ka.services s ON s.id=a.service_id WHERE a.agent_id=%s ORDER BY s.name', (agent_id,)).fetchall()
     row['skills'] = conn.execute('''SELECT s.id,s.name,s.description,s.instructions,s.enabled FROM ka.skills_agents a

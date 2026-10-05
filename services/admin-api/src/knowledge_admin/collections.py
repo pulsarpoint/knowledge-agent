@@ -1,0 +1,33 @@
+"""RAG collections as agents see them, including configs saved before collections existed."""
+import os
+import re
+from pathlib import PurePosixPath
+from typing import Any
+
+AREA_ROOTS = {'code': 'CODE_ROOT', 'code-index': 'CODE_INDEX_ROOT', 'rag-data': 'RAG_SOURCE_ROOT',
+              'generated-documents': 'DOCUMENT_OUTPUT_ROOT', 'docs': 'BOOTSTRAP_DOCS_ROOT'}
+
+
+def slug(path: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', path.lower()).strip('-')
+
+
+def area_root(source_path: str) -> PurePosixPath:
+    area, _, rest = source_path.partition('/')
+    root = PurePosixPath(os.environ.get(AREA_ROOTS[area], ''))
+    if root.anchor != '/' or '..' in root.parts:
+        raise ValueError(f'{AREA_ROOTS[area]} must be an absolute path mounted in the agent container')
+    return root / rest if rest else root
+
+
+def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
+    """(all_collections, [{name, description, path}]) for new and legacy (folder-based) configs."""
+    documents = config['documents']
+    if 'collections' in documents:
+        return bool(documents.get('all_collections')), documents['collections']
+    rag_root = PurePosixPath(os.environ.get('RAG_SOURCE_ROOT', '/work/rag-data'))
+    items: dict[str, dict[str, Any]] = {}
+    for folder in documents.get('folders', []):
+        top = folder['search_folder'].split('.')[0]
+        items.setdefault(slug(top), {'name': slug(top), 'description': folder.get('description', ''), 'path': str(rag_root / top)})
+    return bool(documents.get('all_folders')), list(items.values())

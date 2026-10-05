@@ -26,7 +26,7 @@ def context(tmp_path):
         directory.mkdir()
     return {'workspace':workspace,'shell_enabled':False,'credentials':{'secret':'test-tool-secret'},
         'config':{'enabled':True,'code':{'enabled':True,'projects':[{'folder_paths':[str(code)]}]},
-                  'documents':{'enabled':True,'folders':[{'path':str(docs)}]},
+                  'documents':{'enabled':True,'all_collections':False,'collections':[{'id':'docs','name':'docs','description':'','path':str(docs)}]},
                   'ssh':{'enabled':False,'servers':[]}}}
 
 

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.agent_tracing import trace_secrets
+from knowledge_admin.collections import area_root, document_collections
 from knowledge_admin import grounding
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
@@ -162,7 +163,7 @@ def get_paths(config: dict[str, Any]) -> list[Path]:
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
     if config['documents']['enabled'] and not documents_grounded(config):
-        paths.extend(Path(folder['path']) for folder in config['documents']['folders'])
+        paths.extend(Path(item['path']) for item in document_collections(config)[1])
     return list(dict.fromkeys(paths))
 
 
@@ -236,7 +237,7 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
             prompt += 'Then verify business rules, state changes, SQL and external effects with source-file tools. '
             prompt += 'Graph paths are relative to CODE_ROOT, as returned by the tool. Static edges are evidence, not proof of runtime execution.'
     if config['documents']['enabled']:
-        resources['documents'] = config['documents']['folders']
+        resources['documents'] = document_collections(config)[1]
         prompt += '\nUse search_documents to find knowledge-base excerpts and read_document for a whole document.'
     if documents_grounded(config):
         prompt += grounding.POLICY
@@ -273,8 +274,8 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
     Disabled capabilities retain their saved selections and explicit flags.
-    CODE_ROOT and RAG_SOURCE_ROOT must match absolute mounts in the agent's
-    container. Paths are joined without resolving them on the loader's host.
+    CODE_ROOT and the roots of granted collections' areas (RAG_SOURCE_ROOT, ...)
+    must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
 
     This is the application's input to agent(), not native Agents SDK constructor
     keyword arguments. Loading it never starts the SDK or resolves secrets.
@@ -283,7 +284,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
-            all_folders,all_repositories,include_subfolders,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
+            all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
         if agent['is_coordinator']:
@@ -304,10 +305,8 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             raise ValueError(f"Agent {agent_id!r} has no active system prompt")
 
         code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
-        rag_root = PurePosixPath(os.environ.get('RAG_SOURCE_ROOT', ''))
-        for name, root in (('CODE_ROOT', code_root), ('RAG_SOURCE_ROOT', rag_root)):
-            if root.anchor != '/' or '..' in root.parts:
-                raise ValueError(f'{name} must be an absolute path mounted in the agent container')
+        if code_root.anchor != '/' or '..' in code_root.parts:
+            raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
 
         projects = conn.execute("SELECT id FROM ka.projects WHERE archived_at IS NULL").fetchall()
         if len(projects) > 1:
@@ -328,19 +327,12 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
                 'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'aad': f"llm:{model['id']}:v1",
             } if model.pop('has_api_key') else None
 
-        folders = conn.execute("""SELECT f.id,f.path,f.description,a.folder_id IS NOT NULL AS selected
-            FROM ka.rag_folders f LEFT JOIN ka.agent_knowledge_folders a
-                ON a.folder_id=f.id AND a.agent_id=%s
-            WHERE f.project_id=%s AND f.deleted_at IS NULL AND (
-                %s OR a.folder_id IS NOT NULL OR (%s AND EXISTS (
-                    SELECT 1 FROM ka.agent_knowledge_folders af JOIN ka.rag_folders parent ON parent.id=af.folder_id
-                    WHERE af.agent_id=%s AND parent.project_id=f.project_id AND parent.deleted_at IS NULL
-                        AND starts_with(f.path,parent.path || '/'))))
-            ORDER BY f.path,f.id""", (agent_id, project_id, agent['all_folders'],
-                agent['include_subfolders'], agent_id)).fetchall()
-        for folder in folders:
-            folder['search_folder'] = folder['path'].replace('/', '.')
-            folder['path'] = str(rag_root / folder['path'])
+        collections = conn.execute("""SELECT c.id,c.name,c.description,c.source_path FROM ka.rag_collections c
+            LEFT JOIN ka.agent_collections a ON a.collection_id=c.id AND a.agent_id=%s
+            WHERE c.project_id=%s AND c.deleted_at IS NULL AND (%s OR a.collection_id IS NOT NULL)
+            ORDER BY c.name""", (agent_id, project_id, agent['all_collections'])).fetchall()
+        for item in collections:
+            item['path'] = str(area_root(item.pop('source_path')))
         code_projects = conn.execute("""SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
             ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
             FROM ka.repositories r LEFT JOIN ka.agent_repositories a ON a.repository_id=r.id AND a.agent_id=%s
@@ -437,7 +429,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'model': model, 'system_prompt': prompt, 'instructions': instructions,
             'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
             'documents': {'enabled': agent['documents_enabled'], 'grounded': agent['documents_grounded'],
-                'all_folders': agent['all_folders'], 'include_subfolders': agent['include_subfolders'], 'folders': folders},
+                'all_collections': agent['all_collections'], 'collections': collections},
             'code': {'enabled': agent['repositories_enabled'], 'all_projects': agent['all_repositories'],
                 'projects': code_projects},
             'skills': {'enabled': agent['skills_enabled'], 'items': agent_skills},
