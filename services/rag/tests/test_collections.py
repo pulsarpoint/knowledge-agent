@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from rag.collections import AREAS, Areas, FolderMissing, matches, relative_path, source_path
+from rag.collections import AREAS, Areas, FolderMissing, glob_regex, matches, relative_path, source_path
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def test_walk_filters_skips_and_reports_newest_change(areas):
     os.utime(repo / 'README.md', (old, old))
     walk = areas.walk('code/payments', ['**/*.md', '**/*.py'], [])
     assert [f['path'] for f in walk.files] == ['README.md', 'src/app.py']
-    assert walk.skipped == {'links': 1, 'special': 1}
+    assert walk.skipped == {'links': 1, 'special': 1, 'unreadable': 0, 'invalid_names': 0}
     assert walk.newest_mtime >= (repo / 'src' / 'app.py').stat().st_mtime
     assert areas.container_path('code/payments') == roots['code'] / 'payments'
     assert areas.host_path('code/payments') == '/srv/code/payments'
@@ -112,3 +112,68 @@ def test_read_write_delete_confined_to_rag_data(areas):
     os.symlink(roots['code'], roots['rag-data'] / 'notes' / 'escape')
     with pytest.raises(OSError):
         areas.read('rag-data/notes', 'escape/repo', 100)
+
+
+def test_glob_classes_and_specials():
+    assert matches('a.md', ['[!x].md'], []) and not matches('x.md', ['[!x].md'], [])
+    assert matches('[].md', ['[].md'], []) and matches('[!].md', ['[!].md'], [])
+    assert matches('a+b.md', ['a+b.md'], []) and not matches('aab.md', ['a+b.md'], [])
+    assert matches('a/b/c', ['a/**'], []) and matches('a/b.md', ['a/**/b.md'], [])
+    assert matches('a/x/y/b.md', ['a/**/b.md'], [])
+    assert not matches('a/b', ['a[/]b'], []) and not matches('a/b', ['a[!x]b'], [])
+    assert matches('a^b', ['a[\\^]b'], []) and matches('^', ['[^]'], [])
+    assert matches('a\nb/c.md', ['**/c.md'], [])
+    with pytest.raises(HTTPException) as error:
+        glob_regex('[z-a]')
+    assert error.value.status_code == 400
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason='root ignores permissions')
+def test_walk_counts_unreadable_directories(areas):
+    areas, roots = areas
+    folder = roots['rag-data'] / 'p'
+    (folder / 'locked').mkdir(parents=True)
+    (folder / 'a.md').write_text('a')
+    (folder / 'locked' / 'b.md').write_text('b')
+    (folder / 'locked').chmod(0)
+    try:
+        walk = areas.walk('rag-data/p', ['**/*.md'], [])
+    finally:
+        (folder / 'locked').chmod(0o755)
+    assert [f['path'] for f in walk.files] == ['a.md']
+    assert walk.skipped['unreadable'] == 1
+
+
+def test_walk_skips_non_utf8_names(areas):
+    areas, roots = areas
+    folder = roots['rag-data'] / 'p'
+    folder.mkdir()
+    (folder / 'a.md').write_text('a')
+    try:
+        with open(os.path.join(os.fsencode(folder), b'bad\xff.md'), 'w') as stream:
+            stream.write('x')
+    except OSError:
+        pytest.skip('filesystem rejects non-UTF-8 names')
+    walk = areas.walk('rag-data/p', ['**/*.md'], [])
+    assert [f['path'] for f in walk.files] == ['a.md']
+    assert walk.skipped['invalid_names'] == 1
+
+
+def test_walk_rejects_symlinked_collection_folder(areas):
+    areas, roots = areas
+    os.symlink(roots['code'], roots['rag-data'] / 'link')
+    with pytest.raises(HTTPException) as error:
+        areas.walk('rag-data/link', ['**/*.md'], [])
+    assert error.value.status_code == 409
+
+
+def test_walk_skips_surrogate_names_from_listing(areas, monkeypatch):
+    areas, roots = areas
+    folder = roots['rag-data'] / 'p'
+    folder.mkdir()
+    (folder / 'a.md').write_text('a')
+    real = os.listdir
+    monkeypatch.setattr(os, 'listdir', lambda fd: [*real(fd), 'bad\udcff.md'])
+    walk = areas.walk('rag-data/p', ['**/*.md'], [])
+    assert [f['path'] for f in walk.files] == ['a.md']
+    assert walk.skipped['invalid_names'] == 1

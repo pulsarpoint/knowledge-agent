@@ -1,9 +1,10 @@
 """Collection folders under DATA_ROOT: confined paths, glob selection and walks."""
 
+import errno
 import os
 import re
 import stat
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -59,14 +60,20 @@ def glob_regex(pattern: str) -> re.Pattern:
             out.append('[^/]'); i += 1
         elif pattern[i] == '[':
             end = pattern.find(']', i + 1)
-            if end == -1:
+            body = pattern[i + 1:end] if end != -1 else ''
+            negated = body.startswith('!')
+            members = body[1:] if negated else body
+            if end == -1 or not members:
                 out.append(re.escape('[')); i += 1
             else:
-                body = pattern[i + 1:end]
-                out.append('[' + ('^' + body[1:] if body.startswith('!') else body) + ']'); i = end + 1
+                members = members.replace('\\', '\\\\').replace('[', '\\[').replace('^', '\\^')
+                out.append('(?!/)[' + ('^' if negated else '') + members + ']'); i = end + 1
         else:
             out.append(re.escape(pattern[i])); i += 1
-    return re.compile(''.join(out))
+    try:
+        return re.compile(''.join(out), re.DOTALL)
+    except re.error:
+        raise HTTPException(400, f'Invalid pattern: {pattern}') from None
 
 
 def matches(path: str, include: list[str], exclude: list[str]) -> bool:
@@ -78,7 +85,7 @@ def matches(path: str, include: list[str], exclude: list[str]) -> bool:
 class Walk:
     files: list[dict] = field(default_factory=list)
     newest_mtime: float | None = None
-    skipped: dict[str, int] = field(default_factory=lambda: {'links': 0, 'special': 0})
+    skipped: dict[str, int] = field(default_factory=lambda: {'links': 0, 'special': 0, 'unreadable': 0, 'invalid_names': 0})
     truncated: bool = False
 
 
@@ -139,15 +146,37 @@ class Areas:
 
         def visit(fd: int, prefix: str) -> bool:
             newer(os.fstat(fd).st_mtime)
-            for name in sorted(os.listdir(fd)):
-                entry = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            try:
+                names = sorted(os.listdir(fd))
+            except PermissionError:
+                result.skipped['unreadable'] += 1
+                return True
+            for name in names:
+                try:
+                    name.encode('utf-8')
+                except UnicodeEncodeError:
+                    result.skipped['invalid_names'] += 1
+                    continue
+                try:
+                    entry = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                except PermissionError:
+                    result.skipped['unreadable'] += 1
+                    continue
                 relative = f'{prefix}/{name}' if prefix else name
                 if stat.S_ISLNK(entry.st_mode):
                     result.skipped['links'] += 1
                 elif stat.S_ISDIR(entry.st_mode):
                     if name in SKIPPED_DIRECTORIES:
                         continue
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try:
+                        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    except PermissionError:
+                        result.skipped['unreadable'] += 1
+                        continue
+                    except OSError:
+                        continue
                     try:
                         if not visit(child, relative):
                             return False
@@ -167,11 +196,16 @@ class Areas:
                     result.skipped['special'] += 1
             return True
 
-        try:
-            with self._directory(source, []) as fd:
-                visit(fd, '')
-        except (FileNotFoundError, NotADirectoryError):
-            raise FolderMissing(source) from None
+        with ExitStack() as stack:
+            try:
+                fd = stack.enter_context(self._directory(source, []))
+            except (FileNotFoundError, NotADirectoryError):
+                raise FolderMissing(source) from None
+            except OSError as error:
+                if error.errno == errno.ELOOP:
+                    raise HTTPException(409, f'The collection folder {source} is a link; point the collection at a real folder') from None
+                raise
+            visit(fd, '')
         return result
 
     def read(self, source: str, path: str, limit: int) -> bytes:
