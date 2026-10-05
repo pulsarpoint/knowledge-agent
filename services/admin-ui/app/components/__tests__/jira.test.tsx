@@ -126,7 +126,7 @@ test("export sends only selected IDs and destination, then links to RAG processi
   const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
   expect(call[0]).toBe("/api/jira/tickets/ticket-1/export");
   expect(JSON.parse(call[1].body as string)).toEqual({ folder: "jira/payments", connection_revision: 2 });
-  expect(screen.getByRole("link", { name: "RAG Files" })).toHaveAttribute("href", "/rag/files");
+  expect(screen.getByRole("link", { name: "RAG Collections" })).toHaveAttribute("href", "/rag/collections");
   expect(fetch.mock.calls.some(([url]) => url.includes("ticket-2/export"))).toBe(false);
 });
 

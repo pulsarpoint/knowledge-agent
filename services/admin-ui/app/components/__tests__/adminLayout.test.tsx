@@ -4,10 +4,10 @@ import AdminLayout from "../AdminLayout";
 
 test("administration has its own navigation without reader pages", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
-  render(<MemoryRouter initialEntries={["/rag/files"]}><AdminLayout><div>Admin content</div></AdminLayout></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/rag/collections"]}><AdminLayout><div>Admin content</div></AdminLayout></MemoryRouter>);
   expect(await screen.findByText("Admin content")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Platform" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Files & folders" })).toHaveAttribute("href", "/rag/files");
+  expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute("href", "/rag/collections");
   expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/activity");
   expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("href", "/storage");
   expect(screen.getByRole("link", { name: "Code projects" })).toHaveAttribute("href", "/code-projects");

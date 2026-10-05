@@ -58,7 +58,7 @@ test('opens a directory from a deep link and keeps the overview usable when that
   render(<MemoryRouter initialEntries={['/storage?area=documents&path=old%2Fv1']}><StorageOverviewView /></MemoryRouter>);
   expect(await screen.findByText('Folder not found.')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'old' })).toHaveAttribute('href', '/storage?area=documents&path=old&offset=0#files');
-  expect(screen.getByRole('link', { name: 'Manage RAG files' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Manage RAG collections' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
   await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/storage').length).toBe(2));
 });

@@ -42,12 +42,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const agentPage = pathname === '/agents' || pathname.startsWith('/agents/');
   const boardPage = pathname === '/agent-board';
   const ragPages = [
-    { path: "files", title: "RAG Files & folders", label: "Files & folders", description: "Manage source documents, folder descriptions, and incremental processing.", icon: Files },
+    { path: "collections", title: "RAG Collections", label: "Collections", description: "Search units mapped to folders in the data root: sync state, settings and indexed content.", icon: Files },
     { path: "jobs", title: "RAG Processing jobs", label: "Processing jobs", description: "Follow indexing progress and inspect processing history.", icon: ListChecks },
     { path: "settings", title: "RAG Settings", label: "Settings", description: "Configure file processing and embedding models through the backoffice.", icon: Database },
     { path: "search", title: "RAG Search", label: "Search", description: "Test folder-scoped full-text and embedding retrieval.", icon: Search },
   ];
-  const ragPage = ragPages.find((page) => pathname === `/rag/${page.path}`);
+  const ragPage = ragPages.find((page) => pathname === `/rag/${page.path}` || (page.path === "collections" && pathname.startsWith("/rag/collections")));
   const docsPage = pathname.startsWith('/documents') || pathname.startsWith('/documentation/');
   const docsPrompts = pathname.startsWith('/documentation/prompts');
   const docsHistory = pathname.startsWith('/documentation/generations');

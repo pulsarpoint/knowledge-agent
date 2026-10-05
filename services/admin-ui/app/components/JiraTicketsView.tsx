@@ -107,7 +107,7 @@ export default function JiraTicketsView() {
         <div className="flex flex-wrap items-end gap-3">
           <FieldGroup className="max-w-md flex-1"><Field><FieldLabel htmlFor="jira-folder">RAG destination folder</FieldLabel><Input id="jira-folder" required maxLength={500} pattern="[A-Za-z0-9_\-]+(/[A-Za-z0-9_\-]+)*" value={folder} disabled={busy} onChange={(event) => setFolder(event.target.value)} /></Field></FieldGroup>
           <Button disabled={busy || selectedTickets.length === 0}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
-          <Button asChild variant="outline"><Link to="/rag/files">Open RAG files</Link></Button>
+          <Button asChild variant="outline"><Link to="/rag/collections">Open RAG collections</Link></Button>
         </div>
         <FieldDescription>Relative to the mounted RAG source folder. Missing folders are created. Each selected ticket becomes a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Then use Process folder in RAG Files to update search.</FieldDescription>
       </form>
@@ -117,7 +117,7 @@ export default function JiraTicketsView() {
         <AlertDescription>
           <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in {exportSummary.folder}. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
           {exportSummary.failures.length > 0 && <><p>Failed tickets remain selected for retry.</p><ul className="list-disc pl-5">{exportSummary.failures.map((failure) => <li key={failure}>{failure}</li>)}</ul></>}
-          {exportSummary.results.length > 0 && <p>Ready for processing in <Link className="underline underline-offset-4" to="/rag/files">RAG Files</Link>.</p>}
+          {exportSummary.results.length > 0 && <p>Ready to refresh in <Link className="underline underline-offset-4" to="/rag/collections">RAG Collections</Link>.</p>}
         </AlertDescription>
       </Alert>}
       {filtered.length === 0 ? <Empty className="border"><EmptyHeader><EmptyTitle>No matching tickets</EmptyTitle><EmptyDescription>Adjust the saved-list filters or fetch a different Jira query.</EmptyDescription></EmptyHeader></Empty> :
