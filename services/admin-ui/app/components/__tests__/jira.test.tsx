@@ -94,14 +94,15 @@ test("unconfigured Jira links to settings and disables network fetch", async () 
 const twoTickets: JiraTickets = { ...snapshot, tickets: [...snapshot.tickets, { ...snapshot.tickets[0], id: "ticket-2", issue_key: "OPS-2", jira_project_key: "OPS", summary: "Worker retries", status_name: "Done", labels: ["workers"] }] };
 
 test("JQL is submitted and filtering the saved list limits bulk selection", async () => {
-  const fetch = vi.fn(async () => new Response(JSON.stringify(twoTickets)));
+  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/api/rag/collections") ? { collections } : twoTickets)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   await screen.findByText("Worker retries");
   fireEvent.change(screen.getByLabelText("Jira query (JQL)"), { target: { value: "project = DEMO" } });
   fireEvent.click(screen.getByRole("button", { name: "Fetch tickets" }));
-  await waitFor(() => expect(fetch.mock.calls).toHaveLength(2));
-  expect(JSON.parse((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body as string).jql).toBe("project = DEMO");
+  const jiraCalls = () => (fetch.mock.calls as unknown as [string, RequestInit][]).filter(([url]) => !url.includes("/api/rag/"));
+  await waitFor(() => expect(jiraCalls()).toHaveLength(2));
+  expect(JSON.parse(jiraCalls()[1][1].body as string).jql).toBe("project = DEMO");
   await waitFor(() => expect(screen.getByLabelText("Filter saved tickets")).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Filter saved tickets"), { target: { value: "payments" } });
   expect(screen.queryByText("Worker retries")).not.toBeInTheDocument();
@@ -112,20 +113,26 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
   expect(screen.getByRole("button", { name: "Export selected (0)" })).toBeDisabled();
 });
 
+const collections = [{ id: "c1", name: "jira", writable: true }, { id: "c2", name: "docs-code", writable: false }];
+
 test("export sends only selected IDs and destination, then links to RAG processing", async () => {
   const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/export")
-    ? { issue_key: "DEMO-1", path: "jira/payments/DEMO-1.md", folder_id: "folder-1", status: "unchanged", hash: "hash", comments: 5 }
+    ? { issue_key: "DEMO-1", collection: "jira", path: "DEMO-1.md", status: "unchanged", hash: "hash", comments: 5 }
+    : url.endsWith("/api/rag/collections") ? { collections: collections }
     : twoTickets)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select DEMO-1" }));
-  fireEvent.change(screen.getByLabelText("RAG destination folder"), { target: { value: "jira/payments" } });
+  const target = await screen.findByLabelText("Target collection");
+  await waitFor(() => expect(target).toHaveTextContent("jira"));
+  expect(target).not.toHaveTextContent("docs-code");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
   expect(await screen.findByText("Export complete")).toBeInTheDocument();
-  expect(screen.getByText("0 files saved, 1 unchanged in jira/payments. 5 comments included.")).toBeInTheDocument();
+  expect(screen.getByText("0 files saved, 1 unchanged in collection jira. 5 comments included.")).toBeInTheDocument();
   const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
   expect(call[0]).toBe("/api/jira/tickets/ticket-1/export");
-  expect(JSON.parse(call[1].body as string)).toEqual({ folder: "jira/payments", connection_revision: 2 });
+  expect(JSON.parse(call[1].body as string)).toEqual({ collection: "jira", connection_revision: 2 });
   expect(screen.getByRole("link", { name: "RAG Collections" })).toHaveAttribute("href", "/rag/collections");
   expect(fetch.mock.calls.some(([url]) => url.includes("ticket-2/export"))).toBe(false);
 });
@@ -134,11 +141,13 @@ test("a failed ticket remains selected while successful exports are reported", a
   const fetch = vi.fn(async (url: string) => {
     if (url.includes("ticket-1/export")) return new Response(JSON.stringify({ issue_key: "DEMO-1", status: "created", comments: 5 }));
     if (url.includes("ticket-2/export")) return new Response(JSON.stringify({ error: { message: "Jira rejected access" } }), { status: 502 });
+    if (url.endsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
     return new Response(JSON.stringify(twoTickets));
   });
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select all filtered tickets" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (2)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (2)" }));
   expect(await screen.findByText("Export finished with errors")).toBeInTheDocument();
   expect(screen.getByText("OPS-2: Jira rejected access")).toBeInTheDocument();
@@ -154,11 +163,13 @@ test("leaving the page aborts the current export and does not start another tick
       activeSignal = init?.signal ?? undefined;
       return new Promise<Response>(() => {});
     }
+    if (url.endsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
     return new Response(JSON.stringify(twoTickets));
   });
   vi.stubGlobal("fetch", fetch);
   const view = render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select all filtered tickets" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (2)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (2)" }));
   expect(await screen.findByText(/Exporting 0 of 2/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Fetch tickets" })).toBeDisabled();

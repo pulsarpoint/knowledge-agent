@@ -1,4 +1,4 @@
-"""Write, remove and index Markdown files in RAG folders through the RAG backoffice API."""
+"""Write and remove Markdown files in RAG collections through the RAG backoffice API."""
 from uuid import UUID
 
 import httpx
@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 
 class RagFiles:
-    """One project's RAG folders, acting for one principal."""
+    """One project's RAG collections, acting for one principal."""
 
     def __init__(self, client: httpx.Client, key: str, project: UUID, actor: UUID | None):
         self.client, self.prefix = client, f'/backoffice/projects/{project}/'
@@ -39,36 +39,42 @@ class RagFiles:
                     raise
         raise HTTPException(409, 'The RAG folder changed while saving. Retry.')
 
-    def get_file(self, path: str) -> dict | None:
+    def collection(self, name: str) -> dict:
+        rows = self.request('GET', 'collections')['collections']
+        row = next((r for r in rows if r['name'] == name), None)
+        if row is None:
+            raise HTTPException(404, f'Unknown collection: {name}. Create it in RAG → Collections.')
+        return row
+
+    def get_file(self, collection: str, path: str) -> dict | None:
         try:
-            return self.request('GET', 'file', params={'path': path})
+            return self.request('GET', 'file', params={'collection': collection, 'path': path})
         except HTTPException as error:
             if error.status_code == 404:
                 return None
             raise
 
-    def write_markdown(self, folder: str, filename: str, content: str, description: str) -> dict:
-        """Create or replace folder/filename. A file whose first line differs belongs to another source and is kept."""
-        target = self.ensure_folder(folder, description)
-        path = f'{folder}/{filename}'
-        previous = self.get_file(path)
+    def write_markdown(self, collection: str, filename: str, content: str) -> dict:
+        """Create or replace a file in a collection. A file whose first line differs belongs to another source and is kept."""
+        self.collection(collection)
+        previous = self.get_file(collection, filename)
         if previous is not None:
             if previous['content'].partition('\n')[0] != content.partition('\n')[0]:
-                raise HTTPException(409, f'{path} belongs to another source. Choose a different folder; the existing file was preserved')
+                raise HTTPException(409, f'{collection}/{filename} belongs to another source. Choose a different collection; the existing file was preserved')
             if previous['content'] == content:
-                return {'path': path, 'folder_id': target['id'], 'status': 'unchanged', 'hash': previous['hash']}
-        saved = self.request('PUT', 'file', json={'path': path, 'content': content,
+                return {'collection': collection, 'path': filename, 'status': 'unchanged', 'hash': previous['hash']}
+        saved = self.request('PUT', 'file', json={'collection': collection, 'path': filename, 'content': content,
                                                   'expected_hash': previous['hash'] if previous is not None else None})
-        return {'path': path, 'folder_id': target['id'], 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}
+        return {'collection': collection, 'path': filename, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}
 
-    def delete_file(self, path: str, first_line: str) -> bool:
+    def delete_file(self, collection: str, path: str, first_line: str) -> bool:
         """Delete path when it still starts with first_line; return False when it is already gone."""
-        previous = self.get_file(path)
+        previous = self.get_file(collection, path)
         if previous is None:
             return False
         if previous['content'].partition('\n')[0] != first_line:
-            raise HTTPException(409, f'{path} belongs to another source; it was not removed')
-        self.request('DELETE', 'file', params={'path': path, 'expected_hash': previous['hash']})
+            raise HTTPException(409, f'{collection}/{path} belongs to another source; it was not removed')
+        self.request('DELETE', 'file', params={'collection': collection, 'path': path, 'expected_hash': previous['hash']})
         return True
 
     def queue_index(self, folder_id: str, *, allow_empty: bool = False) -> bool:

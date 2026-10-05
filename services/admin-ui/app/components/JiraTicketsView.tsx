@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Download, FolderOutput, Ticket } from "lucide-react";
 import { ApiError, exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "../lib/api";
+import { getCollections } from "../lib/rag";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -28,11 +29,20 @@ export default function JiraTicketsView() {
   const [project, setProject] = useState("all");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [folder, setFolder] = useState("jira");
+  const [collection, setCollection] = useState("");
+  const [writable, setWritable] = useState<string[]>([]);
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
-  const [exportSummary, setExportSummary] = useState<{ folder: string; results: JiraExportResult[]; failures: string[] } | null>(null);
+  const [exportSummary, setExportSummary] = useState<{ collection: string; results: JiraExportResult[]; failures: string[] } | null>(null);
   const exportController = useRef<AbortController | null>(null);
   const busy = loading || fetching || exportProgress !== null;
+  useEffect(() => {
+    const controller = new AbortController();
+    getCollections(controller.signal).then(({ collections }) => {
+      const names = (collections ?? []).filter((row) => row.writable).map((row) => row.name);
+      if (!controller.signal.aborted) { setWritable(names); setCollection((current) => names.includes(current) ? current : names.includes("jira") ? "jira" : names[0] ?? ""); }
+    }).catch(() => { if (!controller.signal.aborted) setWritable([]); });
+    return () => controller.abort();
+  }, []);
   useEffect(() => () => exportController.current?.abort(), []);
   useEffect(() => {
     const controller = new AbortController();
@@ -64,7 +74,7 @@ export default function JiraTicketsView() {
     event.preventDefault();
     if (busy || !data?.connection || selectedTickets.length === 0) return;
     const controller = new AbortController(); exportController.current = controller;
-    const destination = folder.trim();
+    const destination = collection;
     const results: JiraExportResult[] = [], failures: string[] = [], failedIds: string[] = [];
     setExportSummary(null); setExportProgress({ done: 0, total: selectedTickets.length });
     for (const [index, ticket] of selectedTickets.entries()) {
@@ -78,7 +88,7 @@ export default function JiraTicketsView() {
       if (controller.signal.aborted) return;
       setExportProgress({ done: index + 1, total: selectedTickets.length });
     }
-    setSelected(new Set(failedIds)); setExportProgress(null); setExportSummary({ folder: destination, results, failures });
+    setSelected(new Set(failedIds)); setExportProgress(null); setExportSummary({ collection: destination, results, failures });
   }
   return <div className="flex flex-col gap-6">
     <form onSubmit={fetchTickets} className="flex flex-col gap-3">
@@ -105,19 +115,19 @@ export default function JiraTicketsView() {
       </div>
       <form onSubmit={exportTickets} className="flex flex-col gap-3 border-t pt-5">
         <div className="flex flex-wrap items-end gap-3">
-          <FieldGroup className="max-w-md flex-1"><Field><FieldLabel htmlFor="jira-folder">RAG destination folder</FieldLabel><Input id="jira-folder" required maxLength={500} pattern="[A-Za-z0-9_\-]+(/[A-Za-z0-9_\-]+)*" value={folder} disabled={busy} onChange={(event) => setFolder(event.target.value)} /></Field></FieldGroup>
-          <Button disabled={busy || selectedTickets.length === 0}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
+          <FieldGroup className="max-w-md flex-1"><Field><FieldLabel htmlFor="jira-collection">Target collection</FieldLabel><Select value={collection} disabled={busy || writable.length === 0} onValueChange={setCollection}><SelectTrigger id="jira-collection" className="w-full"><SelectValue placeholder="No writable collection" /></SelectTrigger><SelectContent><SelectGroup>{writable.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field></FieldGroup>
+          <Button disabled={busy || selectedTickets.length === 0 || collection === ""}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
           <Button asChild variant="outline"><Link to="/rag/collections">Open RAG collections</Link></Button>
         </div>
-        <FieldDescription>Relative to the mounted RAG source folder. Missing folders are created. Each selected ticket becomes a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Then use Process folder in RAG Files to update search.</FieldDescription>
+        <FieldDescription>Only collections under rag-data accept files; create one in RAG Collections if none is listed. Each selected ticket becomes a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Then refresh the collection in RAG Collections to update search.</FieldDescription>
       </form>
       {exportProgress && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Exporting {exportProgress.done} of {exportProgress.total} tickets. Keep this page open.</p>}
       {exportSummary && <Alert variant={exportSummary.failures.length > 0 ? "destructive" : "default"}>
         <AlertTitle>{exportSummary.failures.length > 0 ? "Export finished with errors" : "Export complete"}</AlertTitle>
         <AlertDescription>
-          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in {exportSummary.folder}. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
+          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in collection {exportSummary.collection}. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
           {exportSummary.failures.length > 0 && <><p>Failed tickets remain selected for retry.</p><ul className="list-disc pl-5">{exportSummary.failures.map((failure) => <li key={failure}>{failure}</li>)}</ul></>}
-          {exportSummary.results.length > 0 && <p>Ready to refresh in <Link className="underline underline-offset-4" to="/rag/collections">RAG Collections</Link>.</p>}
+          {exportSummary.results.length > 0 && <p>Refresh the collection to update search in <Link className="underline underline-offset-4" to="/rag/collections">RAG Collections</Link>.</p>}
         </AlertDescription>
       </Alert>}
       {filtered.length === 0 ? <Empty className="border"><EmptyHeader><EmptyTitle>No matching tickets</EmptyTitle><EmptyDescription>Adjust the saved-list filters or fetch a different Jira query.</EmptyDescription></EmptyHeader></Empty> :

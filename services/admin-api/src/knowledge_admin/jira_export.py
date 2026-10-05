@@ -13,8 +13,7 @@ from knowledge_admin.rag_files import RagFiles
 
 class TicketExportInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    folder: str = Field(default="jira", min_length=1, max_length=500,
-                        pattern=r"^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$")
+    collection: str = Field(default="jira", min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$")
     connection_revision: int = Field(ge=1, strict=True)
 
 
@@ -50,5 +49,5 @@ def ticket_markdown(base_url: str, issue: dict, comments: list[dict]) -> str:
 
 
 def publish_ticket(client: httpx.Client, key: str, project: UUID, actor: UUID,
-                   folder: str, issue_key: str, content: str) -> dict:
-    return RagFiles(client, key, project, actor).write_markdown(folder, f"{issue_key}.md", content, "Jira tickets and comments")
+                   collection: str, issue_key: str, content: str) -> dict:
+    return RagFiles(client, key, project, actor).write_markdown(collection, f"{issue_key}.md", content)

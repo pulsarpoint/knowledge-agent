@@ -158,12 +158,12 @@ export const fetchJiraTickets = (limit: number, jql: string) =>
   });
 
 export interface JiraExportResult {
-  issue_key: string; path: string; folder_id: string; status: "created" | "updated" | "unchanged"; hash: string; comments: number;
+  issue_key: string; collection: string; path: string; status: "created" | "updated" | "unchanged"; hash: string; comments: number;
 }
-export const exportJiraTicket = (ticketId: string, folder: string, connectionRevision: number, signal?: AbortSignal) =>
+export const exportJiraTicket = (ticketId: string, collection: string, connectionRevision: number, signal?: AbortSignal) =>
   request<JiraExportResult>(`/api/jira/tickets/${encodeURIComponent(ticketId)}/export`, {
     method: "POST", signal, headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder, connection_revision: connectionRevision }),
+    body: JSON.stringify({ collection, connection_revision: connectionRevision }),
   });
 
 export const getAuditUsers = () =>

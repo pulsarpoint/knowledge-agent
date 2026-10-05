@@ -7,7 +7,7 @@ The standalone admin has two pages:
 - [Jira Tickets](http://localhost:8183/jira/tickets): choose 1–200 tickets and
   select **Fetch tickets**. The default is 25, ordered by updated time descending.
   Add JQL to filter at Jira, then use text, project and status filters on the saved
-  list. Select tickets and **Export selected** to write Markdown into a RAG folder.
+  list. Select tickets and **Export selected** to write Markdown into a RAG collection.
 
 This adapter targets Jira Data Center. PATs use `Authorization: Bearer`, rather
 than username/password Basic auth. The saved username is checked against
@@ -100,21 +100,23 @@ downloads and Cloud authentication remain future work.
 | `POST /api/jira/test` | Check token owner and issue-search access; save the test result |
 | `GET /api/jira/tickets` | Read the last successful local selection |
 | `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }` |
-| `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "folder": "jira/payments", "connection_revision": 1 }`; returns path, folder ID, status, hash and comment count |
+| `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "collection": "jira", "connection_revision": 1 }`; returns collection, path, status, hash and comment count |
 
 ## Markdown export and RAG processing
 
 1. Fetch a JQL query, optionally narrow the saved list, and select tickets. Changing
    a saved-list filter clears the selection; **Select all filtered tickets** selects
    only the currently displayed rows.
-2. Enter a folder relative to the fixed RAG source mount, such as `jira/payments`.
-   Select **Export selected** and keep the page open. Missing folders are created.
-   Each ticket is an independent export; successes remain saved if another ticket
-   fails, and failed tickets remain selected for retry. Leaving the page stops the
-   remaining requests; an in-flight server request may still finish.
-3. Open **RAG Files**, select the destination and run **Process folder**. This uses
-   the existing incremental processing and embedding pipeline. Exports do not
-   automatically process files or configure an embedding provider.
+2. Choose a **Target collection** (default `jira`). Only collections whose source
+   lives under `rag-data` accept files; create one in **RAG → Collections** if none
+   is listed. Select **Export selected** and keep the page open. Each ticket is an
+   independent export; successes remain saved if another ticket fails, and failed
+   tickets remain selected for retry. Leaving the page stops the remaining requests;
+   an in-flight server request may still finish. A collection that is missing
+   returns 404, and a read-only one returns 400.
+3. Open **RAG → Collections** and **Refresh** the collection. This uses the existing
+   incremental processing and embedding pipeline. Exports do not automatically
+   refresh the collection or configure an embedding provider.
 
 The API refetches the issue by its stored remote ID and retrieves every page from
 `/rest/api/2/issue/{id}/comment`. Only comments visible to the configured Jira user
@@ -129,14 +131,14 @@ with author and timestamps. Jira wiki markup is converted with `jira2markdown`;
 attachment binaries and embedded images are not downloaded. Stable ordering and
 content, without a local export timestamp, keep identical exports byte-for-byte
 unchanged. An unchanged file is not rewritten. Edited/deleted comments are reflected
-on the next export, then in search after the next RAG processing run.
+on the next export, then in search after the next collection refresh.
 
 Files carry a source marker identifying the Jira server and remote issue ID.
 Existing files from another source are preserved with a conflict error. Refreshing
 an export replaces the complete generated file, including any manual edits below
 its marker. RAG compare-and-set hashes also protect changes made during publishing.
 Exporting a smaller selection never removes previously exported files; use RAG file
-or folder deletion to remove them and clean their search data. Ticket key changes
+or collection file deletion to remove them and clean their search data. Ticket key changes
 require fetching the list again; any export under the previous key remains until
 explicitly removed. `jira.ticket_exported` audit events record path, result and
 comment count, without ticket bodies or tokens.
