@@ -80,7 +80,7 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
     if not configured or not root.is_absolute():
         raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
     root = root.resolve(strict=True)
-    folder = root / document['slug'] / f'v{document["revision"]}'
+    folder = root / document['slug']
     files = document_files(document['markdown'])
     if document.get('source_commits'):
         files['metadata.json'] = json.dumps({'source_commits': document['source_commits']}, indent=2) + '\n'
@@ -90,7 +90,7 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
         phase = phase_metadata['phase']
         if phase not in ('overview', 'api', 'messaging'):
             raise ValueError('Unknown code documentation phase')
-        folder = root / 'services' / service_folder / phase / f'v{document["revision"]}'
+        folder = root / 'services' / service_folder / phase
         files[f'{phase}.md'] = files.pop('README.md')
         files['metadata.json'] = json.dumps(phase_metadata, ensure_ascii=False, indent=2) + '\n'
     for parent in reversed([folder, *folder.parents]):
@@ -108,6 +108,9 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
                 staging.replace(folder / name)
             finally:
                 staging.unlink(missing_ok=True)
+    for entry in folder.iterdir():
+        if entry.is_file() and not entry.is_symlink() and entry.name not in files:
+            entry.unlink()
     return str(folder)
 
 
@@ -294,6 +297,13 @@ def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Cl
                 saved = save_document(conn,project,actor,value,document_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A document with this slug already exists') from None
+        try:
+            with db.connect() as conn:
+                document = conn.execute('''SELECT d.slug, v.markdown, d.revision FROM ka.documents d
+                    JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s''', (saved['id'],)).fetchone()
+            export_document({'slug': document['slug'], 'markdown': document['markdown'], 'revision': document['revision']})
+        except (OSError, ValueError):
+            saved = {**saved, 'export_error': 'Saved. Writing the document file failed; use Export to folder to retry.'}
         # After commit: a published document follows its latest version; failures are shown on the document.
         try:
             document_publish.republish(db, rag_client, project, actor, [saved['id']])

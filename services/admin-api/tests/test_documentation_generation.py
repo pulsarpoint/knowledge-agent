@@ -192,7 +192,7 @@ def test_document_environment_links_and_export_escape(store, tmp_path, monkeypat
     assert client.get(endpoint, headers=HEADERS).json()['environment_ids'] == [env['id']]
     exported = client.post(endpoint + '/export', headers=HEADERS)
     assert exported.status_code == 200
-    assert (tmp_path / 'runbook/v1/README.md').read_text() == '# Runbook'
+    assert (tmp_path / 'runbook/README.md').read_text() == '# Runbook'
     assert client.post('/api/documentation/documents', headers=HEADERS, json={**value, 'slug': 'invalid', 'environment_ids': [str(uuid4())]}).status_code == 400
 
 

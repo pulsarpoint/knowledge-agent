@@ -200,3 +200,26 @@ def test_edit_service_can_swap_deployments_without_losing_document_links(store,t
     current = client.get('/api/documentation/documents/'+doc['id'],headers=HEADERS).json()
     assert current['service_ids'] == current['deployment_ids'] == []
     assert current['current_version']['source_snapshot']['services'][0]['name'] == 'API'
+
+
+def test_saving_exports_current_version_in_place(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    created = client.post('/api/documentation/documents', headers=HEADERS, json={
+        'slug': 'payments-runbook', 'title': 'Payments', 'markdown': '# Payments\n\n```d2\na -> b\n```\n'}).json()
+    assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments')
+    assert (out / 'payments-runbook' / 'architecture-1.d2').exists()
+    client.put(f"/api/documentation/documents/{created['id']}", headers=HEADERS, json={
+        'slug': 'payments-runbook', 'title': 'Payments', 'markdown': '# Payments v2', 'revision': 1})
+    assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments v2')
+    assert not (out / 'payments-runbook' / 'architecture-1.d2').exists()
+    assert not list(out.glob('payments-runbook/v*'))
+
+
+def test_export_failure_keeps_the_saved_version(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
+    response = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'})
+    assert response.status_code == 201 and 'export_error' in response.json()

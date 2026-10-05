@@ -76,7 +76,7 @@ def test_phase_is_independent_inspectable_versioned_and_exported(store, tmp_path
     assert row['prompt_snapshot'][0]['overridden']
     artifact = row['result']['documents'][0]
     folder = Path(row['result']['output_folders'][0])
-    assert folder.parent.name == phase and folder.parent.parent.parent.name == 'services'
+    assert folder.name == phase and folder.parent.parent.name == 'services'
     assert {f.name for f in folder.iterdir()} == {f'{phase}.md', 'architecture-1.d2', 'metadata.json'}
     metadata = json.loads((folder / 'metadata.json').read_text())
     assert metadata['version_id'] == artifact['version_id'] and metadata['code_graph_hashes'] == value['code_graph_hashes']
@@ -91,7 +91,7 @@ def test_phase_is_independent_inspectable_versioned_and_exported(store, tmp_path
     latest = client.get('/api/documentation/generations', headers=HEADERS, params=query).json()['generations'][0]
     assert latest['result']['documents'][0]['revision'] == 2
     assert client.get(version_url, headers=HEADERS).json() == first
-    assert client.post('/api/documentation/documents/' + artifact['id'] + '/export', headers=HEADERS).json()['folder'].endswith(f'/{phase}/v2')
+    assert client.post('/api/documentation/documents/' + artifact['id'] + '/export', headers=HEADERS).json()['folder'].endswith(f'/{phase}')
     assert not generation.run_once(store)  # No later phase was queued.
 
 
