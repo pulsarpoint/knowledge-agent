@@ -14,21 +14,23 @@ from docs_wiki.workspace_client import WorkspaceRagClient
 def scoped_api(tmp_path, fake_llm):
     model_transport, model = fake_llm
     calls = []
-    paths = ['payments/retries.md', 'payments/runbooks/oncall.md', 'payments-old/secret.md', 'people/private.md']
-    catalog = [{'path': path, 'folder': path.rsplit('/', 1)[0], 'description': f'Description of {path}'} for path in paths]
+    catalog = [{'collection': 'payments', 'path': 'retries.md', 'description': 'Retries', 'collection_description': 'Payments'},
+               {'collection': 'people', 'path': 'private.md', 'description': 'Private', 'collection_description': 'People'}]
     def source(request):
         calls.append(request)
         if request.url.path == '/backoffice/workspace':
             return httpx.Response(200, json={'project_id': 'test-project'})
-        if request.url.path.endswith('/tree'):
-            return httpx.Response(200, json={'folders': [{'path': path, 'present': True, 'description': path, 'indexed_files': 1} for path in ['payments', 'payments/runbooks', 'payments-old', 'people']]})
+        if request.url.path.endswith('/collections'):
+            return httpx.Response(200, json={'collections': [
+                {'name': 'payments', 'description': 'Payments', 'indexed_files': 2, 'folder_present': True},
+                {'name': 'people', 'description': 'People', 'indexed_files': 1, 'folder_present': True},
+                {'name': 'gone', 'description': 'Gone', 'indexed_files': 0, 'folder_present': False}]})
         if request.url.path.endswith('/documents'):
             return httpx.Response(200, json=catalog)
         if request.url.path == '/search':
-            # Include an out-of-scope hit to exercise the client's boundary as well as the server SQL tests.
-            return httpx.Response(200, json={'results': [{'path': row['path'], 'folder': row['folder'].replace('/', '.'), 'text': row['description'], 'score': 1} for row in catalog]})
+            return httpx.Response(200, json={'results': [{'path': row['path'], 'collection': row['collection'], 'text': row['description'], 'score': 1} for row in catalog]})
         if request.url.path.endswith('/file'):
-            return httpx.Response(200, json={'path': request.url.params['path'], 'content': 'Allowed file content'})
+            return httpx.Response(200, json={'collection': request.url.params['collection'], 'path': request.url.params['path'], 'content': 'Allowed file content'})
         raise AssertionError(str(request.url))
     rag = WorkspaceRagClient('http://rag.test', 'key', httpx.MockTransport(source))
     cfg = config.resolve_llm({'base_url': 'http://llm.local/v1', 'chat_model': 'c'}, env={})
@@ -39,13 +41,41 @@ def scoped_api(tmp_path, fake_llm):
     rag.close()
 
 
-def test_context_lists_document_folders_only(scoped_api):
+def test_context_lists_collections_only(scoped_api):
     client, _, _, _ = scoped_api
     response = client.get('/agent/context')
     assert response.status_code == 200
-    assert response.json()['repositories'] == [] and response.json()['warnings'] == []
-    assert response.json()['folders'][0]['path'] == 'payments'
+    assert response.json()['warnings'] == [] and 'repositories' not in response.json()
+    assert response.json()['collections'] == [
+        {'name': 'payments', 'description': 'Payments', 'indexed_files': 2},
+        {'name': 'people', 'description': 'People', 'indexed_files': 1}]
     assert client.get('/agent/status').json()['sources'] == {'docs': True}
+
+
+@pytest.mark.parametrize('profile,expected', [
+    ({'documents_enabled': True, 'all_collections': False, 'collections': ['payments']}, ['payments']),
+    ({'documents_enabled': True, 'all_collections': True, 'collections': []}, ['payments', 'people']),
+    ({'documents_enabled': False, 'all_collections': True, 'collections': []}, [])])
+def test_context_filters_by_agent_profile(scoped_api, monkeypatch, profile, expected):
+    client, _, _, _ = scoped_api
+    monkeypatch.setattr(search_api, 'managed', lambda: True)
+    monkeypatch.setattr(search_api, 'load_profile', lambda agent_id: {'id': 'search', 'name': 'S', **profile})
+    names = [row['name'] for row in client.get('/agent/context').json()['collections']]
+    assert names == expected
+
+
+def test_workspace_client_maps_collection_paths(scoped_api):
+    _, _, calls, rag = scoped_api
+    hits = rag.search_collections('retries', ['payments'])
+    assert hits[0]['path'] == 'payments/retries.md' and hits[0]['heading_path'] == 'payments'
+    sent = json.loads([c for c in calls if c.url.path == '/search'][-1].content)
+    assert sent['collections'] == ['payments'] and 'folder' not in sent
+    assert rag.list_documents('x')[0]['path'] == 'payments/retries.md'
+    assert rag.list_documents('x')[0]['quadrant'] == 'payments'
+    doc = rag.get_document('x', 'payments/retries.md')
+    assert doc['path'] == 'payments/retries.md' and doc['markdown'] == 'Allowed file content'
+    last = [c for c in calls if c.url.path.endswith('/file')][-1]
+    assert dict(last.url.params) == {'collection': 'payments', 'path': 'retries.md'}
 
 
 def test_chat_todo_has_no_outbound_calls_or_session(scoped_api, tmp_path):

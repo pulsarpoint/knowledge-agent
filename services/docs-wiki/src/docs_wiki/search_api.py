@@ -44,10 +44,8 @@ def build_api(prefix: str, state_root: Path, rag,
         except ModelUnavailable as exc:
             raise HTTPException(409, str(exc)) from None
 
-    def folder_allowed(row, selected):
-        return selected is None or selected['documents_enabled'] and (selected['all_folders'] or any(
-            row['path'] == path or selected['include_subfolders'] and row['path'].startswith(path + '/')
-            for path in selected['folders']))
+    def collection_allowed(row, selected):
+        return selected is None or selected['documents_enabled'] and (selected['all_collections'] or row['name'] in selected['collections'])
 
     def user_state(request: Request) -> tuple[Path, str]:
         subject = request.headers.get('x-forwarded-user')
@@ -75,13 +73,13 @@ def build_api(prefix: str, state_root: Path, rag,
     def available_context(request: Request):
         user_state(request)
         selected = selected_profile(request)
-        result = {'folders': [], 'repositories': [], 'warnings': []}
+        result = {'collections': [], 'warnings': []}
         if rag is not None:
             try:
-                result['folders'] = [{'path': row['path'], 'description': row.get('description', ''),
-                                      'indexed_files': row.get('indexed_files', 0)} for row in rag.folders() if folder_allowed(row, selected)]
+                result['collections'] = [{'name': row['name'], 'description': row.get('description', ''),
+                                          'indexed_files': row.get('indexed_files', 0)} for row in rag.collections() if collection_allowed(row, selected)]
             except RagError:
-                result['warnings'].append('Document folders are unavailable. Try refreshing the context list.')
+                result['warnings'].append('Collections are unavailable. Try refreshing the context list.')
         return result
 
     if reader is None:
@@ -143,8 +141,7 @@ def build_api(prefix: str, state_root: Path, rag,
             subject, email = identity(request)
             if not body.question.strip():
                 raise HTTPException(400, 'Enter a question')
-            payload = {'question': body.question, 'folders': body.context.folders,
-                       'include_subfolders': body.context.include_subfolders}
+            payload = {'question': body.question, 'collections': body.context.collections}
             if body.session is not None:
                 if not known(body.session):
                     return failure(unknown)
@@ -210,7 +207,7 @@ def build_api(prefix: str, state_root: Path, rag,
                 'sources': message.get('sources', []), 'not_covered': message.get('not_covered', False)}
                 for message in saved['messages']]
             return {'session': saved['id'], 'messages': messages,
-                    'context': {'folders': saved['folders'], 'include_subfolders': saved['include_subfolders'], 'repositories': None},
+                    'context': {'collections': saved['collections']},
                     'sources': {'docs': True}}
 
         @router.delete('/chats/{key}', status_code=204)

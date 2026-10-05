@@ -67,6 +67,48 @@ def test_toc_groups_by_quadrant(tmp_path, rag):
             "freshness": "unknown"} in howto["docs"]
 
 
+def _workspace_client(calls):
+    from docs_wiki.workspace_client import WorkspaceRagClient
+
+    def handle(request):
+        calls.append(request)
+        path = request.url.path
+        if path == '/backoffice/workspace':
+            return httpx.Response(200, json={'project_id': 'p'})
+        if path.endswith('/documents'):
+            return httpx.Response(200, json=[
+                {'collection': 'jira', 'path': 'DEMO-1.md', 'description': 'd', 'collection_description': ''},
+                {'collection': 'wiki', 'path': 'a/b.md', 'description': 'd', 'collection_description': ''}])
+        if path.endswith('/file'):
+            return httpx.Response(200, json={'collection': 'jira', 'path': 'DEMO-1.md', 'content': '# Demo'})
+        if path == '/search':
+            return httpx.Response(200, json={'results': [{'collection': 'jira', 'path': 'DEMO-1.md', 'text': 'x', 'score': 1}]})
+        raise AssertionError(path)
+    return WorkspaceRagClient('http://rag.test', 'k', httpx.MockTransport(handle))
+
+
+def test_workspace_toc_groups_by_collection(tmp_path):
+    client = _client(tmp_path, rag_client=_workspace_client([]))
+    body = client.get("/api/shop/toc").json()
+    assert [g["group"] for g in body] == ["jira", "wiki"]
+    assert body[0]["docs"][0]["path"] == "jira/DEMO-1.md"
+
+
+def test_workspace_doc_reads_collection_file(tmp_path):
+    calls = []
+    client = _client(tmp_path, rag_client=_workspace_client(calls))
+    body = client.get("/api/shop/doc", params={"path": "jira/DEMO-1.md"}).json()
+    assert body["path"] == "jira/DEMO-1.md" and body["markdown"] == "# Demo"
+    last = [c for c in calls if c.url.path.endswith("/file")][-1]
+    assert dict(last.url.params) == {"collection": "jira", "path": "DEMO-1.md"}
+
+
+def test_workspace_search_links_collection_path(tmp_path):
+    client = _client(tmp_path, rag_client=_workspace_client([]))
+    body = client.get("/api/shop/search", params={"q": "demo"}).json()
+    assert body[0]["path"] == "jira/DEMO-1.md"
+
+
 def test_toc_rag_error_returns_502(tmp_path, rag):
     rag_client, state = rag
     state["fail"] = True

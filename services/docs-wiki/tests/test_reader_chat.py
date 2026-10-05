@@ -32,8 +32,8 @@ def upstream():
         if request.url.path == f'/internal/reader/sessions/{SESSION}':
             if request.method == 'DELETE':
                 return httpx.Response(204)
-            return httpx.Response(200, json={'id': SESSION, 'title': 'q', 'status': 'active', 'folders': ['payments'],
-                'include_subfolders': True, 'messages': [{'role': 'user', 'content': 'q'},
+            return httpx.Response(200, json={'id': SESSION, 'title': 'q', 'status': 'active', 'collections': ['payments'],
+                'messages': [{'role': 'user', 'content': 'q'},
                 {'role': 'assistant', 'content': 'a [1]', 'sources': [{'n': 1, 'path': 'p/r.md', 'heading_path': 'p', 'anchor': None}], 'not_covered': False}]})
         raise AssertionError(request.url)
     return state, httpx.MockTransport(handle)
@@ -66,7 +66,7 @@ def test_answer_maps_to_reader_events(client, upstream, tmp_path):
                  'near_misses': [], 'results': 1, 'reason': None}
     state['events'] = [('session', {'id': SESSION}), ('activity', {'tool': 'search_documents', 'argument': '{"query":"retries"}'}),
                        ('completed', {'status': 'completed', 'answer': 'Three [1].', 'error': '', 'grounding': grounding})]
-    response = client.post('/api/docs/chat', json={'question': 'How many retries?', 'context': {'folders': ['payments'], 'include_subfolders': False, 'repositories': None}})
+    response = client.post('/api/docs/chat', json={'question': 'How many retries?', 'context': {'collections': ['payments']}})
     assert response.status_code == 200
     assert parse(response) == [
         ('session', {'key': SESSION}), ('tool', {'name': 'search_documents', 'argument': '{"query":"retries"}'}),
@@ -75,7 +75,7 @@ def test_answer_maps_to_reader_events(client, upstream, tmp_path):
     sent = state['requests'][0]
     assert sent.headers['x-reader-key'] == 'reader-key' and sent.headers['x-reader-user'] == 'alice'
     assert 'x-forwarded-groups' not in sent.headers and 'x-forwarded-user' not in sent.headers
-    assert json.loads(sent.content) == {'question': 'How many retries?', 'folders': ['payments'], 'include_subfolders': False}
+    assert json.loads(sent.content) == {'question': 'How many retries?', 'collections': ['payments']}
     assert gaps.load_gaps(tmp_path / 'gaps') == ([], 0)
 
 
@@ -134,7 +134,7 @@ def test_history_transcript_and_delete(client):
                          'first_ts': '2026-10-02T10:00:00Z', 'last_ts': '2026-10-02T10:05:00Z'}]
     transcript = client.get(f'/api/docs/chats/{SESSION}').json()
     assert transcript['session'] == SESSION
-    assert transcript['context'] == {'folders': ['payments'], 'include_subfolders': True, 'repositories': None}
+    assert transcript['context'] == {'collections': ['payments']}
     assert transcript['sources'] == {'docs': True}
     assert transcript['messages'][1] == {'role': 'assistant', 'content': 'a [1]', 'sources_used': ['docs'],
         'sources': [{'n': 1, 'path': 'p/r.md', 'heading_path': 'p', 'anchor': None}], 'not_covered': False}
