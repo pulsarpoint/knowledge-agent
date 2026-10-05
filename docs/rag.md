@@ -35,13 +35,29 @@ Examples:
 | Collection | Folder | Notes |
 | --- | --- | --- |
 | `jira` | `rag-data/jira` | One Markdown file per ticket |
-| `documents` | `generated-documents` | Created automatically by migration `0063`; excludes `**/v[0-9]*/**` so old `v<n>/` version folders are not indexed. It starts unsynced and shows **Refresh** |
+| `documents` | `generated-documents` | Created automatically by migration `0063`; excludes `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` so old `<slug>/v<n>/` and `services/<svc>/<phase>/v<n>/` version folders are not indexed (a slug that itself starts with `v<digit>`, such as `v2-api-design`, is). It starts unsynced and shows **Refresh** |
 | `payments-code` | `code/payments-service` | Include `**/*.py`; code is indexed as plain text, with no code-aware chunking or line numbers |
 
 Migration `0063` converted every top-level folder of `rag-data` into a collection (folder
 `X` became collection `X` with folder `rag-data/X`) and rewrote indexed files and agent
-grants, so search keeps working without reprocessing. Deleting a collection removes its
-index rows and agent grants and keeps the files on disk.
+grants, so search keeps working until each collection is refreshed. Deleting a collection
+removes its index rows and agent grants and keeps the files on disk.
+
+A new collection under `rag-data` gets its folder created (mode `0750`) when it is created,
+and again on the first upload or Jira export if it was removed. Folders in the other areas
+are never created; a missing one shows **Folder missing**.
+
+### Upgrading to collections
+
+After upgrading:
+
+1. On startup admin-api re-exports every document whose current export (`<slug>/README.md`
+   or `services/<svc>/<phase>/<phase>.md`) is missing into `generated-documents`. This runs in
+   the background, is idempotent and only logs failures.
+2. Every collection shows **Needs refresh**: migrated collections keep their last sync time
+   but their files carry the old processing fingerprint, and `documents` was never synced.
+3. **Refresh** each collection (or **Refresh all stale**). Expect a full re-parse and, with
+   embeddings on, a full re-embed (for example about 975 chunks for `jira`).
 
 ## Data areas and mounts
 
@@ -75,24 +91,34 @@ Skipped and counted in the job result (the sync does not fail):
 - symbolic links and special files;
 - unreadable files and file names that are not valid;
 - binary (not UTF-8) files and files larger than the global maximum file size;
-- always: `.git`, `node_modules` and `.env*`.
+- always: hidden files and folders (any path segment starting with `.`, which covers
+  `.git`, `.env*` and scratch folders such as `.documentation-update-*`) and `node_modules`.
 
-Limits per sync are 20,000 files and 200 MB. Exceeding them fails the job with the counts so
-you can narrow the include patterns.
+Limits per sync are 20,000 matching files, 200,000 visited entries (files and folders) and
+200 MB. Exceeding them fails the job so you can narrow the include patterns or the folder.
+
+The file API (`GET /file`, used by the Reader's document view and the agents' `read_document`)
+serves only files a sync would index: a hidden, `.env*`, `.git` or `node_modules` path or a
+file outside the include/exclude patterns answers 404 "Document not found", exactly like a
+missing file. Writes and deletes refuse hidden and skipped paths.
 
 ## Status, freshness and Refresh
 
 Each collection reports its file count, indexed files, chunks, embedded chunks (for example
 `0 / 975`), when it was last synced, and when the folder last changed (the newest mtime
-among matching files and the directories walked, so deletions count). The walk stops at
-20,000 entries and marks the result `truncated`.
+among matching files and the directories walked, so deletions count). The walk stops after
+visiting 20,000 entries (files and folders, matching or not) and marks the result `truncated`.
+
+`GET /collections?status=false` skips the walk: it returns the collection rows, the index
+counts (`indexed_files`, `chunks`, `embedded_chunks`) and `folder_present` only. The Reader's
+context panel and Jira export use it.
 
 Status meanings:
 
 | Status | Meaning |
 | --- | --- |
 | Up to date | Synced, folder unchanged since, settings unchanged |
-| Needs refresh | Never synced, or the folder changed after the last sync, or the collection's settings changed since the last sync |
+| Needs refresh | Never synced, or the folder changed after the last sync, or the collection's settings changed since the last sync (a collection migrated by `0063` has no synced revision, so it needs one refresh) |
 | Syncing | A sync job is queued or running |
 | Failed | The latest sync job failed; the previous index stays |
 | Folder missing | The folder does not exist; shown as an error instead of Refresh, and sync is refused |
@@ -104,8 +130,11 @@ that needs it. Nothing syncs automatically.
 
 ## Search modes and fallback
 
-Search input is `collections: [name]`; an empty list means every collection the caller may
-use. Per collection, full-text ranking applies to `full_text` and `hybrid`, and vector ranking
+Search input is `collections: [name]`; omitting it means every collection the caller may
+use. An unknown name answers 404 unless `ignore_unknown: true` is sent: then unknown names
+are dropped and returned as `unknown: [name]` (all unknown gives empty results). Agents and
+the Reader send `ignore_unknown`, so a renamed or deleted granted collection does not break
+their search; the Admin search page keeps the 404 to catch typos. Per collection, full-text ranking applies to `full_text` and `hybrid`, and vector ranking
 applies to `embedding` and `hybrid` only when that collection has embeddings enabled and a
 global embedding model is configured. Otherwise the collection falls back to full text and
 the response lists the collections that fell back, which the Search page shows as "Keyword search used for: ...". Results from all selected collections are

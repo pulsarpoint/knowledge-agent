@@ -34,7 +34,7 @@ Each run preserves its exact prompt, overrides, graph hashes and selected resour
 
 The phase inspector and generation history show input, output and total tokens, plus completed model calls. Overview usage separates source inspection from writing. Usage snapshots are saved in `ka.job_events` after each model response, so completed calls remain visible if a later call or validation fails. Graph generation and skipped analysis use zero tokens. Older runs without recorded usage are labeled accordingly; missing provider usage is marked incomplete. Cache and reasoning counts are shown as details without adding them again to totals.
 
-Artifacts live under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/overview/v<version>/`: `overview.md`, `metadata.json` and any `architecture-N.d2` files. PostgreSQL remains authoritative. Metadata records the document/version IDs, source/graph hashes, code paths, prompt version/hash and generation time. The document page's export action can restore files if the initial export failed. The default prompt is an active, editable migration fixture (0053); upgrades preserve existing customizations.
+Artifacts live under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/overview/` (replaced in place on each new version): `overview.md`, `metadata.json` and any `architecture-N.d2` files. PostgreSQL remains authoritative. Metadata records the document/version IDs, source/graph hashes, code paths, prompt version/hash and generation time. The document page's export action can restore files if the initial export failed. The default prompt is an active, editable migration fixture (0053); upgrades preserve existing customizations.
 
 ## Phase 3: API documentation
 
@@ -56,7 +56,7 @@ Static route discovery does not establish complete runtime coverage: unsupported
 
 Migration 0058 activates the graph-directed API prompt for unchanged seeded configurations and updates workflow drafts only when their content exactly matches the old fixture. Administrator prompts and edited inline drafts are preserved. Historical generations remain immutable.
 
-Artifacts are saved beside the overview under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/api/v<version>/`: `api.md`, `metadata.json` and optional `architecture-N.d2` files. Regeneration creates a new version; the inspector shows the exact selected version. API runs have no SSH or MCP access. Their shell can run local inspection scripts against read-only source, without network access or calls to live endpoints.
+Artifacts are saved beside the overview under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/api/` (replaced in place): `api.md`, `metadata.json` and optional `architecture-N.d2` files. Regeneration creates a new version; the inspector shows the exact selected version. API runs have no SSH or MCP access. Their shell can run local inspection scripts against read-only source, without network access or calls to live endpoints.
 
 ## Phase 4: Messaging documentation
 
@@ -66,7 +66,7 @@ This phase discovers consumers, producers, broker subscriptions, request/reply h
 
 The existing Agents SDK/model performs up to 40 turns of read-only graph/source inspection, followed by one structured writing step retaining the collected evidence. There is no broker connection, message publication, SSH access or application execution. Source freshness checks, input/output token accounting, failure handling and immutable version history match the API phase. An optional validated message-flow diagram is converted to D2/TALA. No source produces an explicit missing-code document with zero model calls.
 
-Artifacts are saved under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/messaging/v<version>/`: `messaging.md`, `metadata.json` and optional `architecture-N.d2` files. Repeating the phase produces a new version and does not start subsequent phases.
+Artifacts are saved under `DOCUMENT_OUTPUT_ROOT/services/<service-name>-<short-id>/messaging/` (replaced in place): `messaging.md`, `metadata.json` and optional `architecture-N.d2` files. Repeating the phase produces a new version and does not start subsequent phases.
 
 ## Additional documentation
 

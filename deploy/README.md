@@ -52,7 +52,7 @@ created inside the checkout. Paths must be absolute.
 | `DATA_ROOT/code` | `CODE_PATH` | `/work/code` | Code projects, Git clones and caches |
 | `DATA_ROOT/code-index` | `CODE_INDEX_PATH` | `/work/code-index` | Code graph snapshots |
 | `DATA_ROOT/rag-data` | `RG_DATA` | `/work/rag-data` | Writable RAG collection folders (uploads, Jira exports); RAG also indexes the other areas read-only |
-| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Markdown/D2 exports `<slug>/v<version>/`; indexed by the `documents` collection (excludes `v<n>/`) |
+| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Current Markdown/D2 export of each document: `<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) |
 | `DATA_ROOT/docs` | `DOCS_PATH` | `/work/docs` | Bootstrap docs seeded from `examples/docs` |
 
 RAG collections can map to any of these five folders. The `rag` and `rag-worker`
@@ -61,6 +61,13 @@ services mount all of them at the container paths above, read-only except `rag-d
 Set an override in `.env` (absolute path) only to put one folder elsewhere, for
 example code on a larger disk. Admin → Storage shows the host and container path
 of each folder.
+
+**Upgrading to RAG collections (migration `0063`):** after `make up`, admin-api
+re-exports every document whose current export is missing into `generated-documents`
+(background, idempotent, failures only logged). Every collection then shows **Needs
+refresh** in Admin → RAG → Collections; **Refresh** each one (or **Refresh all stale**).
+Expect a full re-parse and, with embeddings on, a full re-embed (for example about 975
+chunks for `jira`). Until a collection is refreshed its previous index keeps serving search.
 
 **Moving the data:** `make down`, copy the folders (for example
 `rsync -a .local/ /opt/knowledge-agent/`), set `DATA_ROOT` in `.env`, remove any
