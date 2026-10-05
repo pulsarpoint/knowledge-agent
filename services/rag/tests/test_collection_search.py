@@ -43,3 +43,15 @@ def test_hybrid_uses_vectors_when_embedded(env):
     calls = len(state["calls"])
     result = search(env, "backoff", ["docs"]).json()
     assert result["fallback"] == [] and result["results"] and len(state["calls"]) == calls + 1
+
+
+def test_ignore_unknown_drops_missing_collections(env):
+    two_collections(env)
+    client, project = env[1], env[2]
+    body = {"project_id": str(project), "query": "retries", "ignore_unknown": True}
+    some = client.post("/search", json={**body, "collections": ["docs", "renamed"]}).json()
+    assert some["unknown"] == ["renamed"] and some["collections"] == ["docs"]
+    assert {hit["collection"] for hit in some["results"]} == {"docs"}
+    none = client.post("/search", json={**body, "collections": ["gone", "renamed"]})
+    assert none.status_code == 200 and none.json()["results"] == [] and none.json()["unknown"] == ["gone", "renamed"]
+    assert search(env, "retries", ["docs"]).json()["unknown"] == []

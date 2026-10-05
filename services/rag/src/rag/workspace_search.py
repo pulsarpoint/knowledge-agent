@@ -20,6 +20,8 @@ class SearchInput(BaseModel):
     collections: list[CollectionName] | None = Field(default=None, max_length=200)
     mode: Literal["full_text", "embedding", "hybrid"] | None = None
     top: int = Field(8, ge=1, le=30)
+    # Agents and docs-wiki pass true so a renamed or deleted collection drops out instead of failing search.
+    ignore_unknown: bool = False
 
 
 BASE = """SELECT c.id,c.text,c.position,f.path,f.content_hash,f.indexed_at,f.job_id,k.name AS collection
@@ -31,11 +33,12 @@ def search(workspace, payload: SearchInput, transport=None):
         config = workspace.settings(conn, payload.project_id)
         rows = conn.execute("SELECT * FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name",
                             (payload.project_id,)).fetchall()
+        unknown = []
         if payload.collections is not None:
             known = {row["name"] for row in rows}
-            for name in payload.collections:
-                if name not in known:
-                    raise HTTPException(404, f"Unknown collection: {name}")
+            unknown = sorted({name for name in payload.collections if name not in known})
+            if unknown and not payload.ignore_unknown:
+                raise HTTPException(404, f"Unknown collection: {unknown[0]}")
             rows = [row for row in rows if row["name"] in set(payload.collections)]
         try:
             model = workspace.embedding_model(conn, config["embedding_model_id"]) if config["embedding_model_id"] else None
@@ -73,5 +76,5 @@ def search(workspace, payload: SearchInput, transport=None):
             hit = hits.setdefault(row["id"], {**row, "score": 0.0})
             hit["score"] += 1 / (60 + position + 1)
     result = sorted(hits.values(), key=lambda row: (-row["score"], str(row["id"])))[:payload.top]
-    return {"collections": [row["name"] for row in rows], "fallback": fallback,
+    return {"collections": [row["name"] for row in rows], "fallback": fallback, "unknown": unknown,
             "results": [{**row, "citation": f"S{i + 1}"} for i, row in enumerate(result)]}
