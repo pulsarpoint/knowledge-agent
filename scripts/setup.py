@@ -105,7 +105,7 @@ def initialize(root: Path, data_root: str | None = None) -> None:
     if not any(docs_path.iterdir()):
         shutil.copytree(root / "examples" / "docs", docs_path, dirs_exist_ok=True)
     print(f"Local configuration ready. Credentials are in .env (mode 0600). Files are kept in {data}.")
-    print("Run make up, then make smoke to verify login and services. Load and process content through RAG → Files & folders.")
+    print("Run make up, then make smoke to verify login and services. Load and process content through RAG → Collections.")
 
 
 if __name__ == "__main__":
