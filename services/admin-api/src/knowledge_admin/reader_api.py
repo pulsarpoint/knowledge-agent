@@ -39,7 +39,7 @@ def narrow(config: dict[str, Any], collections: list[str] | None) -> dict[str, A
     chosen = set(collections)
     everything, items = document_collections(config)
     if everything:
-        kept = [{'name': name, 'description': '', 'path': ''} for name in sorted(chosen)]
+        kept = [{'name': name, 'description': '', 'paths': []} for name in sorted(chosen)]
     else:
         kept = [item for item in items if item['name'] in chosen]
     return {**config, 'documents': {**config['documents'], 'all_collections': False, 'collections': kept}}

@@ -19,7 +19,7 @@ def _roots(context: AgentContext) -> list[Path]:
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
     if config['documents']['enabled']:
-        paths.extend(Path(item['path']) for item in document_collections(config)[1])
+        paths.extend(Path(path) for item in document_collections(config)[1] for path in item['paths'])
     roots = []
     for path in paths:
         if not path.is_absolute() or path.resolve() != path or not path.is_dir():

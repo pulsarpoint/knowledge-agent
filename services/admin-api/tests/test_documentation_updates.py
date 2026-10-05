@@ -69,7 +69,7 @@ def test_comparison_uses_exact_commits_and_preserves_checkout(comparison, monkey
 
     async def run(config, task, **kwargs):
         from knowledge_admin.agents import get_paths, get_tools
-        root = Path(config['documents']['collections'][0]['path'])
+        root = Path(config['documents']['collections'][0]['paths'][0])
         roots.append(root)
         manifest = json.loads((root / 'comparison.json').read_text())
         assert manifest['base_commit'] == base and manifest['target_commit'] == target
@@ -176,7 +176,7 @@ def test_failure_or_cancellation_removes_evidence(comparison, monkeypatch, failu
 
 def test_document_keys_are_not_treated_as_paths(comparison, monkeypatch):
     async def run(config, task, **kwargs):
-        root = Path(config['documents']['collections'][0]['path'])
+        root = Path(config['documents']['collections'][0]['paths'][0])
         manifest = json.loads((root / 'comparison.json').read_text())
         path = Path(manifest['documents']['../../escape.md'])
         assert path == root / 'documents/1.md'
@@ -278,7 +278,7 @@ def test_corrects_edit_once_without_repeating_analysis_and_counts_both_runs(comp
             assert kwargs['history'] == history
             assert 'edit 1' in task and '0 matches' in task
             assert 'Do not inspect source code again' in task
-            assert Path(config['documents']['collections'][0]['path']).exists()
+            assert Path(config['documents']['collections'][0]['paths'][0]).exists()
         return SimpleNamespace(final_output=updates.DocumentationProposal(
             summary='The limit changed.', updates=[updates.DocumentUpdate(document_key='overview',
                 edits=[{'before': 'Limit is 10.' if len(calls) == 2 else 'Wrong anchor', 'after': 'Limit is 20.'}],

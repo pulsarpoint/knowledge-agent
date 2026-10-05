@@ -6,30 +6,56 @@ from test_repositories import HEADERS
 
 
 def seed(store, *names_and_paths):
+    """Collections with their paths: ('name', 'area/path', ...)."""
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{\"max_file_bytes\":2000000}') ON CONFLICT DO NOTHING", (project,))
-        return {name: conn.execute("INSERT INTO ka.rag_collections(project_id,name,description,source_path) VALUES (%s,%s,%s,%s) RETURNING id",
-                                   (project, name, f'About {name}', path)).fetchone()['id'] for name, path in names_and_paths}
+        ids = {}
+        for name, *paths in names_and_paths:
+            ids[name] = conn.execute("INSERT INTO ka.rag_collections(project_id,name,description) VALUES (%s,%s,%s) RETURNING id",
+                                     (project, name, f'About {name}')).fetchone()['id']
+            for path in paths:
+                conn.execute("INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)", (ids[name], path))
+        return ids
 
 
 def test_agent_config_lists_granted_collections_with_paths(store, monkeypatch):
     monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
     monkeypatch.setenv('CODE_ROOT', '/work/code')
-    ids = seed(store, ('jira', 'rag-data/jira'), ('payments-code', 'code/payments'))
+    monkeypatch.setenv('BOOTSTRAP_DOCS_ROOT', '/work/docs')
+    ids = seed(store, ('jira', 'rag-data/jira'), ('payments', 'docs/payments', 'code/payments'))
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET all_collections=false,documents_enabled=true WHERE id='search'")
-        conn.execute("INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES ('search',%s)", (ids['payments-code'],))
+        conn.execute("INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES ('search',%s)", (ids['payments'],))
     config = get_agent_config('search', conninfo=store.conninfo)
     assert config['documents']['all_collections'] is False
-    assert [(c['name'], c['path']) for c in config['documents']['collections']] == [('payments-code', '/work/code/payments')]
-    assert set(config['documents']['collections'][0]) == {'id', 'name', 'description', 'path'}
+    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
+        ('payments', ['/work/code/payments', '/work/docs/payments'])]
+    assert set(config['documents']['collections'][0]) == {'id', 'name', 'description', 'paths'}
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET all_collections=true WHERE id='search'")
-        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments-code'")
+        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     config = get_agent_config('search', conninfo=store.conninfo)
-    assert config['documents']['all_collections'] is True
-    assert [(c['name'], c['path']) for c in config['documents']['collections']] == [('jira', '/work/rag-data/jira')]
+    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('jira', ['/work/rag-data/jira'])]
+
+
+def test_path_era_items_map_to_paths():
+    saved = {'documents': {'all_collections': False, 'collections': [
+        {'id': 'a', 'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'},
+        {'name': 'docs', 'description': '', 'path': ''}]}}
+    assert document_collections(saved) == (False, [
+        {'id': 'a', 'name': 'jira', 'description': '', 'paths': ['/work/rag-data/jira']},
+        {'name': 'docs', 'description': '', 'paths': []}])
+    current = {'documents': {'all_collections': True, 'collections': [{'id': 'a', 'name': 'x', 'description': '', 'paths': ['/a', '/b']}]}}
+    assert document_collections(current) == (True, current['documents']['collections'])
+
+
+def test_ungrounded_document_agents_read_every_collection_path(monkeypatch):
+    config = {'code': {'enabled': False, 'projects': []}, 'documents': {'enabled': True, 'grounded': False,
+              'all_collections': False, 'collections': [
+                  {'id': 'a', 'name': 'payments', 'description': '', 'paths': ['/work/code/payments', '/work/rag-data/jira']},
+                  {'id': 'b', 'name': 'old', 'description': '', 'path': '/work/rag-data/old'}]}}
+    assert [str(p) for p in get_paths(config)] == ['/work/code/payments', '/work/rag-data/jira', '/work/rag-data/old']
 
 
 def test_area_root_maps_every_area_to_its_container_root(monkeypatch):
@@ -54,7 +80,7 @@ def test_legacy_folder_config_maps_to_collections(monkeypatch):
         {'id': 'y', 'path': '/work/rag-data/Old_Stuff', 'description': 'o', 'search_folder': 'Old_Stuff'}]}}
     everything, items = document_collections(legacy)
     assert everything is False
-    assert [(i['name'], i['path']) for i in items] == [('demo', '/work/rag-data/demo'), ('old-stuff', '/work/rag-data/Old_Stuff')]
+    assert [(i['name'], i['paths']) for i in items] == [('demo', ['/work/rag-data/demo']), ('old-stuff', ['/work/rag-data/Old_Stuff'])]
     assert document_collections({'documents': {'all_folders': True, 'folders': []}}) == (True, [])
     assert slug('Old_Stuff') == 'old-stuff'
 
@@ -66,13 +92,7 @@ def test_legacy_folders_without_search_folder_use_their_path(monkeypatch):
         {'path': '/work/rag-data/Runbooks', 'description': 'duplicate top'},
         {'path': '/elsewhere/notes', 'description': 'outside the RAG root'},
         {'path': '/work/rag-data', 'description': 'the root itself'}]}}
-    assert document_collections(legacy) == (False, [{'name': 'runbooks', 'description': 'r', 'path': '/work/rag-data/Runbooks'}])
-
-
-def test_ungrounded_document_agents_read_collection_folders(monkeypatch):
-    config = {'code': {'enabled': False, 'projects': []}, 'documents': {'enabled': True, 'grounded': False,
-              'all_collections': False, 'collections': [{'id': 'a', 'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}]}}
-    assert [str(p) for p in get_paths(config)] == ['/work/rag-data/jira']
+    assert document_collections(legacy) == (False, [{'name': 'runbooks', 'description': 'r', 'paths': ['/work/rag-data/Runbooks']}])
 
 
 def test_profile_api_grants_collections(store, tmp_path):

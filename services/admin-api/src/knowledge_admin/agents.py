@@ -163,7 +163,7 @@ def get_paths(config: dict[str, Any]) -> list[Path]:
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
     if config['documents']['enabled'] and not documents_grounded(config):
-        paths.extend(Path(item['path']) for item in document_collections(config)[1])
+        paths.extend(Path(path) for item in document_collections(config)[1] for path in item['paths'])
     return list(dict.fromkeys(paths))
 
 
@@ -274,8 +274,8 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
     Disabled capabilities retain their saved selections and explicit flags.
-    CODE_ROOT and the roots of granted collections' areas (RAG_SOURCE_ROOT, ...)
-    must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
+    CODE_ROOT and the roots of the areas that granted collections' paths live in
+    (RAG_SOURCE_ROOT, ...) must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
 
     This is the application's input to agent(), not native Agents SDK constructor
     keyword arguments. Loading it never starts the SDK or resolves secrets.
@@ -327,12 +327,14 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
                 'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'aad': f"llm:{model['id']}:v1",
             } if model.pop('has_api_key') else None
 
-        collections = conn.execute("""SELECT c.id,c.name,c.description,c.source_path FROM ka.rag_collections c
+        collections = conn.execute("""SELECT c.id,c.name,c.description,
+            ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
+            FROM ka.rag_collections c
             LEFT JOIN ka.agent_collections a ON a.collection_id=c.id AND a.agent_id=%s
             WHERE c.project_id=%s AND c.deleted_at IS NULL AND (%s OR a.collection_id IS NOT NULL)
             ORDER BY c.name""", (agent_id, project_id, agent['all_collections'])).fetchall()
         for item in collections:
-            item['path'] = str(area_root(item.pop('source_path')))
+            item['paths'] = [str(area_root(path)) for path in item.pop('source_paths')]
         code_projects = conn.execute("""SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
             ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
             FROM ka.repositories r LEFT JOIN ka.agent_repositories a ON a.repository_id=r.id AND a.agent_id=%s

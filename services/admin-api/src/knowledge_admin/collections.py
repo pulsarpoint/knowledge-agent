@@ -20,11 +20,19 @@ def area_root(source_path: str) -> PurePosixPath:
     return root / rest if rest else root
 
 
+def _with_paths(item: dict[str, Any]) -> dict[str, Any]:
+    """Configs saved between collections and collection paths hold one container `path` per collection."""
+    if 'paths' in item:
+        return item
+    rest = {key: value for key, value in item.items() if key != 'path'}
+    return {**rest, 'paths': [item['path']] if item.get('path') else []}
+
+
 def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
-    """(all_collections, [{name, description, path}]) for new and legacy (folder-based) configs."""
+    """(all_collections, [{id?, name, description, paths}]) for current, path-era and folder-era configs."""
     documents = config['documents']
     if 'collections' in documents:
-        return bool(documents.get('all_collections')), documents['collections']
+        return bool(documents.get('all_collections')), [_with_paths(item) for item in documents['collections']]
     rag_root = PurePosixPath(os.environ.get('RAG_SOURCE_ROOT', '/work/rag-data'))
     items: dict[str, dict[str, Any]] = {}
     for folder in documents.get('folders', []):
@@ -36,5 +44,5 @@ def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, A
             if not path.is_relative_to(rag_root) or path == rag_root:
                 continue
             top = path.relative_to(rag_root).parts[0]
-        items.setdefault(slug(top), {'name': slug(top), 'description': folder.get('description', ''), 'path': str(rag_root / top)})
+        items.setdefault(slug(top), {'name': slug(top), 'description': folder.get('description', ''), 'paths': [str(rag_root / top)]})
     return bool(documents.get('all_folders')), list(items.values())

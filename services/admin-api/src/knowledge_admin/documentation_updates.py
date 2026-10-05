@@ -297,7 +297,7 @@ async def propose_service_documentation_update(
                 {'id': side, 'name': f'{side} commit {commit}', 'folder_paths': [str(root / side)]}
                 for side, commit in (('base', base), ('target', target))]},
             'documents': {'enabled': True, 'all_collections': False, 'collections': [{'id': 'comparison', 'name': 'comparison',
-                          'description': 'Commit comparison and existing documents', 'path': str(root)}]},
+                          'description': 'Commit comparison and existing documents', 'paths': [str(root)]}]},
             'ssh': {'enabled': False, 'servers': []}, 'mcp': {'enabled': False, 'servers': []},
             'skills': {'enabled': False, 'items': []}, 'services': {'enabled': False, 'items': []},
         }

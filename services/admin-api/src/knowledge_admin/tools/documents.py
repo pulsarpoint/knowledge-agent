@@ -98,7 +98,7 @@ async def read_document(ctx: RunContextWrapper[AgentContext], collection: str, p
 
     Args:
         collection: The collection name shown before the path, such as "jira".
-        path: The document path inside that collection, such as "DEMO-1.md".
+        path: The document's full path as shown after the collection, such as "rag-data/jira/DEMO-1.md".
     """
     context = ctx.context
     allowed = _allowed(context['config'])

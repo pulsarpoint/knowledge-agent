@@ -159,7 +159,7 @@ def test_narrow_all_collections_agent_uses_the_selection():
     narrowed = narrow(config, ['jira', 'docs'])
     assert narrowed['documents']['all_collections'] is False
     assert narrowed['documents']['collections'] == [
-        {'name': 'docs', 'description': '', 'path': ''}, {'name': 'jira', 'description': '', 'path': ''}]
+        {'name': 'docs', 'description': '', 'paths': []}, {'name': 'jira', 'description': '', 'paths': []}]
 
 
 def test_transcript_reports_collections(reader):
