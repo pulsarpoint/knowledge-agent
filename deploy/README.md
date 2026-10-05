@@ -51,9 +51,12 @@ created inside the checkout. Paths must be absolute.
 | --- | --- | --- | --- |
 | `DATA_ROOT/code` | `CODE_PATH` | `/work/code` | Code projects, Git clones and caches |
 | `DATA_ROOT/code-index` | `CODE_INDEX_PATH` | `/work/code-index` | Code graph snapshots |
-| `DATA_ROOT/rag-data` | `RG_DATA` | `/work/rag-data` | RAG source folders (what the Reader shows) |
-| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Versioned Markdown/D2 exports `<slug>/v<version>/` |
+| `DATA_ROOT/rag-data` | `RG_DATA` | `/work/rag-data` | Writable RAG collection folders (uploads, Jira exports); RAG also indexes the other areas read-only |
+| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Markdown/D2 exports `<slug>/v<version>/`; indexed by the `documents` collection (excludes `v<n>/`) |
 | `DATA_ROOT/docs` | `DOCS_PATH` | `/work/docs` | Bootstrap docs seeded from `examples/docs` |
+
+RAG collections can map to any of these five folders. The `rag` and `rag-worker`
+services mount all of them at the container paths above, read-only except `rag-data`.
 
 Set an override in `.env` (absolute path) only to put one folder elsewhere, for
 example code on a larger disk. Admin → Storage shows the host and container path
@@ -73,7 +76,7 @@ overrides that pointed at the old place, then `make up`.
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |
 
-**Administration → Storage** shows configured host/container paths for these four content mounts, their availability and a read-only directory/file browser. Relative host paths are displayed as relative to the Compose file directory; the container does not guess their absolute host location. Managed document versions and RAG indexes remain in PostgreSQL. Generated exports are not automatically published to RAG: upload selected Markdown into a RAG source folder and process it.
+**Administration → Storage** shows configured host/container paths for these four content mounts, their availability and a read-only directory/file browser. Relative host paths are displayed as relative to the Compose file directory; the container does not guess their absolute host location. Managed document versions and RAG indexes remain in PostgreSQL. Generated exports are indexed through the `documents` collection (folder `generated-documents`, which skips `v<n>/` folders): **Refresh** it in Admin → RAG → Collections after exports change.
 
 `make down` retains volumes. Back up these volumes and the configured content
 folders before migrating real data. Credentials in root `.env` are required to

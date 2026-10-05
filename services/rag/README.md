@@ -1,16 +1,17 @@
 # RAG retrieval and processing
 
-The v3 runtime stores folder descriptions, processed text, file hashes, and vectors
-in PostgreSQL. Source files live in the Docker host directory configured by
-`RG_DATA`, mounted at `/work/rag-data`. Manage folders, uploads, processing jobs,
-search and processing settings in **Administration → RAG**. Manage embedding
+The v3 runtime stores processed text, file hashes, and vectors in PostgreSQL. It indexes
+**collections**: each is a folder inside one of five data areas mounted at `/work/code`,
+`/work/code-index`, `/work/rag-data`, `/work/generated-documents` and `/work/docs`
+(read-only except `rag-data`). Manage collections, refresh, uploads (under `rag-data`),
+processing jobs and search in **Administration → RAG**. Manage embedding
 connections in **LLM Settings**, then select one in **RAG → Settings**.
 
 ## Run the v3 workspace
 
 Docker starts `rag serve-workspace --host 0.0.0.0`. The separate
 `rag-workspace-worker` consumes processing jobs from PostgreSQL. Startup performs
-no indexing; an administrator explicitly processes a folder from Files & folders.
+no indexing; an administrator refreshes a collection from Collections (a sync job per collection).
 Unchanged files skip processing, and successful jobs publish changes atomically.
 
 For native development:
@@ -22,18 +23,21 @@ uv run rag-workspace-worker
 ```
 
 Both processes need PostgreSQL connection variables, `RAG_SOURCE_ROOT` (the local
-source directory), and `CREDENTIAL_ENCRYPTION_KEY`. `RG_DATA` reports the absolute
-Docker host path in settings; it is not resolved inside the container. The API also
+`rag-data` directory), the other area roots (`CODE_ROOT`, `CODE_INDEX_ROOT`,
+`DOCUMENT_OUTPUT_ROOT`, `BOOTSTRAP_DOCS_ROOT`) and `CREDENTIAL_ENCRYPTION_KEY`. The host path
+variables (`RG_DATA`, `CODE_PATH`, ...) are display metadata and are not resolved inside the container. The API also
 requires `RAG_BACKOFFICE_KEY`. Native workers require their environment to be
-exported. Processing and embedding settings are saved through the admin API.
+exported. Per-collection settings and the global embedding model are saved through the admin API.
 
 The service exposes authenticated `/backoffice/projects/{project_id}/...` and
 `POST /search` routes. The admin API binds `/api/rag/...` requests to the single
 workspace and supplies the service key. Reader and search-agent integrations use
 these same workspace APIs. See the [RAG administration guide](../../docs/rag.md)
-for endpoint schemas, folder selectors, incremental processing and storage.
+for endpoint schemas, collections, freshness, incremental processing and storage.
 
 ## Standalone collection CLI
+
+(Unrelated to the RAG collections above: these are SQLite-backed local collections.)
 
 The independent `index` / `serve` commands below remain available for local
 Markdown collections. Their SQLite indexes and MCP tools are separate from the

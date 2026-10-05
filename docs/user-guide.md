@@ -50,9 +50,10 @@ applications sharing one Keycloak realm and one PostgreSQL database:
 
 What you can actually do today:
 
-- **Curate a searchable knowledge base** (RAG): upload/edit Markdown, text and JSON
-  files in folders, process them into a full-text (and optionally vector) index, and
-  search it — from the admin RAG pages and from the Reader.
+- **Curate a searchable knowledge base** (RAG): define **collections**, each mapping to
+  a folder under `DATA_ROOT` (documents, Jira exports, uploaded files or source code),
+  index them into a full-text (and optionally vector) index with **Refresh**, and
+  search them — from the admin RAG pages, agents and the Reader.
 - **Map source code**: register local folders or clone Git repositories, keep them
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
@@ -121,8 +122,8 @@ Most features depend on earlier ones. A sensible order in the Administration app
 
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for vector search.
-2. **RAG → Settings** → review chunking; enable embeddings if you added an embeddings model.
-3. **RAG → Files & folders** → create folders, upload content, **Process folder**.
+2. **RAG → Settings** → select the embeddings model if you added one.
+3. **RAG → Collections** → **New collection**, choose a folder, **Refresh**.
 4. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
 5. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
@@ -140,16 +141,16 @@ Sign in through Keycloak. The Reader is read-only: there is no editing and no ad
 navigation (admin paths return 404).
 
 **Where its content comes from.** The Reader shows the **RAG workspace** (the
-`DATA_ROOT/rag-data` folder managed in Admin → RAG), not the bootstrap `DATA_ROOT/docs`. With a single
+collections managed in Admin → RAG → Collections), not the bootstrap `DATA_ROOT/docs`. With a single
 configured app (the default, named `docs`), `/` redirects straight to `/docs`.
 
 ### Layout
 
 - **Sidebar**: app name (a switcher if several apps exist), links **Search**, **Chat**,
-  **Gaps**, then a table of contents grouped by **folder path**, with file names as
+  **Gaps**, then a table of contents grouped by **collection**, with file names as
   titles. Collapse with the header button or **Ctrl/Cmd+B**; the state is remembered.
 - **Footer**: light/dark theme toggle.
-- **Breadcrumbs**: app › folder › document.
+- **Breadcrumbs**: app › collection › document.
 
 ### Reading a document — `/docs/doc/<path>`
 
@@ -161,15 +162,16 @@ has no `index.md` it shows an error. Add one to give readers a home page.
 ### Search — `/docs/search`
 
 Type in the box; results update as you type (150 ms debounce). The Reader always
-uses **hybrid** search across **all folders** (falling back to full text when
-embeddings are disabled). Each result shows the file (link), its folder and the
+uses **hybrid** search across **all collections** (a collection falls back to full text
+when its embeddings are off). Each result shows the file (link), its collection and the
 matching text chunk. There are no filters here — use Admin → RAG → Search for
-folder scope and search-mode control. Errors show as "no results".
+collection scope and search-mode control. Errors show as "no results".
 
 ### Chat — `/docs/chat`
 
 Ask a question and the assistant answers only from the knowledge base (the RAG
-documents). While it works you see activity lines such as "searching: …" and
+collections). **Advanced** lets you narrow the chat to chosen collections (all by
+default); it can only narrow what the agent is allowed to search. While it works you see activity lines such as "searching: …" and
 "reading: …"; the answer appears when it is complete. Claims carry `[n]` citations
 that link to the cited documents. Enter sends; Shift+Enter adds a new line. Which
 agent answers is chosen by an administrator (see [5.11](#511-agents)).
@@ -195,7 +197,7 @@ whenever a Reader answer is marked **not covered** (or "No gaps recorded").
 ## 5. The Administration application (port 8183)
 
 Requires membership in `docs-admins`; otherwise you see "Administration unavailable"
-with a **Sign out** button. `/` redirects to **RAG → Files & folders**.
+with a **Sign out** button. `/` redirects to **RAG → Collections**.
 
 General conventions throughout the admin app:
 
@@ -217,7 +219,7 @@ General conventions throughout the admin app:
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
 | Docs | Documents · Prompts · Generate documents |
-| RAG | Files & folders · Processing jobs · Settings · Search |
+| RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
 redirect to their current pages.
@@ -250,45 +252,70 @@ no delete — disable a model instead.
 > or Bedrock `anthropic.claude*`. OpenAI **Chat Completions** models can only be used
 > by the Coordinator.
 
-### 5.3 RAG: files, processing, settings, search
+### 5.3 RAG: collections, processing, settings, search
 
-The RAG workspace is the folder `RG_DATA` on the host, mounted as `/work/rag-data`.
-Top-level folders are "collections"; folders can be nested.
+A **collection** is a name, one folder under `DATA_ROOT`, and its own settings. RAG indexes
+the files where they already are — nothing is copied. Collections replace the old
+"Files & folders" tree: there are no subfolder scopes, grants or searches; everything is
+by whole collection. Migration `0063` turned each former top-level `rag-data` folder into a
+collection, and created a `documents` collection (folder `generated-documents`)
+automatically. The `documents` collection excludes old `v<n>/` version folders, starts
+unsynced and shows **Refresh**.
 
-**Files & folders** (`/rag/files`)
+**Workflow**
 
-- Create folders (letters, digits, `-`, `_`, `/` for nesting).
-- Select a folder to see its search scope (`a.b` or `a.b.*`) and indexed file count.
-- **Folder description** — saved text that also becomes a searchable entry.
-- **Upload** `.md`, `.markdown`, `.txt`, `.json` (UTF-8). The server limit is the
-  *Maximum file size* setting (default 2 MB), even though the browser allows 10 MB.
-- **New file / Edit** in a side sheet; saves are protected against concurrent edits.
-- **Process this folder** — options: include subfolders (default on), *Force
-  rebuild* (re-embed everything), *Allow removing every indexed file in this scope*.
-- **Delete folder** removes the folder, its files and its index entries.
+1. Admin → **RAG → Collections** → **New collection**.
+2. Choose a folder: one of the five data folders (`code`, `code-index`, `rag-data`,
+   `generated-documents`, `docs`), then a subfolder (free text for deeper paths).
+3. **Refresh**.
+4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
 
-Nothing is searchable until a folder has been **processed**.
+**Collections** (`/rag/collections`)
+
+- The table shows name and description, folder, files on disk, indexed files, embedded
+  chunks, folder last changed, last synced, status and a **Refresh** button.
+- **Status**: *Up to date*; *Needs refresh* (never synced, the folder changed after the
+  last sync, or the settings changed since); *Syncing*; *Failed* (the previous index
+  stays); *Folder missing* (shown instead of Refresh; sync is refused).
+- **Refresh all stale** queues every collection that needs it. Nothing refreshes
+  automatically.
+- **New / Edit collection**: name (lowercase letters, digits, hyphens), description,
+  folder, search mode (Full text / Embedding / Hybrid), embeddings on/off, include and
+  exclude patterns (default include `**/*.md`, `**/*.markdown`, `**/*.txt`), chunk size
+  (default 2000) and overlap (default 200). Changing settings makes the collection need
+  refresh. Several collections may share one folder with different patterns.
+- **Collection detail**: indexed files with chunk count and embedding state, a file's
+  chunks, and a read-only file browser. **Upload** and **New file / Edit** exist only for
+  collections under `rag-data` (UTF-8 `.md`, `.markdown`, `.txt`, `.json`, limited by the
+  *Maximum file size* setting).
+- **Delete collection** removes its index rows and agent grants; the files stay on disk.
+- Skipped and counted (never fatal): symbolic links, special and unreadable files, invalid
+  names, binary files and files over the maximum size; `.git`, `node_modules` and `.env*`
+  are always ignored. A sync fails if a collection has more than 20,000 files or 200 MB —
+  narrow the include patterns. Code is indexed as plain text.
 
 **Processing jobs** (`/rag/jobs`) — the last 100 jobs with counts (hashed, skipped,
 parsed, embedded, reused, removed). **Cancel** a queued/running job; **Run again**
-otherwise. Only one job runs per workspace at a time. Unchanged files (same SHA-256
+otherwise. One job is active per collection; others queue. Unchanged files (same SHA-256
 and settings) are skipped; a failed job keeps the previous index intact.
 
 **Settings** (`/rag/settings`)
 
 | Setting | Default / range |
 | --- | --- |
-| Chunk size | 2000 (200–12000) |
-| Overlap | 200 (0–2000, less than chunk size) |
 | Maximum file size | 2 MB (100 B – 10 MB) |
-| Extensions | `.md`, `.markdown`, `.txt`, `.json` |
-| Enable embeddings + embedding model | Off by default; pick an *Embeddings* model from LLM Settings |
+| Embedding model | None by default; pick an *Embeddings* model from LLM Settings |
+| Area roots | Read-only display of the five data folders (host and container paths) |
 
-After saving, use **Test embedding connection**, then re-process folders to apply.
+Chunking, patterns, search mode and the embeddings switch are per collection. After
+selecting a model, use **Test embedding connection**, turn embeddings on for the
+collections that should use them, then **Refresh** them.
 
-**Search** (`/rag/search`) — query, folder scope (`*`, `a.b`, `a.b.*`), type
-(**Full text**, **Embedding**, **Hybrid**) and 1–30 results. Results show a citation
-number, path, chunk text and hash. This is retrieval only; it does not generate answers.
+**Search** (`/rag/search`) — query, a collection picker (empty means all), type
+(**Full text**, **Embedding**, **Hybrid**) and 1–30 results. A collection without
+embeddings (or with no model configured) falls back to full text, and the result lists
+which ones did. Results show a citation number, collection, path, chunk text and hash.
+This is retrieval only; it does not generate answers.
 
 ### 5.4 Code projects
 
@@ -399,7 +426,8 @@ and search permission).
 3. **Export selected** to a RAG folder (default `jira`). Each ticket becomes
    `<folder>/<KEY>.md` with metadata, description and comments. Keep the page open
    until it finishes; failed tickets stay selected.
-4. Go to **RAG → Files & folders** and **Process folder** to make them searchable.
+4. Go to **RAG → Collections** and **Refresh** the collection that covers that folder
+   (`jira`) to make them searchable.
 
 For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
@@ -444,7 +472,7 @@ saved but runs only after you choose one on its General tab.
 | --- | --- |
 | **General** | Name, purpose, when-to-use, **Enable agent**; **Model connection** (required to run); additional instructions |
 | **Skills** | Enable and pick skills (max 30) |
-| **Documents** | Enable and pick RAG folders, or "All document folders"; include subfolders; **Answer only from documents** switch (cite every claim and report questions the documents do not cover) |
+| **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover) |
 | **Code projects** | Enable and pick code projects, or "All code projects" |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP |
 | **MCP** | Pick tested MCP servers (and their tools) |
@@ -588,6 +616,10 @@ the running indexing job finishes. **Unpublish** removes the file. Publishing ne
 overwrites a file it did not create, and a published document must be unpublished before it
 can be deleted. Published documents show a **Published** badge in the list.
 
+The generated-documents area is also searchable through the automatically created
+`documents` collection (folder `generated-documents`, old `v<n>/` folders excluded):
+**Refresh** it in **RAG → Collections** to index what is on disk.
+
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
 generation. Saving changed text creates a draft version; **Activate vN** makes it the
 active one; inactive versions can be deleted. If an active prompt changes while a
@@ -596,7 +628,7 @@ workflow page is open, generating fails with "An active prompt changed. Reload i
 ### 5.15 Storage
 
 `/storage` — read-only overview of the five storage areas: source code
-(`CODE_PATH`), code graphs (`CODE_INDEX_PATH`), RAG source files (`RG_DATA`), document
+(`CODE_PATH`), code graphs (`CODE_INDEX_PATH`), RAG source files (`RG_DATA`, where collections under `rag-data` live), document
 exports (`GENERATED_DOCS_PATH`) and bootstrap docs (`DOCS_PATH`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
@@ -631,11 +663,12 @@ Records are kept until deleted; only administrators can see them.
 
 ### A. Make internal documentation searchable for everyone
 
-1. Admin → **RAG → Files & folders** → create folder `handbook`.
-2. Upload Markdown files (or **New file**) and add a folder description.
-3. **Process this folder**; watch **Processing jobs** until it succeeds.
+1. Admin → **RAG → Collections** → **New collection** named `handbook`, folder
+   `rag-data/handbook` (type the path), with a description.
+2. Open the collection and upload Markdown files (or **New file**).
+3. **Refresh**; watch **Processing jobs** until it succeeds.
 4. Check results in **RAG → Search**.
-5. Readers open http://localhost:8180 → the folder appears in the sidebar; use **Search**.
+5. Readers open http://localhost:8180 → the collection appears in the sidebar; use **Search**.
 
 ### B. Document a service from its source code
 
@@ -675,7 +708,7 @@ Records are kept until deleted; only administrators can see them.
 ### F. Bring Jira knowledge into RAG
 
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
-selected** to `jira` → **RAG → Files & folders** → **Process folder**.
+selected** to `jira` → **RAG → Collections** → **Refresh** `jira`.
 
 ---
 
@@ -688,7 +721,7 @@ selected** to `jira` → **RAG → Files & folders** → **Process folder**.
 | `WEB_PORT` 8180, `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
 | `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
-| `RG_DATA` | Optional override for the RAG workspace (default `DATA_ROOT/rag-data`) |
+| `RG_DATA` | Optional override for the `rag-data` area, the writable collection folder (default `DATA_ROOT/rag-data`) |
 | `CODE_PATH` | Optional override for code projects and Git clones (default `DATA_ROOT/code`) |
 | `CODE_INDEX_PATH` | Optional override for code graph snapshots (default `DATA_ROOT/code-index`) |
 | `GENERATED_DOCS_PATH` | Optional override for document exports (default `DATA_ROOT/generated-documents`) |
@@ -741,7 +774,12 @@ before exposing it beyond localhost.
 
 - **Reader chat answers appear when complete** (no word-by-word streaming).
 - **Documents reach the knowledge base only after Publish to knowledge base**; from then
-  on new versions follow automatically.
+  on new versions follow automatically. They are also searchable through the
+  `documents` collection once it is refreshed.
+- **Collections are refreshed manually**: nothing syncs automatically, so use
+  **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
+  text (no code-aware chunking or line-number citations), and a collection is limited to
+  20,000 files and 200 MB per sync.
 - The `api-analysis` skill is in the Skills library but is not used by API documentation generation.
 - The `code_graph` tool is only available to documentation generation, not to agent
   Test chats or the board.
@@ -763,7 +801,7 @@ before exposing it beyond localhost.
 | `code_graph` | Documentation generation only | Queries the Phase 1 code graph |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
-| `search_documents`, `read_document` | Documents capability on | Search and read only the selected RAG folders; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
+| `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records the uncovered question as a gap and marks the answer **not covered** |
 
 Every agent's instructions include "use only configured resources; never display

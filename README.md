@@ -96,9 +96,10 @@ python3 scripts/admin_user.py --username local-admin --reset-password
 ```
 
 The auth-only check verifies real SSO and protected admin access. `make smoke`
-checks the folder workspace, full-text search, PostgreSQL and Phoenix without
-processing data or calling a model. Admin → RAG manages files, folder descriptions,
-processing settings and job history. Activity shows usage/audit data; Code
+checks the RAG collections workspace, full-text search, PostgreSQL and Phoenix without
+processing data or calling a model. Admin → RAG manages collections (each a folder
+under `DATA_ROOT`, with its own search and processing settings), refresh, the global
+embedding model and job history. Activity shows usage/audit data; Code
 projects manages local folder mappings and Git pulls. Services and Servers record
 deployed applications and their hosts. Configure AI connections in LLM Settings.
 
@@ -200,10 +201,12 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-RAG sources live in `DATA_ROOT/rag-data` (override with an absolute `RG_DATA`). It mounts at
-`/work/rag-data`; RAG Settings displays both paths. Manage folders, descriptions,
-uploads and processing jobs through RAG administration. Unchanged files are
-identified by content hash so processing can be reused. Add and pull Git repositories
+RAG indexes **collections**: each maps to one folder in `DATA_ROOT` (`code`, `code-index`,
+`rag-data`, `generated-documents` or `docs`) and is indexed where it is, with no copy step.
+The RAG services mount all five areas, read-only except `rag-data` (override with an
+absolute `RG_DATA`); uploads and edits apply only to collections under `rag-data`. Create
+collections, **Refresh** them when files change, and review jobs through RAG
+administration. Unchanged files are identified by content hash so processing can be reused. Add and pull Git repositories
 through Code projects.
 
 LLM Settings stores named OpenAI-compatible, Anthropic and Bedrock connections
@@ -246,9 +249,9 @@ The plugin is bundled locally and can be loaded directly by the Claude Agent
 SDK. For manual Claude use, register this checkout as a marketplace and install
 `app-docs@knowledge-agent-v3`. Its automated admin integration is not yet wired.
 
-### Folder RAG administration
+### RAG collections administration
 
-The separate admin app now includes RAG Files & folders, Processing jobs, Settings, and Search. The `RG_DATA` host folder is mounted at `/work/rag-data`, with collection folders directly inside it; all runtime settings and source operations use the backoffice API. See [the RAG guide](docs/rag.md) for incremental processing, scoped `/search`, credentials, and API contracts.
+The separate admin app includes RAG Collections, Processing jobs, Settings, and Search. A collection is a folder inside `DATA_ROOT` with its own search mode, embeddings, include/exclude patterns and chunking; agents and the Reader are granted whole collections. See [the RAG guide](docs/rag.md) for collections, freshness and Refresh, incremental processing, `/search` across collections, credentials, and API contracts.
 
 Administration → Agents manages configuration and offers direct agent Test conversations. See [Agents](docs/agents.md).
 
