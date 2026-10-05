@@ -103,7 +103,7 @@ def create_app(cfg: Config, embed=None,
         @app.exception_handler(OSError)
         async def workspace_file_error(request, exc):
             if isinstance(exc, FileNotFoundError):
-                return _error(404, "Source folder or file does not exist")
+                return _error(404, "Collection folder or file does not exist")
             return _error(400, "Source path is unavailable; check permissions and remove symbolic links")
 
     @app.exception_handler(RequestValidationError)

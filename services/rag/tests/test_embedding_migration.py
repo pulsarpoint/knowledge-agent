@@ -8,9 +8,9 @@ import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from rag.collections import Areas
 from rag.workspace import Workspace, digest
 from rag.workspace_models import embedding_profile
-from test_workspace import workspace_postgres
 
 
 @pytest.mark.parametrize('configured,key_saved', [(True, True), (True, False), (False, True), (False, False)])
@@ -18,7 +18,7 @@ def test_migrate_saved_embedding_model(workspace_postgres, tmp_path, configured,
     database = 'migration_' + uuid4().hex
     with psycopg.connect(workspace_postgres, autocommit=True) as conn:
         conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
-    workspace = Workspace(tmp_path, workspace_postgres + f' dbname={database}', b'k' * 32)
+    workspace = Workspace(Areas({}, {}), workspace_postgres + f' dbname={database}', b'k' * 32)
     try:
         migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
         with workspace.connect() as conn:

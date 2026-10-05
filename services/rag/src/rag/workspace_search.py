@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rag.workspace import Settings, folder_path
 from rag.workspace_models import embed, embedding_profile
 
 
@@ -34,16 +33,18 @@ def search(workspace, payload: SearchInput, transport=None):
     for selector in dict.fromkeys(payload.folders if payload.folders is not None else [payload.folder]):
         recursive = selector.endswith(".*") or selector == "*"
         path = "" if selector == "*" else (selector[:-2] if recursive else selector).replace(".", "/")
-        folder_path(path, root=True)
+        # Folder-scoped search is replaced by collection search (plan Task 5).
+        if path and not re.fullmatch(r"[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*", path):
+            raise HTTPException(400, "Folder names may contain letters, numbers, hyphens, and underscores")
         scopes.append("(%s='' OR d.path=%s OR (%s AND starts_with(d.path,%s)))")
         scope_params.extend((path, path, recursive, path + "/"))
     with workspace.connect() as conn:
         config = workspace.settings(conn, payload.project_id)
-        settings = Settings(**config["settings"])
+        embedding_enabled = config["embedding_model_id"] is not None
         mode = payload.mode
-        if mode == "embedding" and not settings.embedding_enabled:
+        if mode == "embedding" and not embedding_enabled:
             raise HTTPException(409, "Enable and configure embeddings in RAG Settings, then process the selected folders")
-        if mode == "hybrid" and not settings.embedding_enabled:
+        if mode == "hybrid" and not embedding_enabled:
             mode = "full_text"
         vector = None
         if mode != "full_text":
