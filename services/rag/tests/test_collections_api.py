@@ -239,3 +239,47 @@ def test_collection_with_unsynced_revision_needs_refresh(env):
         conn.execute("UPDATE ka.rag_collections SET synced_revision=NULL WHERE id=%s", (created,))
     row = status(env, created)
     assert row["status"] == "needs_refresh" and row["last_synced_at"] is not None
+
+
+def seed_jobs(env):
+    """Twelve finished jobs across two collections, newest last, plus one queued."""
+    workspace, project = env[0], env[2]
+    ids = {name: collection(env, name, f"rag-data/{name}") for name in ("jira", "docs")}
+    with workspace.connect() as conn:
+        for i in range(12):
+            name = "jira" if i % 2 else "docs"
+            failed = i % 4 == 3
+            conn.execute("""INSERT INTO ka.jobs(project_id,kind,rag_collection_id,input,status,error,created_at,started_at,finished_at)
+                VALUES (%s,'rag_collection_sync',%s,'{}',%s,%s,now() - make_interval(mins => %s),now() - make_interval(mins => %s),now() - make_interval(mins => %s))""",
+                (project, ids[name], "failed" if failed else "succeeded", "Embedding model rejected the token" if failed else None,
+                 100 - i, 100 - i, 99 - i))
+    return ids
+
+
+def test_jobs_are_paged_newest_first_with_total(env):
+    client, prefix = env[1], env[3]
+    seed_jobs(env)
+    page = client.get(prefix + "/jobs", params={"limit": 5}).json()
+    assert page["total"] == 12 and len(page["jobs"]) == 5
+    second = client.get(prefix + "/jobs", params={"limit": 5, "offset": 10}).json()
+    assert second["total"] == 12 and len(second["jobs"]) == 2
+    created = [j["created_at"] for j in page["jobs"]]
+    assert created == sorted(created, reverse=True)
+    assert client.get(prefix + "/jobs").json()["total"] == 12  # default page still reports the total
+    for bad in ({"limit": 0}, {"limit": 101}, {"offset": -1}, {"status": "exploded"}):
+        assert client.get(prefix + "/jobs", params=bad).status_code == 400, bad
+
+
+def test_jobs_filter_by_status_collection_and_text(env):
+    client, prefix = env[1], env[3]
+    seed_jobs(env)
+    failed = client.get(prefix + "/jobs", params={"status": "failed"}).json()
+    assert failed["total"] == 3 and {j["status"] for j in failed["jobs"]} == {"failed"}
+    jira = client.get(prefix + "/jobs", params={"collection": "jira"}).json()
+    assert jira["total"] == 6 and {j["collection"] for j in jira["jobs"]} == {"jira"}
+    both = client.get(prefix + "/jobs", params={"collection": "jira", "status": "failed"}).json()
+    assert both["total"] == 3
+    text = client.get(prefix + "/jobs", params={"q": "token"}).json()
+    assert text["total"] == 3
+    assert client.get(prefix + "/jobs", params={"q": "DOC"}).json()["total"] == 6  # case-insensitive collection match
+    assert client.get(prefix + "/jobs", params={"q": "100%_"}).json()["total"] == 0  # LIKE wildcards are literal

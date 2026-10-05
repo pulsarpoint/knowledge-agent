@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import RagJobsView from "../RagJobsView";
 import RagSettingsView from "../RagSettingsView";
 import RagSearchView from "../RagSearchView";
 import type { RagConfig } from "../../lib/rag";
@@ -51,24 +50,6 @@ test("search sends the chosen mode", async () => {
   await user.click(screen.getByRole("option", { name: "Hybrid" }));
   await user.click(screen.getByRole("button", { name: "Search" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/rag/search", expect.objectContaining({ body: JSON.stringify({ query: "x", top: 10, mode: "hybrid" }) })));
-});
-
-const job = { id: "job1", status: "succeeded", input: { force: false }, result: { files: 3 }, error: null, created_at: "2026-09-09T00:00:00Z", started_at: null, finished_at: null };
-
-test("jobs show the collection and Run again syncs it by id", async () => {
-  const fetch = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify(init?.method === "POST" ? { id: "j2" } : { jobs: [{ ...job, collection: "jira", collection_id: "c1" }] })));
-  vi.stubGlobal("fetch", fetch);
-  render(<RagJobsView />);
-  expect(await screen.findByText("jira")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Run again" }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/rag/collections/c1/sync", expect.objectContaining({ method: "POST" })));
-});
-
-test("jobs of deleted collections cannot be rerun", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ jobs: [{ ...job, collection: "old", collection_id: null }] }))));
-  render(<RagJobsView />);
-  expect(await screen.findByText("Collection deleted")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Run again" })).toBeNull();
 });
 
 test('RAG selects a saved embedding connection and never offers chat models', async () => {

@@ -295,9 +295,11 @@ unsynced and shows **Refresh**.
   are always ignored. A sync fails if a collection has more than 20,000 files or 200 MB —
   narrow the include patterns. Code is indexed as plain text.
 
-**Processing jobs** (`/rag/jobs`) — the last 100 jobs with counts (hashed, skipped,
-parsed, embedded, reused, removed). **Cancel** a queued/running job; **Run again**
-otherwise. One job is active per collection; others queue. Unchanged files (same SHA-256
+**Processing jobs** (`/rag/jobs`) — every sync job, newest first, in a paged table
+(10/25/50/100 rows). Search by collection name or error text, and filter by status and
+collection; filters and the page are kept in the URL, so a filtered view can be shared.
+Each row shows the mode, start time, duration and counts (hashed, skipped, parsed,
+embedded, reused, removed). **Cancel** a queued/running job; **Run again** otherwise. One job is active per collection; others queue. Unchanged files (same SHA-256
 and settings) are skipped; a failed job keeps the previous index intact.
 
 **Settings** (`/rag/settings`)

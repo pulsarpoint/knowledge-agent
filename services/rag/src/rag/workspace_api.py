@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -15,6 +15,8 @@ from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
 from rag.workspace_search import SearchInput, search
 
+
+JobStatus = Literal["queued", "running", "waiting_input", "succeeded", "failed", "cancelled"]
 
 class SettingsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -338,14 +340,29 @@ def build_api(workspace: Workspace, key: str, transport=None):
         return {"message": "File deleted. Refresh the collection to remove it from search."}
 
     @router.get(prefix + "/jobs")
-    def jobs(project: UUID):
+    def jobs(project: UUID, status: JobStatus | None = None, collection: str | None = Query(None, max_length=500),
+             q: str | None = Query(None, max_length=200), limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0)):
+        where = ["j.project_id=%s", "j.kind IN ('rag_collection_sync','rag_folder_index')"]
+        params: list = [project]
+        if status is not None:
+            where.append("j.status=%s")
+            params.append(status)
+        if collection:
+            where.append("coalesce(k.name, d.path)=%s")
+            params.append(collection)
+        if q and q.strip():
+            # Escape LIKE wildcards so the search text matches literally.
+            pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            where.append("(coalesce(k.name, d.path) ILIKE %s OR coalesce(j.error,'') ILIKE %s)")
+            params.extend([pattern, pattern])
+        scope = """FROM ka.jobs j LEFT JOIN ka.rag_collections k ON k.id=j.rag_collection_id
+                LEFT JOIN ka.rag_folders d ON d.id=j.rag_folder_id WHERE """ + " AND ".join(where)
         with workspace.connect() as conn:
-            return {"jobs": conn.execute("""SELECT j.id,j.status,j.input,j.result,j.error,j.created_at,j.started_at,j.finished_at,
-                j.rag_collection_id AS collection_id, coalesce(k.name, d.path) AS collection
-                FROM ka.jobs j LEFT JOIN ka.rag_collections k ON k.id=j.rag_collection_id
-                LEFT JOIN ka.rag_folders d ON d.id=j.rag_folder_id
-                WHERE j.project_id=%s AND j.kind IN ('rag_collection_sync','rag_folder_index')
-                ORDER BY j.created_at DESC LIMIT 100""", (project,)).fetchall()}
+            total = conn.execute("SELECT count(*) AS n " + scope, params).fetchone()["n"]
+            rows = conn.execute("""SELECT j.id,j.status,j.input,j.result,j.error,j.created_at,j.started_at,j.finished_at,
+                j.rag_collection_id AS collection_id, coalesce(k.name, d.path) AS collection """ + scope
+                + " ORDER BY j.created_at DESC, j.id LIMIT %s OFFSET %s", [*params, limit, offset]).fetchall()
+        return {"jobs": rows, "total": total}
 
     @router.post(prefix + "/jobs/{job_id}/cancel")
     def cancel(project: UUID, job_id: UUID):

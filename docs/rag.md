@@ -8,7 +8,7 @@ can be searched.
 Open the standalone admin app and choose **RAG** in the sidebar:
 
 - **Collections**: list collections with status, folder, file and embedding counts; create, edit and delete them; **Refresh** one or all stale collections; open a collection to see indexed files and chunks; upload and edit files when the folder is under `rag-data`.
-- **Processing jobs**: inspect the latest 100 runs, live counts, errors, cancellation, and reruns.
+- **Processing jobs**: a paged, searchable table of every sync run with status and collection filters, live counts, errors, cancellation, and reruns.
 - **Settings**: the global maximum file size, the global embedding model (test it here) and the read-only area roots.
 - **Search**: exercise retrieval across selected collections, with a search-mode override. Use Agents for cited answers.
 
@@ -210,7 +210,7 @@ Browser/admin API prefix: `/api/rag`. All these routes require a Keycloak user i
 | GET | `/collections/{id}/files` | Indexed files with chunk and embedding counts |
 | GET | `/collections/{id}/chunks?path=...` | Chunks of one file |
 | GET / PUT / DELETE | `/file` | Read, save or delete a source file, addressed by collection and path (rag-data collections only for writes) |
-| GET | `/jobs` | Last 100 processing jobs |
+| GET | `/jobs` | Sync jobs, newest first: `{jobs, total}`; query `status`, `collection`, `q` (collection or error text), `limit` (1–100, default 25), `offset` |
 | POST | `/jobs/{id}/cancel` | Cancel queued/running work |
 | POST | `/search` | Retrieve evidence across collections |
 
