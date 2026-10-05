@@ -141,3 +141,24 @@ def test_host_folders_come_from_data_root_not_the_checkout():
             source = volume["source"] if isinstance(volume, dict) else volume.split(":/work/")[0]
             if source.startswith("${"):
                 assert ROOT in source, source
+
+
+def test_rag_reads_every_data_area_and_writes_only_rag_data():
+    services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
+    expected = {
+        "/work/code": host("CODE_PATH", "code"), "/work/code-index": host("CODE_INDEX_PATH", "code-index"),
+        "/work/generated-documents": host("GENERATED_DOCS_PATH", "generated-documents"), "/work/docs": host("DOCS_PATH", "docs"),
+    }
+    for name in ("rag", "rag-worker"):
+        service = services[name]
+        mounts = {(v["target"] if isinstance(v, dict) else v.split(":")[-2] if v.endswith(":ro") else v.split(":")[-1]): v for v in service["volumes"]}
+        for target, source in expected.items():
+            assert mounts[target] == f"{source}:{target}:ro", (name, target)
+        rag = mounts["/work/rag-data"]
+        assert isinstance(rag, dict) and not rag.get("read_only") and rag["source"] == host("RG_DATA", "rag-data")
+        env = service["environment"]
+        assert env["CODE_ROOT"] == "/work/code" and env["RAG_SOURCE_ROOT"] == "/work/rag-data"
+        assert env["DOCUMENT_OUTPUT_ROOT"] == "/work/generated-documents" and env["BOOTSTRAP_DOCS_ROOT"] == "/work/docs"
+        assert env["CODE_INDEX_ROOT"] == "/work/code-index"
+        for key, folder in (("CODE_PATH", "code"), ("RG_DATA", "rag-data"), ("GENERATED_DOCS_PATH", "generated-documents")):
+            assert env[key] == host(key, folder)

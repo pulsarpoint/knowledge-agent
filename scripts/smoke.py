@@ -119,10 +119,10 @@ def main() -> None:
         admin_session = json.load(response)
     if not admin_session.get("is_admin"):
         raise RuntimeError("Admin group did not reach the standalone admin API")
-    with admin.open(admin_origin + "/api/rag/tree", timeout=10) as response:
+    with admin.open(admin_origin + "/api/rag/collections", timeout=10) as response:
         json.load(response)
     app_name = urllib.parse.quote(apps[0]["name"], safe="")
-    for path in ("/api/rag/tree", f"/api/{app_name}/admin/audit", f"/{app_name}/admin"):
+    for path in ("/api/rag/collections", f"/api/{app_name}/admin/audit", f"/{app_name}/admin"):
         try:
             browser.open(origin + path, timeout=10)
         except urllib.error.HTTPError as error:
@@ -154,7 +154,7 @@ def main() -> None:
     if args.auth_only:
         return
 
-    for resource, expected in (("settings", "settings"), ("tree", "folders"), ("jobs", "jobs")):
+    for resource, expected in (("settings", "settings"), ("collections", "collections"), ("jobs", "jobs")):
         with admin.open(admin_origin + "/api/rag/" + resource, timeout=10) as response:
             payload = json.load(response)
         if expected not in payload:
@@ -172,14 +172,14 @@ def main() -> None:
     else:
         print("PASS: source catalog available; no processed documents yet")
     # Full-text mode verifies retrieval without calling an embedding model.
-    payload = json.dumps({"query": "documentation", "folder": "*", "mode": "full_text", "top": 1}).encode()
+    payload = json.dumps({"query": "documentation", "top": 1}).encode()
     request = urllib.request.Request(admin_origin + "/api/rag/search", data=payload,
                                      headers={"Content-Type": "application/json"})
     with admin.open(request, timeout=10) as response:
         hits = json.load(response)
     if hits.get("mode") != "full_text" or not isinstance(hits.get("results"), list):
         raise RuntimeError("RAG full-text search returned an unexpected response")
-    print("PASS: RAG settings, folder tree, processing history, and full-text search")
+    print("PASS: RAG settings, collections, processing history, and full-text search")
 
     migration_state = subprocess.run(
         [*compose, "exec", "-T", "postgres", "psql", "-U", "knowledge_agent", "-d", "knowledge_agent",
