@@ -2,7 +2,7 @@
 import os
 
 import pytest
-from test_workspace import chunks, collection, configure, sync, write
+from test_workspace import chunks, collection, configure, search, sync, write
 
 from rag.workspace_worker import claim, process
 
@@ -19,7 +19,8 @@ def test_sync_indexes_code_as_plain_text_with_patterns(env):
     created = collection(env, "payments-code", "code/payments", include=["**/*.py"], exclude=["tests/**"])
     stats, row = sync(env, created)
     assert stats["parsed_files"] == 1 and row["indexed_files"] == 1 and row["status"] == "up_to_date"
-    # Task 5 (search by collection) adds: search(env, "MAX_RETRIES", ["payments-code"]) hits src/retry.py.
+    hits = search(env, "MAX_RETRIES", ["payments-code"]).json()["results"]
+    assert hits[0]["path"] == "src/retry.py" and hits[0]["collection"] == "payments-code"
     assert chunks(env, created, "src/retry.py") == ["MAX_RETRIES = 5  # payment retries"]
     assert chunks(env, created, "tests/test_retry.py") == []
 
