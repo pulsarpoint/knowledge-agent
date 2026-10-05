@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
   vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
-  agents = ['search', 'operations', 'code', 'custom-code'].map(id => ({ id, is_coordinator: false, documents_grounded: false, name: id === 'custom-code' ? 'Payments code' : prompts.agentNames[id as prompts.AgentName], documents_enabled: id === 'search', repositories_enabled: id !== 'operations', ssh_enabled: id === 'operations', skills_enabled: true, mcp_enabled: id !== 'search', services_enabled: true, description: '', when_to_use: '', enabled: true, revision: 1, model_id: null, all_folders: false, all_repositories: false, include_subfolders: true, folder_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null, model_name: null, prompt_title: `${id} prompt`, prompt_version: 3 }));
+  agents = ['search', 'operations', 'code', 'custom-code'].map(id => ({ id, is_coordinator: false, documents_grounded: false, name: id === 'custom-code' ? 'Payments code' : prompts.agentNames[id as prompts.AgentName], documents_enabled: id === 'search', repositories_enabled: id !== 'operations', ssh_enabled: id === 'operations', skills_enabled: true, mcp_enabled: id !== 'search', services_enabled: true, description: '', when_to_use: '', enabled: true, revision: 1, model_id: null, all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null, model_name: null, prompt_title: `${id} prompt`, prompt_version: 3 }));
   data = {
     agents: agents.map(a => ({ agent: a.id, active_version_id: a.id, revision: 1 })),
     versions: agents.map(a => ({ agent: a.id, id: a.id, version: 3, title: `${a.id} prompt`, content: `${a.id} instructions`, revision: 1, status: 'active', created_at: '', updated_at: '' })),
@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.mocked(prompts.getPrompts).mockImplementation(async () => structuredClone(data));
   vi.mocked(profiles.getAgents).mockImplementation(async () => ({ agents: structuredClone(agents) }));
   vi.mocked(profiles.getAgent).mockImplementation(async id => structuredClone(agents.find(a => a.id === id)!));
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ folders: [], repositories: [], services: [], skills: [] });
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
 });
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} /></Routes></AdminLayout></MemoryRouter>; }
@@ -169,10 +169,18 @@ test.each(['search','operations','code','custom-code'])('every agent has the sam
   expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['General','Skills','Documents','Code projects','SSH','MCP','Services','Prompts','Versions','Test']);
 });
 
+test('Documents tab picks RAG collections by name without subfolder options', async () => {
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [{ id: 'c1', name: 'jira', description: 'Jira tickets' }], repositories: [], services: [], skills: [] });
+  render(app('/agents/search?view=documents'));
+  expect(await screen.findByRole('switch', { name: 'All collections' })).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'jira' })).toBeInTheDocument();
+  expect(screen.queryByText(/Include subfolders/)).toBeNull();
+});
+
 test('Code SSH and SSH Git access can be enabled, then disabled without clearing resources', async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.saveAgent).mockImplementation(async draft => ({ ...draft, revision: draft.revision + 1 }));
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ folders: [], repositories: [{ id: 'repo', name: 'Payments repo' }], services: [], skills: [] });
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [{ id: 'repo', name: 'Payments repo' }], services: [], skills: [] });
   render(app('/agents/code?view=ssh'));
   expect(await screen.findByRole('switch', { name: 'Enable SSH access' })).not.toBeChecked();
   await user.click(screen.getByRole('switch', { name: 'Enable SSH access' }));
@@ -200,7 +208,7 @@ test('Code SSH and SSH Git access can be enabled, then disabled without clearing
 test('Skills reveals multiple selections when enabled, saves together, and retains them when disabled', async () => {
   const user = userEvent.setup();
   agents.find(a => a.id === 'code')!.skills_enabled = false;
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ folders: [], repositories: [], services: [], skills: [
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [
     { id: 'inspect', name: 'Inspect code', description: 'Find implementation details', enabled: true },
     { id: 'verify', name: 'Verify findings', description: 'Check evidence', enabled: true },
   ] });

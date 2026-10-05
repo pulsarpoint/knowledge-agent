@@ -32,6 +32,6 @@ export default function SearchAgentView({ modelRevision = 0, agentId = "search" 
     <div className="flex flex-wrap gap-4 text-sm"><Link className="underline" to="/rag/collections">Manage RAG collections</Link><Link className="underline" to="/github-projects">Manage repositories</Link></div>
     <ChatPanel key={conversation} app="admin-search" contextEnabled askEnabled={status.ask_enabled} askReason={status.ask_reason}
       sources={status.sources} sessionKey={session} onSession={setSession} client={scopedClient}
-      documentHref={(source) => `/rag/files?path=${encodeURIComponent(source.path)}`} />
+      documentHref={(source) => `/rag/collections?name=${encodeURIComponent(source.path.split("/")[0])}`} />
   </section>;
 }

@@ -13,8 +13,8 @@ export interface AgentProposal {
   model_id: string | null; enabled: boolean;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean;
   skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean;
-  all_folders: boolean; all_repositories: boolean; include_subfolders: boolean;
-  folder_ids: string[]; repository_ids: string[]; skill_ids: string[];
+  all_collections: boolean; all_repositories: boolean;
+  collection_ids: string[]; repository_ids: string[]; skill_ids: string[];
   mcp_server_ids: string[]; service_ids: string[]; servers: WizardServer[];
 }
 export interface WizardOptions {
@@ -22,7 +22,7 @@ export interface WizardOptions {
   catalog: {
     models: (WizardResource & { provider: string; model: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
-    folders: { id: string; path: string; description: string }[];
+    collections: { id: string; name: string; description: string }[];
     servers: (WizardResource & WizardConnection & { hostname: string; tags: string[] })[];
     credentials: WizardResource[]; skills: WizardResource[]; mcp_servers: WizardResource[];
     services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];

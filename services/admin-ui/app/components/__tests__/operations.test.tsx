@@ -376,8 +376,8 @@ it('allows configuring a server before enabling the agent SSH capability', async
   const profile: AgentProfile = { is_coordinator: false, documents_grounded: false,
     id: 'code', name: 'Code agent', description: '', when_to_use: '', enabled: true, revision: 1,
     model_id: 'model', documents_enabled: false, repositories_enabled: true, ssh_enabled: false,
-    skills_enabled: true, mcp_enabled: true, services_enabled: false, all_folders: false,
-    all_repositories: true, include_subfolders: true, folder_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null,
+    skills_enabled: true, mcp_enabled: true, services_enabled: false, all_collections: false,
+    all_repositories: true, collection_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null,
   };
   const data = await api.getOperationsSettings();
   vi.mocked(api.getOperationsSettings).mockImplementation(async () => structuredClone(data));

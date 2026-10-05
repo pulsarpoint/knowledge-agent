@@ -1,26 +1,18 @@
 import { request } from "./api";
 
-export interface RagSettings {
-  chunk_size: number; chunk_overlap: number; max_file_bytes: number; extensions: string[];
-  embedding_enabled: boolean;
-}
-export interface RagSourceLocation {
-  host_root: string | null; container_root: string;
-}
-export interface RagConfig {
-  revision: number; settings: RagSettings; source_root: string; source_location: RagSourceLocation; embedding_model_id: string | null;
-}
-export interface ProcessInput { folder_id: string; recursive: boolean; force: boolean; allow_empty: boolean }
+export interface RagSettings { max_file_bytes: number }
+export interface RagArea { area: string; container_root: string; host_root: string | null }
+export interface RagConfig { revision: number; settings: RagSettings; embedding_model_id: string | null; areas: RagArea[] }
 export interface RagJob {
-  id: string; path: string; status: string; input: ProcessInput; result: Record<string, number>;
+  id: string; status: string; input: { force?: boolean }; result: Record<string, number>;
   error: string | null; created_at: string; started_at: string | null; finished_at: string | null;
-  folder_deleted_at: string | null;
+  collection: string; collection_id: string | null;
 }
 export interface RagHit {
-  id: string; path: string; folder: string; text: string; kind: string; score: number;
+  id: string; text: string; position: number; path: string; collection: string; score: number;
   citation: string; content_hash: string; indexed_at: string; job_id: string;
 }
-export interface RagResults { mode: string; folder: string; results: RagHit[]; }
+export interface RagResults { collections: string[]; fallback: string[]; results: RagHit[] }
 export function ragRequest<T>(resource: string, method = "GET", body?: unknown, signal?: AbortSignal) {
   return request<T>(`/api/rag/${resource}`, {
     method, signal, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),

@@ -35,8 +35,8 @@ function Selection({ label, options, selected, onChange }: { label: string; opti
 function blankProposal(model_id: string | null): AgentProposal {
   return { name: '', description: '', when_to_use: '', system_prompt: '', instructions: '', model_id, enabled: true,
     documents_enabled: false, repositories_enabled: false, ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false,
-    all_folders: false, all_repositories: false, include_subfolders: true,
-    folder_ids: [], repository_ids: [], skill_ids: [], mcp_server_ids: [], service_ids: [], servers: [] };
+    all_collections: false, all_repositories: false,
+    collection_ids: [], repository_ids: [], skill_ids: [], mcp_server_ids: [], service_ids: [], servers: [] };
 }
 
 export default function AgentWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
@@ -101,7 +101,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
           {catalog.models.length === 0 && <FieldDescription><Link className="underline" to="/llm-settings">Add an enabled model in LLM Settings</Link> to generate a proposal.</FieldDescription>}
         </Field>
         <FieldSet><FieldLegend>Available context</FieldLegend><FieldDescription>The model receives resource names, descriptions, folder paths, and saved credential references. Private keys and tokens are excluded. It designs the agent without accessing these resources.</FieldDescription>
-          <div className="flex flex-wrap gap-2">{([['Code projects', catalog.code_projects.length], ['Document folders', catalog.folders.length], ['SSH servers', catalog.servers.length], ['Skills', catalog.skills.length], ['MCP servers', catalog.mcp_servers.length], ['Services', catalog.services.length]] as const).map(([label, count]) => <Badge key={label} variant="secondary">{count} {label}</Badge>)}</div>
+          <div className="flex flex-wrap gap-2">{([['Code projects', catalog.code_projects.length], ['Collections', catalog.collections.length], ['SSH servers', catalog.servers.length], ['Skills', catalog.skills.length], ['MCP servers', catalog.mcp_servers.length], ['Services', catalog.services.length]] as const).map(([label, count]) => <Badge key={label} variant="secondary">{count} {label}</Badge>)}</div>
           <Button type="button" variant="outline" className="w-fit" onClick={() => setShowContext(!showContext)}>{showContext ? 'Hide design context' : 'Show design context'}</Button>
           {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, generation_model_id: model, catalog, output_schema: options.schema } }, null, 2)} /></Field>}
         </FieldSet>
@@ -119,9 +119,8 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
         <TabsContent value="prompt"><FieldGroup><Field><FieldLabel htmlFor="wizard-prompt">System prompt</FieldLabel><Textarea id="wizard-prompt" rows={16} maxLength={40000} value={proposal.system_prompt} onChange={e => edit({ system_prompt: e.target.value })} /><FieldDescription>Required. Saved as the first active prompt version. Future versions are managed in this agent’s Prompts tab.</FieldDescription></Field></FieldGroup></TabsContent>
         <TabsContent value="documents"><FieldGroup>
           <Toggle label="Enable documents" checked={proposal.documents_enabled} onChange={documents_enabled => edit({ documents_enabled })} />
-          {proposal.documents_enabled && <><Toggle label="All document folders" checked={proposal.all_folders} onChange={all_folders => edit({ all_folders, folder_ids: [] })} />
-            <Toggle label="Include subfolders" checked={proposal.include_subfolders} onChange={include_subfolders => edit({ include_subfolders })} />
-            {proposal.all_folders ? <FieldDescription>Includes all current and future document folders.</FieldDescription> : <Selection label="Document folders" options={catalog.folders.map(f => ({ ...f, name: f.path }))} selected={proposal.folder_ids} onChange={folder_ids => edit({ folder_ids })} />}</>}
+          {proposal.documents_enabled && <><Toggle label="All collections" checked={proposal.all_collections} onChange={all_collections => edit({ all_collections, collection_ids: [] })} />
+            {proposal.all_collections ? <FieldDescription>Includes all current and future collections.</FieldDescription> : <Selection label="Collections" options={catalog.collections} selected={proposal.collection_ids} onChange={collection_ids => edit({ collection_ids })} />}</>}
         </FieldGroup></TabsContent>
         <TabsContent value="code"><FieldGroup>
           <Toggle label="Enable code projects" checked={proposal.repositories_enabled} onChange={repositories_enabled => edit({ repositories_enabled })} />

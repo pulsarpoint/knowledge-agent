@@ -9,8 +9,8 @@ const proposal: api.AgentProposal = {
   name: 'Payments helper', description: 'Investigate payments.', when_to_use: 'Payment incidents.',
   system_prompt: 'Find evidence before answering.', instructions: 'Check exit codes.', model_id: 'model', enabled: true,
   documents_enabled: true, repositories_enabled: true, ssh_enabled: true, skills_enabled: true, mcp_enabled: true, services_enabled: true,
-  all_folders: false, all_repositories: false, include_subfolders: true,
-  folder_ids: ['folder'], repository_ids: ['repo'], skill_ids: ['skill'], mcp_server_ids: ['mcp'], service_ids: ['service'],
+  all_collections: false, all_repositories: false,
+  collection_ids: ['jira'], repository_ids: ['repo'], skill_ids: ['skill'], mcp_server_ids: ['mcp'], service_ids: ['service'],
   servers: [{ server_id: 'server', instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }],
 };
 const options: api.WizardOptions = {
@@ -18,7 +18,7 @@ const options: api.WizardOptions = {
   catalog: {
     models: [{ id: 'model', name: 'Claude', model: 'claude-test', provider: 'bedrock' }],
     code_projects: [{ id: 'repo', name: 'Payments', folder_paths: ['payments'], remote_url: null }],
-    folders: [{ id: 'folder', path: 'payments/runbooks', description: 'Runbooks' }],
+    collections: [{ id: 'jira', name: 'jira-tickets', description: 'Jira tickets' }],
     servers: [{ id: 'server', name: 'Staging', description: '', hostname: 'staging.test', tags: [], username: 'operator', port: 22, allow_sudo: false, known_hosts: '', credential_id: 'key' }],
     credentials: [{ id: 'key', name: 'Staging key' }], skills: [{ id: 'skill', name: 'Inspection' }],
     mcp_servers: [{ id: 'mcp', name: 'Docs MCP' }], services: [{ id: 'service', name: 'Payments API' }], existing_agents: [],
@@ -47,6 +47,10 @@ test('generates a reviewable proposal, edits resources and SSH overrides, then c
   expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'model');
   expect(api.createWizardAgent).not.toHaveBeenCalled();
   await user.clear(screen.getByLabelText('Agent name')); await user.type(screen.getByLabelText('Agent name'), 'Reviewed agent');
+  await user.click(screen.getByRole('tab', { name: 'Documents' }));
+  expect(screen.getByRole('switch', { name: 'All collections' })).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'jira-tickets' })).toBeChecked();
+  expect(screen.queryByText('Include subfolders')).toBeNull();
   await user.click(screen.getByRole('tab', { name: 'Code projects' }));
   expect(screen.getByRole('checkbox', { name: 'Payments' })).toBeChecked();
   await user.click(screen.getByRole('switch', { name: 'All code projects' }));
@@ -110,6 +114,6 @@ test('start blank opens an empty proposal without generating and can create with
   fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Answer carefully.' } });
   await user.click(screen.getByRole('button', { name: 'Create agent' }));
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Blank helper', system_prompt: 'Answer carefully.',
-    model_id: null, documents_enabled: false, ssh_enabled: false, folder_ids: [], servers: [] }));
+    model_id: null, documents_enabled: false, ssh_enabled: false, collection_ids: [], servers: [] }));
   expect(created).toHaveBeenCalledWith('new-agent');
 });
