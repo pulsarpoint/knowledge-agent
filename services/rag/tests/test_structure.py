@@ -1,9 +1,7 @@
-"""Single-parse markdown structure: ONE `md.parse(body)` feeds both the
-chunker's section boundaries (`ingest.split_sections`) and the heading
-sequence anchors are computed from (`anchors._rendered_ids`). These tests
-pin `structure.parse_structure`'s own contract in isolation -- heading
-extraction (level/text/line) and section-splitting semantics -- before
-`ingest`/`anchors` are rewired onto it.
+"""Single-parse markdown structure: ONE `md.parse(body)` yields the heading
+sequence and the chunker's section boundaries (`chunking.split_sections`).
+These tests pin `structure.parse_structure`'s own contract in isolation --
+heading extraction (level/text/line) and section-splitting semantics.
 
 Several cases here are the direct payoff of dropping the hand-rolled
 `_FENCE_RE` + H1/H2/H3 regex scanner for a real parser: a heading-lookalike

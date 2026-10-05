@@ -9,17 +9,16 @@ from fastapi.testclient import TestClient
 
 from docs_wiki import api as api_mod, audit, gaps, webapp
 from docs_wiki.config import App, Config, ServerConfig
-from docs_wiki.rag_client import RagClient
 from docs_wiki.webapp import create_app
 
 
 @pytest.fixture()
 def rag(fake_rag):
-    """A RagClient wired to `fake_rag`, pre-seeded with one "shop"
+    """A `StubRag` (conftest `fake_rag`), pre-seeded with one "shop"
     collection's catalog/document/search fixtures — byte-compatible with
     what the old local-index `corpus` fixture produced, so response-shape
     assertions carry over unchanged."""
-    transport, state = fake_rag
+    client, state = fake_rag
     state["documents"]["shop"] = [
         {"path": "how-to/refunds.md", "title": "Refunds",
          "quadrant": "how-to", "front_matter": {"updated": "2026-08-01"}},
@@ -38,7 +37,6 @@ def rag(fake_rag):
          "heading_path": "Requesting", "anchor": "requesting",
          "text": "Refunds are asynchronous.", "score": 1.0},
     ]
-    client = RagClient("http://rag.test", transport=transport)
     return client, state
 
 

@@ -1,21 +1,10 @@
 """Single-parse markdown structure.
 
-ONE `markdown_it` parse of a document's body feeds both consumers that used
-to run their own hand-rolled scanner over the same text: the chunker
-(`ingest.split_sections`, which used a fence-delimiter-tracking regex plus
-H1/H2/H3 line regexes) and the anchor computation
-(`anchors._rendered_ids`, which had its own copy of that same fence loop).
-Two independent regex-based re-implementations of "what counts as a
-heading" is exactly the class of bug `test_catalog_anchor_parity.py` exists
-to catch (a doc-comment body line that looked like a heading desynced one
-scanner from the other). Parsing once here and handing both consumers the
-same token-derived heading sequence makes that class of drift structurally
-impossible: there is only one opinion of where the headings are, because
-there is only one parse.
-
-`Section` (chunk text keyed by its heading path) is defined here, not in
-`ingest`, so both `ingest.split_sections` and `store.Store.replace_chunks`
-can depend on it without either owning it.
+ONE `markdown_it` parse of a document's body yields its headings and its
+chunk-ready sections, so there is only one opinion of where the headings are.
+`rag.chunking` (the workspace worker's chunker and the `rag index`
+chunk-contract check) consumes it. `Section` (chunk text keyed by its heading
+path) is defined here so the chunker and the worker share it.
 
 This is NOT a byte-for-byte port of the old line scanner -- a real parser
 is right about more things than a regex scanner was, and those deltas are
@@ -70,11 +59,8 @@ class Heading:
     line: int  # 0-indexed source line the heading starts on (token.map[0]).
     is_root: bool  # False for a heading nested inside a blockquote or list
                # item (container depth > 0 at the heading). Still a real
-               # heading (still in this list, still consumes render_html's
-               # slug namespace) -- just never a section break and never
-               # "current H2/H3" state for a consumer that needs that
-               # distinction (see `ingest.split_sections` and
-               # `anchors._rendered_ids`, which must and do agree on this).
+               # heading (still in this list) -- just never a section break
+               # and never "current H2/H3" state (see `chunking.split_sections`).
 
 
 @dataclass

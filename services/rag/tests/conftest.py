@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import subprocess
@@ -9,64 +8,13 @@ from uuid import uuid4
 import httpx
 import psycopg
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from psycopg import sql
 
 from rag.api import create_app
 from rag.collections import AREAS, Areas
-from rag.config import Config
 from rag.workspace import Workspace
 from rag.workspace_api import build_api
-
-EMBED_DIM = 8
-
-
-def fake_embedding(text: str, dim: int = EMBED_DIM) -> list[float]:
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    return [b / 255 for b in digest[:dim]]
-
-
-@pytest.fixture()
-def fake_embed():
-    state = {
-        "embed_batches": [],
-        "fail_embed": False,
-        "truncate_embeddings": False,
-        # When set to a string, the endpoint answers 400 with an
-        # OpenAI-style {"error": {"message": ...}} body carrying it.
-        "embed_error_body": None,
-        # Override the embedding dimension returned by /v1/embeddings, to
-        # simulate a backend/model swap that keeps the configured model
-        # *name* the same but changes vector shape underneath (see
-        # test_dimension_drift_invalidates). None means "use EMBED_DIM".
-        "embed_dim": None,
-    }
-    api = FastAPI()
-
-    @api.post("/v1/embeddings")
-    async def embeddings(request: Request):
-        if state["fail_embed"]:
-            raise RuntimeError("embed endpoint down")
-        payload = await request.json()
-        inputs = payload["input"]
-        if isinstance(inputs, str):
-            inputs = [inputs]
-        state["embed_batches"].append(list(inputs))
-        if state["embed_error_body"]:
-            return JSONResponse(status_code=400, content={
-                "error": {"message": state["embed_error_body"]}})
-        if state["truncate_embeddings"]:
-            # Simulate a malformed-but-HTTP-200 response: an empty `data`
-            # array despite the request having `input`s.
-            return {"data": []}
-        dim = state["embed_dim"] or EMBED_DIM
-        return {"data": [{"index": i, "embedding": fake_embedding(t, dim)}
-                         for i, t in enumerate(inputs)]}
-
-    return httpx.ASGITransport(app=api), state
-
 
 # --- PostgreSQL/pgvector workspace fixtures (collections API, sync worker) ---
 
@@ -129,10 +77,8 @@ def env(workspace_postgres, tmp_path):
             return httpx.Response(200, json={"data": [{"index": i, "embedding": [1.0] if state["bad_dimension"] else [1.0, float(len(text) % 7 + 1), 0.3]} for i, text in enumerate(body["input"])]})
         return httpx.Response(200, json={"choices": [{"message": {"content": "Payments retry safely [S1]."}}]})
     transport = httpx.MockTransport(models)
-    app = create_app(Config(collections=[], llm=None))
+    app = create_app()
     app.include_router(build_api(workspace, "test-key", transport))
-    wrapped = create_app(Config(collections=[], llm=None), workspace=workspace, workspace_key="test-key")
-    app.exception_handlers.update(wrapped.exception_handlers)
     client = TestClient(app, headers={"x-rag-key": "test-key"})
     prefix = f"/backoffice/projects/{project}"
     assert client.get(prefix + "/settings").status_code == 200

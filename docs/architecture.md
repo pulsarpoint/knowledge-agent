@@ -291,4 +291,4 @@ build a second trace database. A Phoenix outage must not block chat or jobs.
 
 ## Folder workspace RAG
 
-The standalone RAG API also owns a PostgreSQL-backed folder workspace and a dedicated durable processing worker. The admin API authenticates administrators and injects project scope into RAG calls. Compose fixes the source mount, while backoffice settings control processing and model configuration without restarts. The legacy reader APIs continue to serve the existing corpus during the transition. See [the RAG architecture and API guide](rag.md).
+The standalone RAG API also owns a PostgreSQL-backed folder workspace and a dedicated durable processing worker. The admin API authenticates administrators and injects project scope into RAG calls. Compose fixes the source mount, while backoffice settings control processing and model configuration without restarts. See [the RAG architecture and API guide](rag.md).

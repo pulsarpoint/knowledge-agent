@@ -1,9 +1,7 @@
-"""docs-wiki CLI: serve the API + UI over a RAG service's indexed
-collections.
+"""docs-wiki CLI: serve the API + UI over the RAG service's collections.
 
-Indexing lives entirely in the sibling `rag` service now (`rag index` /
-`rag serve` in services/rag) — this CLI never touches a docs folder or a
-local index.
+Indexing lives entirely in the sibling `rag` service (collections are synced
+from Administration → RAG) — this CLI never touches a local index.
 """
 from __future__ import annotations
 
@@ -15,16 +13,14 @@ import uvicorn
 
 from docs_wiki.config import (ConfigError, load_config, load_env_file,
                               resolve_rag, resolve_server)
-from docs_wiki.rag_client import RagClient
 from docs_wiki.webapp import create_app
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="docs-wiki",
-        description="Serve pre-indexed documentation over HTTP. Indexing "
-                    "is a separate step in the rag service: run "
-                    "`rag index <config.toml | docs-folder>` there first.")
+        description="Serve documentation over HTTP from the rag service's "
+                    "collections (DOCS_WIKI_RAG_URL and RAG_BACKOFFICE_KEY).")
     sub = parser.add_subparsers(dest="command", required=True)
     serve = sub.add_parser("serve", help="serve the API + UI")
     serve.add_argument("target", type=Path, help="config.toml or a docs folder")
@@ -46,11 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    rag_client = RagClient(rag_url)
-
-    uvicorn.run(create_app(
-        cfg, server=server_cfg, rag_client=rag_client),
-        host=args.host, port=args.port)
+    uvicorn.run(create_app(cfg, server=server_cfg),
+                host=args.host, port=args.port)
     return 0
 
 

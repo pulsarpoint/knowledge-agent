@@ -1,14 +1,10 @@
-"""rag CLI: explicit indexing, API serving."""
+"""rag CLI: serve the workspace API, run the sync worker, check the chunk contract."""
 from __future__ import annotations
 
-import os
 import argparse
+import os
 import sys
 from pathlib import Path
-
-from rag import ingest
-from rag.config import Config, ConfigError, load_config, load_env_file, resolve_embed
-from rag.embed_client import EmbedClient
 
 
 def _run_server(app, host: str, port: int) -> None:
@@ -16,76 +12,66 @@ def _run_server(app, host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port)
 
 
-def _resolve_embed_client(llm_section: dict | None) -> EmbedClient | None:
-    embed_cfg = resolve_embed(llm_section)
-    return EmbedClient(embed_cfg) if embed_cfg else None
+def load_env_file(path: Path | None) -> None:
+    """Load `path` (must exist) or, when omitted, `./.env` if present.
+    Variables already set in the environment win."""
+    from dotenv import load_dotenv
 
-
-def _bm25_notice() -> None:
-    print("embeddings not configured -- retrieval is BM25-only (set "
-          "RAG_EMBED_BASE_URL/RAG_EMBED_MODEL or [llm] in the config to enable "
-          "hybrid search)", file=sys.stderr)
+    if path is not None:
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"env file does not exist: {path}")
+        load_dotenv(path, override=False)
+        return
+    default = Path.cwd() / ".env"
+    if default.is_file():
+        load_dotenv(default, override=False)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rag")
     sub = parser.add_subparsers(dest="command", required=True)
-    index = sub.add_parser("index", help="build/rebuild collection indexes")
-    index.add_argument("target", type=Path)
-    index.add_argument("--env-file", type=Path, default=None)
-    serve = sub.add_parser("serve", help="serve the retrieval API")
-    serve.add_argument("target", type=Path)
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8790)
-    serve.add_argument("--env-file", type=Path, default=None)
-    serve.add_argument("--reindex", action="store_true",
-                       help="run one index pass before serving")
     workspace = sub.add_parser("serve-workspace", help="serve the PostgreSQL folder workspace API")
     workspace.add_argument("--host", default="127.0.0.1")
     workspace.add_argument("--port", type=int, default=8790)
     workspace.add_argument("--env-file", type=Path, default=None)
+    worker = sub.add_parser("worker", help="run the collection sync worker")
+    worker.add_argument("--env-file", type=Path, default=None)
+    index = sub.add_parser(
+        "index", help="check a docs folder against the chunk contract (writes nothing)")
+    index.add_argument("target", type=Path)
     args = parser.parse_args(argv)
 
+    if args.command == "index":
+        from rag.chunking import check_folder
 
-    try:
-        load_env_file(args.env_file)
-    except ConfigError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-
-    if args.command == "serve-workspace":
-        from rag.api import create_app
-        from rag.workspace import Workspace
-
-        app = create_app(Config(collections=[], llm=None),
-                         workspace=Workspace.from_env(),
-                         workspace_key=os.environ.get("RAG_BACKOFFICE_KEY", ""))
-        _run_server(app, args.host, args.port)
+        if not args.target.is_dir():
+            print(f"error: not a docs folder: {args.target}", file=sys.stderr)
+            return 2
+        documents, warnings = check_folder(args.target)
+        line = f"{args.target.name}: checked {documents}"
+        if warnings:
+            line += f", chunk-warnings {warnings}"
+        print(line)
         return 0
 
     try:
-        cfg = load_config(args.target)
-    except ConfigError as exc:
+        load_env_file(args.env_file)
+    except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    embed = _resolve_embed_client(cfg.llm)
+    if args.command == "worker":
+        from rag.workspace_worker import main as worker_main
 
-    if args.command == "index" or args.reindex:
-        for collection in cfg.collections:
-            counts = ingest.index_collection(collection.path, embed=embed,
-                                             name=collection.name,
-                                             kind=collection.kind,
-                                             db_dir=collection.db_dir)
-            print(ingest.format_index_counts(collection.name, counts,
-                                             embed is not None))
-        if args.command == "index":
-            return 0
+        worker_main()
+        return 0
 
     from rag.api import create_app
-    if embed is None:
-        _bm25_notice()
-    _run_server(create_app(cfg, embed=embed), args.host, args.port)
+    from rag.workspace import Workspace
+
+    app = create_app(workspace=Workspace.from_env(),
+                     workspace_key=os.environ.get("RAG_BACKOFFICE_KEY", ""))
+    _run_server(app, args.host, args.port)
     return 0
 
 

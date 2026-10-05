@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from docs_wiki import audit, gaps, sessions
 from docs_wiki.agent_context import AgentContext
-from docs_wiki.rag_client import RagError
+from docs_wiki.workspace_client import RagError
 from docs_wiki.reader_client import UNAVAILABLE, ReaderError
 from knowledge_llm import ModelUnavailable, managed
 from knowledge_llm.profiles import load_profile

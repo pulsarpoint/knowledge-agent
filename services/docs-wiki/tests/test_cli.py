@@ -18,7 +18,7 @@ def test_missing_rag_url_exit_2(tmp_path, capsys, monkeypatch):
     assert "DOCS_WIKI_RAG_URL" in err
 
 
-def test_serve_builds_app_with_rag_client(tmp_path, monkeypatch):
+def test_serve_builds_app(tmp_path, monkeypatch):
     docs = tmp_path / "docs"
     docs.mkdir()
     monkeypatch.setenv("DOCS_WIKI_RAG_URL", "http://rag.local:8790")
@@ -45,8 +45,8 @@ def test_reindex_no_longer_a_subcommand(capsys):
     assert exc.value.code == 2
 
 
-def test_help_text_points_to_rag_index(capsys):
+def test_help_text_names_the_rag_settings(capsys):
     with pytest.raises(SystemExit):
         cli.main(["--help"])
     out = capsys.readouterr().out
-    assert "rag index" in out
+    assert "DOCS_WIKI_RAG_URL" in out and "RAG_BACKOFFICE_KEY" in out

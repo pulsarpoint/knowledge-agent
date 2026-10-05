@@ -6,6 +6,8 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from docs_wiki.workspace_client import RagError, RagNotFound
+
 EMBED_DIM = 8
 
 
@@ -129,64 +131,57 @@ def fake_llm():
     return httpx.ASGITransport(app=api), state
 
 
+class StubRag:
+    """In-memory stand-in for `WorkspaceRagClient`, driven by a mutable
+    `state` dict, raising the same `RagError`/`RagNotFound` the client does."""
+
+    def __init__(self, state):
+        self.state = state
+
+    def _check(self):
+        if self.state["fail"]:
+            raise RagError("request failed: rag backend failure")
+
+    def collections(self):
+        self._check()
+        return self.state["collections"]
+
+    def list_documents(self, collection):
+        self._check()
+        if collection not in self.state["documents"]:
+            raise RagError(f"request failed: unknown collection: {collection}")
+        return self.state["documents"][collection]
+
+    def get_document(self, collection, path):
+        self._check()
+        doc = self.state["contents"].get((collection, path))
+        if doc is None:
+            raise RagNotFound(f"document not found: {collection}/{path}")
+        return doc
+
+    def search(self, collection, query, top=8):
+        self._check()
+        self.state["search_requests"].append(
+            {"collection": collection, "query": query, "top": top})
+        if (collection not in self.state["documents"]
+                and collection not in self.state["search_results"]):
+            raise RagError(f"request failed: unknown collection: {collection}")
+        return self.state["search_results"].get(collection, [])
+
+
 @pytest.fixture()
 def fake_rag():
     state = {
-        # collection -> [catalog dicts], per GET .../documents
+        # collection -> [catalog dicts]
         "documents": {},
-        # (collection, path) -> full-document dict, per GET .../documents/{path}
+        # (collection, path) -> full-document dict
         "contents": {},
-        # collection -> [hit dicts], per POST .../search
+        # collection -> [hit dicts]
         "search_results": {},
-        # True -> every route below answers 500 with the error shape,
-        # regardless of what "documents"/"contents"/"search_results" hold.
+        # True -> every call raises RagError.
         "fail": False,
         # Recorded {"collection": ..., "query": ..., "top": ...} per search.
         "search_requests": [],
-        # GET /collections rows, mirroring the real service's shape
-        # exactly (services/rag/src/rag/api.py list_collections):
-        # {"name", "indexed", "documents", "retrieval", "kind"}. Empty by
-        # default — tests that need code-collection discovery seed this
-        # explicitly with a row carrying "kind": "code".
         "collections": [],
     }
-    api = FastAPI()
-
-    def _error(status_code: int, message: str) -> JSONResponse:
-        return JSONResponse(status_code=status_code,
-                            content={"error": {"message": message}})
-
-    @api.get("/collections")
-    async def collections():
-        if state["fail"]:
-            return _error(500, "rag backend failure")
-        return state["collections"]
-
-    @api.get("/collections/{name}/documents")
-    async def documents(name: str):
-        if state["fail"]:
-            return _error(500, "rag backend failure")
-        if name not in state["documents"]:
-            return _error(404, f"unknown collection: {name}")
-        return state["documents"][name]
-
-    @api.get("/collections/{name}/documents/{path:path}")
-    async def get_document(name: str, path: str):
-        if state["fail"]:
-            return _error(500, "rag backend failure")
-        doc = state["contents"].get((name, path))
-        if doc is None:
-            return _error(404, f"document not found: {name}/{path}")
-        return doc
-
-    @api.post("/collections/{name}/search")
-    async def search(name: str, request: Request):
-        if state["fail"]:
-            return _error(500, "rag backend failure")
-        payload = await request.json()
-        state["search_requests"].append({"collection": name, **payload})
-        if name not in state["documents"] and name not in state["search_results"]:
-            return _error(404, f"unknown collection: {name}")
-        return state["search_results"].get(name, [])
-
-    return httpx.ASGITransport(app=api), state
+    return StubRag(state), state

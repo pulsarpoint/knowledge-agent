@@ -13,7 +13,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from docs_wiki import tracing
 from docs_wiki.config import App, Config, ServerConfig, resolve_rag, state_root
-from docs_wiki.rag_client import RagClient
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -111,15 +110,13 @@ def create_app(cfg: Config, server=None, rag_client=None) -> FastAPI:
                                     session_retention_days=90)
     tracing.setup(os.environ.get("DOCS_WIKI_PHOENIX_ENDPOINT"),
                   os.environ.get("DOCS_WIKI_PHOENIX_API_KEY"))
-    if rag_client is None:
-        rag_url = resolve_rag(cfg.rag)
-        if rag_url:
-            rag_client = RagClient(rag_url)
     if server.cors_origin:
         from fastapi.middleware.cors import CORSMiddleware
         app.add_middleware(CORSMiddleware,
                            allow_origins=[server.cors_origin],
                            allow_methods=["*"], allow_headers=["*"])
+    # RAG needs both the service URL and its backoffice key; without them the
+    # reader runs without RAG (rag_client stays None unless injected).
     workspace_key = os.environ.get('RAG_BACKOFFICE_KEY')
     workspace_rag = None
     if workspace_key and resolve_rag(cfg.rag):

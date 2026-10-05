@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from rag import content, ingest
+from rag import chunking
 from rag.structure import Section
 
 DOC = """---
@@ -31,21 +31,21 @@ KEY=value list.
 
 
 def test_front_matter_parsed():
-    meta, body = content.parse_front_matter(DOC)
+    meta, body = chunking.parse_front_matter(DOC)
     assert meta["analyzed_commits"]["billing"].startswith("a")
     assert str(meta["updated"]) == "2026-08-02"
     assert body.lstrip().startswith("# Payment service")
 
 
 def test_no_front_matter_is_empty_meta():
-    meta, body = content.parse_front_matter("# Just a title\n")
+    meta, body = chunking.parse_front_matter("# Just a title\n")
     assert meta == {}
     assert body.startswith("# Just a title")
 
 
 def test_split_sections_titles_and_fence_awareness():
-    _, body = content.parse_front_matter(DOC)
-    title, sections = ingest.split_sections(body)
+    _, body = chunking.parse_front_matter(DOC)
+    title, sections = chunking.split_sections(body)
     assert title == "Payment service"
     paths = [s.heading_path for s in sections]
     assert "Endpoints" in paths
@@ -61,7 +61,7 @@ def test_chunk_oversize_section_overlaps():
     # pins the exact old sliding-window overlap semantics still used by
     # that fallback.
     big = Section(heading_path="Big", text="para. " * 1000)
-    chunks = ingest.chunk_sections([big], cap=500, overlap=100)
+    chunks = chunking.chunk_sections([big], cap=500, overlap=100)
     assert len(chunks) > 1
     assert all(c.heading_path == "Big" for c in chunks)
     assert chunks[1].text[:100] == chunks[0].text[-100:]  # real overlap
@@ -74,7 +74,7 @@ def test_two_paragraphs_straddling_cap_split_at_boundary():
     # blank-line boundary between them, not mid-paragraph.
     p1, p2 = "A" * 150, "B" * 150
     section = Section(heading_path="S", text=f"{p1}\n\n{p2}")
-    chunks = ingest.chunk_sections([section], cap=300, overlap=50)
+    chunks = chunking.chunk_sections([section], cap=300, overlap=50)
     assert [c.text for c in chunks] == [p1, p2]
     assert all(c.heading_path == "S" for c in chunks)
     assert all(len(c.text) <= 300 for c in chunks)
@@ -86,7 +86,7 @@ def test_giant_single_paragraph_hard_slices():
     # must fall back to the old hard-slice-with-overlap algorithm.
     big_para = "x" * 1000
     section = Section(heading_path="S", text=big_para)
-    chunks = ingest.chunk_sections([section], cap=300, overlap=50)
+    chunks = chunking.chunk_sections([section], cap=300, overlap=50)
     assert len(chunks) > 1
     assert all(len(c.text) <= 300 for c in chunks)
     assert chunks[1].text[:50] == chunks[0].text[-50:]  # hard-slice overlap
@@ -99,7 +99,7 @@ def test_paragraph_split_carries_tail_paragraph_as_overlap():
     # fits under cap) -- p2's text appears in BOTH resulting chunks.
     p1, p2, p3 = "A" * 150, "B" * 150, "C" * 150
     section = Section(heading_path="S", text=f"{p1}\n\n{p2}\n\n{p3}")
-    chunks = ingest.chunk_sections([section], cap=350, overlap=100)
+    chunks = chunking.chunk_sections([section], cap=350, overlap=100)
     assert [c.text for c in chunks] == [f"{p1}\n\n{p2}", f"{p2}\n\n{p3}"]
     assert all(len(c.text) <= 350 for c in chunks)
 
@@ -114,7 +114,7 @@ def test_paragraph_that_alone_exceeds_cap_hard_slices_mid_stream():
     huge = "H" * 1000
     p3 = "C" * 100
     section = Section(heading_path="S", text=f"{p1}\n\n{huge}\n\n{p3}")
-    chunks = ingest.chunk_sections([section], cap=300, overlap=50)
+    chunks = chunking.chunk_sections([section], cap=300, overlap=50)
     assert chunks[0].text == p1
     assert chunks[-1].text == p3
     middle = chunks[1:-1]
@@ -138,7 +138,7 @@ def test_fence_internal_blank_line_is_not_a_chunk_boundary():
     p2 = "B" * 10
     text = f"{p1}\n\n{fence}\n\n{p2}"
     section = Section(heading_path="S", text=text)
-    chunks = ingest.chunk_sections([section], cap=32, overlap=5)
+    chunks = chunking.chunk_sections([section], cap=32, overlap=5)
     assert all(c.text.count("```") % 2 == 0 for c in chunks)  # never dangling
     assert sum(fence in c.text for c in chunks) == 1  # intact, exactly once
 
@@ -154,7 +154,7 @@ def test_only_blank_line_inside_fence_falls_back_to_hard_slice():
     # `_fence_aware_paragraphs`'s docstring).
     fence_text = "```go\n" + ("x = 1\n" * 100) + "\n" + ("y = 2\n" * 100) + "```"
     section = Section(heading_path="S", text=fence_text)
-    chunks = ingest.chunk_sections([section], cap=1000, overlap=100)
+    chunks = chunking.chunk_sections([section], cap=1000, overlap=100)
     assert len(chunks) > 1
     assert all(len(c.text) <= 1000 for c in chunks)
     assert chunks[1].text[:100] == chunks[0].text[-100:]  # hard-slice overlap
@@ -189,7 +189,7 @@ def test_widened_fence_cascade_does_not_suppress_later_paragraph_boundaries():
         "\n"
         "Paragraph C.\n"
     )
-    assert ingest._fence_aware_paragraphs(text) == [
+    assert chunking._fence_aware_paragraphs(text) == [
         "````\nsome code\n```\nmore code\n````",
         "Paragraph A.",
         "Paragraph B.",
@@ -209,7 +209,7 @@ def test_widened_fence_end_to_end_chunking_keeps_paragraphs_intact():
     a, b, c = "A" * 60, "B" * 60, "C" * 60
     text = f"{fence}\n\n{a}\n\n{b}\n\n{c}"
     section = Section(heading_path="S", text=text)
-    chunks = ingest.chunk_sections([section], cap=150, overlap=20)
+    chunks = chunking.chunk_sections([section], cap=150, overlap=20)
     assert any(fence in ch.text for ch in chunks)
     assert any(a in ch.text for ch in chunks)
     assert any(b in ch.text for ch in chunks)
@@ -221,7 +221,7 @@ def test_widened_fence_closes_on_equal_length_run():
     # opener's" -- an EQUAL-length closer (not just a strictly longer
     # one) must close the fence.
     text = "````\ncode\n````\n\nAfter.\n"
-    assert ingest._fence_aware_paragraphs(text) == ["````\ncode\n````", "After."]
+    assert chunking._fence_aware_paragraphs(text) == ["````\ncode\n````", "After."]
 
 
 def test_different_char_delimiter_inside_fence_is_content_not_close():
@@ -229,34 +229,19 @@ def test_different_char_delimiter_inside_fence_is_content_not_close():
     # requires the closer match the opener's character, so this must
     # never close the fence, regardless of its run length.
     text = "```\ncode\n~~~\nmore code\n```\n\nAfter.\n"
-    assert ingest._fence_aware_paragraphs(text) == [
+    assert chunking._fence_aware_paragraphs(text) == [
         "```\ncode\n~~~\nmore code\n```", "After.",
     ]
 
 
 def test_small_sections_pass_through():
     small = Section(heading_path="S", text="short text")
-    assert ingest.chunk_sections([small]) == [small]
-
-
-def test_render_html_headings_get_anchors():
-    html = content.render_html("## Refund Flow\n\nBody.")
-    assert 'id="refund-flow"' in html
-
-
-def test_render_html_highlights_known_language():
-    html = content.render_html("```python\nprint('x')\n```\n")
-    assert "highlight" in html or "<span" in html
-
-
-def test_render_html_unknown_language_is_escaped_pre():
-    html = content.render_html("```nosuchlang\na < b\n```\n")
-    assert "&lt;" in html
+    assert chunking.chunk_sections([small]) == [small]
 
 
 def test_mixed_fence_delimiters_do_not_close_each_other():
     body = "## Real\n\n```python\n~~~\n## fake heading\n~~~\n```\n\n## Next\n\nB.\n"
-    _, sections = ingest.split_sections(body)
+    _, sections = chunking.split_sections(body)
     paths = [s.heading_path for s in sections]
     assert "Real" in paths and "Next" in paths
     assert not any("fake heading" in p for p in paths)
@@ -281,22 +266,14 @@ def test_narrower_same_char_fence_line_does_not_close_widened_fence():
         "````\n\n"
         "## Next\n\nB.\n"
     )
-    _, sections = ingest.split_sections(body)
+    _, sections = chunking.split_sections(body)
     paths = [s.heading_path for s in sections]
     assert "Real" in paths and "Next" in paths
     assert not any("fake heading" in p for p in paths)
 
 
-def test_split_sections_and_rendered_ids_agree_on_nested_container_heading():
-    # Anti-drift regression (the whole point of the single-parse
-    # refactor): the chunker (split_sections) and anchors (_rendered_ids)
-    # must agree on which headings are real section boundaries and which
-    # are inert (nested inside a blockquote/list) -- both derive from the
-    # same structure.parse_structure(...).headings walk and the same
-    # Heading.is_root signal, so they cannot disagree. A blockquoted `##`
-    # is a real heading (gets a render_html id) but never a chunk section.
-    from rag.anchors import _rendered_ids
-
+def test_nested_container_heading_is_not_a_section_break():
+    # A blockquoted `##` is a real heading but never a chunk section.
     body = (
         "## Real\n\n"
         "> ## Nested (blockquote, not a break)\n"
@@ -304,24 +281,12 @@ def test_split_sections_and_rendered_ids_agree_on_nested_container_heading():
         "Body real.\n\n"
         "## Next\n\nBody next.\n"
     )
-    _, sections = ingest.split_sections(body)
+    _, sections = chunking.split_sections(body)
     paths = [s.heading_path for s in sections]
     assert paths == ["Real", "Next"]
-
-    ids = _rendered_ids(body)
-    # Every real chunk-section label must resolve to a real rendered
-    # anchor id -- and the nested heading's text must NOT appear as a
-    # chunk-style label (it was never a section boundary).
-    assert set(paths) <= set(ids)
-    assert "Nested (blockquote, not a break)" not in ids
 
 
 def test_overlap_ge_cap_raises():
     import pytest
     with pytest.raises(ValueError):
-        ingest.chunk_sections([Section("S", "x" * 10)], cap=100, overlap=100)
-
-
-def test_duplicate_headings_get_unique_anchors():
-    html = content.render_html("## Overview\n\nA\n\n## Overview\n\nB\n")
-    assert 'id="overview"' in html and 'id="overview-2"' in html
+        chunking.chunk_sections([Section("S", "x" * 10)], cap=100, overlap=100)

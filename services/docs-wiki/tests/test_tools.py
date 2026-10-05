@@ -3,7 +3,7 @@ import json
 
 from agents.tool_context import ToolContext
 
-from docs_wiki.rag_client import RagNotFound
+from docs_wiki.workspace_client import RagNotFound
 from docs_wiki.tools.search import SearchContext, search_docs, read_doc, list_docs
 
 

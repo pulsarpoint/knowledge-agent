@@ -1,55 +1,45 @@
-"""The indexing pipeline: walk a collection's markdown files, parse front
-matter and structure, chunk, render, write through `Store`, and (when an
-embed client is configured) sync vectors.
+"""Section chunking and the chunk-contract check.
 
-Moved verbatim off the old single-module indexing pipeline (store-package
-refactor, see `docs/superpowers/plans/2026-08-04-rag-store-package.md`) --
-the last piece of that module, now that its content helpers live in
-`rag.content` and its SQL lives in `rag.store`. `split_sections`/
-`chunk_sections` stay here rather than moving to `rag.content`: they are
-the "structure -> chunk" step of THIS pipeline specifically (only ever
-called from `index_collection`, one document at a time), not
-general-purpose text helpers reused elsewhere the way
-`render_html`/`parse_front_matter` are -- a disclosed judgment call, see
-task-2-report.md.
+`chunk_sections` splits parsed sections (`rag.structure.parse_structure`)
+into chunks no longer than a cap, at fence-aware paragraph boundaries. The
+workspace worker (`rag.workspace_worker`) uses it for every Markdown file.
 
-**Chunk-contract warnings (2026-08, see
-`docs/superpowers/plans/2026-08-04-chunk-contract.md`).** `index_collection`
-now emits three deterministic warning classes straight to stderr while it
-walks each (re)indexed doc -- section-split, heading-less-doc, duplicate-
-heading-text -- every fact for which the pipeline already computes as a
-side effect of parsing/chunking (`structure.parse_structure`'s `headings`/
-`sections` and `_chunk_sections_with_facts`'s per-section split record).
-No second parse, no heuristics. `index_collection` therefore calls
-`parse_structure` directly (instead of routing through `split_sections`,
-which only exposes `(title, sections)`) so it also has `doc.headings` on
-hand for the duplicate-heading check -- one parse, same as before;
-`split_sections` itself is unchanged and kept as a thin, independently
-tested wrapper (nothing outside `ingest.py`/tests calls it, but it's a
-reasonable public seam and existing tests pin its 2-tuple return).
-Warn-NEVER-fail: a violating doc indexes exactly as it would otherwise;
-warnings are purely observational (see `_emit_doc_warnings`).
+`check_folder` backs `rag index <docs-folder>`: it reads every Markdown file
+under a folder and prints the three chunk-contract warning classes
+(section-split, heading-less doc, duplicate heading text) to stderr. It writes
+nothing; the app-docs plugin uses it as an authoring feedback loop.
 """
 from __future__ import annotations
 
-import hashlib
-import logging
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-from rag.content import parse_front_matter, quadrant_for, render_html
-from rag.store import Store
-from rag.store.store import load_vec
+import yaml
+
 from rag.structure import DocStructure, Section, parse_structure
 
-logger = logging.getLogger("rag.ingest")
+_FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def parse_front_matter(text: str) -> tuple[dict, str]:
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return {}, text
+    try:
+        meta = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return meta, text[match.end():]
+
 
 # The chunker's cap/overlap: a section longer than CAP gets split;
 # OVERLAP is the character budget the old hard-slice fallback slides
 # back by between consecutive slices (see `_hard_slice`). Named so
-# `index_collection` and `chunk_sections`'s own default parameters can't
+# the workspace worker and `chunk_sections`'s own default parameters can't
 # drift apart -- both read from here.
 CAP = 2000
 OVERLAP = 200
@@ -72,8 +62,8 @@ def split_sections(body: str) -> tuple[str, list[Section]]:
     """Title + chunk-ready sections, derived from the single shared parse
     in `structure.parse_structure` (see that module's docstring for the
     exact section-splitting semantics ported from the old line scanner).
-    Kept as a convenience wrapper (see module docstring) -- `index_collection`
-    calls `parse_structure` directly so it can also reach `doc.headings`.
+    Kept as a convenience wrapper -- `check_folder` calls `parse_structure`
+    directly so it can also reach `doc.headings`.
     """
     doc = parse_structure(body)
     return doc.title, doc.sections
@@ -230,7 +220,7 @@ def _chunk_sections_with_facts(
         sections: list[Section], cap: int = CAP, overlap: int = OVERLAP
 ) -> tuple[list[Section], list[tuple[str, int, int]]]:
     """`chunk_sections`'s real implementation, additionally returning the
-    section-split warning facts `index_collection` needs: one
+    section-split warning facts `check_folder` needs: one
     `(heading_path, original_chars, resulting_chunk_count)` tuple per
     section that got split. Split out from the public `chunk_sections` so
     that function's return type (a bare `list[Section]`, pinned by
@@ -278,8 +268,7 @@ def _emit_doc_warnings(collection: str, rel: str, doc: DocStructure,
     Duplicate heading text: fires per DISTINCT heading text that repeats,
     counted across `doc.headings` in full -- every level, root or nested
     inside a blockquote/list -- because that is exactly the population
-    `render_html`'s slug-dedupe walk consumes (see `content.render_html`
-    and `anchors._rendered_ids`'s docstrings): a repeat anywhere in that
+    a Markdown renderer's slug-dedupe walk consumes: a repeat anywhere in that
     walk gets its anchor id suffixed, so the warning's "anchors suffixed"
     claim has to be checked against the same population. Matching is
     exact/case-sensitive text equality -- a deliberate, disclosed
@@ -306,200 +295,20 @@ def _emit_doc_warnings(collection: str, rel: str, doc: DocStructure,
     return count
 
 
-def _embed_input(row) -> str:
-    """The text actually sent to the embed endpoint for one pending chunk
-    row (`rowid`, `heading_path`, `text` -- see `Store.pending_chunks`).
-    Heading-prefixed for any real section (`heading_path != "(intro)"`):
-    the embedding model gets the same "what is this chunk about" context
-    a reader gets from the page's own heading, which the bare chunk text
-    alone doesn't carry. "(intro)" chunks are left unprefixed -- that
-    label is a synthetic pre-first-heading placeholder, not real document
-    content, and prefixing it would inject a token that means nothing to
-    the model. This ONLY changes what gets embedded: the stored `chunks`
-    row (`text` column, FTS-indexed) and everything else in the pipeline
-    keep the bare chunk text untouched -- see module docstring."""
-    heading_path = row["heading_path"]
-    if heading_path == "(intro)":
-        return row["text"]
-    return f"{heading_path}\n\n{row['text']}"
-
-
-def sync_vectors(store: Store, llm) -> tuple[int, int]:
-    """Embed chunks whose vectors are missing; drop stale vectors.
-    Returns (embedded, pending). Orchestration only -- every DB op below
-    goes through `Store`."""
-    # load_vec needs the raw conn to load the sqlite-vec extension;
-    # Store.commit() exists for transaction control, but this needs low-level access.
-    if not load_vec(store.conn):
-        logger.warning("sqlite-vec unavailable; embeddings skipped")
-        return 0, store.chunk_count()
-
-    stored_model = store.get_meta("embed_model")
-    if stored_model is not None and stored_model != llm.cfg.embed_model:
-        logger.warning("embed model changed (%s -> %s): re-embedding all",
-                       stored_model, llm.cfg.embed_model)
-        store.clear_vectors()
-
-    missing = store.pending_chunks()
-    if not missing:
-        return 0, 0
-    try:
-        vectors = llm.embed([_embed_input(row) for row in missing])
-    except Exception as exc:
-        logger.warning("embedding failed, %d chunks pending: %s",
-                       len(missing), exc)
-        return 0, len(missing)
-
-    # An HTTP-200 response is not a guarantee the payload is well-formed:
-    # a misconfigured/misbehaving endpoint can return an empty or short
-    # `data` array. Without this check, `vectors[0]` below can IndexError
-    # straight out of index_collection (empty `vectors`), or `zip` silently
-    # truncates and over-reports `embedded` (short `vectors`). Treat
-    # either as a pending-retry case, exactly like a request failure.
-    if not vectors or len(vectors) != len(missing):
-        logger.warning(
-            "embedding response malformed (%d texts sent, %d vectors "
-            "returned), %d chunks pending", len(missing), len(vectors),
-            len(missing))
-        return 0, len(missing)
-
-    try:
-        dim = len(vectors[0])
-        stored_dim = store.get_meta("embed_dim")
-        # The configured model *name* can stay the same while the vectors
-        # it returns silently change shape underneath (backend swap behind
-        # an alias, provider upgrade, etc). Without this check, an existing
-        # chunk_vectors table just rejects the mismatched-dim insert below,
-        # every chunk in `missing` falls back to pending, and the retry on
-        # the next run hits the exact same mismatch forever -- permanently
-        # wedged. Treat it exactly like a model change: drop the table and
-        # meta, then fall through to recreate at the new dimension. Any
-        # chunks with vectors under the old table (not in this `missing`
-        # batch) are gone too; they'll show up as missing on the *next*
-        # sync_vectors call, once they're absent from the fresh table.
-        if (store.vector_table_exists() and stored_dim is not None
-                and int(stored_dim) != dim):
-            logger.warning(
-                "embed dimension changed (%s -> %d) for model %s: "
-                "re-embedding all", stored_dim, dim, llm.cfg.embed_model)
-            store.clear_vectors()
-        # Meta writes MUST happen before the insert loop below, not after:
-        # a mid-batch dimension-mismatched vector (HTTP-200-but-malformed
-        # payload -- this function's own documented threat model, see the
-        # malformed-response check above) makes store_vectors's insert
-        # raise partway through, straight into the `except` below, which
-        # returns without touching either meta key. If embed_dim/
-        # embed_model were written AFTER that insert loop, that raise
-        # would skip them -- and since the table create (and any inserts
-        # before the bad row) already happened and `index_collection`
-        # commits unconditionally on return, the collection would end up
-        # with a real chunk_vectors table at this dimension but embed_dim
-        # permanently unset, and the dimension-drift guard above (which
-        # only fires when `stored_dim is not None`) could never arm again
-        # for this collection. Writing the metas first means they land in
-        # the same commit as whatever the insert loop manages before
-        # failing, exactly like the original (pre-Store) code, which set
-        # both metas before its own insert loop for the same reason.
-        newly_created = not store.vector_table_exists()
-        if newly_created:
-            store.set_meta("embed_dim", str(dim))
-        store.set_meta("embed_model", llm.cfg.embed_model)
-        store.store_vectors(
-            [(row["rowid"], vector) for row, vector in zip(missing, vectors)],
-            dim)
-    except Exception as exc:
-        logger.warning("writing embeddings failed, %d chunks pending: %s",
-                       len(missing), exc)
-        return 0, len(missing)
-    return len(missing), 0
-
-
-def format_index_counts(name: str, counts: dict, embedded: bool) -> str:
-    """Format CLI indexing counts, including embeddings when configured."""
-    line = (f"{name}: indexed {counts['indexed']}, "
-            f"unchanged {counts['unchanged']}, "
-            f"removed {counts['removed']}")
-    if embedded:
-        line += (f", embedded {counts['embedded']}, "
-                 f"pending {counts['pending']}")
-    if counts.get("chunk_warnings"):
-        line += f", chunk-warnings {counts['chunk_warnings']}"
-    return line
-
-
-def index_collection(path: Path, embed=None, name: str | None = None,
-                     kind: str = "docs", db_dir: Path | None = None) -> dict:
-    """`name`: the collection name warnings are printed under (see
-    `_emit_doc_warnings`) -- matches `Config`'s own bare-dir convention
-    (`Collection(name=target.name, ...)`, `rag.config.load_config`) when
-    omitted, so a direct `index_collection(path)` call (every test/caller
-    that predates the chunk-contract warnings) still gets a sensible
-    label with no argument changes required. `rag.cli` passes the real
-    configured collection name explicitly.
-
-    `kind`: `Collection.kind` (`rag.config`) -- `"docs"`, `"code"`, or
-    `"memory"`. Defaults to `"docs"` so every pre-existing caller/test
-    keeps warning. Chunk-contract warnings (`_emit_doc_warnings`, the
-    `chunk_warnings` count, and `rag.cli`'s stdout suffix) only make
-    sense for authored docs: a code/memory collection is GENERATED --
-    generated source documentation, agent memory dumps -- with no author on the
-    other end to fix an oversized section or a duplicate heading. Gated
-    here (once, per collection) rather than per-doc: `kind` doesn't vary
-    within a collection.
-
-    `db_dir`: `Collection.db_dir` (`rag.config`) -- relocatable databases
-    (2026-08-05). None (default) keeps today's in-folder behavior
-    (`<path>/.docs-wiki/index.db`); given, the database lives at
-    `<db_dir>/index.db` instead, entirely outside `path`. Threaded
-    straight into `Store.open` -- nothing else in this function's walk of
-    `path` needs to change, since content is still read from `path`
-    either way."""
-    store = Store.open(path, db_dir)
+def check_folder(path: Path, name: str | None = None) -> tuple[int, int]:
+    """Print chunk-contract warnings for every Markdown file under `path`
+    (skipping a legacy `.docs-wiki/` state folder) and return
+    `(documents checked, warnings printed)`. `name` labels the warnings; it
+    defaults to the folder name. Warn, never fail: nothing is written."""
     collection = name if name is not None else path.name
-    found: dict[str, str] = {}
+    documents = warnings = 0
     for md_file in sorted(path.rglob("*.md")):
         rel = md_file.relative_to(path)
         if rel.parts[0] == ".docs-wiki":
             continue
-        found[str(rel)] = md_file.read_text(encoding="utf-8")
-
-    existing = store.content_hashes()
-    indexed = unchanged = chunk_warnings = 0
-    for rel, text in found.items():
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        if existing.get(rel) == digest:
-            unchanged += 1
-            continue
-        meta, body = parse_front_matter(text)
-        # Called directly (not via split_sections) so `doc.headings` is
-        # also on hand for the duplicate-heading warning check below --
-        # see module docstring. Still exactly one parse of this doc.
+        _meta, body = parse_front_matter(md_file.read_text(encoding="utf-8"))
         doc = parse_structure(body)
-        quadrant = quadrant_for(Path(rel))
-        store.upsert_doc(rel, doc.title or Path(rel).stem, quadrant, meta,
-                         digest, render_html(body), body)
-        chunks, split_facts = _chunk_sections_with_facts(doc.sections)
-        store.replace_chunks(rel, chunks)
-        if kind == "docs":
-            chunk_warnings += _emit_doc_warnings(collection, rel, doc,
-                                                 split_facts)
-        indexed += 1
-
-    removed = store.remove_docs_not_in(found.keys())
-
-    embedded = pending = 0
-    if embed is not None:
-        embedded, pending = sync_vectors(store, embed)
-
-    store.commit()
-    store.close()
-    result = {"indexed": indexed, "unchanged": unchanged, "removed": removed,
-              "embedded": embedded, "pending": pending}
-    # Additive-only: a clean pass (the overwhelming common case, and every
-    # pre-chunk-contract caller/test) gets back exactly the same 5-key
-    # dict as before -- `chunk_warnings` only appears when there is one
-    # to report, mirroring the stdout suffix rule in `rag.cli` (see
-    # binding constraint: "existing format otherwise byte-identical").
-    if chunk_warnings:
-        result["chunk_warnings"] = chunk_warnings
-    return result
+        _chunks, split_facts = _chunk_sections_with_facts(doc.sections)
+        warnings += _emit_doc_warnings(collection, str(rel), doc, split_facts)
+        documents += 1
+    return documents, warnings

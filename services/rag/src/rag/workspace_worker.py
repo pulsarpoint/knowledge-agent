@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from rag.collections import MAX_BYTES
-from rag.ingest import chunk_sections
+from rag.chunking import chunk_sections
 from rag.structure import Section, parse_structure
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed, embedding_profile

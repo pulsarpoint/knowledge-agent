@@ -2,11 +2,11 @@
 import asyncio
 from dataclasses import dataclass, field
 from agents import RunContextWrapper, function_tool
-from docs_wiki.rag_client import RagClient, RagError, RagNotFound
+from docs_wiki.workspace_client import RagError, RagNotFound, WorkspaceRagClient
 
 @dataclass
 class SearchContext:
-    rag: RagClient
+    rag: WorkspaceRagClient
     collection: str
     excerpts: list[dict] = field(default_factory=list)
     last_search: list[dict] = field(default_factory=list)

@@ -1,15 +1,43 @@
-"""Adapt the collection RAG API to the search agent's document tools."""
+"""Synchronous HTTP client for the RAG service's collection API, shaped for
+the reader routes and the search agent's document tools."""
 from pathlib import PurePosixPath
 
 import httpx
 
-from docs_wiki.rag_client import RagClient, RagError, RagNotFound
+
+class RagError(Exception):
+    pass
 
 
-class WorkspaceRagClient(RagClient):
-    def __init__(self, base_url: str, key: str, transport=None):
-        super().__init__(base_url, transport)
-        self._client.headers['X-Rag-Key'] = key
+class RagNotFound(RagError):
+    pass
+
+
+def _error_detail(exc: Exception) -> str:
+    """The status line alone ("400 Bad Request") hides the server's actual
+    complaint; append the response body so banners and logs say why."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        body = exc.response.text.strip()
+        if body:
+            return f"{exc} — server said: {body[:300]}"
+    return str(exc)
+
+
+class WorkspaceRagClient:
+    def __init__(self, base_url: str, key: str, transport: httpx.BaseTransport | None = None):
+        self._client = httpx.Client(base_url=base_url, timeout=10.0, transport=transport,
+                                    headers={'X-Rag-Key': key})
+
+    def close(self) -> None:
+        self._client.close()
+
+    def _request(self, method: str, url: str, **kwargs):
+        try:
+            response = self._client.request(method, url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            raise RagError(f"request failed: {_error_detail(exc)}") from exc
 
     def _prefix(self) -> str:
         row = self._request('GET', '/backoffice/workspace')

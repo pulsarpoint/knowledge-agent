@@ -1,6 +1,5 @@
 """JSON API for the React UI: read surface, chat, and sessions — every
-route is backed by the RAG service through `RagClient` (a dumb HTTP
-transport with zero domain logic); grouping, freshness, and response
+route is backed by the RAG service through `WorkspaceRagClient`; grouping, freshness, and response
 shaping happen here."""
 from __future__ import annotations
 
@@ -12,7 +11,7 @@ from pydantic import BaseModel
 
 from docs_wiki import audit, freshness, gaps, sessions, webapp
 from docs_wiki.config import App, ServerConfig
-from docs_wiki.rag_client import RagClient, RagError, RagNotFound
+from docs_wiki.workspace_client import RagError, RagNotFound, WorkspaceRagClient
 from docs_wiki.webapp import MAX_QUESTION
 
 
@@ -36,7 +35,7 @@ class ChatRequest(BaseModel):
 
 
 def _rag_unavailable() -> JSONResponse:
-    # rag_client is None whenever no RAG service URL was ever configured
+    # rag_client is None whenever no RAG service URL and key are configured
     # (webapp.create_app leaves it unset rather than raising) — the read
     # routes below all depend on it, so this is the same "documentation
     # service unavailable" 502 JSON-error shape a RagError raised mid-call
@@ -57,7 +56,7 @@ def _doc_freshness(target: App, meta: dict, cache: dict) -> str:
 
 
 def build_api(apps: dict[str, App], server: ServerConfig,
-              rag_client: RagClient | None,
+              rag_client: WorkspaceRagClient | None,
               context_enabled: bool = False) -> APIRouter:
     router = APIRouter(prefix="/api")
 
