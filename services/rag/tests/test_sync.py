@@ -294,3 +294,37 @@ def test_bedrock_embedding_sync_reuse_and_region_profile(env):
     state['calls'].clear()
     stats, _ = sync(env, created)
     assert stats['parsed_files'] == stats['embedded_chunks'] == 0 and not state['calls']
+
+
+def test_nul_anywhere_marks_a_file_binary(env):
+    roots = env[6]
+    folder = roots["rag-data"] / "docs"
+    folder.mkdir()
+    (folder / "ok.md").write_text("# OK")
+    (folder / "late.md").write_bytes(b"a" * 9000 + b"\x00tail")
+    created = collection(env)
+    stats, row = sync(env, created)
+    assert stats["skipped_binary"] == 1 and row["indexed_files"] == 1 and row["status"] == "up_to_date"
+
+
+def test_reused_vector_removed_before_publish_fails_the_sync(env):
+    client, prefix, state, roots = env[1], env[3], env[4], env[6]
+    for name in ("a", "b"):
+        (roots["rag-data"] / name).mkdir()
+    configure(env)
+    first = collection(env, "a", "rag-data/a", embeddings_enabled=True)
+    second = collection(env, "b", "rag-data/b", embeddings_enabled=True)
+    write(env, "a.md", "sharedembeddingneedle", name="a")
+    sync(env, first)
+    write(env, "a.md", "sharedembeddingneedle", name="b")  # reuses the vector from collection a
+    write(env, "z.md", "fresh text needs an embedding", name="b")
+    revision = client.get(prefix + f"/collections/{first}").json()["revision"]
+
+    def delete_first():  # runs during b's embedding phase, after a.md counted its vector as reused
+        state["hook"] = None
+        assert client.delete(prefix + f"/collections/{first}", params={"revision": revision, "confirmed": True}).status_code == 200
+    state["hook"] = delete_first
+    stats, row = sync(env, second)
+    assert stats is None and "Embeddings changed" in row["job"]["error"]
+    stats, row = sync(env, second)
+    assert stats["embedded_chunks"] >= 1 and row["embedded_chunks"] == row["chunks"] and row["status"] == "up_to_date"

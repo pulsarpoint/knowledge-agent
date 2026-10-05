@@ -204,6 +204,9 @@ def build_api(workspace: Workspace, key: str, transport=None):
             row = workspace.collection(conn, project, collection_id, lock=True)
             if revision != row["revision"]:
                 raise HTTPException(409, "Collection changed; refresh before deleting")
+            # Lock order collection -> workspace matches the worker's publish, which
+            # re-checks reused vectors under the workspace lock.
+            workspace.settings(conn, project, lock=True)
             conn.execute("""UPDATE ka.jobs SET status='cancelled',finished_at=now(),error='Collection deleted',
                 worker_id=NULL,lease_token=NULL,lease_expires_at=NULL
                 WHERE rag_collection_id=%s AND status IN ('queued','running','waiting_input')""", (collection_id,))

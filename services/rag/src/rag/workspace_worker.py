@@ -56,8 +56,8 @@ STATS = ("hashed_files", "skipped_files", "parsed_files", "embedded_chunks", "re
 
 
 def decode(data: bytes) -> str | None:
-    """UTF-8 text, or None for binary content."""
-    if b"\x00" in data[:8192]:
+    """UTF-8 text, or None for binary content (PostgreSQL text cannot hold NUL)."""
+    if b"\x00" in data:
         return None
     try:
         return data.decode("utf-8-sig")
@@ -132,7 +132,7 @@ def process(workspace: Workspace, job: dict, transport=None):
         fingerprint = digest({"parser": "markdown-text-json-v3", "chunker": "sections-v1",
                               "size": settings.chunk_size, "overlap": settings.chunk_overlap})
         profile = embedding_profile(model)
-        updates, vectors = [], {}
+        updates, vectors, reused = [], {}, set()
         for source in sources:
             old = previous.get(source["path"])
             same = (old is not None and old["content_hash"] == source["content_hash"]
@@ -157,6 +157,7 @@ def process(workspace: Workspace, job: dict, transport=None):
                             stats["reused_vectors"] += 1
                         elif not force and conn.execute("SELECT 1 FROM ka.rag_vectors WHERE project_id=%s AND profile=%s AND input_hash=%s", (project, profile, value)).fetchone():
                             stats["reused_vectors"] += 1
+                            reused.add(value)
                         else:
                             missing[value] = chunk["text"]
                 pending = list(missing.items())
@@ -177,8 +178,16 @@ def process(workspace: Workspace, job: dict, transport=None):
             if running is None:
                 raise HTTPException(409, "Sync was cancelled or its lease expired")
             # The workspace revision also moves when the file size limit or the embedding model changes.
-            if current is None or current["revision"] != revision or workspace.settings(conn, project, lock=True)["revision"] != config["revision"]:
+            # Every publish and collection deletion takes the workspace lock before
+            # vector cleanup, so reused vectors checked here stay until commit.
+            settings_revision = workspace.settings(conn, project, lock=True)["revision"]
+            if current is None or current["revision"] != revision or settings_revision != config["revision"]:
                 raise HTTPException(409, "Settings changed while syncing; refresh the collection again")
+            if reused:
+                present = conn.execute("SELECT count(*) AS n FROM ka.rag_vectors WHERE project_id=%s AND profile=%s AND input_hash=ANY(%s)",
+                                       (project, profile, list(reused))).fetchone()["n"]
+                if present != len(reused):
+                    raise HTTPException(409, "Embeddings changed while syncing; refresh the collection again")
             check = snapshot(workspace, collection, limit, dict.fromkeys(STATS, 0))
             manifest = lambda rows: sorted((s["path"], s["content_hash"]) for s in rows)
             if manifest(check) != manifest(sources):
