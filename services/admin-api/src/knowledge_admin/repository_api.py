@@ -5,22 +5,37 @@ import os
 import sqlite3
 from uuid import UUID, uuid4
 
+import httpx
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
 from knowledge_admin.code_paths import code_path, code_root
+from knowledge_admin.code_project_search import default_collection, reconcile
 from knowledge_admin.code_processing import index_directory, CodeProcessingError
 
 
-def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
+class SearchInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    enabled: bool
+    collection: str | None = Field(default=None, max_length=60, pattern=r'^[a-z0-9]+(-[a-z0-9]+)*$')
+
+
+def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: httpx.Client | None = None) -> APIRouter:
     router = APIRouter()
 
     def repository_store() -> RepositoryStore:
         if store is None:
             raise HTTPException(503, "Repository storage is not configured")
         return store
+
+    def refresh_search(repository_id: UUID, request: Request, *, release: bool = False) -> str | None:
+        selected = repository_store()
+        with selected.connect() as conn:
+            actor = selected.actor(conn, *request_actor(request))
+        return reconcile(selected, app_name, backoffice_client, repository_id, actor, release=release)
 
     @router.get("/repositories")
     def list_repositories():
@@ -73,6 +88,36 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute('INSERT INTO ka.documentation_workflow_jobs(workflow_id,job_id,project_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING', (workflow_id,job,project))
                 conn.execute('UPDATE ka.documentation_workflows SET updated_at=now() WHERE id=%s', (workflow_id,))
             return {'job_id': job}
+
+    @router.put('/code-projects/{repository_id}/search')
+    def set_search(repository_id: UUID, value: SearchInput, request: Request):
+        """Searchable on adds every mapped folder to the collection (default: the project's slug); off removes them."""
+        selected = repository_store()
+        with selected.connect() as conn:
+            project = selected.project(conn, app_name)
+            repo = conn.execute('''SELECT id,name FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
+                FOR UPDATE''', (repository_id, project)).fetchone()
+            if repo is None:
+                raise HTTPException(404, 'Code project not found')
+            collection = (value.collection or default_collection(repo['name'], repository_id)) if value.enabled else None
+            conn.execute('UPDATE ka.repositories SET search_collection=%s,search_error=NULL WHERE id=%s', (collection, repository_id))
+        error = refresh_search(repository_id, request, release=True)
+        return {'searchable': collection is not None, 'collection': collection, 'search_error': error}
+
+    @router.post('/code-projects/{repository_id}/archive')
+    def archive_project(repository_id: UUID, request: Request):
+        """Hide the project everywhere; a searchable project's folders leave every collection."""
+        selected = repository_store()
+        with selected.connect() as conn:
+            project = selected.project(conn, app_name)
+            repo = conn.execute('''SELECT id,search_collection FROM ka.repositories WHERE id=%s AND project_id=%s
+                AND archived_at IS NULL FOR UPDATE''', (repository_id, project)).fetchone()
+            if repo is None:
+                raise HTTPException(404, 'Code project not found')
+            selected.require_idle(conn, repository_id)
+            conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repository_id,))
+        error = refresh_search(repository_id, request, release=repo['search_collection'] is not None)
+        return {'id': repository_id, 'search_error': error}
 
     @router.get('/code-projects/{repository_id}/graph')
     def view_code_graph(repository_id: UUID, file: str = Query(default='', max_length=1000),
@@ -172,7 +217,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if '/code-projects/' in request.url.path and (value.revision is None or value.folder_paths is None):
             raise HTTPException(400, 'Include the current revision and code project folders.')
         repository_store().save(app_name, value, *request_actor(request), repository_id=repository_id)
-        return {"id": repository_id}
+        return {"id": repository_id, "search_error": refresh_search(repository_id, request)}
 
     @router.post('/code-projects/{repository_id}/pull', status_code=202)
     @router.post("/repositories/{repository_id}/pull", status_code=202)
