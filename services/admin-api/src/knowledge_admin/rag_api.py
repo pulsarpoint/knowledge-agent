@@ -21,6 +21,9 @@ ALLOWED = {
 }
 
 
+OWNER_PARAMS = {"owner_kind", "owner_id", "owner_key"}
+
+
 def build_api(app_name: str, store, client):
     router = APIRouter()
 
@@ -29,6 +32,8 @@ def build_api(app_name: str, store, client):
         actor = request_actor(request)
         if re.fullmatch(ALLOWED[request.method], resource) is None:
             raise HTTPException(404, "Unknown RAG resource")
+        if request.method == "DELETE" and resource.endswith("/paths") and OWNER_PARAMS & request.query_params.keys():
+            raise HTTPException(400, "Detach unowned paths by source_path; a source removes its own paths")
         key = os.environ.get("RAG_BACKOFFICE_KEY")
         if store is None or client is None or not key:
             raise HTTPException(503, "RAG administration is not configured")

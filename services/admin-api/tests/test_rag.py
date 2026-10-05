@@ -55,3 +55,23 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
         assert calls[-1].url.path == f"/backoffice/projects/{project}/file"
         assert calls[-1].url.params["path"] == "docs/file.md"
         assert client.put("/api/rag/settings", headers=HEADERS, content="not-json").status_code == 400
+
+
+def test_rag_proxy_never_removes_source_owned_paths(store, tmp_path, monkeypatch):
+    monkeypatch.setenv("RAG_BACKOFFICE_KEY", "private-service-key")
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"removed": 1})
+    cfg = Config(apps=[App(name="docs", app_root=None)], llm=None)
+    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
+    with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
+        client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
+        for params in ({"owner_kind": "jira"}, {"owner_kind": "code_project", "owner_id": str(uuid4())},
+                       {"owner_key": "api"}, {"source_path": "docs/x", "owner_id": str(uuid4())}):
+            refused = client.delete("/api/rag/collections/by-name/jira/paths", headers=HEADERS, params=params)
+            assert refused.status_code == 400, params
+            assert refused.json()["error"]["message"] == "Detach unowned paths by source_path; a source removes its own paths"
+        assert calls == []
+        detached = client.delete("/api/rag/collections/by-name/jira/paths", headers=HEADERS, params={"source_path": "docs/x"})
+        assert detached.status_code == 200 and calls[-1].url.params["source_path"] == "docs/x"
