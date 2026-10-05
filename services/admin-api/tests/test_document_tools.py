@@ -27,6 +27,8 @@ def rag(monkeypatch):
         if request.url.path == '/search':
             return httpx.Response(200, json={'results': state['hits']})
         if request.url.path == '/backoffice/projects/p1/file':
+            if request.url.params['path'] == 'secret.md':
+                return httpx.Response(404, json={'error': {'message': 'Document not found'}})
             return httpx.Response(200, json={'content': 'Full retry policy.'})
         raise AssertionError(request.url)
 
@@ -64,6 +66,7 @@ def test_search_numbers_excerpts_and_limits_collections(rag):
     assert output.startswith('[1] payments/retries.md\nRetries stop after 3 attempts.')
     body = json.loads(calls[-1].content)
     assert body['collections'] == ['payments'] and 'mode' not in body and body['project_id'] == 'p1'
+    assert body['ignore_unknown'] is True
     assert calls[-1].headers['x-rag-key'] == 'rag-key'
     assert context['grounding']['searches'] == 1
     assert context['grounding']['excerpts'][0] == {
@@ -128,6 +131,27 @@ def test_read_document_uses_collection_and_path(rag):
     assert context['grounding']['excerpts'][0]['collection'] == 'jira'
     assert 'outside' in invoke(read_document, context, collection='docs', path='a.md')
     assert 'Use a document path' in invoke(read_document, context, collection='jira', path='../x')
+
+
+def test_read_document_never_reads_hidden_or_unindexed_files(rag):
+    calls, _ = rag
+    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': ''}]))
+    for path in ('.env', '.env.local', 'sub/.git/config', 'node_modules/x/README.md'):
+        assert invoke(read_document, context, collection='jira', path=path) == 'Document not found.'
+    assert calls == []
+    # RAG answers 404 for files it would not index; the agent sees "not found".
+    assert invoke(read_document, context, collection='jira', path='secret.md') == 'Document not found.'
+    assert 'grounding' not in context or context['grounding']['excerpts'] == []
+
+
+def test_search_tolerates_renamed_or_deleted_collections(rag):
+    calls, state = rag
+    context = run_context(config(collections=[{'name': 'payments', 'description': '', 'path': ''},
+                                              {'name': 'renamed', 'description': '', 'path': ''}]))
+    output = invoke(search_documents, context, query='retry')
+    assert output.startswith('[1] payments/retries.md')
+    body = json.loads(calls[-1].content)
+    assert body['collections'] == ['payments', 'renamed'] and body['ignore_unknown'] is True
 
 
 def test_report_not_covered_records_reason(rag):

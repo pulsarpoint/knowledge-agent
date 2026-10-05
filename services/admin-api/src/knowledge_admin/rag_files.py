@@ -11,6 +11,7 @@ class RagFiles:
     def __init__(self, client: httpx.Client, key: str, project: UUID, actor: UUID | None):
         self.client, self.prefix = client, f'/backoffice/projects/{project}/'
         self.headers = {'x-rag-key': key, **({'x-rag-actor': str(actor)} if actor else {})}
+        self._collections: list[dict] | None = None
 
     def request(self, method: str, resource: str, **kwargs: object) -> dict:
         try:
@@ -25,8 +26,10 @@ class RagFiles:
         return result
 
     def collection(self, name: str) -> dict:
-        rows = self.request('GET', 'collections')['collections']
-        row = next((r for r in rows if r['name'] == name), None)
+        # Fetched once per instance (one export batch), without folder walks.
+        if self._collections is None:
+            self._collections = self.request('GET', 'collections', params={'status': 'false'})['collections']
+        row = next((r for r in self._collections if r['name'] == name), None)
         if row is None:
             raise HTTPException(404, f'Unknown collection: {name}. Create it in RAG → Collections.')
         return row

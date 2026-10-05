@@ -71,7 +71,9 @@ async def search_documents(ctx: RunContextWrapper[AgentContext], query: str, col
         async with _client() as client:
             body = {'project_id': await _project(client), 'query': query[:4000], 'top': 8}
             if names is not None:
+                # A renamed or deleted granted collection drops out instead of failing the whole search.
                 body['collections'] = names[:200]
+                body['ignore_unknown'] = True
             response = await client.post('/search', json=body)
             response.raise_for_status()
             hits = response.json()['results']
@@ -106,6 +108,8 @@ async def read_document(ctx: RunContextWrapper[AgentContext], collection: str, p
         return 'Use a document path returned by search_documents.'
     if allowed is not None and collection not in allowed:
         return 'This document is outside the agent’s document collections.'
+    if any(part.startswith('.') or part == 'node_modules' for part in parts):
+        return 'Document not found.'  # never indexed (.env*, .git, hidden files); RAG refuses them too
     try:
         async with _client() as client:
             project = await _project(client)

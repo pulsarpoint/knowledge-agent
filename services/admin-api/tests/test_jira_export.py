@@ -203,3 +203,28 @@ def test_mock_jql_filters_and_rejects_unsupported_expressions():
     for query in ['project = DEMO OR status = Open', 'status in (Open, Done)', 'project = DEMO AND', 'ORDER BY created ASC']:
         with pytest.raises(ValueError):
             MOCK["filter_issues"](query)
+
+
+def test_rag_files_lists_collections_once_without_status():
+    from uuid import uuid4 as new_id
+
+    from knowledge_admin.rag_files import RagFiles
+    calls = []
+
+    def rag(request):
+        calls.append(request)
+        return httpx.Response(200, json={"collections": [{"name": "jira", "writable": True}]})
+    with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(rag)) as backend:
+        files = RagFiles(backend, "k", new_id(), None)
+        assert files.collection("jira")["name"] == "jira"
+        assert files.collection("jira")["writable"] is True
+        with pytest.raises(Exception, match="Unknown collection: nope"):
+            files.collection("nope")
+    assert len(calls) == 1 and calls[0].url.params["status"] == "false"
+
+
+def test_export_lists_collections_without_status_walks(exporting):
+    client, snapshot, state = exporting
+    assert export(client, snapshot).status_code == 200
+    listings = [call for call in state["rag_calls"] if call.url.path.endswith("/collections")]
+    assert len(listings) == 1 and listings[0].url.params["status"] == "false"
