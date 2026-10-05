@@ -160,5 +160,5 @@ def test_rag_reads_every_data_area_and_writes_only_rag_data():
         assert env["CODE_ROOT"] == "/work/code" and env["RAG_SOURCE_ROOT"] == "/work/rag-data"
         assert env["DOCUMENT_OUTPUT_ROOT"] == "/work/generated-documents" and env["BOOTSTRAP_DOCS_ROOT"] == "/work/docs"
         assert env["CODE_INDEX_ROOT"] == "/work/code-index"
-        for key, folder in (("CODE_PATH", "code"), ("RG_DATA", "rag-data"), ("GENERATED_DOCS_PATH", "generated-documents")):
+        for key, folder in (("CODE_PATH", "code"), ("CODE_INDEX_PATH", "code-index"), ("RG_DATA", "rag-data"), ("GENERATED_DOCS_PATH", "generated-documents"), ("DOCS_PATH", "docs")):
             assert env[key] == host(key, folder)

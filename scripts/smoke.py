@@ -177,7 +177,7 @@ def main() -> None:
                                      headers={"Content-Type": "application/json"})
     with admin.open(request, timeout=10) as response:
         hits = json.load(response)
-    if hits.get("mode") != "full_text" or not isinstance(hits.get("results"), list):
+    if not isinstance(hits.get("results"), list) or "collections" not in hits or "fallback" not in hits:
         raise RuntimeError("RAG full-text search returned an unexpected response")
     print("PASS: RAG settings, collections, processing history, and full-text search")
 
