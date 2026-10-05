@@ -13,7 +13,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
 - [5. The Administration application (port 8183)](#5-the-administration-application-port-8183)
   - [5.1 Navigation](#51-navigation)
   - [5.2 LLM Settings](#52-llm-settings)
-  - [5.3 RAG: files, processing, settings, search](#53-rag-files-processing-settings-search)
+  - [5.3 RAG: collections, processing, settings, search](#53-rag-collections-processing-settings-search)
   - [5.4 Code projects](#54-code-projects)
   - [5.5 Servers](#55-servers)
   - [5.6 Environments](#56-environments)
@@ -66,8 +66,9 @@ What you can actually do today:
   **multi-agent board**.
 - **Import Jira tickets** into the knowledge base as Markdown.
 
-Generated or hand-written documents reach the Reader and agents once you **Publish to
-knowledge base** (see [5.14](#514-documents-and-documentation-prompts)).
+Generated documents are searchable by the Reader and agents through the `documents`
+collection (the `generated-documents` folder) after a **Refresh** in RAG → Collections
+(see [5.3](#53-rag-collections-processing-settings-search)).
 
 ### Architecture at a glance
 
@@ -162,8 +163,8 @@ has no `index.md` it shows an error. Add one to give readers a home page.
 ### Search — `/docs/search`
 
 Type in the box; results update as you type (150 ms debounce). The Reader always
-uses **hybrid** search across **all collections** (a collection falls back to full text
-when its embeddings are off). Each result shows the file (link), its collection and the
+uses **hybrid** search across **all collections** (a collection uses keyword search
+when its embeddings are off; the admin Search page shows "Keyword search used for: ..."). Each result shows the file (link), its collection and the
 matching text chunk. There are no filters here — use Admin → RAG → Search for
 collection scope and search-mode control. Errors show as "no results".
 
@@ -314,7 +315,7 @@ collections that should use them, then **Refresh** them.
 **Search** (`/rag/search`) — query, a collection picker (empty means all), type
 (**Full text**, **Embedding**, **Hybrid**) and 1–30 results. A collection without
 embeddings (or with no model configured) falls back to full text, and the result lists
-which ones did. Results show a citation number, collection, path, chunk text and hash.
+which ones did ("Keyword search used for: ..."). Results show a citation number, collection, path, chunk text and hash.
 This is retrieval only; it does not generate answers.
 
 ### 5.4 Code projects
@@ -605,20 +606,10 @@ draft**). Actions: **Save new version** (every save is a full immutable version)
 **Export to folder**, **Download document folder** (ZIP), **Delete**, and links back
 to the workflow that produced it.
 
-**Publish to knowledge base** (in the editor) writes the current version as
-`<folder>/<slug>.md` into a RAG folder (default `documents`) and indexes it, so the
-Reader's search and chat and the agents' document search can find it. The editor shows
-**In knowledge base: path · vN**. Every new saved version — from the editor or a
-documentation workflow — replaces the file and re-indexes it automatically. If that fails
-(for example RAG is down) the version is still saved and the editor shows **Publishing vN
-failed … Retry**; **Indexing pending** means the file is written and will be indexed when
-the running indexing job finishes. **Unpublish** removes the file. Publishing never
-overwrites a file it did not create, and a published document must be unpublished before it
-can be deleted. Published documents show a **Published** badge in the list.
-
-The generated-documents area is also searchable through the automatically created
-`documents` collection (folder `generated-documents`, old `v<n>/` folders excluded):
-**Refresh** it in **RAG → Collections** to index what is on disk.
+Documents are searchable through the automatically created `documents` collection
+(folder `generated-documents`, old `v<n>/` folders excluded): **Refresh** it in
+**RAG → Collections** to index what is on disk. The Reader's search and chat and the
+agents' document search then find them.
 
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
 generation. Saving changed text creates a draft version; **Activate vN** makes it the
@@ -680,8 +671,7 @@ Records are kept until deleted; only administrators can see them.
 5. Phase 1 **Generate graph** → inspect the graph.
 6. Run Phase 2 (overview), then Phase 3 (API), then Phase 4 (messaging) — one at a time.
 7. Review each document in **Docs → Documents**, edit, **Save new version**.
-8. **Publish to knowledge base** on each document; later versions are republished
-   automatically.
+8. **RAG → Collections** → **Refresh** the `documents` collection to make them searchable.
 
 ### C. Document deployments and infrastructure
 
@@ -773,9 +763,8 @@ before exposing it beyond localhost.
 ## 8. Current limitations
 
 - **Reader chat answers appear when complete** (no word-by-word streaming).
-- **Documents reach the knowledge base only after Publish to knowledge base**; from then
-  on new versions follow automatically. They are also searchable through the
-  `documents` collection once it is refreshed.
+- **Documents are searchable through the `documents` collection** (the
+  `generated-documents` folder) only after a **Refresh**.
 - **Collections are refreshed manually**: nothing syncs automatically, so use
   **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
   text (no code-aware chunking or line-number citations), and a collection is limited to

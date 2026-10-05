@@ -28,7 +28,9 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `documentation_generations` | Immutable generation input snapshots associated with jobs; execution is a later stage |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
-| `rag_workspaces`, `rag_folders`, `rag_files`, `rag_chunks`, `rag_vectors` | Folder processing configuration, hashes, searchable text and cached embeddings |
+| `rag_workspaces`, `rag_collections`, `rag_files`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: one folder under `DATA_ROOT` with its own search and processing settings); per-collection file hashes, searchable text and cached embeddings |
+| `agent_collections`, `agents.all_collections` | Which RAG collections an agent may search and read (whole collections; `all_collections` grants every one) |
+| `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
 | `agents` and agent configuration/association tables | Agent definitions, prompt/model assignments, skills, tools and resources |
 | `agent_sessions` and associated tables | Shared test/live session state and conversation history |
@@ -37,7 +39,7 @@ selector. Keycloak identities and Phoenix traces remain external state.
 See [documentation administration](documentation.md) for the document model,
 version lifecycle and API. Migrations 39–40 replace the old, unused document-set,
 plugin and RAG-collection pipeline; they refuse to discard populated legacy data.
-The current folder RAG pipeline is unaffected.
+The current RAG collections pipeline is unaffected.
 Migration 41 seeds the editable app-docs analysis template with active version 1,
 including when the application workspace is first created after migrations.
 

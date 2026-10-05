@@ -108,7 +108,7 @@ Search input is `collections: [name]`; an empty list means every collection the 
 use. Per collection, full-text ranking applies to `full_text` and `hybrid`, and vector ranking
 applies to `embedding` and `hybrid` only when that collection has embeddings enabled and a
 global embedding model is configured. Otherwise the collection falls back to full text and
-the response lists the collections that fell back. Results from all selected collections are
+the response lists the collections that fell back, which the Search page shows as "Keyword search used for: ...". Results from all selected collections are
 fused with reciprocal-rank fusion (k=60). Each hit carries `collection`, `path` (relative to
 the collection), `text`, `score` and `citation`. The score is reciprocal rank, not a
 probability. The Admin search page may override the mode for testing.

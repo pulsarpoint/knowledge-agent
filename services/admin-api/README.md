@@ -74,17 +74,19 @@ Identity, description, when-to-use text, availability and revisions are included
 No records are created or updated by loading. A missing agent raises `LookupError`.
 
 Each capability has an `enabled` flag and retains its saved selections while
-disabled. Folder selections expand to descendants only when `include_subfolders`
-is set; deleted document folders and archived code projects are excluded. `selected`
-marks explicit selections within the expanded document folder list.
+disabled. Deleted collections and archived code projects are excluded. Agents are
+granted whole RAG collections (`all_collections` or a picked list); there are no
+subfolder grants. `selected` marks explicit selections within the collection list.
 
 `code` contains `enabled`, `all_projects`, and `projects`. Each code project has
 `id`, `name`, `description`, and absolute `folder_paths` under `CODE_ROOT`. Git-backed
 projects additionally include `remote_git_url`; local projects omit that key.
 Clone paths, sync state, commits and selection markers are administration metadata
 and are not included in these project entries.
-Document folders have an absolute `path` under `RAG_SOURCE_ROOT` and a separate
-`search_folder` identifier (for example, `payments.runbooks`) for the search API.
+`documents.collections` lists each granted collection as `{id, name, description}`.
+The document tools search and read by collection name and collection-relative path
+(`search_documents`, `read_document(collection, path)`), confined to granted
+collections. Agents that are not grounded get the collection folders as read roots.
 Both root environment variables must be absolute paths in the agent container.
 Compose mounts the same code and document directories read-only at `/work/code`
 and `/work/rag-data` in `admin-api`. The config joins the stored
