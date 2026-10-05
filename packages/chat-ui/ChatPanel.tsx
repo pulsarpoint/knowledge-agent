@@ -202,7 +202,7 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
     getChat(app, sessionKey)
       .then((t) => {
         if (session.current !== requested) return;
-        setContext(t.context ?? DEFAULT_CONTEXT);
+        setContext(t.context && (t.context.collections === null || Array.isArray(t.context.collections)) ? { collections: t.context.collections } : DEFAULT_CONTEXT);
         setHistoryLoading(false);
         setTurns(t.messages.map((m) => ({
           role: m.role === "user" ? "user" : "assistant", content: m.content,

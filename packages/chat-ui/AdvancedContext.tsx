@@ -18,7 +18,7 @@ export default function AdvancedContext({ value, onChange, available, locked, op
   const id = useId();
   const [open, setOpen] = useState(false);
   const collections = options?.collections ?? [];
-  const summary = value.collections === null ? "All collections" : `${value.collections.length} collections`;
+  const summary = value.collections === null ? "All collections" : `${value.collections.length} ${value.collections.length === 1 ? "collection" : "collections"}`;
   function toggle(name: string) {
     const selected = value.collections ?? [];
     onChange({ ...value, collections: selected.includes(name) ? selected.filter((n) => n !== name) : [...selected, name] });

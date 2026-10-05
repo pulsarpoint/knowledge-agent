@@ -251,3 +251,30 @@ test("choosing no collection blocks asking", async () => {
   await user.type(screen.getByRole('textbox'), 'Question');
   expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
 });
+
+test("a stored transcript with the legacy folder context falls back to all collections", async () => {
+  const context = { folders: ['payments'], include_subfolders: true, repositories: null };
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url.endsWith('/context')) return Response.json({ collections: [{ name: 'payments', description: '', indexed_files: 1 }], warnings: [] });
+    if (url.endsWith('/chats/saved')) return Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Old answer' }], context, sources: { docs: true } });
+    return doneResponse('New answer');
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  renderPanel({ sessionKey: 'saved', contextEnabled: true, sources: { docs: true } });
+  expect(await screen.findByText('Old answer')).toBeVisible();
+  expect(screen.getByText('All collections')).toBeVisible();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox'), 'Follow up');
+  await user.click(screen.getByRole('button', { name: 'Ask' }));
+  expect(await screen.findByText('New answer')).toBeVisible();
+  const post = fetchMock.mock.calls.find(([u]) => !u.endsWith('/context') && !u.endsWith('/chats/saved'))!;
+  expect(post[1]!.body).toContain('"context":{"collections":null}');
+});
+
+test("the summary uses the singular for one collection", async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/chats/saved')
+    ? Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Hi' }], context: { collections: ['payments'] }, sources: { docs: true } })
+    : Response.json({ collections: [], warnings: [] })));
+  renderPanel({ sessionKey: 'saved', contextEnabled: true, sources: { docs: true } });
+  expect(await screen.findByText('1 collection')).toBeVisible();
+});
