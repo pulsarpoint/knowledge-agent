@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
 import Markdown from './Markdown';
-import DocumentPublication from './DocumentPublication';
 import DocumentResourceSelection from './DocumentResourceSelection';
 import UnsavedDocumentChanges from './UnsavedDocumentChanges';
 import { Alert, AlertDescription } from '~/components/ui/alert';
@@ -74,7 +73,6 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
-    {document && <DocumentPublication document={document} />}
     {document?.workflows?.map(workflow => <Button key={workflow.id} asChild variant="outline" className="self-start"><Link to={`/documentation/generations/${workflow.id}`}>View phases / regenerate · {workflow.name}</Link></Button>)}
     {error && !confirmDelete && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
@@ -94,7 +92,7 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
       </FieldGroup>
       <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="write">Write</TabsTrigger><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="resources">Linked resources</TabsTrigger><TabsTrigger value="history" disabled={!document}>Version history</TabsTrigger></TabsList>
         <TabsContent value="write" forceMount className="data-[state=inactive]:hidden"><Field><FieldLabel htmlFor="doc-markdown">Markdown</FieldLabel><Textarea id="doc-markdown" className="min-h-96 font-mono" required maxLength={1000000} value={value.markdown} onChange={(e) => patch('markdown', e.target.value)} />
-          <FieldDescription>Every save preserves a complete version. Publish the document to the knowledge base to make it searchable; published documents follow their latest version.</FieldDescription></Field></TabsContent>
+          <FieldDescription>Every save preserves a complete version and updates the documents collection's folder; refresh the collection to update search.</FieldDescription></Field></TabsContent>
         <TabsContent value="preview"><div className="min-h-96 rounded-lg border p-4">{value.markdown ? <Markdown content={value.markdown} /> : <p className="text-sm text-muted-foreground">Write Markdown to preview the document.</p>}</div></TabsContent>
         <TabsContent value="resources"><DocumentResourceSelection resources={resources} value={value} onChange={(next) => setValue({ ...next,
           source_commits: Object.fromEntries(Object.entries(next.source_commits ?? {}).filter(([id]) => next.code_project_ids.includes(id))),

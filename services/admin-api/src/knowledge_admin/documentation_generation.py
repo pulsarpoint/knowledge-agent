@@ -15,7 +15,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-import httpx
 import psycopg
 from agents import ItemHelpers, MaxTurnsExceeded, ModelBehaviorError
 from agents.usage import Usage
@@ -27,7 +26,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_llm import code_compatible
-from knowledge_admin import document_publish
 from knowledge_admin.documents import DocumentInput, GitCommit, export_document, save_document
 from knowledge_admin.documentation_updates import collect_source_commits
 from knowledge_admin.repositories import RepositoryStore
@@ -158,17 +156,6 @@ API_CONTRACT_OUTPUT = (
     'Cite source using the graph-relative file_path:line or file_path:start-end format, including '
     'a citation covering the assigned registration line. The application saves this document only '
     'after these completion checks pass, and assembles it with the other endpoint contracts.')
-
-
-_rag_client = None
-
-
-def rag_client() -> httpx.Client | None:
-    """Shared RAG backoffice client for this worker, when the RAG service is configured."""
-    global _rag_client
-    if _rag_client is None and os.environ.get('DOCS_WIKI_RAG_URL'):
-        _rag_client = httpx.Client(base_url=os.environ['DOCS_WIKI_RAG_URL'], trust_env=False)
-    return _rag_client
 
 
 def with_record(config: dict[str, Any], job: dict[str, Any], title: str) -> dict[str, Any]:
@@ -784,11 +771,6 @@ def run_once(store: RepositoryStore) -> bool:
                 (Jsonb(jsonable_encoder({'documents': saved, 'output_folders': folders, 'export_error': export_error,
                     'phase_metadata': phase_metadata})), job['id']))
             conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'succeeded','Documents saved for review')", (job['id'],))
-        try:
-            # Published documents follow their new versions; problems are shown on each document, never on the job.
-            document_publish.republish(store, rag_client(), job['project_id'], job['requested_by'], [row['id'] for row in saved])
-        except Exception:
-            print('Republishing documents to RAG failed; see each document for details', flush=True)
     except Exception as exc:
         # Provider/tool errors can contain request bodies or secrets. Never copy those to jobs or logs.
         error = 'Documentation generation failed. Check the model, selected resources and documentation prompts, then retry.'

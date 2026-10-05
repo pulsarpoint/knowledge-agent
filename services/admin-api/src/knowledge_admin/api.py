@@ -42,7 +42,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(environments.build_api(app_name, repository_store))
     router.include_router(skills.build_api(app_name, repository_store))
     router.include_router(documentation_workflows.build_api(app_name, repository_store))
-    router.include_router(documents.build_api(app_name, repository_store, backoffice_client))
+    router.include_router(documents.build_api(app_name, repository_store))
     router.include_router(documentation_generation.build_api(app_name, repository_store))
     router.include_router(documentation_prompts.build_api(app_name, repository_store))
     from knowledge_admin import llm_api, prompts_api, mcp_api, profiles_api, agent_wizard, reader_settings

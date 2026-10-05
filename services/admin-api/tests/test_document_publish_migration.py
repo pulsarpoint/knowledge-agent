@@ -1,7 +1,8 @@
-"""Migration 0062 stores where a document is published and exposes it on document_details."""
+"""Migration 0064 removes the publish-to-RAG columns; its down migration restores them."""
 from pathlib import Path
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
+PUBLISH = {'published_path', 'published_at', 'publish_error', 'index_pending'}
 
 
 def columns(conn, table):
@@ -9,18 +10,13 @@ def columns(conn, table):
         "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name=%s", (table,))}
 
 
-def test_publish_columns_and_view(store):
+def test_0064_removes_publish_columns_and_down_restores_them(store):
     with store.connect() as conn:
-        assert {'published_path', 'published_at', 'publish_error', 'index_pending'} <= columns(conn, 'documents')
-        assert {'published_path', 'publish_error', 'index_pending', 'published_version'} <= columns(conn, 'document_details')
-
-
-def test_down_then_up(store):
-    down = (MIGRATIONS / '0062_document_publishing.down.sql').read_text()
-    up = (MIGRATIONS / '0062_document_publishing.up.sql').read_text()
-    with store.connect() as conn:
-        conn.execute(down, prepare=False)
-        assert 'published_path' not in columns(conn, 'documents')
+        assert not PUBLISH & columns(conn, 'documents')
+        assert not {'published_version'} & columns(conn, 'document_details')
         assert 'service_ids' in columns(conn, 'document_details')
-        conn.execute(up, prepare=False)
+        conn.execute((MIGRATIONS / '0064_remove_document_publishing.down.sql').read_text(), prepare=False)
+        assert PUBLISH <= columns(conn, 'documents')
         assert 'published_version' in columns(conn, 'document_details')
+        conn.execute((MIGRATIONS / '0064_remove_document_publishing.up.sql').read_text(), prepare=False)
+        assert not PUBLISH & columns(conn, 'documents')

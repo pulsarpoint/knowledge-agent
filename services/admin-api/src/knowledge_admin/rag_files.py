@@ -24,21 +24,6 @@ class RagFiles:
             raise HTTPException(response.status_code, result.get('error', {}).get('message') or 'RAG could not save the file')
         return result
 
-    def ensure_folder(self, path: str, description: str) -> dict:
-        """Return the folder, creating it (with a description) when it does not exist yet."""
-        for attempt in range(3):
-            tree = self.request('GET', 'tree')
-            target = next((entry for entry in tree['folders'] if entry['path'] == path), None)
-            if target is not None and target['present']:
-                return target
-            try:
-                return self.request('POST', 'folders', json={'path': path,
-                    'description': target['description'] if target is not None else description, 'revision': tree['revision']})
-            except HTTPException as error:
-                if error.status_code != 409 or attempt == 2:
-                    raise
-        raise HTTPException(409, 'The RAG folder changed while saving. Retry.')
-
     def collection(self, name: str) -> dict:
         rows = self.request('GET', 'collections')['collections']
         row = next((r for r in rows if r['name'] == name), None)
@@ -75,15 +60,4 @@ class RagFiles:
         if previous['content'].partition('\n')[0] != first_line:
             raise HTTPException(409, f'{collection}/{path} belongs to another source; it was not removed')
         self.request('DELETE', 'file', params={'collection': collection, 'path': path, 'expected_hash': previous['hash']})
-        return True
-
-    def queue_index(self, folder_id: str, *, allow_empty: bool = False) -> bool:
-        """Queue indexing of one folder; return False when another indexing job is already running."""
-        payload = {'folder_id': folder_id, 'recursive': False, **({'allow_empty': True} if allow_empty else {})}
-        try:
-            self.request('POST', 'jobs', json=payload)
-        except HTTPException as error:
-            if error.status_code == 409 and 'already active' in str(error.detail):
-                return False
-            raise
         return True

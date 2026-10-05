@@ -12,14 +12,12 @@ from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-import httpx
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin import document_publish
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -229,7 +227,7 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
     return {'id':document_id, 'revision':revision, 'version_id':version_id}
 
 
-def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Client | None = None) -> APIRouter:
+def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation')
 
     def database() -> RepositoryStore:
@@ -346,36 +344,7 @@ def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Cl
                     remove_exported_folder(old_slug)
         except (OSError, ValueError):
             saved = {**saved, 'export_error': 'Saved. Writing the document file failed; use Export to folder to retry.'}
-        # After commit: a published document follows its latest version; failures are shown on the document.
-        try:
-            document_publish.republish(db, rag_client, project, actor, [saved['id']])
-        except Exception:
-            logger.warning('Republishing document %s failed', saved['id'])
         return saved
-
-    @router.post('/documents/{document_id}/publish')
-    def publish_document(document_id: UUID, value: document_publish.PublishInput, request: Request) -> dict:
-        db = database()
-        subject,email = request_actor(request)
-        with db.connect() as conn:
-            project, actor = db.project(conn, app_name), db.actor(conn,subject,email)
-        result = document_publish.publish(db, rag_client, project, actor, document_id, value.folder)
-        with db.connect() as conn:
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,'document.published','document',%s,%s)''', (project,actor,document_id,Jsonb({'path':result['path']})))
-        return result
-
-    @router.delete('/documents/{document_id}/publish')
-    def unpublish_document(document_id: UUID, request: Request) -> dict:
-        db = database()
-        subject,email = request_actor(request)
-        with db.connect() as conn:
-            project, actor = db.project(conn, app_name), db.actor(conn,subject,email)
-        result = document_publish.unpublish(db, rag_client, project, actor, document_id)
-        with db.connect() as conn:
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,'document.unpublished','document',%s,%s)''', (project,actor,document_id,Jsonb({'path':result['path']})))
-        return result
 
     @router.post('/documents', status_code=201)
     def create_document(value: DocumentInput, request: Request) -> dict:
@@ -393,13 +362,11 @@ def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Cl
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
-            row = conn.execute('SELECT revision,published_version_id FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id,project)).fetchone()
+            row = conn.execute('SELECT revision FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Document not found')
             if row['revision'] != revision:
                 raise HTTPException(409, 'This document changed. Cancel, reload, and try again.')
-            if row['published_version_id'] is not None:
-                raise HTTPException(409, 'Unpublish this document before deleting it')
             actor = db.actor(conn,subject,email)
             conn.execute('DELETE FROM ka.documents WHERE id=%s', (document_id,))
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

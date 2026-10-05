@@ -125,13 +125,6 @@ def test_gateways_accept_large_session_cookies():
         assert "large_client_header_buffers 4 32k;" in conf, name
 
 
-def test_documentation_worker_can_publish_to_rag():
-    compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
-    env = compose["services"]["documentation-worker"]["environment"]
-    assert env["DOCS_WIKI_RAG_URL"] == "http://rag:8790"
-    assert env["RAG_BACKOFFICE_KEY"] == "${RAG_BACKOFFICE_KEY:?Run make setup}"
-
-
 def test_host_folders_come_from_data_root_not_the_checkout():
     text = (DEPLOY / "compose.yaml").read_text(encoding="utf-8")
     assert ".local" not in text

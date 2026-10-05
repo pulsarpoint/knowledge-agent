@@ -104,10 +104,7 @@ user instructions, agent configuration, prompt texts and source evidence. Its
 input snapshot is immutable and must reference a queued documentation job.
 The generation endpoint and worker are described below.
 
-The publication stage will export a selected immutable version into the fixed
-RAG mount, map derived files to document/version IDs and use the existing content
-hash pipeline. Draft edits must not alter published search content. Publishing,
-unpublishing and deletion will need coordinated cleanup and entity-scoped search.
+Documents are searchable through the `documents` collection; refresh it in RAG → Collections.
 No credentials may be included in generation or document snapshots.
 
 
