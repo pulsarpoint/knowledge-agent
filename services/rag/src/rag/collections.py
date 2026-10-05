@@ -23,6 +23,8 @@ WRITABLE_AREA = 'rag-data'
 SOURCE_PATH = re.compile(r'(code|code-index|rag-data|generated-documents|docs)(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*')
 SKIPPED_DIRECTORIES = {'.git', 'node_modules'}
 MAX_FILES = 20_000
+MAX_STATUS_ENTRIES = 20_000  # status walks stop (truncated) after visiting this many entries
+MAX_SYNC_ENTRIES = 10 * MAX_FILES  # a sync fails rather than walk an unbounded tree
 MAX_BYTES = 200_000_000
 
 
@@ -81,6 +83,21 @@ def matches(path: str, include: list[str], exclude: list[str]) -> bool:
             and not any(glob_regex(p).fullmatch(path) for p in exclude))
 
 
+def visible(path: str) -> bool:
+    """False for hidden segments (incl. .env* and .git) and skipped directories like node_modules."""
+    return not any(part.startswith('.') or part in SKIPPED_DIRECTORIES for part in path.split('/'))
+
+
+def indexable(path: str, include: list[str], exclude: list[str]) -> bool:
+    """The one rule for which collection files sync indexes and the file API serves."""
+    return visible(path) and matches(path, include, exclude)
+
+
+def refuse_hidden(path: str) -> None:
+    if not visible(path):
+        raise HTTPException(400, 'Hidden files, .env files and .git or node_modules folders cannot be changed here')
+
+
 @dataclass
 class Walk:
     files: list[dict] = field(default_factory=list)
@@ -126,7 +143,7 @@ class Areas:
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             for index, part in enumerate([*rest, *parts]):
-                if create and index >= len(rest):
+                if create:
                     try:
                         os.mkdir(part, mode=0o750, dir_fd=fd)
                     except FileExistsError:
@@ -138,13 +155,36 @@ class Areas:
         finally:
             os.close(fd)
 
-    def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int = MAX_FILES, truncate: bool = False) -> Walk:
+    def present(self, source: str) -> bool:
+        """Whether the collection folder exists as a real directory (no walk)."""
+        try:
+            with self._directory(source, []):
+                return True
+        except OSError:
+            return False
+
+    def ensure_folder(self, source: str) -> None:
+        """Create a writable-area collection folder (0o750, no links followed); other areas are left alone."""
+        if self.writable(source):
+            with self._directory(source, [], create=True):
+                pass
+
+    def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
+             truncate: bool = False, max_entries: int | None = None) -> Walk:
+        """List indexable files. `limit` caps matching files; `max_entries` caps every entry visited.
+
+        With `truncate` either cap stops the walk and marks it truncated; otherwise it fails.
+        """
         result = Walk()
+        if max_entries is None:
+            max_entries = MAX_STATUS_ENTRIES if truncate else MAX_SYNC_ENTRIES
+        visited = 0
 
         def newer(value: float):
             result.newest_mtime = value if result.newest_mtime is None else max(result.newest_mtime, value)
 
         def visit(fd: int, prefix: str) -> bool:
+            nonlocal visited
             newer(os.fstat(fd).st_mtime)
             try:
                 names = sorted(os.listdir(fd))
@@ -152,6 +192,13 @@ class Areas:
                 result.skipped['unreadable'] += 1
                 return True
             for name in names:
+                visited += 1
+                if visited > max_entries:
+                    if truncate:
+                        result.truncated = True
+                        return False
+                    raise HTTPException(400, f'This collection folder has more than {max_entries} entries; '
+                                             'point the collection at a narrower folder')
                 try:
                     name.encode('utf-8')
                 except UnicodeEncodeError:
@@ -168,7 +215,7 @@ class Areas:
                 if stat.S_ISLNK(entry.st_mode):
                     result.skipped['links'] += 1
                 elif stat.S_ISDIR(entry.st_mode):
-                    if name in SKIPPED_DIRECTORIES:
+                    if not visible(name):
                         continue
                     try:
                         child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
@@ -183,7 +230,7 @@ class Areas:
                     finally:
                         os.close(child)
                 elif stat.S_ISREG(entry.st_mode):
-                    if name.startswith('.env') or not matches(relative, include, exclude):
+                    if not indexable(relative, include, exclude):
                         continue
                     if len(result.files) >= limit:
                         if truncate:
@@ -192,7 +239,7 @@ class Areas:
                         raise HTTPException(400, f'This collection selects more than {limit} files; narrow its include patterns')
                     result.files.append({'path': relative, 'size': entry.st_size, 'mtime': entry.st_mtime})
                     newer(entry.st_mtime)
-                elif matches(relative, include, exclude):
+                elif indexable(relative, include, exclude):
                     result.skipped['special'] += 1
             return True
 
@@ -224,6 +271,7 @@ class Areas:
         if not self.writable(source):
             raise HTTPException(400, 'This collection folder is read-only; only rag-data collections accept files')
         *parents, name = relative_path(path).split('/')
+        refuse_hidden(path)
         with self._directory(source, parents, create=True) as fd:
             temporary = f'.upload-{uuid4().hex}'
             try:
@@ -243,5 +291,6 @@ class Areas:
         if not self.writable(source):
             raise HTTPException(400, 'This collection folder is read-only; only rag-data collections accept files')
         *parents, name = relative_path(path).split('/')
+        refuse_hidden(path)
         with self._directory(source, parents) as fd:
             os.unlink(name, dir_fd=fd)

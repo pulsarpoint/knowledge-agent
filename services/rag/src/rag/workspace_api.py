@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rag.collections import AREAS, FolderMissing, Walk, relative_path, source_path
+from rag.collections import AREAS, FolderMissing, Walk, indexable, refuse_hidden, relative_path, source_path
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
 from rag.workspace_search import SearchInput, search
@@ -70,6 +70,15 @@ STATUS_SQL = """SELECT count(DISTINCT f.id) AS indexed_files, count(c.id) AS chu
     WHERE f.collection_id=%s"""
 
 ACTIVE = ("queued", "running", "waiting_input")
+
+
+def collection_summary(workspace: Workspace, conn, row: dict) -> dict:
+    """Collection row, index counts and folder presence; no folder walk."""
+    counts = conn.execute(STATUS_SQL, (row["id"],)).fetchone()
+    return {**row, **counts, "host_path": workspace.areas.host_path(row["source_path"]),
+            "container_path": str(workspace.areas.container_path(row["source_path"])),
+            "writable": workspace.areas.writable(row["source_path"]),
+            "folder_present": workspace.areas.present(row["source_path"])}
 
 
 def collection_status(workspace: Workspace, conn, row: dict) -> dict:
@@ -161,11 +170,13 @@ def build_api(workspace: Workspace, key: str, transport=None):
         return {'message': 'Connection successful'}
 
     @router.get(prefix + "/collections")
-    def list_collections(project: UUID):
+    def list_collections(project: UUID, status: bool = True):
+        """status=false skips folder walks: for callers that only need names, folders and index counts."""
         with workspace.connect() as conn:
             workspace.ensure(conn, project)
             rows = conn.execute("SELECT * FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name", (project,)).fetchall()
-            return {"collections": [collection_status(workspace, conn, row) for row in rows]}
+            describe = collection_status if status else collection_summary
+            return {"collections": [describe(workspace, conn, row) for row in rows]}
 
     @router.post(prefix + "/collections")
     def create_collection(project: UUID, payload: CollectionInput):
@@ -176,6 +187,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
                                    (project, *(getattr(payload, c) for c in COLUMNS))).fetchone()
             except psycopg.errors.UniqueViolation:
                 raise HTTPException(409, "A collection with this name already exists") from None
+            workspace.areas.ensure_folder(payload.source_path)  # rag-data only; a failure rolls the insert back
             return row
 
     @router.get(prefix + "/collections/{collection_id}")
@@ -194,6 +206,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
                                    (*(getattr(payload, c) for c in COLUMNS), collection_id)).fetchone()
             except psycopg.errors.UniqueViolation:
                 raise HTTPException(409, "A collection with this name already exists") from None
+            workspace.areas.ensure_folder(payload.source_path)
             return collection_status(workspace, conn, row)
 
     @router.delete(prefix + "/collections/{collection_id}")
@@ -282,7 +295,13 @@ def build_api(workspace: Workspace, key: str, transport=None):
         with workspace.connect() as conn:
             limit = Settings(**workspace.settings(conn, project)["settings"]).max_file_bytes
             row = workspace.collection_by_name(conn, project, collection)
-        data = workspace.areas.read(row["source_path"], path, limit)
+        # Serve only what sync would index: never .env*, hidden or skipped folders, or unselected files.
+        if not indexable(relative_path(path), row["include"], row["exclude"]):
+            raise HTTPException(404, "Document not found")
+        try:
+            data = workspace.areas.read(row["source_path"], path, limit)
+        except FileNotFoundError:
+            raise HTTPException(404, "Document not found") from None
         try:
             content = data.decode("utf-8-sig")
         except UnicodeError:
@@ -294,6 +313,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
         with workspace.connect() as conn:
             limit = Settings(**workspace.settings(conn, project)["settings"]).max_file_bytes
             row = workspace.collection_by_name(conn, project, payload.collection)
+            refuse_hidden(relative_path(payload.path))
             data = payload.content.encode("utf-8")
             if len(data) > limit:
                 raise HTTPException(400, "File exceeds the configured size limit")
@@ -311,6 +331,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
         with workspace.connect() as conn:
             limit = Settings(**workspace.settings(conn, project)["settings"]).max_file_bytes
             row = workspace.collection_by_name(conn, project, collection)
+            refuse_hidden(relative_path(path))
             if digest(workspace.areas.read(row["source_path"], path, limit)) != expected_hash:
                 raise HTTPException(409, "File changed; open it again before deleting")
             workspace.areas.delete(row["source_path"], path)

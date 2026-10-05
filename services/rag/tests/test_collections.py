@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from rag.collections import AREAS, Areas, FolderMissing, glob_regex, matches, relative_path, source_path
+from rag.collections import AREAS, Areas, FolderMissing, glob_regex, indexable, matches, relative_path, source_path, visible
 
 
 @pytest.fixture
@@ -177,3 +177,92 @@ def test_walk_skips_surrogate_names_from_listing(areas, monkeypatch):
     walk = areas.walk('rag-data/p', ['**/*.md'], [])
     assert [f['path'] for f in walk.files] == ['a.md']
     assert walk.skipped['invalid_names'] == 1
+
+
+DOCUMENTS_EXCLUDE = ['*/v[0-9]*/**', 'services/*/*/v[0-9]*/**']
+
+
+def test_documents_exclude_keeps_slugs_that_start_with_a_version():
+    include = ['**/*.md']
+    assert matches('v2-api-design/README.md', include, DOCUMENTS_EXCLUDE)
+    assert matches('payments-runbook/README.md', include, DOCUMENTS_EXCLUDE)
+    assert matches('services/x/overview/overview.md', include, DOCUMENTS_EXCLUDE)
+    assert not matches('payments-runbook/v3/README.md', include, DOCUMENTS_EXCLUDE)
+    assert not matches('v2-api-design/v1/README.md', include, DOCUMENTS_EXCLUDE)
+    assert not matches('services/x/overview/v2/overview.md', include, DOCUMENTS_EXCLUDE)
+
+
+def test_indexable_refuses_hidden_env_and_skipped_segments():
+    include = ['**/*']
+    assert indexable('docs/a.md', include, [])
+    for path in ('.env', '.env.local', 'sub/.env.production', '.git/config', 'a/.git/HEAD', 'node_modules/x/README.md',
+                 '.github/workflows/ci.md', '.commit-update-test/README.md', 'a/.hidden.md'):
+        assert not indexable(path, include, []), path
+        assert not visible(path), path
+    assert not indexable('app.py', ['**/*.md'], [])
+    assert not indexable('v1/a.md', ['**/*.md'], ['v1/**'])
+
+
+def test_walk_skips_hidden_directories_and_files(areas):
+    areas, roots = areas
+    folder = roots['generated-documents']
+    (folder / '.documentation-update-abc' / 'payments').mkdir(parents=True)
+    (folder / '.documentation-update-abc' / 'payments' / 'README.md').write_text('# scratch')
+    (folder / 'payments').mkdir()
+    (folder / 'payments' / 'README.md').write_text('# Payments')
+    (folder / 'payments' / '.draft.md').write_text('# hidden')
+    walk = areas.walk('generated-documents', ['**/*.md'], [])
+    assert [f['path'] for f in walk.files] == ['payments/README.md']
+
+
+def test_walk_caps_visited_entries(areas):
+    areas, roots = areas
+    folder = roots['code'] / 'repo'
+    (folder / 'src').mkdir(parents=True)
+    for i in range(10):
+        (folder / 'src' / f'{i}.py').write_text('x')
+    (folder / 'README.md').write_text('# R')
+    # No file matches the include patterns, yet every entry counts towards the cap.
+    walk = areas.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=5)
+    assert walk.truncated and walk.files == []
+    with pytest.raises(HTTPException, match='more than 5 entries'):
+        areas.walk('code/repo', ['**/*.rst'], [], max_entries=5)
+    assert not areas.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=100).truncated
+
+
+def test_present_and_ensure_folder(areas):
+    areas, roots = areas
+    assert not areas.present('rag-data/new')
+    areas.ensure_folder('rag-data/new/nested')
+    assert (roots['rag-data'] / 'new' / 'nested').is_dir() and areas.present('rag-data/new/nested')
+    assert (roots['rag-data'] / 'new' / 'nested').stat().st_mode & 0o777 == 0o750 & ~_umask()
+    areas.ensure_folder('rag-data/new/nested')  # idempotent
+    areas.ensure_folder('code/absent')  # read-only areas are never created
+    assert not (roots['code'] / 'absent').exists() and not areas.present('code/absent')
+    os.symlink(roots['code'], roots['rag-data'] / 'link')
+    with pytest.raises(OSError):
+        areas.ensure_folder('rag-data/link/x')
+    assert not (roots['code'] / 'x').exists()
+    assert not areas.present('rag-data/link')
+
+
+def test_first_write_creates_the_collection_folder(areas):
+    areas, roots = areas
+    areas.write('rag-data/jira', 'DEMO-1.md', b'# DEMO-1')
+    assert (roots['rag-data'] / 'jira' / 'DEMO-1.md').read_bytes() == b'# DEMO-1'
+
+
+@pytest.mark.parametrize('path', ['.env', 'sub/.env.local', '.git/config', 'node_modules/a.md', '.hidden/a.md'])
+def test_write_and_delete_refuse_hidden_and_skipped_paths(areas, path):
+    areas, roots = areas
+    with pytest.raises(HTTPException) as error:
+        areas.write('rag-data/notes', path, b'x')
+    assert error.value.status_code == 400
+    with pytest.raises(HTTPException):
+        areas.delete('rag-data/notes', path)
+
+
+def _umask():
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask

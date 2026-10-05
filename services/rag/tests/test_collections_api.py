@@ -29,7 +29,7 @@ def test_create_list_and_validate(env):
 
 
 def test_missing_folder_is_reported(env):
-    created = collection(env, "absent", "rag-data/absent")
+    created = collection(env, "absent", "docs/absent")
     row = status(env, created)
     assert row["status"] == "folder_missing" and row["folder_present"] is False
     result = env[1].post(env[3] + f"/collections/{created}/sync", json={})
@@ -96,7 +96,7 @@ def test_one_active_sync_per_collection_and_sync_stale(env):
     for name in ("a", "b"):
         (roots["rag-data"] / name).mkdir()
         collection(env, name, f"rag-data/{name}")
-    first = client.post(prefix + "/collections", json={"name": "c", "source_path": "rag-data/c"}).json()["id"]
+    first = client.post(prefix + "/collections", json={"name": "c", "source_path": "docs/c"}).json()["id"]
     ids = {r["name"]: r["id"] for r in client.get(prefix + "/collections").json()["collections"]}
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 202
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 409
@@ -168,3 +168,74 @@ def test_jobs_list_and_cancel(env):
     assert client.post(prefix + f"/jobs/{queued['id']}/cancel").status_code == 200
     assert client.post(prefix + f"/jobs/{queued['id']}/cancel").status_code == 409
     assert client.post(prefix + f"/collections/{created}/sync", json={}).status_code == 202
+
+
+def test_rag_data_collection_folder_is_created(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    created = collection(env, "jira", "rag-data/jira")
+    folder = roots["rag-data"] / "jira"
+    assert folder.is_dir() and status(env, created)["status"] == "needs_refresh"
+    folder.rmdir()  # removed on the host: the first upload creates it again
+    write(env, "DEMO-1.md", "# DEMO-1", name="jira")
+    assert (folder / "DEMO-1.md").read_text() == "# DEMO-1"
+    collection(env, "repo", "code/repo")
+    assert not (roots["code"] / "repo").exists()
+
+
+def test_file_api_serves_only_indexable_files(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    repo = roots["code"] / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "node_modules" / "x").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / ".env").write_text("SECRET=1")
+    (repo / ".env.local").write_text("SECRET=2")
+    (repo / ".git" / "config").write_text("[remote]")
+    (repo / "node_modules" / "x" / "README.md").write_text("# x")
+    (repo / "docs" / ".draft.md").write_text("# draft")
+    (repo / "app.py").write_text("print(1)")
+    (repo / "docs" / "guide.md").write_text("# Guide")
+    (repo / "docs" / "old.md").write_text("# Old")
+    collection(env, "repo", "code/repo", exclude=["docs/old.md"])
+    for path in (".env", ".env.local", ".git/config", "node_modules/x/README.md", "docs/.draft.md", "app.py", "docs/old.md"):
+        response = client.get(prefix + "/file", params={"collection": "repo", "path": path})
+        assert response.status_code == 404, path
+        assert response.json()["error"]["message"] == "Document not found" and "SECRET" not in response.text
+    assert client.get(prefix + "/file", params={"collection": "repo", "path": "docs/guide.md"}).json()["content"] == "# Guide"
+
+
+def test_file_writes_refuse_hidden_and_skipped_paths(env):
+    client, prefix = env[1], env[3]
+    collection(env)
+    for path in (".env", "a/.env.local", ".git/config", "node_modules/a.md", ".hidden/a.md"):
+        result = client.put(prefix + "/file", json={"collection": "docs", "path": path, "content": "x", "expected_hash": None})
+        assert result.status_code == 400, path
+        assert client.delete(prefix + "/file", params={"collection": "docs", "path": path, "expected_hash": "x"}).status_code == 400
+
+
+def test_list_without_status_skips_the_walk(env, monkeypatch):
+    workspace, client, prefix, roots = env[0], env[1], env[3], env[6]
+    created = collection(env)
+    write(env)
+    sync(env, created)
+    collection(env, "absent", "docs/absent")
+
+    def no_walk(*args, **kwargs):
+        raise AssertionError("status=false must not walk folders")
+    monkeypatch.setattr(workspace.areas, "walk", no_walk)
+    rows = {r["name"]: r for r in client.get(prefix + "/collections", params={"status": "false"}).json()["collections"]}
+    assert rows["docs"]["folder_present"] is True and rows["docs"]["indexed_files"] == 1 and rows["docs"]["chunks"] >= 1
+    assert rows["docs"]["embedded_chunks"] == 0 and rows["docs"]["writable"] is True
+    assert rows["absent"]["folder_present"] is False and "status" not in rows["docs"]
+
+
+def test_collection_with_unsynced_revision_needs_refresh(env):
+    workspace, roots = env[0], env[6]
+    created = collection(env)
+    write(env)
+    sync(env, created)
+    assert status(env, created)["status"] == "up_to_date"
+    with workspace.connect() as conn:  # what migration 0063 leaves for migrated folders
+        conn.execute("UPDATE ka.rag_collections SET synced_revision=NULL WHERE id=%s", (created,))
+    row = status(env, created)
+    assert row["status"] == "needs_refresh" and row["last_synced_at"] is not None
