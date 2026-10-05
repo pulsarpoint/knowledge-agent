@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import psycopg
 from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
@@ -20,6 +21,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.code_paths import code_path
 from knowledge_admin.code_processing import process_code, CodeProcessingError
+from knowledge_admin.code_project_search import reconcile_project
 
 
 class PullError(Exception):
@@ -111,7 +113,7 @@ def pull_checkout(code_root: Path, repo: dict, job_id, username: str | None, tok
                 shutil.rmtree(staging)
 
 
-def run_once(store: RepositoryStore, code_root: Path) -> bool:
+def run_once(store: RepositoryStore, code_root: Path, rag_client: httpx.Client | None = None) -> bool:
     lease = uuid4()
     with store.connect() as conn:
         conn.execute("""UPDATE ka.jobs SET status='failed', error='Worker stopped before completing this job. Run the action again to retry.',
@@ -176,7 +178,19 @@ def run_once(store: RepositoryStore, code_root: Path) -> bool:
         conn.execute("""INSERT INTO ka.job_events(job_id, event_type, message)
             VALUES (%s,%s,%s)""", (job["id"], "succeeded" if error is None else "failed", error or ('Code processed' if job['kind'] == 'code_index' else 'Checkout published')))
     print(f"Repository job {job['id']}: {'succeeded' if error is None else 'failed'}", flush=True)
+    if error is None and job['kind'] == 'repository_sync':
+        update_search(store, rag_client, repo)
     return True
+
+
+def update_search(store: RepositoryStore, rag_client: httpx.Client | None, repo: dict) -> None:
+    """A pull publishes the project's folders (the first clone, or a new checkout), so a searchable
+    project's RAG paths follow; reconcile is idempotent, stores failures in search_error and never
+    fails the finished sync."""
+    try:
+        reconcile_project(store, repo['project_id'], rag_client, repo['id'], None)
+    except Exception:  # noqa: BLE001 - the pull already succeeded; the project page shows Retry
+        print(f"Repository {repo['id']}: could not update its search paths", flush=True)
 
 
 def main() -> None:
@@ -184,12 +198,14 @@ def main() -> None:
     store = RepositoryStore("", key, os.environ["AUTH_ISSUER_URL"])
     code_root = Path(os.environ["CODE_ROOT"]).resolve()
     code_root.mkdir(parents=True, exist_ok=True)
+    rag_url = os.environ.get("DOCS_WIKI_RAG_URL")
+    rag_client = httpx.Client(base_url=rag_url, timeout=30.0) if rag_url else None
     stopped = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     signal.signal(signal.SIGINT, lambda *_: stopped.set())
     while not stopped.is_set():
         try:
-            worked = run_once(store, code_root)
+            worked = run_once(store, code_root, rag_client)
         except psycopg.Error:
             print("Repository worker database unavailable; retrying", flush=True)
             worked = False
