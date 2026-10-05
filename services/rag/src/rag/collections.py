@@ -30,13 +30,20 @@ MAX_BYTES = 200_000_000
 
 class FolderMissing(HTTPException):
     def __init__(self, source: str):
-        super().__init__(409, f'The collection folder {source} is missing. Create it or change the collection folder.')
+        self.source = source
+        super().__init__(409, f'Path {source} is missing. Nothing was removed from the index; '
+                              'restore the folder or remove the path from the collection.')
 
 
 def source_path(value: str) -> str:
     if len(value) > 500 or not SOURCE_PATH.fullmatch(value):
         raise HTTPException(400, 'Choose a folder inside code, code-index, rag-data, generated-documents or docs')
     return value
+
+
+def overlaps(a: str, b: str) -> bool:
+    """Whether one collection path contains the other; equal paths overlap."""
+    return a == b or a.startswith(b + '/') or b.startswith(a + '/')
 
 
 def relative_path(value: str) -> str:
@@ -104,6 +111,8 @@ class Walk:
     newest_mtime: float | None = None
     skipped: dict[str, int] = field(default_factory=lambda: {'links': 0, 'special': 0, 'unreadable': 0, 'invalid_names': 0})
     truncated: bool = False
+    missing: list[str] = field(default_factory=list)  # paths absent during a truncating walk
+    visited: int = 0  # entries visited, counted across every path of a collection
 
 
 class Areas:
@@ -170,21 +179,21 @@ class Areas:
                 pass
 
     def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
-             truncate: bool = False, max_entries: int | None = None) -> Walk:
-        """List indexable files. `limit` caps matching files; `max_entries` caps every entry visited.
+             truncate: bool = False, max_entries: int | None = None, into: Walk | None = None) -> Walk:
+        """List indexable files of one folder; patterns match paths relative to it.
 
-        With `truncate` either cap stops the walk and marks it truncated; otherwise it fails.
+        `limit` caps matching files; `max_entries` caps every entry visited. With `truncate` either cap
+        stops the walk and marks it truncated; otherwise it fails. With `into`, files are added to that
+        walk under their full DATA_ROOT path and the caps count everything already in it.
         """
-        result = Walk()
+        result = Walk() if into is None else into
         if max_entries is None:
             max_entries = MAX_STATUS_ENTRIES if truncate else MAX_SYNC_ENTRIES
-        visited = 0
 
         def newer(value: float):
             result.newest_mtime = value if result.newest_mtime is None else max(result.newest_mtime, value)
 
         def visit(fd: int, prefix: str) -> bool:
-            nonlocal visited
             newer(os.fstat(fd).st_mtime)
             try:
                 names = sorted(os.listdir(fd))
@@ -192,13 +201,13 @@ class Areas:
                 result.skipped['unreadable'] += 1
                 return True
             for name in names:
-                visited += 1
-                if visited > max_entries:
+                result.visited += 1
+                if result.visited > max_entries:
                     if truncate:
                         result.truncated = True
                         return False
-                    raise HTTPException(400, f'This collection folder has more than {max_entries} entries; '
-                                             'point the collection at a narrower folder')
+                    raise HTTPException(400, f'This collection has more than {max_entries} entries in its folders; '
+                                             'narrow its paths or include patterns')
                 try:
                     name.encode('utf-8')
                 except UnicodeEncodeError:
@@ -237,7 +246,8 @@ class Areas:
                             result.truncated = True
                             return False
                         raise HTTPException(400, f'This collection selects more than {limit} files; narrow its include patterns')
-                    result.files.append({'path': relative, 'size': entry.st_size, 'mtime': entry.st_mtime})
+                    result.files.append({'path': relative if into is None else f'{source}/{relative}', 'source': source,
+                                         'size': entry.st_size, 'mtime': entry.st_mtime})
                     newer(entry.st_mtime)
                 elif indexable(relative, include, exclude):
                     result.skipped['special'] += 1
@@ -253,6 +263,26 @@ class Areas:
                     raise HTTPException(409, f'The collection folder {source} is a link; point the collection at a real folder') from None
                 raise
             visit(fd, '')
+        return result
+
+    def walk_paths(self, sources: list[str], include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
+                   truncate: bool = False, max_entries: int | None = None) -> Walk:
+        """Walk every path of a collection into one result with full DATA_ROOT-relative file paths.
+
+        The caps apply to the collection as a whole. With `truncate` (status and listings) a missing
+        path is recorded in `missing` and the other paths are still walked; otherwise the first missing
+        path raises FolderMissing, so a sync never runs while a folder is absent.
+        """
+        result = Walk()
+        for source in sources:
+            if result.truncated:
+                break
+            try:
+                self.walk(source, include, exclude, limit=limit, truncate=truncate, max_entries=max_entries, into=result)
+            except FolderMissing:
+                if not truncate:
+                    raise
+                result.missing.append(source)
         return result
 
     def read(self, source: str, path: str, limit: int) -> bytes:

@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from rag.collections import AREAS, Areas, FolderMissing, glob_regex, indexable, matches, relative_path, source_path, visible
+from rag.collections import (AREAS, Areas, FolderMissing, glob_regex, indexable, matches, overlaps, relative_path,
+                             source_path, visible)
 
 
 @pytest.fixture
@@ -266,3 +267,63 @@ def _umask():
     mask = os.umask(0)
     os.umask(mask)
     return mask
+
+
+def test_walk_paths_merges_full_paths_and_reports_missing(areas):
+    areas, roots = areas
+    repo = roots['code'] / 'payments'
+    (repo / 'src').mkdir(parents=True)
+    (repo / 'tests').mkdir()
+    (repo / 'src' / 'retry.py').write_text('x')
+    (repo / 'tests' / 'test_retry.py').write_text('x')
+    (roots['rag-data'] / 'jira').mkdir()
+    (roots['rag-data'] / 'jira' / 'DEMO-1.md').write_text('# D')
+    walk = areas.walk_paths(['code/payments', 'rag-data/jira', 'docs/absent'], ['**/*.py', '**/*.md'], ['tests/**'], truncate=True)
+    assert [(f['path'], f['source']) for f in walk.files] == [
+        ('code/payments/src/retry.py', 'code/payments'), ('rag-data/jira/DEMO-1.md', 'rag-data/jira')]
+    assert walk.missing == ['docs/absent'] and not walk.truncated
+    with pytest.raises(FolderMissing, match='Path docs/absent is missing') as error:
+        areas.walk_paths(['code/payments', 'docs/absent'], ['**/*.py'], [])
+    assert error.value.status_code == 409 and error.value.source == 'docs/absent'
+
+
+def test_walk_paths_limits_count_the_whole_collection(areas):
+    areas, roots = areas
+    for name in ('a', 'b'):
+        folder = roots['rag-data'] / name
+        folder.mkdir()
+        for i in range(3):
+            (folder / f'{i}.md').write_text('x')
+    with pytest.raises(HTTPException, match='more than 4 files'):
+        areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], limit=4)
+    walk = areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], limit=4, truncate=True)
+    assert walk.truncated and len(walk.files) == 4
+    with pytest.raises(HTTPException, match='more than 5 entries'):
+        areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], max_entries=5)
+
+
+def test_walk_paths_newest_change_spans_paths(areas):
+    areas, roots = areas
+    old, new = time.time() - 7200, time.time() - 60
+    for name, stamp in (('a', old), ('b', new)):
+        folder = roots['rag-data'] / name
+        folder.mkdir()
+        (folder / 'x.md').write_text('x')
+        for path in (folder / 'x.md', folder):
+            os.utime(path, (stamp, stamp))
+    walk = areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [])
+    assert walk.newest_mtime == pytest.approx(new)
+    assert areas.walk_paths([], ['**/*.md'], []).files == []
+
+
+def test_overlapping_paths():
+    assert overlaps('code/a', 'code/a') and overlaps('code/a', 'code/a/b') and overlaps('code', 'code/a')
+    assert not overlaps('code/a', 'code/ab') and not overlaps('code/a', 'rag-data/a') and not overlaps('code/a/b', 'code/a/c')
+
+
+def test_single_walk_keeps_relative_paths_and_names_its_source(areas):
+    areas, roots = areas
+    (roots['rag-data'] / 'notes').mkdir()
+    (roots['rag-data'] / 'notes' / 'a.md').write_text('# A')
+    assert areas.walk('rag-data/notes', ['**/*.md'], []).files[0] | {'size': 0, 'mtime': 0} == {
+        'path': 'a.md', 'source': 'rag-data/notes', 'size': 0, 'mtime': 0}
