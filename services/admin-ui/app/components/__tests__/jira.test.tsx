@@ -94,7 +94,7 @@ test("unconfigured Jira links to settings and disables network fetch", async () 
 const twoTickets: JiraTickets = { ...snapshot, tickets: [...snapshot.tickets, { ...snapshot.tickets[0], id: "ticket-2", issue_key: "OPS-2", jira_project_key: "OPS", summary: "Worker retries", status_name: "Done", labels: ["workers"] }] };
 
 test("JQL is submitted and filtering the saved list limits bulk selection", async () => {
-  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/api/rag/collections") ? { collections } : twoTickets)));
+  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.startsWith("/api/rag/collections") ? { collections } : twoTickets)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   await screen.findByText("Worker retries");
@@ -118,14 +118,14 @@ const collections = [{ id: "c1", name: "jira", writable: true }, { id: "c2", nam
 test("export sends only selected IDs and destination, then links to RAG processing", async () => {
   const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/export")
     ? { issue_key: "DEMO-1", collection: "jira", path: "DEMO-1.md", status: "unchanged", hash: "hash", comments: 5 }
-    : url.endsWith("/api/rag/collections") ? { collections: collections }
+    : url.startsWith("/api/rag/collections") ? { collections: collections }
     : twoTickets)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select DEMO-1" }));
   const target = await screen.findByLabelText("Target collection");
-  await waitFor(() => expect(target).toHaveTextContent("jira"));
-  expect(target).not.toHaveTextContent("docs-code");
+  expect(target).toHaveValue("jira");
+  expect(document.querySelectorAll("#jira-collection-names option")).toHaveLength(2);
   await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
   expect(await screen.findByText("Export complete")).toBeInTheDocument();
@@ -133,7 +133,7 @@ test("export sends only selected IDs and destination, then links to RAG processi
   const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
   expect(call[0]).toBe("/api/jira/tickets/ticket-1/export");
   expect(JSON.parse(call[1].body as string)).toEqual({ collection: "jira", connection_revision: 2 });
-  expect(screen.getByRole("link", { name: "RAG Collections" })).toHaveAttribute("href", "/rag/collections");
+  expect(screen.getByRole("link", { name: "jira" })).toHaveAttribute("href", "/rag/collections?name=jira");
   expect(fetch.mock.calls.some(([url]) => url.includes("ticket-2/export"))).toBe(false);
 });
 
@@ -141,7 +141,7 @@ test("a failed ticket remains selected while successful exports are reported", a
   const fetch = vi.fn(async (url: string) => {
     if (url.includes("ticket-1/export")) return new Response(JSON.stringify({ issue_key: "DEMO-1", status: "created", comments: 5 }));
     if (url.includes("ticket-2/export")) return new Response(JSON.stringify({ error: { message: "Jira rejected access" } }), { status: 502 });
-    if (url.endsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
+    if (url.startsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
     return new Response(JSON.stringify(twoTickets));
   });
   vi.stubGlobal("fetch", fetch);
@@ -163,7 +163,7 @@ test("leaving the page aborts the current export and does not start another tick
       activeSignal = init?.signal ?? undefined;
       return new Promise<Response>(() => {});
     }
-    if (url.endsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
+    if (url.startsWith("/api/rag/collections")) return new Response(JSON.stringify({ collections }));
     return new Response(JSON.stringify(twoTickets));
   });
   vi.stubGlobal("fetch", fetch);
@@ -176,4 +176,23 @@ test("leaving the page aborts the current export and does not start another tick
   view.unmount();
   expect(activeSignal?.aborted).toBe(true);
   expect(fetch.mock.calls.filter(([url]) => url.endsWith("/export"))).toHaveLength(1);
+});
+
+test("a new collection name is sent and invalid names disable export", async () => {
+  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/export")
+    ? { issue_key: "DEMO-1", collection: "support", path: "rag-data/jira/DEMO-1.md", status: "created", hash: "hash", comments: 0 }
+    : url.startsWith("/api/rag/collections") ? { collections } : twoTickets)));
+  vi.stubGlobal("fetch", fetch);
+  render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select DEMO-1" }));
+  const target = await screen.findByLabelText("Target collection");
+  fireEvent.change(target, { target: { value: "Support Tickets" } });
+  expect(screen.getByText("Use lowercase letters, digits and single hyphens.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeDisabled();
+  fireEvent.change(target, { target: { value: "support" } });
+  fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
+  expect(await screen.findByText("Export complete")).toBeInTheDocument();
+  const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
+  expect(JSON.parse(call[1].body as string)).toEqual({ collection: "support", connection_revision: 2 });
+  expect(screen.getByRole("link", { name: "support" })).toHaveAttribute("href", "/rag/collections?name=support");
 });

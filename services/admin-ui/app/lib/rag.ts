@@ -26,6 +26,21 @@ export interface CollectionInput {
   include: string[]; exclude: string[]; chunk_size: number; chunk_overlap: number; revision?: number;
 }
 export interface SkippedCounts { links: number; special: number; unreadable: number; invalid_names: number }
+export type OwnerKind = "documents" | "jira" | "code_project";
+export interface CollectionPath {
+  id: string; collection_id: string; source_path: string; owner_kind: OwnerKind | null; owner_id: string | null;
+  owner_key: string | null; created_at: string; files: number; host_path: string | null; container_path: string; present: boolean;
+}
+export interface CollectionSettings {
+  description: string; search_mode: SearchMode; embeddings_enabled: boolean;
+  include: string[]; exclude: string[]; chunk_size: number; chunk_overlap: number;
+}
+export interface CollectionSummary extends CollectionSettings {
+  id: string; name: string; revision: number; synced_revision: number | null; last_synced_at: string | null;
+  paths: CollectionPath[]; folder_present: boolean; missing_paths: string[];
+  indexed_files: number; chunks: number; embedded_chunks: number;
+}
+export const getCollectionNames = (signal?: AbortSignal) => ragRequest<{ collections: CollectionSummary[] }>("collections?status=false", "GET", undefined, signal);
 export interface RagCollection extends Required<CollectionInput> {
   id: string; synced_revision: number | null; last_synced_at: string | null; host_path: string | null;
   container_path: string; writable: boolean; folder_present: boolean; folder_changed_at: string | null;
