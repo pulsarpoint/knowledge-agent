@@ -173,6 +173,6 @@ def test_documents_catalog_and_workspace_lookup(env):
     sync(env, created)
     assert client.post('/rag', json={'project_id': str(project), 'query': 'retries'}).status_code == 404
     documents = client.get(prefix + '/documents').json()
-    assert [(d['collection'], d['path'], d['collection_description']) for d in documents] == [("docs", "readme.md", "Operations documentation")]
+    assert [(d['collection'], d['path'], d['collection_description']) for d in documents] == [("docs", "rag-data/docs/readme.md", "Operations documentation")]
     assert 0 < len(documents[0]['description']) <= 280
     assert client.get('/backoffice/workspace').json()['project_id'] == str(project)

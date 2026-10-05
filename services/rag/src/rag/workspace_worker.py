@@ -84,17 +84,19 @@ def parse_source(path: str, text: str, settings: CollectionSettings) -> list[str
             if section.text.strip()]
 
 
-def snapshot(workspace: Workspace, collection: dict, limit: int, stats: dict) -> list[dict]:
-    walk = workspace.areas.walk(collection["source_path"], collection["include"], collection["exclude"])
+def snapshot(workspace: Workspace, collection: dict, sources: list[str], limit: int, stats: dict) -> list[dict]:
+    """Read every indexable file under the collection's paths; a missing path raises FolderMissing."""
+    walk = workspace.areas.walk_paths(sources, collection["include"], collection["exclude"])
     stats["skipped_links"], stats["skipped_special"] = walk.skipped["links"], walk.skipped["special"]
     stats["skipped_unreadable"], stats["skipped_invalid_names"] = walk.skipped["unreadable"], walk.skipped["invalid_names"]
-    sources, total = [], 0
+    files, total = [], 0
     for entry in walk.files:
         if entry["size"] > limit:
             stats["skipped_large"] += 1
             continue
+        area, _, rest = entry["path"].partition("/")
         try:
-            data = workspace.areas.read(collection["source_path"], entry["path"], limit)
+            data = workspace.areas.read(area, rest, limit)
         except FileNotFoundError:
             continue  # removed between walk and read; the manifest check catches real races
         total += len(data)
@@ -104,8 +106,8 @@ def snapshot(workspace: Workspace, collection: dict, limit: int, stats: dict) ->
         if text is None:
             stats["skipped_binary"] += 1
             continue
-        sources.append({"path": entry["path"], "text": text, "content_hash": digest(data)})
-    return sources
+        files.append({"path": entry["path"], "source": entry["source"], "text": text, "content_hash": digest(data)})
+    return files
 
 
 def process(workspace: Workspace, job: dict, transport=None):
@@ -123,9 +125,10 @@ def process(workspace: Workspace, job: dict, transport=None):
             revision = job.get("collection_revision", collection["revision"])
             if collection["revision"] != revision:
                 raise HTTPException(409, "Settings changed while syncing; refresh the collection again")
+            path_ids = {row["source_path"]: row["id"] for row in workspace.paths(conn, collection["id"])}
             model = workspace.embedding_model(conn, config["embedding_model_id"]) if collection["embeddings_enabled"] else None
             existing = conn.execute("SELECT * FROM ka.rag_files WHERE collection_id=%s", (collection["id"],)).fetchall()
-        sources = snapshot(workspace, collection, limit, stats)
+        sources = snapshot(workspace, collection, list(path_ids), limit, stats)
         stats["hashed_files"] = len(sources)
         previous = {row["path"]: row for row in existing}
         settings = CollectionSettings(chunk_size=collection["chunk_size"], chunk_overlap=collection["chunk_overlap"])
@@ -188,18 +191,19 @@ def process(workspace: Workspace, job: dict, transport=None):
                                        (project, profile, list(reused))).fetchone()["n"]
                 if present != len(reused):
                     raise HTTPException(409, "Embeddings changed while syncing; refresh the collection again")
-            check = snapshot(workspace, collection, limit, dict.fromkeys(STATS, 0))
+            check = snapshot(workspace, collection, list(path_ids), limit, dict.fromkeys(STATS, 0))
             manifest = lambda rows: sorted((s["path"], s["content_hash"]) for s in rows)
             if manifest(check) != manifest(sources):
                 raise HTTPException(409, "Files changed while syncing; refresh the collection again")
             for value, vector in vectors.items():
                 conn.execute("INSERT INTO ka.rag_vectors(project_id,profile,input_hash,embedding) VALUES (%s,%s,%s,%s::public.vector) ON CONFLICT (project_id,profile,input_hash) DO UPDATE SET embedding=EXCLUDED.embedding", (project, profile, value, json.dumps(vector)))
             for source, chunks in updates:
-                row = conn.execute("""INSERT INTO ka.rag_files(project_id,collection_id,path,content_hash,processing_hash,embedding_profile,job_id)
-                                    VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (collection_id,path) DO UPDATE
-                                    SET content_hash=EXCLUDED.content_hash,processing_hash=EXCLUDED.processing_hash,
+                row = conn.execute("""INSERT INTO ka.rag_files(project_id,collection_id,path_id,path,content_hash,processing_hash,embedding_profile,job_id)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (collection_id,path) DO UPDATE
+                                    SET path_id=EXCLUDED.path_id,content_hash=EXCLUDED.content_hash,processing_hash=EXCLUDED.processing_hash,
                                     embedding_profile=EXCLUDED.embedding_profile,job_id=EXCLUDED.job_id,indexed_at=now() RETURNING id""",
-                                   (project, collection["id"], source["path"], source["content_hash"], fingerprint, profile, job["id"])).fetchone()
+                                   (project, collection["id"], path_ids[source["source"]], source["path"], source["content_hash"],
+                                    fingerprint, profile, job["id"])).fetchone()
                 conn.execute("DELETE FROM ka.rag_chunks WHERE file_id=%s", (row["id"],))
                 for position, chunk in enumerate(chunks):
                     conn.execute("INSERT INTO ka.rag_chunks(project_id,file_id,position,text,input_hash) VALUES (%s,%s,%s,%s,%s)", (project, row["id"], position, chunk["text"], chunk["input_hash"]))

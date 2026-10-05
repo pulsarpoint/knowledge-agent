@@ -2,7 +2,7 @@
 import os
 
 import pytest
-from test_workspace import chunks, collection, configure, search, sync, write
+from test_workspace import chunks, collection, configure, search, sync, update, write
 
 from rag.workspace_worker import claim, process
 
@@ -20,9 +20,9 @@ def test_sync_indexes_code_as_plain_text_with_patterns(env):
     stats, row = sync(env, created)
     assert stats["parsed_files"] == 1 and row["indexed_files"] == 1 and row["status"] == "up_to_date"
     hits = search(env, "MAX_RETRIES", ["payments-code"]).json()["results"]
-    assert hits[0]["path"] == "src/retry.py" and hits[0]["collection"] == "payments-code"
-    assert chunks(env, created, "src/retry.py") == ["MAX_RETRIES = 5  # payment retries"]
-    assert chunks(env, created, "tests/test_retry.py") == []
+    assert hits[0]["path"] == "code/payments/src/retry.py" and hits[0]["collection"] == "payments-code"
+    assert chunks(env, created, "code/payments/src/retry.py") == ["MAX_RETRIES = 5  # payment retries"]
+    assert chunks(env, created, "code/payments/tests/test_retry.py") == []
 
 
 def test_sync_skips_links_binaries_and_counts_them(env):
@@ -40,7 +40,7 @@ def test_sync_skips_links_binaries_and_counts_them(env):
 
 
 def test_sync_removes_deleted_and_unmatched_files(env):
-    client, prefix, roots = env[1], env[3], env[6]
+    roots = env[6]
     (roots["rag-data"] / "docs").mkdir()
     created = collection(env)
     write(env, "a.md", "# A\n\nalpha")
@@ -48,8 +48,7 @@ def test_sync_removes_deleted_and_unmatched_files(env):
     _, row = sync(env, created)
     assert row["indexed_files"] == 2
     (roots["rag-data"] / "docs" / "a.md").unlink()
-    client.put(prefix + f"/collections/{created}", json={"name": "docs", "source_path": "rag-data/docs",
-                                                        "include": ["**/*.md"], "revision": row["revision"]})
+    update(env, created, include=["**/*.md"])
     stats, row = sync(env, created)
     assert stats["removed_entries"] == 2 and row["indexed_files"] == 0 and row["status"] == "up_to_date"
 
@@ -87,8 +86,7 @@ def test_editing_another_collection_does_not_fail_this_sync(env):
     write(env, "x.md", "# X", name="a")
     assert client.post(prefix + f"/collections/{first}/sync", json={}).status_code == 202
     job = claim(workspace)
-    row_b = client.get(prefix + f"/collections/{second}").json()
-    client.put(prefix + f"/collections/{second}", json={"name": "b", "source_path": "rag-data/b", "description": "changed", "revision": row_b["revision"]})
+    update(env, second, description="changed")
     assert process(workspace, job, transport) is not None
 
 
@@ -99,14 +97,13 @@ def test_settings_change_during_sync_fails_that_sync(env):
     write(env)
     assert client.post(prefix + f"/collections/{created}/sync", json={}).status_code == 202
     job = claim(workspace)
-    row = client.get(prefix + f"/collections/{created}").json()
-    client.put(prefix + f"/collections/{created}", json={"name": "docs", "source_path": "rag-data/docs", "chunk_size": 1000, "revision": row["revision"]})
+    update(env, created, chunk_size=1000)
     assert process(workspace, job, transport) is None
     assert "Settings changed" in client.get(prefix + f"/collections/{created}").json()["job"]["error"]
 
 
 def test_unchanged_files_are_not_parsed_and_deletions_are_published(env, monkeypatch):
-    client, prefix, roots = env[1], env[3], env[6]
+    roots = env[6]
     (roots["rag-data"] / "docs").mkdir()
     created = collection(env)
     write(env)
@@ -120,11 +117,10 @@ def test_unchanged_files_are_not_parsed_and_deletions_are_published(env, monkeyp
     assert second["skipped_files"] == 2 and second["parsed_files"] == 0
     monkeypatch.setattr(workspace_worker, "parse_source", parser)
     write(env, content="# Payments\n\nRetries have a new policy.")
-    document = client.get(prefix + "/file", params={"collection": "docs", "path": "other.txt"}).json()
-    assert client.delete(prefix + "/file", params={"collection": "docs", "path": "other.txt", "expected_hash": document["hash"]}).status_code == 200
+    (roots["rag-data"] / "docs" / "other.txt").unlink()
     third, row = sync(env, created)
     assert third["parsed_files"] == 1 and third["removed_entries"] == 1 and row["indexed_files"] == 1
-    assert chunks(env, created, "other.txt") == []
+    assert chunks(env, created, "rag-data/docs/other.txt") == []
     assert "new policy" in chunks(env, created)[0]
 
 
@@ -150,7 +146,7 @@ def test_json_is_pretty_printed_and_large_files_are_skipped(env):
     created = collection(env, include=["**/*.json", "**/*.md"])
     stats, row = sync(env, created)
     assert stats["skipped_large"] == 1 and row["indexed_files"] == 1
-    assert chunks(env, created, "data.json") == ['{\n  "retries": 5\n}']
+    assert chunks(env, created, "rag-data/docs/data.json") == ['{\n  "retries": 5\n}']
 
 
 def test_model_change_reembeds_without_parsing_and_failure_publishes_nothing(env):
@@ -205,8 +201,7 @@ def test_cancel_and_external_edit_cannot_publish(env):
     write(env)
     sync(env, created)
     configure(env)
-    client.put(prefix + f"/collections/{created}", json={"name": "docs", "source_path": "rag-data/docs", "embeddings_enabled": True,
-                                                        "revision": client.get(prefix + f"/collections/{created}").json()["revision"]})
+    update(env, created, embeddings_enabled=True)
     state["hook"] = lambda: (roots["rag-data"] / "docs" / "readme.md").write_text("Changed during processing")
     stats, row = sync(env, created)
     assert stats is None and "Files changed" in row["job"]["error"]
@@ -329,3 +324,59 @@ def test_reused_vector_removed_before_publish_fails_the_sync(env):
     assert stats is None and "Embeddings changed" in row["job"]["error"]
     stats, row = sync(env, second)
     assert stats["embedded_chunks"] >= 1 and row["embedded_chunks"] == row["chunks"] and row["status"] == "up_to_date"
+
+
+def test_sync_indexes_two_paths_under_full_paths(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    (roots["code"] / "payments" / "src").mkdir(parents=True)
+    (roots["code"] / "payments" / "src" / "retry.py").write_text("MAX_RETRIES = 5  # payment retries\n")
+    (roots["rag-data"] / "jira").mkdir()
+    (roots["rag-data"] / "jira" / "PAY-1.md").write_text("# PAY-1\n\nRetries fail on timeout.")
+    created = collection(env, "payments", "code/payments", "rag-data/jira", include=["**/*.py", "**/*.md"])
+    stats, row = sync(env, created)
+    assert stats["parsed_files"] == 2 and row["indexed_files"] == 2 and row["status"] == "up_to_date"
+    files = client.get(prefix + f"/collections/{created}/files").json()["files"]
+    assert [(f["path"], f["source"]) for f in files] == [
+        ("code/payments/src/retry.py", "code/payments"), ("rag-data/jira/PAY-1.md", "rag-data/jira")]
+    assert {p["source_path"]: p["files"] for p in row["paths"]} == {"code/payments": 1, "rag-data/jira": 1}
+    assert chunks(env, created, "code/payments/src/retry.py") == ["MAX_RETRIES = 5  # payment retries"]
+
+
+def test_missing_path_fails_sync_and_keeps_index(env):
+    workspace, client, _, prefix, _, transport, roots = env
+    for name in ("a", "b"):
+        (roots["rag-data"] / name).mkdir()
+        (roots["rag-data"] / name / "x.md").write_text(f"# {name}\n\nretries {name}")
+    created = collection(env, "both", "rag-data/a", "rag-data/b")
+    sync(env, created)
+    (roots["rag-data"] / "b" / "x.md").unlink()
+    (roots["rag-data"] / "b").rmdir()
+    row = client.get(prefix + f"/collections/{created}").json()
+    assert row["status"] == "folder_missing" and row["missing_paths"] == ["rag-data/b"]
+    refused = client.post(prefix + f"/collections/{created}/sync", json={})
+    assert refused.status_code == 409 and "Path rag-data/b is missing" in refused.json()["error"]["message"]
+    # A sync queued while the folder existed fails in the worker and publishes nothing.
+    (roots["rag-data"] / "b").mkdir()
+    assert client.post(prefix + f"/collections/{created}/sync", json={}).status_code == 202
+    job = claim(workspace)
+    (roots["rag-data"] / "b").rmdir()
+    assert process(workspace, job, transport) is None
+    row = client.get(prefix + f"/collections/{created}").json()
+    assert "Path rag-data/b is missing" in row["job"]["error"] and row["indexed_files"] == 2
+    hits = search(env, "retries", ["both"]).json()["results"]
+    assert {hit["path"] for hit in hits} == {"rag-data/a/x.md", "rag-data/b/x.md"}
+
+
+def test_removing_a_path_drops_its_files_from_search(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    for name in ("a", "b"):
+        (roots["rag-data"] / name).mkdir()
+        (roots["rag-data"] / name / "x.md").write_text(f"# {name}\n\nretries {name}")
+    created = collection(env, "both", "rag-data/a", "rag-data/b")
+    sync(env, created)
+    removed = client.delete(prefix + "/collections/by-name/both/paths", params={"source_path": "rag-data/b"})
+    assert removed.json() == {"removed": 1}
+    assert {hit["path"] for hit in search(env, "retries", ["both"]).json()["results"]} == {"rag-data/a/x.md"}
+    row = client.get(prefix + f"/collections/{created}").json()
+    assert row["indexed_files"] == 1 and row["status"] == "needs_refresh"
+    assert (roots["rag-data"] / "b" / "x.md").is_file()  # files on disk are never deleted

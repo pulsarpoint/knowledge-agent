@@ -55,3 +55,9 @@ def test_ignore_unknown_drops_missing_collections(env):
     none = client.post("/search", json={**body, "collections": ["gone", "renamed"]})
     assert none.status_code == 200 and none.json()["results"] == [] and none.json()["unknown"] == ["gone", "renamed"]
     assert search(env, "retries", ["docs"]).json()["unknown"] == []
+
+
+def test_hits_carry_collection_and_full_path(env):
+    two_collections(env)
+    hits = search(env, "retries").json()["results"]
+    assert {(hit["collection"], hit["path"]) for hit in hits} == {("docs", "rag-data/docs/a.md"), ("jira", "rag-data/jira/a.md")}

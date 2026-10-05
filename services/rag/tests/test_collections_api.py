@@ -2,7 +2,7 @@
 import os
 import time
 
-from test_workspace import collection, sync, write
+from test_workspace import collection, sync, update, write
 
 # env and workspace_postgres come from conftest.py
 
@@ -15,6 +15,7 @@ def test_missing_folder_is_reported(env):
     created = collection(env, "absent", "docs/absent")
     row = status(env, created)
     assert row["status"] == "folder_missing" and row["folder_present"] is False
+    assert row["missing_paths"] == ["docs/absent"]
     result = env[1].post(env[3] + f"/collections/{created}/sync", json={})
     assert result.status_code == 409 and "missing" in result.json()["error"]["message"]
 
@@ -55,11 +56,10 @@ def test_settings_change_marks_collection_stale(env):
     created = collection(env)
     write(env)
     _, row = sync(env, created)
-    updated = client.put(prefix + f"/collections/{created}", json={
-        "name": "docs", "source_path": "rag-data/docs", "include": ["**/*.txt"], "revision": row["revision"]})
+    updated = update(env, created, include=["**/*.txt"])
     assert updated.status_code == 200, updated.text
     assert updated.json()["status"] == "needs_refresh"
-    stale = client.put(prefix + f"/collections/{created}", json={"name": "docs", "source_path": "rag-data/docs", "revision": row["revision"]})
+    stale = client.put(prefix + f"/collections/{created}", json={"revision": row["revision"]})
     assert stale.status_code == 409
 
 
@@ -68,7 +68,7 @@ def test_one_active_sync_per_collection_and_sync_stale(env):
     for name in ("a", "b"):
         (roots["rag-data"] / name).mkdir()
         collection(env, name, f"rag-data/{name}")
-    first = client.post(prefix + "/collections", json={"name": "c", "source_path": "docs/c"}).json()["id"]
+    first = collection(env, "c", "docs/c")
     ids = {r["name"]: r["id"] for r in client.get(prefix + "/collections").json()["collections"]}
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 202
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 409
@@ -120,11 +120,12 @@ def test_files_listing_shows_stale_and_removed_files(env):
     write(env, "c.md", "# C")
     listing = client.get(prefix + f"/collections/{created}/files").json()
     files = {f["path"]: f for f in listing["files"]}
-    assert set(files) == {"a.md", "b.md", "c.md"} and listing["truncated"] is False
-    assert files["a.md"]["stale"] is False and files["a.md"]["chunks"] >= 1
-    assert files["b.md"]["stale"] is True and files["b.md"]["size"] is None
-    assert files["c.md"]["stale"] is True and files["c.md"]["indexed_at"] is None
-    texts = client.get(prefix + f"/collections/{created}/chunks", params={"path": "a.md"}).json()["chunks"]
+    assert set(files) == {"rag-data/docs/a.md", "rag-data/docs/b.md", "rag-data/docs/c.md"} and listing["truncated"] is False
+    assert files["rag-data/docs/a.md"]["stale"] is False and files["rag-data/docs/a.md"]["chunks"] >= 1
+    assert files["rag-data/docs/b.md"]["stale"] is True and files["rag-data/docs/b.md"]["size"] is None
+    assert files["rag-data/docs/b.md"]["source"] is None  # gone from disk
+    assert files["rag-data/docs/c.md"]["stale"] is True and files["rag-data/docs/c.md"]["indexed_at"] is None
+    texts = client.get(prefix + f"/collections/{created}/chunks", params={"path": "rag-data/docs/a.md"}).json()["chunks"]
     assert texts and texts[0]["position"] == 0 and "alpha" in texts[0]["text"] and texts[0]["embedded"] is False
 
 
@@ -154,8 +155,9 @@ def test_list_without_status_skips_the_walk(env, monkeypatch):
     monkeypatch.setattr(workspace.areas, "walk", no_walk)
     rows = {r["name"]: r for r in client.get(prefix + "/collections", params={"status": "false"}).json()["collections"]}
     assert rows["docs"]["folder_present"] is True and rows["docs"]["indexed_files"] == 1 and rows["docs"]["chunks"] >= 1
-    assert rows["docs"]["embedded_chunks"] == 0 and rows["docs"]["writable"] is True
+    assert rows["docs"]["embedded_chunks"] == 0 and [p["source_path"] for p in rows["docs"]["paths"]] == ["rag-data/docs"]
     assert rows["absent"]["folder_present"] is False and "status" not in rows["docs"]
+    assert rows["absent"]["missing_paths"] == ["docs/absent"]
 
 
 def test_collection_with_unsynced_revision_needs_refresh(env):
