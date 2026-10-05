@@ -234,3 +234,127 @@ def test_rag_data_writer_uses_full_paths(env):
     assert not (roots["code"] / "payments").exists()
     legacy = client.put(prefix + "/file", json={"collection": "jira", "path": "rag-data/jira/a.md", "content": "x"})
     assert legacy.status_code == 400
+
+
+CODE_INCLUDE = ["**/*.md", "**/*.py", "**/*.ts"]
+
+
+def test_creation_settings_apply_only_when_the_call_creates(env):
+    created = ensure(env, "docs", description="Docs", include=["**/*.md"], exclude=["*/v[0-9]*/**"]).json()
+    assert (created["description"], created["include"], created["exclude"]) == ("Docs", ["**/*.md"], ["*/v[0-9]*/**"])
+    again = ensure(env, "docs", description="Other", include=["**/*.txt"], exclude=[]).json()
+    assert (again["description"], again["include"], again["exclude"]) == ("Docs", ["**/*.md"], ["*/v[0-9]*/**"])
+    owner = {"owner_kind": "code_project", "owner_id": str(uuid4()), "owner_key": "api"}
+    added = add(env, "payments-api", "code/api", include=CODE_INCLUDE, **owner).json()
+    assert added["include"] == CODE_INCLUDE and added["exclude"] == []
+    update(env, added["id"], include=["**/*.md"])
+    kept = add(env, "payments-api", "code/shared", include=CODE_INCLUDE,
+               **{**owner, "owner_key": "shared"}).json()
+    assert kept["include"] == ["**/*.md"]  # an existing collection is never changed
+    assert add(env, "plain", "docs/plain").json()["include"] == ["**/*.md", "**/*.markdown", "**/*.txt"]
+    for bad in ({"include": []}, {"include": ["/abs"]}, {"exclude": ["x"] * 51}, {"chunk_size": 500}):
+        assert ensure(env, "bad", **bad).status_code == 400, bad
+        assert add(env, "bad", "docs/bad", **bad).status_code == 400, bad
+    assert "bad" not in listing(env)
+
+
+def test_documents_source_ensures_itself_from_an_empty_workspace(env):
+    """What admin-api does at startup, on a database with migrations applied and no RAG workspace."""
+    with env[0].connect() as conn:
+        conn.execute("DELETE FROM ka.rag_workspaces")
+    exclude = ["*/v[0-9]*/**", "services/*/*/v[0-9]*/**"]
+    for _ in range(2):  # idempotent
+        assert ensure(env, "documents", exclude=exclude).status_code == 200
+        row = add(env, "documents", "generated-documents", owner_kind="documents")
+        assert row.status_code == 200, row.text
+    row = listing(env)["documents"]
+    assert row["exclude"] == exclude and sources(row) == [("generated-documents", "documents", None)]
+    assert row["revision"] == 2  # created, then the path added once
+
+
+def test_status_presence_is_per_path_even_when_the_walk_stops(env, monkeypatch):
+    import rag.collections
+    roots = env[6]
+    (roots["code"] / "big").mkdir()
+    for index in range(5):
+        (roots["code"] / "big" / f"{index}.md").write_text("# x")
+    created = collection(env, "big", "code/big", "docs/absent")
+    monkeypatch.setattr(rag.collections, "MAX_STATUS_ENTRIES", 2)
+    row = status(env, created)
+    assert row["truncated"] is True
+    assert row["status"] == "folder_missing" and row["missing_paths"] == ["docs/absent"]
+    assert {p["source_path"]: p["present"] for p in row["paths"]} == {"code/big": True, "docs/absent": False}
+    queued = env[1].post(env[3] + f"/collections/{created}/sync", json={})
+    assert queued.status_code == 409 and "Path docs/absent is missing" in queued.json()["error"]["message"]
+
+
+def wait_for_lock(env, text):
+    """Block until a backend waits on a lock in a statement containing `text`."""
+    for _ in range(200):
+        with env[0].connect() as conn:
+            if conn.execute("""SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE %s""",
+                            (f"%{text}%",)).fetchone():
+                return
+        time.sleep(.05)
+    raise AssertionError(f"Nothing waited on {text}")
+
+
+def in_thread(call):
+    import threading
+    result = {}
+    thread = threading.Thread(target=lambda: result.setdefault("response", call()))
+    thread.start()
+    return thread, result
+
+
+def test_concurrent_first_add_of_one_owner_retries_instead_of_failing(env):
+    ensure(env, "one")
+    ensure(env, "two")
+    with env[0].connect() as other:  # another request's first add of the same owner, not yet committed
+        one = other.execute("SELECT id FROM ka.rag_collections WHERE name='one'").fetchone()["id"]
+        other.execute("INSERT INTO ka.rag_collection_paths(collection_id,source_path,owner_kind) VALUES (%s,'rag-data/jira','jira')", (one,))
+        thread, result = in_thread(lambda: add(env, "two", "rag-data/jira", owner_kind="jira"))
+        wait_for_lock(env, "INSERT INTO ka.rag_collection_paths")
+    thread.join(10)
+    response = result["response"]
+    assert response.status_code == 200, response.text  # the retry moved the committed path
+    rows = listing(env)
+    assert rows["one"]["paths"] == [] and sources(rows["two"]) == [("rag-data/jira", "jira", None)]
+
+
+def test_add_path_answers_409_when_the_retry_also_races(env, monkeypatch):
+    import psycopg
+    import rag.workspace_api
+    calls = []
+
+    def racing(conn, ids):
+        calls.append(ids)
+        raise psycopg.errors.UniqueViolation("duplicate key value violates unique constraint")
+    monkeypatch.setattr(rag.workspace_api, "bump", racing)
+    response = add(env, "one", "rag-data/jira", owner_kind="jira")
+    assert response.status_code == 409 and len(calls) == 2
+    assert response.json()["error"]["message"] == "The source path changed concurrently; retry"
+    assert "one" not in listing(env)  # both attempts rolled back
+
+
+@pytest.mark.parametrize("change", ["move", "remove"])
+def test_path_changes_wait_for_a_publishing_sync_instead_of_deadlocking(env, change):
+    """A sync locks its collection, then the workspace, then touches path rows; owner changes lock collections first."""
+    owner = {"owner_kind": "code_project", "owner_id": str(uuid4()), "owner_key": "api"}
+    add(env, "one", "code/api", **owner)
+    ensure(env, "two")
+    client, prefix, project = env[1], env[3], env[2]
+    with env[0].connect() as sync:
+        sync.execute("SELECT * FROM ka.rag_collections WHERE name='one' FOR UPDATE")
+        if change == "move":
+            thread, result = in_thread(lambda: add(env, "two", "code/api", **owner))
+        else:
+            thread, result = in_thread(lambda: client.delete(prefix + "/paths", params={k: v for k, v in owner.items() if k != "owner_key"}))
+        wait_for_lock(env, "ka.rag_collection")
+        sync.execute("SELECT * FROM ka.rag_workspaces WHERE project_id=%s FOR UPDATE", (project,))
+        sync.execute("SELECT * FROM ka.rag_collection_paths WHERE source_path='code/api' FOR KEY SHARE")
+    thread.join(10)
+    assert result["response"].status_code == 200, result["response"].text
+    rows = listing(env)
+    assert rows["one"]["paths"] == []
+    assert sources(rows["two"]) == ([("code/api", "code_project", "api")] if change == "move" else [])

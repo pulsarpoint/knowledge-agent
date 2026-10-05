@@ -57,13 +57,23 @@ class CollectionSettings(BaseModel):
         return self
 
 
-class EnsureInput(BaseModel):
+class CreationSettings(BaseModel):
+    """Settings a source may give for a collection that the call creates; an existing one never changes."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     description: str | None = Field(None, max_length=2000)
+    include: list[GlobPattern] | None = Field(None, min_length=1, max_length=50)
+    exclude: list[GlobPattern] | None = Field(None, max_length=50)
+
+    def creation(self) -> dict:
+        return {"description": self.description, "include": self.include, "exclude": self.exclude}
 
 
-class PathInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+class EnsureInput(CreationSettings):
+    pass
+
+
+class PathInput(CreationSettings):
+    """A folder to add. The optional creation settings apply only when this call creates the collection."""
     source_path: str
     owner_kind: OwnerKind | None = None
     owner_id: UUID | None = None
@@ -146,11 +156,10 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     counts = conn.execute(STATUS_SQL, (row["id"],)).fetchone()
     job = conn.execute("""SELECT id,status,error,created_at,finished_at FROM ka.jobs
         WHERE rag_collection_id=%s ORDER BY created_at DESC LIMIT 1""", (row["id"],)).fetchone()
-    paths = path_rows(workspace, conn, row["id"])
-    walk = workspace.areas.walk_paths([p["source_path"] for p in paths], row["include"], row["exclude"], truncate=True)
-    for path in paths:
-        path["present"] = path["source_path"] not in walk.missing
-    present = not walk.missing
+    paths = path_rows(workspace, conn, row["id"])  # presence per path, never from the capped walk below
+    missing = [p["source_path"] for p in paths if not p["present"]]
+    present = not missing
+    walk = workspace.areas.walk_paths([p["source_path"] for p in paths if p["present"]], row["include"], row["exclude"], truncate=True)
     changed = datetime.fromtimestamp(walk.newest_mtime, timezone.utc) if walk.newest_mtime is not None else None
     synced = row["last_synced_at"]
     needs = present and (synced is None or row["synced_revision"] != row["revision"] or (changed is not None and changed > synced))
@@ -162,7 +171,7 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
         state = "failed"
     else:
         state = "needs_refresh" if needs else "up_to_date"
-    return {**row, **counts, "job": job, "paths": paths, "folder_present": present, "missing_paths": walk.missing,
+    return {**row, **counts, "job": job, "paths": paths, "folder_present": present, "missing_paths": missing,
             "folder_changed_at": changed, "file_count": len(walk.files), "truncated": walk.truncated,
             "skipped": walk.skipped, "needs_refresh": bool(needs), "status": state}
 
@@ -244,54 +253,74 @@ def build_api(workspace: Workspace, key: str, transport=None):
 
     @router.put(prefix + "/collections/by-name/{name}")
     def ensure_collection(project: UUID, name: CollectionName, payload: EnsureInput):
-        """Create the collection with default settings when missing; never changes an existing one."""
+        """Create the collection when missing, with the given description, include and exclude (defaults
+        otherwise); never changes an existing one."""
         with workspace.connect() as conn:
             workspace.ensure(conn, project)
-            return collection_summary(workspace, conn, workspace.ensure_collection(conn, project, name, payload.description or ""))
+            return collection_summary(workspace, conn, workspace.ensure_collection(conn, project, name, payload.creation()))
 
     @router.put(prefix + "/collections/by-name/{name}/paths")
     def add_path(project: UUID, name: CollectionName, payload: PathInput):
         """Add a folder to the collection, creating the collection if missing. Idempotent.
 
+        The optional description, include and exclude apply only when this call creates the collection.
         An owned path is re-pointed: the owner's previous path, here or in another collection, is
         replaced, so a source owns one path. An identical unowned path is adopted with its files.
+        Two first adds of one owner (or one path) can race on the unique indexes: the loser retries
+        once and then answers 409.
         """
+        for _ in range(2):
+            try:
+                with workspace.connect() as conn:
+                    return add_path_once(conn, project, name, payload)
+            except psycopg.errors.UniqueViolation:
+                continue  # a concurrent add committed first; the retry sees it
+        raise HTTPException(409, "The source path changed concurrently; retry")
+
+    def add_path_once(conn, project: UUID, name: str, payload: PathInput) -> dict:
         owner = (payload.owner_kind, payload.owner_id, payload.owner_key)
-        with workspace.connect() as conn:
-            workspace.ensure(conn, project)
-            collection = workspace.ensure_collection(conn, project, name)
-            paths = workspace.paths(conn, collection["id"])
-            same = next((p for p in paths if p["source_path"] == payload.source_path), None)
-            if same is not None and (same["owner_kind"], same["owner_id"], same["owner_key"]) == owner:
-                return collection_summary(workspace, conn, collection)
-            if same is not None and (same["owner_kind"] is not None or payload.owner_kind is None):
-                raise HTTPException(409, f"Path overlaps {same['source_path']} in collection {name}")
-            owned = payload.owner_kind is not None
-            for path in paths:
-                if path is same or (owned and (path["owner_kind"], path["owner_id"], path["owner_key"]) == owner):
-                    continue  # adopted below, or re-pointed below
-                if overlaps(path["source_path"], payload.source_path):
-                    raise HTTPException(409, f"Path overlaps {path['source_path']} in collection {name}")
-            changed, removed = set(), False
-            if owned:
-                where, params = owner_match("p", *owner)
-                rows = conn.execute(f"""DELETE FROM ka.rag_collection_paths p USING ka.rag_collections c
-                    WHERE c.id=p.collection_id AND c.project_id=%s AND {where} RETURNING p.collection_id""",
-                                    [project, *params]).fetchall()
-                changed |= {row["collection_id"] for row in rows}
-                removed = bool(rows)
-            if same is not None:
-                conn.execute("UPDATE ka.rag_collection_paths SET owner_kind=%s,owner_id=%s,owner_key=%s WHERE id=%s",
-                             (*owner, same["id"]))
-            else:
-                conn.execute("""INSERT INTO ka.rag_collection_paths(collection_id,source_path,owner_kind,owner_id,owner_key)
-                    VALUES (%s,%s,%s,%s,%s)""", (collection["id"], payload.source_path, *owner))
-                changed.add(collection["id"])
-            bump(conn, changed)
-            if removed:
-                drop_orphan_vectors(conn, project)
-            workspace.areas.ensure_folder(payload.source_path)  # rag-data only; a failure rolls everything back
-            return collection_summary(workspace, conn, workspace.collection(conn, project, collection["id"]))
+        owned = payload.owner_kind is not None
+        workspace.ensure(conn, project)
+        workspace.create_collection(conn, project, name, payload.creation())
+        # Lock order: the target and every collection holding this owner's path, by id, in one
+        # statement; then the workspace (drop_orphan_vectors). A publishing sync locks its collection
+        # and then the workspace, and moves in opposite directions lock the same rows in the same
+        # order, so no lock cycle forms. Path rows are only changed in collections locked here; an
+        # owner path that moved elsewhere meanwhile fails the insert on the owner index (retried).
+        where, params = owner_match("p", *owner) if owned else ("false", [])
+        locked = conn.execute(f"""SELECT * FROM ka.rag_collections c WHERE c.project_id=%s AND c.deleted_at IS NULL
+            AND (c.name=%s OR c.id IN (SELECT p.collection_id FROM ka.rag_collection_paths p WHERE {where}))
+            ORDER BY c.id FOR UPDATE""", [project, name, *params]).fetchall()
+        collection = next(row for row in locked if row["name"] == name)
+        paths = workspace.paths(conn, collection["id"])
+        same = next((p for p in paths if p["source_path"] == payload.source_path), None)
+        if same is not None and (same["owner_kind"], same["owner_id"], same["owner_key"]) == owner:
+            return collection_summary(workspace, conn, collection)
+        if same is not None and (same["owner_kind"] is not None or payload.owner_kind is None):
+            raise HTTPException(409, f"Path overlaps {same['source_path']} in collection {name}")
+        for path in paths:
+            if path is same or (owned and (path["owner_kind"], path["owner_id"], path["owner_key"]) == owner):
+                continue  # adopted below, or re-pointed below
+            if overlaps(path["source_path"], payload.source_path):
+                raise HTTPException(409, f"Path overlaps {path['source_path']} in collection {name}")
+        changed, removed = set(), False
+        if owned:
+            rows = conn.execute(f"""DELETE FROM ka.rag_collection_paths p WHERE p.collection_id=ANY(%s) AND {where}
+                RETURNING p.collection_id""", [[row["id"] for row in locked], *params]).fetchall()
+            changed |= {row["collection_id"] for row in rows}
+            removed = bool(rows)
+        if same is not None:
+            conn.execute("UPDATE ka.rag_collection_paths SET owner_kind=%s,owner_id=%s,owner_key=%s WHERE id=%s",
+                         (*owner, same["id"]))
+        else:
+            conn.execute("""INSERT INTO ka.rag_collection_paths(collection_id,source_path,owner_kind,owner_id,owner_key)
+                VALUES (%s,%s,%s,%s,%s)""", (collection["id"], payload.source_path, *owner))
+            changed.add(collection["id"])
+        bump(conn, changed)
+        if removed:
+            drop_orphan_vectors(conn, project)
+        workspace.areas.ensure_folder(payload.source_path)  # rag-data only; a failure rolls everything back
+        return collection_summary(workspace, conn, workspace.collection(conn, project, collection["id"]))
 
     @router.delete(prefix + "/collections/by-name/{name}/paths")
     def remove_path(project: UUID, name: CollectionName, source_path: str | None = Query(None, max_length=500),
@@ -328,9 +357,15 @@ def build_api(workspace: Workspace, key: str, transport=None):
         """Remove a source's paths from every collection, e.g. when a code project stops being searchable."""
         where, params = owner_match("p", owner_kind, owner_id, owner_key, every_key=owner_key is None)
         with workspace.connect() as conn:
-            rows = conn.execute(f"""DELETE FROM ka.rag_collection_paths p USING ka.rag_collections c
-                WHERE c.id=p.collection_id AND c.project_id=%s AND {where} RETURNING p.collection_id""",
-                                [project, *params]).fetchall()
+            # Lock order as in add_path: the collections holding the paths by id, then the workspace.
+            locked = [row["id"] for row in conn.execute(f"""SELECT c.id FROM ka.rag_collections c WHERE c.project_id=%s
+                AND c.id IN (SELECT p.collection_id FROM ka.rag_collection_paths p WHERE {where})
+                ORDER BY c.id FOR UPDATE""", [project, *params]).fetchall()]
+            rows = conn.execute(f"""DELETE FROM ka.rag_collection_paths p WHERE p.collection_id=ANY(%s) AND {where}
+                RETURNING p.collection_id""", [locked, *params]).fetchall()
+            if conn.execute(f"""SELECT 1 FROM ka.rag_collection_paths p JOIN ka.rag_collections c ON c.id=p.collection_id
+                    WHERE c.project_id=%s AND {where} LIMIT 1""", [project, *params]).fetchone() is not None:
+                raise HTTPException(409, "The source path changed concurrently; retry")  # moved into an unlocked collection
             if rows:
                 bump(conn, {row["collection_id"] for row in rows})
                 drop_orphan_vectors(conn, project)
@@ -376,10 +411,9 @@ def build_api(workspace: Workspace, key: str, transport=None):
         return {"deleted_files": removed}
 
     def queue_sync(conn, project: UUID, row: dict, actor: str | None, force: bool):
-        sources = [p["source_path"] for p in workspace.paths(conn, row["id"])]
-        missing = workspace.areas.walk_paths(sources, row["include"], row["exclude"], truncate=True).missing
+        missing = [p["source_path"] for p in workspace.paths(conn, row["id"]) if not workspace.areas.present(p["source_path"])]
         if missing:
-            raise FolderMissing(missing[0])  # 409 before anything is queued
+            raise FolderMissing(missing[0])  # 409 before anything is queued; no walk
         try:
             with conn.transaction():
                 return conn.execute("""INSERT INTO ka.jobs(project_id,kind,rag_collection_id,requested_by,input)
