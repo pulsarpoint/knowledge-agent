@@ -21,10 +21,6 @@ export function ragRequest<T>(resource: string, method = "GET", body?: unknown, 
 
 export type SearchMode = "full_text" | "embedding" | "hybrid";
 export type CollectionState = "folder_missing" | "syncing" | "failed" | "needs_refresh" | "up_to_date";
-export interface CollectionInput {
-  name: string; description: string; source_path: string; search_mode: SearchMode; embeddings_enabled: boolean;
-  include: string[]; exclude: string[]; chunk_size: number; chunk_overlap: number; revision?: number;
-}
 export interface SkippedCounts { links: number; special: number; unreadable: number; invalid_names: number }
 export type OwnerKind = "documents" | "jira" | "code_project";
 export interface CollectionPath {
@@ -40,29 +36,25 @@ export interface CollectionSummary extends CollectionSettings {
   paths: CollectionPath[]; folder_present: boolean; missing_paths: string[];
   indexed_files: number; chunks: number; embedded_chunks: number;
 }
-export const getCollectionNames = (signal?: AbortSignal) => ragRequest<{ collections: CollectionSummary[] }>("collections?status=false", "GET", undefined, signal);
-export interface RagCollection extends Required<CollectionInput> {
-  id: string; synced_revision: number | null; last_synced_at: string | null; host_path: string | null;
-  container_path: string; writable: boolean; folder_present: boolean; folder_changed_at: string | null;
-  file_count: number; truncated: boolean; skipped: SkippedCounts;
-  indexed_files: number; chunks: number; embedded_chunks: number; needs_refresh: boolean; status: CollectionState;
+export interface RagCollection extends CollectionSummary {
+  folder_changed_at: string | null; file_count: number; truncated: boolean; skipped: SkippedCounts;
+  needs_refresh: boolean; status: CollectionState;
   job: { id: string; status: string; error: string | null; created_at: string; finished_at: string | null } | null;
 }
 export interface CollectionFile {
-  path: string; size: number | null; mtime: number | null; indexed_at: string | null;
+  path: string; source: string | null; size: number | null; mtime: number | null; indexed_at: string | null;
   content_hash: string | null; chunks: number; embedded_chunks: number; stale: boolean;
 }
-export const DEFAULT_COLLECTION: CollectionInput = {
-  name: "", description: "", source_path: "rag-data/", search_mode: "full_text", embeddings_enabled: false,
-  include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200,
-};
+export const OWNER_LABEL: Record<OwnerKind, string> = { documents: "Documents", jira: "Jira", code_project: "Code project" };
+export const ownerLabel = (path: CollectionPath) => path.owner_kind ? OWNER_LABEL[path.owner_kind] : "Unowned";
 export const getCollections = (signal?: AbortSignal) => ragRequest<{ collections: RagCollection[] }>("collections", "GET", undefined, signal);
+export const getCollectionNames = (signal?: AbortSignal) => ragRequest<{ collections: CollectionSummary[] }>("collections?status=false", "GET", undefined, signal);
 export const getCollection = (id: string, signal?: AbortSignal) => ragRequest<RagCollection>(`collections/${id}`, "GET", undefined, signal);
-export const saveCollection = (value: CollectionInput, id?: string) => ragRequest<RagCollection | { id: string }>(id ? `collections/${id}` : "collections", id ? "PUT" : "POST", value);
+export const saveCollectionSettings = (id: string, value: CollectionSettings & { revision: number }) => ragRequest<RagCollection>(`collections/${id}`, "PUT", value);
 export const deleteCollection = (id: string, revision: number) => ragRequest<{ deleted_files: number }>(`collections/${id}?revision=${revision}&confirmed=true`, "DELETE");
+export const detachPath = (collection: string, sourcePath: string) =>
+  ragRequest<{ removed: number }>(`collections/by-name/${encodeURIComponent(collection)}/paths?source_path=${encodeURIComponent(sourcePath)}`, "DELETE");
 export const syncCollection = (id: string, force = false) => ragRequest<{ id: string }>(`collections/${id}/sync`, "POST", { force });
 export const syncStale = () => ragRequest<{ queued: string[] }>("collections/sync-stale", "POST");
-export const getCollectionFiles = (id: string, signal?: AbortSignal) => ragRequest<{ files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts }>(`collections/${id}/files`, "GET", undefined, signal);
+export const getCollectionFiles = (id: string, signal?: AbortSignal) => ragRequest<{ files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }>(`collections/${id}/files`, "GET", undefined, signal);
 export const getChunks = (id: string, path: string) => ragRequest<{ chunks: { position: number; text: string; embedded: boolean }[] }>(`collections/${id}/chunks?path=${encodeURIComponent(path)}`);
-export const getRagFile = (collection: string, path: string) => ragRequest<{ collection: string; path: string; content: string; hash: string }>(`file?collection=${encodeURIComponent(collection)}&path=${encodeURIComponent(path)}`);
-export const putRagFile = (collection: string, path: string, content: string, expected_hash: string | null) => ragRequest<{ path: string; hash: string }>("file", "PUT", { collection, path, content, expected_hash });

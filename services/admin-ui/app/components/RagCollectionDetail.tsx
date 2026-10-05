@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { deleteCollection, getChunks, getCollection, getCollectionFiles, getRagFile, putRagFile, syncCollection, type CollectionFile, type RagCollection, type SkippedCounts } from "../lib/rag";
+import { deleteCollection, detachPath, getChunks, getCollection, getCollectionFiles, syncCollection, type CollectionFile, type RagCollection, type SkippedCounts } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Field, FieldLabel } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
-import { Textarea } from "~/components/ui/textarea";
 import RagCollectionForm from "./RagCollectionForm";
-import { STATUS_LABEL, statusVariant, when } from "./RagCollectionsView";
+import { PathSource, STATUS_LABEL, statusVariant, useProjectNames, when } from "./RagCollectionsView";
 
 type Chunk = { position: number; text: string; embedded: boolean };
-interface Files { files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts }
+interface Files { files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }
 
 export default function RagCollectionDetail({ id }: { id: string }) {
   const navigate = useNavigate();
+  const projects = useProjectNames();
   const [collection, setCollection] = useState<RagCollection | null>(null);
   const [files, setFiles] = useState<Files | null>(null);
   const [selected, setSelected] = useState("");
@@ -27,10 +25,6 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [editPath, setEditPath] = useState("");
-  const [editContent, setEditContent] = useState("");
-  const [editHash, setEditHash] = useState<string | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const [row, list] = await Promise.all([getCollection(id, signal), getCollectionFiles(id, signal)]);
@@ -49,6 +43,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   }
   if (!collection) return <div className="flex flex-col gap-4">{error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-64" />}</div>;
   const c = collection;
+  const owned = c.paths.some((p) => p.owner_kind !== null);
   return <div className="flex flex-col gap-6">
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
@@ -59,17 +54,33 @@ export default function RagCollectionDetail({ id }: { id: string }) {
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Edit</Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(id); setNotice("Refresh queued."); })}>Refresh</Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(id, true); setNotice("Rebuild queued."); })}>Rebuild</Button>
-          <Button variant="destructive" size="sm" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</Button>
+          {!owned && <Button variant="destructive" size="sm" disabled={busy} onClick={() => setConfirmDelete(true)}>Remove</Button>}
         </div>
       </div>
+      {owned && <p className="text-xs text-muted-foreground">Remove is unavailable while sources own paths in this collection. Switch them off at their source first.</p>}
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]">
-        <dt className="text-muted-foreground">Folder</dt><dd><code className="break-all">{c.host_path ?? c.source_path}</code></dd>
-        <dt className="text-muted-foreground">Status</dt><dd><Badge variant={statusVariant(c.status)}>{STATUS_LABEL[c.status]}</Badge>{c.status === "failed" && c.job?.error && <span className="ml-2 text-destructive">{c.job.error}</span>}</dd>
+        <dt className="text-muted-foreground">Status</dt><dd><Badge variant={statusVariant(c.status)}>{STATUS_LABEL[c.status]}</Badge>
+          {c.status === "folder_missing" && <span className="ml-2 text-destructive">Missing: {c.missing_paths.join(", ")}</span>}
+          {c.status === "failed" && c.job?.error && <span className="ml-2 text-destructive">{c.job.error}</span>}</dd>
         <dt className="text-muted-foreground">Files indexed</dt><dd>{c.indexed_files} / {c.file_count}</dd>
         <dt className="text-muted-foreground">Embedded chunks</dt><dd>{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</dd>
-        <dt className="text-muted-foreground">Folder changed</dt><dd>{when(c.folder_changed_at)}</dd>
+        <dt className="text-muted-foreground">Folders changed</dt><dd>{when(c.folder_changed_at)}</dd>
         <dt className="text-muted-foreground">Last synced</dt><dd>{when(c.last_synced_at)}</dd>
       </dl>
+    </section>
+    <section className="flex flex-col gap-3">
+      <h3 className="text-base font-semibold">Paths</h3>
+      <Table><TableHeader><TableRow><TableHead>Path</TableHead><TableHead>Source</TableHead><TableHead>Indexed files</TableHead><TableHead>Folder</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+        {c.paths.map((p) => <TableRow key={p.id}>
+          <TableCell><code className="break-all text-xs">{p.source_path}</code>{p.host_path && <p className="break-all text-xs text-muted-foreground">{p.host_path}</p>}</TableCell>
+          <TableCell><PathSource path={p} projects={projects} /></TableCell>
+          <TableCell>{p.files}</TableCell>
+          <TableCell>{p.present ? "Present" : <Badge variant="destructive">Missing</Badge>}</TableCell>
+          <TableCell>{p.owner_kind === null && <Button variant="outline" size="sm" disabled={busy} aria-label={`Detach ${p.source_path}`}
+            onClick={() => run(async () => { await detachPath(c.name, p.source_path); setNotice("Path detached. Its files were removed from search."); })}>Detach</Button>}</TableCell>
+        </TableRow>)}
+        {c.paths.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No paths. Sources add their folders to this collection.</TableCell></TableRow>}
+      </TableBody></Table>
     </section>
     <section className="flex flex-col gap-3">
       <h3 className="text-base font-semibold">Indexed files</h3>
@@ -80,25 +91,17 @@ export default function RagCollectionDetail({ id }: { id: string }) {
           <TableCell>{f.chunks}</TableCell><TableCell>{f.embedded_chunks} embedded</TableCell><TableCell className="text-xs">{when(f.indexed_at)}</TableCell>
           <TableCell>{f.stale && <Badge variant="outline">Changed</Badge>}</TableCell>
         </TableRow>)}
-        {files && files.files.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No files in this folder match the patterns.</TableCell></TableRow>}
+        {files && files.files.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No files in these folders match the patterns.</TableCell></TableRow>}
       </TableBody></Table>
     </section>
     {selected && <section className="flex flex-col gap-3"><h3 className="text-base font-semibold">Chunks of {selected}</h3>
       {chunks.map((chunk) => <article key={chunk.position} className="flex flex-col gap-2 rounded-lg border p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground">#{chunk.position}{!chunk.embedded && <Badge variant="outline">Not embedded</Badge>}</div><pre className="whitespace-pre-wrap text-sm">{chunk.text}</pre></article>)}
     </section>}
-    {c.writable && <section className="flex flex-col gap-3 rounded-lg border p-5"><h3 className="text-base font-semibold">Edit file</h3>
-      <div className="flex flex-wrap items-end gap-2"><Field className="max-w-md"><FieldLabel htmlFor="edit-file-path">File path</FieldLabel><Input id="edit-file-path" value={editPath} onChange={(e) => { setEditPath(e.target.value); setEditOpen(false); }} placeholder="notes/new.md" /></Field>
-        <Button variant="outline" disabled={busy || !editPath.trim()} onClick={() => run(async () => { const file = await getRagFile(c.name, editPath.trim()); setEditContent(file.content); setEditHash(file.hash); setEditOpen(true); }, false)}>Open file</Button>
-        <Button variant="outline" disabled={busy || !editPath.trim()} onClick={() => { setEditContent(""); setEditHash(null); setEditOpen(true); }}>New file</Button></div>
-      {editOpen && <><Field><FieldLabel htmlFor="edit-file-content">Content</FieldLabel><Textarea id="edit-file-content" className="min-h-48 font-mono" value={editContent} onChange={(e) => setEditContent(e.target.value)} /></Field>
-        <Button className="self-start" disabled={busy} onClick={() => run(async () => { const saved = await putRagFile(c.name, editPath.trim(), editContent, editHash); setEditHash(saved.hash); setNotice("File saved. Refresh the collection to update search."); })}>Save file</Button></>}
-      <Field className="max-w-md"><FieldLabel htmlFor="upload-file">Upload file</FieldLabel><Input id="upload-file" type="file" disabled={busy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) run(async () => { await putRagFile(c.name, file.name, await file.text(), null); setNotice(`${file.name} uploaded. Refresh the collection to update search.`); }); }} /></Field>
-    </section>}
     <RagCollectionForm open={editing} collection={c} onOpenChange={setEditing} onSaved={() => { setEditing(false); load(); }} onFailed={() => load()} />
-    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete collection?</AlertDialogTitle>
-      <AlertDialogDescription>Remove {c.name} from search? Files in the folder are kept.</AlertDialogDescription></AlertDialogHeader>
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove collection?</AlertDialogTitle>
+      <AlertDialogDescription>Remove {c.name} from search? Files on disk are kept.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-        <AlertDialogAction onClick={() => run(async () => { await deleteCollection(id, c.revision); navigate("/rag/collections"); }, false)}>Delete collection</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        <AlertDialogAction onClick={() => run(async () => { await deleteCollection(id, c.revision); navigate("/rag/collections"); }, false)}>Remove collection</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <Link className="text-sm underline" to="/rag/collections">Back to collections</Link>
   </div>;
 }

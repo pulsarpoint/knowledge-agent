@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Plus, RefreshCw } from "lucide-react";
-import { getCollections, syncCollection, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
+import { RefreshCw } from "lucide-react";
+import { getCodeProjects } from "../lib/codeProjects";
+import { getCollections, ownerLabel, syncCollection, syncStale, type CollectionPath, type CollectionState, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
-import RagCollectionForm from "./RagCollectionForm";
 
 export const STATUS_LABEL: Record<CollectionState, string> = {
   up_to_date: "Up to date", needs_refresh: "Needs refresh", syncing: "Syncing", failed: "Failed", folder_missing: "Folder missing",
@@ -14,13 +14,34 @@ export const STATUS_LABEL: Record<CollectionState, string> = {
 export const statusVariant = (status: CollectionState) => status === "failed" || status === "folder_missing" ? "destructive" as const : status === "up_to_date" ? "secondary" as const : "outline" as const;
 export const when = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 
+/** Code project names by id, for path sources; errors leave the names empty. */
+export function useProjectNames() {
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const controller = new AbortController();
+    getCodeProjects(controller.signal)
+      .then(({ projects }) => { if (!controller.signal.aborted) setNames(Object.fromEntries(projects.map((p) => [p.id, p.name]))); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  return names;
+}
+
+export function PathSource({ path, projects }: { path: CollectionPath; projects: Record<string, string> }) {
+  if (path.owner_kind === "code_project") {
+    const name = (path.owner_id ? projects[path.owner_id] : undefined) ?? path.owner_key ?? "";
+    return <Link className="underline underline-offset-4" to="/code-projects">Code project {name}</Link>;
+  }
+  return <span>{ownerLabel(path)}</span>;
+}
+
 export default function RagCollectionsView() {
   const [collections, setCollections] = useState<RagCollection[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
+  const projects = useProjectNames();
   const [params] = useSearchParams();
   const wanted = params.get("name");
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -47,25 +68,30 @@ export default function RagCollectionsView() {
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm text-muted-foreground">Each collection indexes one folder. Refresh re-reads changed files; the folder is the source of truth.</p>
+      <p className="text-sm text-muted-foreground">Sources decide what is indexed. Docs → Documents, Jira exports and searchable code projects add their folders to a collection. Refresh re-reads changed files.</p>
       <div className="flex gap-2">
         <Button variant="outline" disabled={busy} onClick={() => run(async () => { const { queued } = await syncStale(); setNotice(queued.length ? `Queued: ${queued.join(", ")}` : "Nothing to refresh"); })}><RefreshCw />Refresh all stale</Button>
-        <Button onClick={() => setCreating(true)}><Plus />New collection</Button>
       </div>
     </div>
-    <Table><TableHeader><TableRow><TableHead>Collection</TableHead><TableHead>Folder</TableHead><TableHead>Files</TableHead><TableHead>Embedded</TableHead><TableHead>Folder changed</TableHead><TableHead>Last synced</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
+    <Table><TableHeader><TableRow><TableHead>Collection</TableHead><TableHead>Paths</TableHead><TableHead>Files</TableHead><TableHead>Embedded</TableHead><TableHead>Last synced</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
       {collections.map((c) => <TableRow key={c.id}>
         <TableCell className="align-top"><Link className="font-medium underline-offset-4 hover:underline" to={`/rag/collections/${c.id}`}>{c.name}</Link>{c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}</TableCell>
-        <TableCell className="align-top"><code className="break-all text-xs">{c.host_path ?? c.source_path}</code></TableCell>
+        <TableCell className="align-top"><ul className="flex flex-col gap-1">
+          {c.paths.map((p) => <li key={p.id} className="flex flex-wrap items-center gap-2 text-xs">
+            <code className="break-all">{p.host_path ?? p.source_path}</code>
+            <Badge variant="outline"><PathSource path={p} projects={projects} /></Badge>
+            <span className="text-muted-foreground">{p.files} files</span>
+            {!p.present && <Badge variant="destructive">Missing</Badge>}
+          </li>)}
+          {c.paths.length === 0 && <li className="text-xs text-muted-foreground">No paths yet</li>}
+        </ul></TableCell>
         <TableCell className="align-top">{c.indexed_files} / {c.file_count}</TableCell>
         <TableCell className="align-top">{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</TableCell>
-        <TableCell className="align-top text-xs">{when(c.folder_changed_at)}</TableCell>
         <TableCell className="align-top text-xs">{when(c.last_synced_at)}</TableCell>
-        <TableCell className="align-top"><Badge variant={statusVariant(c.status)}>{STATUS_LABEL[c.status]}</Badge>{c.status === "failed" && c.job?.error && <p className="mt-1 max-w-xs text-xs text-destructive">{c.job.error}</p>}</TableCell>
+        <TableCell className="align-top"><Badge variant={statusVariant(c.status)}>{STATUS_LABEL[c.status]}</Badge>{c.status === "failed" && c.job?.error && <p className="mt-1 max-w-xs text-xs text-destructive">{c.job.error}</p>}{c.status === "folder_missing" && <p className="mt-1 text-xs text-destructive">Missing: {c.missing_paths.join(", ")}</p>}</TableCell>
         <TableCell className="align-top">{(c.status === "needs_refresh" || c.status === "failed") && <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(c.id); })}>Refresh</Button>}</TableCell>
       </TableRow>)}
-      {collections.length === 0 && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No collections yet. Create one to map a folder to search.</TableCell></TableRow>}
+      {collections.length === 0 && <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">No collections yet. Docs → Documents, Jira export and searchable code projects add their folders here.</TableCell></TableRow>}
     </TableBody></Table>
-    <RagCollectionForm open={creating} onOpenChange={setCreating} onSaved={() => { setCreating(false); load(); }} />
   </div>;
 }
