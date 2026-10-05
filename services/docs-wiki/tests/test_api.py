@@ -78,6 +78,8 @@ def _workspace_client(calls):
                 {'collection': 'jira', 'path': 'DEMO-1.md', 'description': 'd', 'collection_description': ''},
                 {'collection': 'wiki', 'path': 'a/b.md', 'description': 'd', 'collection_description': ''}])
         if path.endswith('/file'):
+            if request.url.params['path'] == 'unselected.py':
+                return httpx.Response(404, json={'error': {'message': 'Document not found'}})
             return httpx.Response(200, json={'collection': 'jira', 'path': 'DEMO-1.md', 'content': '# Demo'})
         if path == '/search':
             return httpx.Response(200, json={'results': [{'collection': 'jira', 'path': 'DEMO-1.md', 'text': 'x', 'score': 1}]})
@@ -99,6 +101,16 @@ def test_workspace_doc_reads_collection_file(tmp_path):
     assert body["path"] == "jira/DEMO-1.md" and body["markdown"] == "# Demo"
     last = [c for c in calls if c.url.path.endswith("/file")][-1]
     assert dict(last.url.params) == {"collection": "jira", "path": "DEMO-1.md"}
+
+
+def test_workspace_doc_never_serves_hidden_or_unindexed_files(tmp_path):
+    calls = []
+    client = _client(tmp_path, rag_client=_workspace_client(calls))
+    for path in ("jira/.env", "jira/.env.local", "jira/.git/config", "jira/node_modules/x/README.md"):
+        response = client.get("/api/shop/doc", params={"path": path})
+        assert response.status_code == 404, path
+    assert not [c for c in calls if c.url.path.endswith("/file")]
+    assert client.get("/api/shop/doc", params={"path": "jira/unselected.py"}).status_code == 404
 
 
 def test_workspace_search_links_collection_path(tmp_path):

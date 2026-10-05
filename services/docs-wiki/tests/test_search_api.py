@@ -42,7 +42,7 @@ def scoped_api(tmp_path, fake_llm):
 
 
 def test_context_lists_collections_only(scoped_api):
-    client, _, _, _ = scoped_api
+    client, _, calls, _ = scoped_api
     response = client.get('/agent/context')
     assert response.status_code == 200
     assert response.json()['warnings'] == [] and 'repositories' not in response.json()
@@ -50,6 +50,8 @@ def test_context_lists_collections_only(scoped_api):
         {'name': 'payments', 'description': 'Payments', 'indexed_files': 2},
         {'name': 'people', 'description': 'People', 'indexed_files': 1}]
     assert client.get('/agent/status').json()['sources'] == {'docs': True}
+    listing = [c for c in calls if c.url.path.endswith('/collections')]
+    assert listing and all(c.url.params['status'] == 'false' for c in listing)
 
 
 @pytest.mark.parametrize('profile,expected', [
@@ -69,7 +71,9 @@ def test_workspace_client_maps_collection_paths(scoped_api):
     hits = rag.search_collections('retries', ['payments'])
     assert hits[0]['path'] == 'payments/retries.md' and hits[0]['heading_path'] == 'payments'
     sent = json.loads([c for c in calls if c.url.path == '/search'][-1].content)
-    assert sent['collections'] == ['payments'] and 'folder' not in sent
+    assert sent['collections'] == ['payments'] and 'folder' not in sent and sent['ignore_unknown'] is True
+    rag.search_collections('retries', None)
+    assert 'ignore_unknown' not in json.loads([c for c in calls if c.url.path == '/search'][-1].content)
     assert rag.list_documents('x')[0]['path'] == 'payments/retries.md'
     assert rag.list_documents('x')[0]['quadrant'] == 'payments'
     doc = rag.get_document('x', 'payments/retries.md')

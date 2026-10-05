@@ -44,20 +44,25 @@ class WorkspaceRagClient:
         return f"/backoffice/projects/{row['project_id']}"
 
     def collections(self) -> list[dict]:
-        return [row for row in self._request('GET', self._prefix() + '/collections')['collections'] if row['folder_present']]
+        # status=false: names, descriptions and index counts without walking every folder.
+        rows = self._request('GET', self._prefix() + '/collections', params={'status': 'false'})['collections']
+        return [row for row in rows if row['folder_present']]
 
     def search(self, collection: str, query: str, top: int = 8) -> list[dict]:
         return self.search_collections(query, None, top)
 
     def search_collections(self, query: str, collections: list[str] | None, top: int = 8) -> list[dict]:
         project = self._request('GET', '/backoffice/workspace')['project_id']
-        data = self._request('POST', '/search', json={'project_id': project, 'query': query, 'top': top,
-                                                      **({'collections': collections} if collections is not None else {})})
+        # ignore_unknown: a renamed or deleted collection drops out instead of failing the search.
+        scope = {'collections': collections, 'ignore_unknown': True} if collections is not None else {}
+        data = self._request('POST', '/search', json={'project_id': project, 'query': query, 'top': top, **scope})
         return [{**hit, 'path': f"{hit['collection']}/{hit['path']}", 'title': PurePosixPath(hit['path']).name,
                  'heading_path': hit['collection'], 'anchor': None} for hit in data['results']]
 
     def get_document(self, collection: str, path: str) -> dict:
         name, _, rest = path.partition('/')
+        if any(part.startswith('.') or part == 'node_modules' for part in rest.split('/')):
+            raise RagNotFound('Document not found')  # never indexed; the RAG service refuses these too
         try:
             row = self._client.get(self._prefix() + '/file', params={'collection': name, 'path': rest})
             row.raise_for_status()
