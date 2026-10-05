@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ApiError } from "../lib/api";
 import { DEFAULT_COLLECTION, saveCollection, type CollectionInput, type RagCollection, type SearchMode } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
@@ -12,17 +13,17 @@ import { Textarea } from "~/components/ui/textarea";
 const AREAS = ["code", "code-index", "rag-data", "generated-documents", "docs"];
 const lines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 
-export default function RagCollectionForm({ open, collection, onOpenChange, onSaved }: {
-  open: boolean; collection?: RagCollection; onOpenChange: (open: boolean) => void; onSaved: () => void;
+export default function RagCollectionForm({ open, collection, onOpenChange, onSaved, onFailed }: {
+  open: boolean; collection?: RagCollection; onOpenChange: (open: boolean) => void; onSaved: () => void; onFailed?: () => void;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
     <SheetHeader><SheetTitle>{collection ? "Edit collection" : "New collection"}</SheetTitle>
       <SheetDescription>A collection maps a folder in the data root to one searchable unit.</SheetDescription></SheetHeader>
-    {open && <CollectionFields collection={collection} onSaved={onSaved} />}
+    {open && <CollectionFields collection={collection} onSaved={onSaved} onFailed={onFailed} />}
   </SheetContent></Sheet>;
 }
 
-function CollectionFields({ collection, onSaved }: { collection?: RagCollection; onSaved: () => void }) {
+function CollectionFields({ collection, onSaved, onFailed }: { collection?: RagCollection; onSaved: () => void; onFailed?: () => void }) {
   const initial = collection ?? { ...DEFAULT_COLLECTION };
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
@@ -43,7 +44,7 @@ function CollectionFields({ collection, onSaved }: { collection?: RagCollection;
       ...(collection ? { revision: collection.revision } : {}),
     };
     try { await saveCollection(value, collection?.id); onSaved(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Could not save the collection"); setBusy(false); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save the collection"); setBusy(false); if (e instanceof ApiError && e.status === 409) onFailed?.(); }
   }
   return <form className="flex flex-col gap-5 p-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}

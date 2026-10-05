@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import RagCollectionsView from "../RagCollectionsView";
 import RagCollectionDetail from "../RagCollectionDetail";
 import type { RagCollection } from "../../lib/rag";
@@ -73,4 +73,59 @@ test("detail shows files with chunk counts and loads chunks on selection", async
   expect(await screen.findByText("First chunk text")).toBeInTheDocument();
   expect(screen.getByText("Not embedded")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/rag/collections/c1/chunks?path=DEMO-1.md"), expect.anything());
+});
+
+test("?name= opens the matching collection", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [base] })));
+  render(<MemoryRouter initialEntries={["/rag/collections?name=jira"]}><Routes>
+    <Route path="/rag/collections" element={<RagCollectionsView />} /><Route path="/rag/collections/:id" element={<div>detail page</div>} /></Routes></MemoryRouter>);
+  expect(await screen.findByText("detail page")).toBeInTheDocument();
+});
+
+test("file editing and upload address the collection by name", async () => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes("/api/rag/file?")) return Response.json({ collection: "jira", path: "a.md", content: "Old", hash: "h1" });
+    if (url === "/api/rag/file") return Response.json({ path: "a.md", hash: "h2" });
+    if (url.endsWith("/files")) return Response.json({ files: [], truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 } });
+    return Response.json(base);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
+  await user.type(await screen.findByLabelText("File path"), "a.md");
+  await user.click(screen.getByRole("button", { name: "Open file" }));
+  await user.clear(await screen.findByLabelText("Content"));
+  await user.type(screen.getByLabelText("Content"), "New");
+  await user.click(screen.getByRole("button", { name: "Save file" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "PUT")).toBe(true));
+  expect(fetchMock.mock.calls.find(([u]) => String(u).includes("/api/rag/file?"))![0]).toBe("/api/rag/file?collection=jira&path=a.md");
+  const put = fetchMock.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PUT")!;
+  expect(JSON.parse((put[1] as RequestInit).body as string)).toEqual({ collection: "jira", path: "a.md", content: "New", expected_hash: "h1" });
+  await waitFor(() => expect(screen.getByLabelText("Upload file")).toBeEnabled());
+  await user.upload(screen.getByLabelText("Upload file"), Object.assign(new File(["hello"], "up.md", { type: "text/markdown" }), { text: async () => "hello" }));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT")).toHaveLength(2));
+  const up = fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT")[1];
+  expect(JSON.parse((up[1] as RequestInit).body as string)).toEqual({ collection: "jira", path: "up.md", content: "hello", expected_hash: null });
+});
+
+test("a revision conflict reloads the collection so the next edit uses the new revision", async () => {
+  let revision = 2;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") return Response.json({ error: { message: "Collection changed; refresh before saving" } }, { status: 409 });
+    if (url.endsWith("/files")) return Response.json({ files: [], truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 } });
+    const row = { ...base, revision }; revision = 5; return Response.json(row);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("button", { name: "Save collection" }));
+  expect(await screen.findByText("Collection changed; refresh before saving")).toBeInTheDocument();
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([u, i]) => String(u).endsWith("/collections/c1") && !(i as RequestInit)?.method?.match(/PUT/)).length).toBeGreaterThan(1));
+  await user.keyboard("{Escape}");
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("button", { name: "Save collection" }));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT")).toHaveLength(2));
+  const puts = fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT");
+  expect(JSON.parse((puts[1][1] as RequestInit).body as string).revision).toBe(5);
 });

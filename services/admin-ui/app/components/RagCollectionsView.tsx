@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, RefreshCw } from "lucide-react";
 import { getCollections, syncCollection, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -20,11 +20,18 @@ export default function RagCollectionsView() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const wanted = params.get("name");
   const load = useCallback(async (signal?: AbortSignal) => {
     try { const result = await getCollections(signal); if (!signal?.aborted) { setCollections(result.collections); setError(""); } }
     catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Could not load collections"); }
   }, []);
   useEffect(() => { const controller = new AbortController(); load(controller.signal); return () => controller.abort(); }, [load]);
+  useEffect(() => {
+    const match = wanted ? collections.find((c) => c.name === wanted) : undefined;
+    if (match) navigate(`/rag/collections/${match.id}`, { replace: true });
+  }, [wanted, collections, navigate]);
   const syncing = collections.some((c) => c.status === "syncing");
   useEffect(() => {
     if (!syncing) return;

@@ -88,13 +88,13 @@ export default function RagCollectionDetail({ id }: { id: string }) {
     </section>}
     {c.writable && <section className="flex flex-col gap-3 rounded-lg border p-5"><h3 className="text-base font-semibold">Edit file</h3>
       <div className="flex flex-wrap items-end gap-2"><Field className="max-w-md"><FieldLabel htmlFor="edit-file-path">File path</FieldLabel><Input id="edit-file-path" value={editPath} onChange={(e) => { setEditPath(e.target.value); setEditOpen(false); }} placeholder="notes/new.md" /></Field>
-        <Button variant="outline" disabled={busy || !editPath.trim()} onClick={() => run(async () => { const file = await getRagFile(id, editPath.trim()); setEditContent(file.content); setEditHash(file.hash); setEditOpen(true); }, false)}>Open file</Button>
+        <Button variant="outline" disabled={busy || !editPath.trim()} onClick={() => run(async () => { const file = await getRagFile(c.name, editPath.trim()); setEditContent(file.content); setEditHash(file.hash); setEditOpen(true); }, false)}>Open file</Button>
         <Button variant="outline" disabled={busy || !editPath.trim()} onClick={() => { setEditContent(""); setEditHash(null); setEditOpen(true); }}>New file</Button></div>
       {editOpen && <><Field><FieldLabel htmlFor="edit-file-content">Content</FieldLabel><Textarea id="edit-file-content" className="min-h-48 font-mono" value={editContent} onChange={(e) => setEditContent(e.target.value)} /></Field>
-        <Button className="self-start" disabled={busy} onClick={() => run(async () => { const saved = await putRagFile(id, editPath.trim(), editContent, editHash); setEditHash(saved.hash); setNotice("File saved. Refresh the collection to update search."); })}>Save file</Button></>}
-      <Field className="max-w-md"><FieldLabel htmlFor="upload-file">Upload file</FieldLabel><Input id="upload-file" type="file" disabled={busy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) run(async () => { await putRagFile(id, file.name, await file.text(), null); setNotice(`${file.name} uploaded. Refresh the collection to update search.`); }); }} /></Field>
+        <Button className="self-start" disabled={busy} onClick={() => run(async () => { const saved = await putRagFile(c.name, editPath.trim(), editContent, editHash); setEditHash(saved.hash); setNotice("File saved. Refresh the collection to update search."); })}>Save file</Button></>}
+      <Field className="max-w-md"><FieldLabel htmlFor="upload-file">Upload file</FieldLabel><Input id="upload-file" type="file" disabled={busy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) run(async () => { await putRagFile(c.name, file.name, await file.text(), null); setNotice(`${file.name} uploaded. Refresh the collection to update search.`); }); }} /></Field>
     </section>}
-    <RagCollectionForm open={editing} collection={c} onOpenChange={setEditing} onSaved={() => { setEditing(false); load(); }} />
+    <RagCollectionForm open={editing} collection={c} onOpenChange={setEditing} onSaved={() => { setEditing(false); load(); }} onFailed={() => load()} />
     <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete collection?</AlertDialogTitle>
       <AlertDialogDescription>Remove {c.name} from search? Files in the folder are kept.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
