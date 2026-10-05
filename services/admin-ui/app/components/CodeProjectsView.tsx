@@ -18,6 +18,7 @@ import { Switch } from '~/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { Textarea } from '~/components/ui/textarea';
 
+const COLLECTION_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const syncing = (project: CodeProject) => ['queued', 'running', 'waiting_input'].includes(project.sync_status ?? '') || ['queued', 'running'].includes(project.processing?.status ?? '');
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : 'Could not reach administration.';
 
@@ -54,6 +55,8 @@ export default function CodeProjectsView() {
     return () => controller.abort();
   }, [refresh]);
   const searchDraft = (project: CodeProject) => searchDrafts[project.id] ?? project.collection ?? collectionSlug(project.name);
+  const searchTarget = (project: CodeProject) => searchDraft(project) || project.collection || collectionSlug(project.name);
+  const searchInvalid = (project: CodeProject) => { const name = searchDraft(project); return name !== '' && (name.length > 60 || !COLLECTION_NAME.test(name)); };
   async function setSearch(project: CodeProject, enabled: boolean, collection: string | null) {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -188,12 +191,13 @@ export default function CodeProjectsView() {
           {project.processing?.error && <span className="text-sm text-destructive">{project.processing.error}</span>}
         </div></TableCell>
         <TableCell className="max-w-xs whitespace-normal"><div className="flex flex-col items-start gap-2">
-          <div className="flex items-center gap-2"><Switch aria-label={`Searchable ${project.name}`} checked={project.searchable} disabled={busy}
-            onCheckedChange={checked => void setSearch(project, checked, checked ? searchDraft(project) : null)} />
+          <div className="flex items-center gap-2"><Switch aria-label={`Searchable ${project.name}`} checked={project.searchable} disabled={busy || !project.searchable && searchInvalid(project)}
+            onCheckedChange={checked => void setSearch(project, checked, checked ? searchTarget(project) : null)} />
             <span className="text-sm">{project.searchable ? 'Searchable' : 'Not searchable'}</span></div>
-          <Input aria-label={`Search collection for ${project.name}`} list="code-search-collections" className="h-8" maxLength={60} disabled={busy}
+          <Input aria-label={`Search collection for ${project.name}`} list="code-search-collections" className="h-8" maxLength={60} disabled={busy} aria-invalid={searchInvalid(project)}
             value={searchDraft(project)} onChange={e => setSearchDrafts(drafts => ({ ...drafts, [project.id]: e.target.value.trim() }))} />
-          {project.searchable && searchDraft(project) !== project.collection && <Button size="sm" variant="outline" disabled={busy}
+          {searchInvalid(project) && <span role="alert" className="text-xs text-destructive">Use lowercase letters, numbers and single hyphens, up to 60 characters.</span>}
+          {project.searchable && searchDraft(project) !== '' && searchDraft(project) !== project.collection && <Button size="sm" variant="outline" disabled={busy || searchInvalid(project)}
             onClick={() => void setSearch(project, true, searchDraft(project))}>Move to {searchDraft(project)}</Button>}
           {project.searchable && project.collection && <a className="text-xs underline" href={`/rag/collections?name=${encodeURIComponent(project.collection)}`}>Open collection {project.collection}</a>}
           {project.search_error && <><span className="text-sm text-destructive">{project.search_error}</span>

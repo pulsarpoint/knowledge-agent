@@ -236,3 +236,30 @@ test('a RAG failure shows the error with Retry, which repeats the saved choice',
   await user.click(screen.getByRole('button', { name: 'Retry search for Payments' }));
   await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments' }));
 });
+
+test('an invalid collection name shows a hint and sends no request', async () => {
+  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
+  const field = await screen.findByLabelText('Search collection for Payments');
+  await user.clear(field); await user.type(field, 'Payments_Code');
+  expect(field).toHaveAttribute('aria-invalid', 'true');
+  expect(screen.getByRole('alert')).toHaveTextContent(/lowercase letters/);
+  await user.click(screen.getByRole('switch', { name: 'Searchable Payments' }));
+  expect(putBody(fetch, '/api/code-projects/code-1/search')).toBeUndefined();
+});
+
+test('an invalid draft disables Move and an empty draft shows no Move', async () => {
+  const user = userEvent.setup(); api([{ ...project, searchable: true, collection: 'payments' }]); render(<CodeProjectsView />);
+  const field = await screen.findByLabelText('Search collection for Payments');
+  await user.clear(field);
+  expect(screen.queryByRole('button', { name: /^Move to/ })).toBeNull();
+  await user.type(field, 'Bad_Name');
+  expect(screen.getByRole('button', { name: 'Move to Bad_Name' })).toBeDisabled();
+});
+
+test('turning Searchable on with an empty field uses the default collection', async () => {
+  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
+  const field = await screen.findByLabelText('Search collection for Payments');
+  await user.clear(field);
+  await user.click(screen.getByRole('switch', { name: 'Searchable Payments' }));
+  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments' }));
+});
