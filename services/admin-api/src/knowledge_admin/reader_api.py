@@ -9,9 +9,10 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.agent_sessions import RunInput, expire_sessions, start_turn
+from knowledge_admin.collections import document_collections
 from knowledge_admin.reader_policy import NOT_ALLOWED, NOT_CONFIGURED, knowledge_violations
 
 READER_IDLE_TIMEOUT = timedelta(days=7)
@@ -20,7 +21,7 @@ BUSY = 'Wait for the current answer.'
 UNKNOWN = 'Unknown conversation'
 FRIENDLY = {'This session already has a running message or tuning review.': BUSY,
             'This session is closed or expired. Start a new session.': ENDED}
-FolderPath = Annotated[str, Field(pattern=r'^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$', max_length=500)]
+CollectionName = Annotated[str, Field(pattern=r'^[a-z0-9]+(-[a-z0-9]+)*$', max_length=60)]
 
 
 class ReaderRunInput(BaseModel):
@@ -28,20 +29,20 @@ class ReaderRunInput(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     session_id: UUID | None = None
     question: str = Field(min_length=1, max_length=10000)
-    folders: list[FolderPath] | None = Field(default=None, max_length=200)
-    include_subfolders: StrictBool = True
+    collections: list[CollectionName] | None = Field(default=None, max_length=200)
 
 
-def narrow(config: dict[str, Any], folders: list[str] | None, include_subfolders: bool) -> dict[str, Any]:
-    """Limit the agent's document folders to the user's selection; never broaden them."""
-    if folders is None:
+def narrow(config: dict[str, Any], collections: list[str] | None) -> dict[str, Any]:
+    """Limit the agent's document collections to the user's selection; never broaden them."""
+    if collections is None:
         return config
-    chosen = set(folders)
-    def selected(path: str) -> bool:
-        return path in chosen or include_subfolders and any(path.startswith(folder + '/') for folder in chosen)
-    documents = {**config['documents'], 'all_folders': False, 'folders': [
-        folder for folder in config['documents']['folders'] if selected(folder['search_folder'].replace('.', '/'))]}
-    return {**config, 'documents': documents}
+    chosen = set(collections)
+    everything, items = document_collections(config)
+    if everything:
+        kept = [{'name': name, 'description': '', 'path': ''} for name in sorted(chosen)]
+    else:
+        kept = [item for item in items if item['name'] in chosen]
+    return {**config, 'documents': {**config['documents'], 'all_collections': False, 'collections': kept}}
 
 
 def validate(config: dict[str, Any]) -> None:
@@ -93,7 +94,7 @@ def build_api(app_name: str, store) -> APIRouter:
         try:
             turn = await start_turn(request.app.state, store, app_name, agent_id, turn_input, actor,
                 channel='reader', idle_timeout=READER_IDLE_TIMEOUT, owner_only=True,
-                prepare=lambda config: narrow(config, value.folders, value.include_subfolders), validate=validate)
+                prepare=lambda config: narrow(config, value.collections), validate=validate)
         except HTTPException as exc:
             detail = FRIENDLY.get(exc.detail, exc.detail)
             if exc.status_code == 409 and detail not in (ENDED, BUSY, NOT_ALLOWED):
@@ -145,10 +146,9 @@ def build_api(app_name: str, store) -> APIRouter:
                 grounding = run['grounding'] or {}
                 messages.append({'role': 'assistant', 'content': run['answer'], 'sources': grounding.get('sources', []),
                                  'not_covered': bool(grounding.get('not_covered'))})
-        documents = saved['config']['documents']
-        folders = None if documents.get('all_folders') else [f['search_folder'].replace('.', '/') for f in documents['folders']]
-        return {'id': saved['id'], 'title': saved['title'], 'status': saved['status'], 'folders': folders,
-                'include_subfolders': documents.get('include_subfolders', True), 'messages': messages}
+        everything, items = document_collections(saved['config'])
+        return {'id': saved['id'], 'title': saved['title'], 'status': saved['status'], 'collections': None if everything else [item['name'] for item in items],
+                'messages': messages}
 
     @router.delete('/sessions/{session_id}', status_code=204)
     def delete(session_id: UUID, request: Request):

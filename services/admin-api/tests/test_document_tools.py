@@ -15,7 +15,7 @@ from knowledge_admin.tools.documents import read_document, report_not_covered, s
 @pytest.fixture
 def rag(monkeypatch):
     calls = []
-    state = {'hits': [{'path': 'payments/retries.md', 'folder': 'payments', 'text': 'Retries stop after 3 attempts.'}],
+    state = {'hits': [{'path': 'retries.md', 'collection': 'payments', 'text': 'Retries stop after 3 attempts.'}],
              'fail': False}
 
     def handle(request):
@@ -37,8 +37,8 @@ def rag(monkeypatch):
 
 
 def config(**documents_settings):
-    base = {'enabled': True, 'grounded': True, 'all_folders': False,
-            'folders': [{'path': '/work/rag-data/payments', 'search_folder': 'payments'}]}
+    base = {'enabled': True, 'grounded': True, 'all_collections': False,
+            'collections': [{'id': '1', 'name': 'payments', 'description': '', 'path': '/work/rag-data/payments'}]}
     return {'enabled': True, 'name': 'Docs', 'description': '', 'instructions': '',
             'system_prompt': {'content': 'Answer questions.'},
             'documents': {**base, **documents_settings},
@@ -57,34 +57,59 @@ def run_context(cfg):
     return {'config': cfg, 'credentials': {}, 'workspace': None, 'shell_enabled': False}
 
 
-def test_search_numbers_excerpts_and_limits_folders(rag):
+def test_search_numbers_excerpts_and_limits_collections(rag):
     calls, _ = rag
     context = run_context(config())
     output = invoke(search_documents, context, query='retry limit')
-    assert output.startswith('[1] payments/retries.md (payments)\nRetries stop after 3 attempts.')
+    assert output.startswith('[1] payments/retries.md\nRetries stop after 3 attempts.')
     body = json.loads(calls[-1].content)
-    assert body['folders'] == ['payments'] and body['mode'] == 'hybrid' and body['project_id'] == 'p1'
+    assert body['collections'] == ['payments'] and 'mode' not in body and body['project_id'] == 'p1'
     assert calls[-1].headers['x-rag-key'] == 'rag-key'
-    assert context['grounding']['searches'] == 1 and context['grounding']['excerpts'][0]['n'] == 1
+    assert context['grounding']['searches'] == 1
+    assert context['grounding']['excerpts'][0] == {
+        'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Retries stop after 3 attempts.'}
 
 
-def test_empty_folder_scope_never_searches_everything(rag):
+def test_empty_collection_scope_never_searches_everything(rag):
     calls, _ = rag
-    context = run_context(config(folders=[]))
+    context = run_context(config(collections=[]))
     assert invoke(search_documents, context, query='anything') == 'No matches in the documentation.'
     assert calls == []
     assert context['grounding'] == {'excerpts': [], 'searches': 1, 'empty_searches': 1, 'reported': None}
 
 
-def test_folder_argument_must_be_an_allowed_folder(rag):
-    context = run_context(config())
-    assert 'outside' in invoke(search_documents, context, query='x', folder='people')
-
-
-def test_all_folders_searches_everything(rag):
+def test_search_is_limited_to_granted_collections(rag):
     calls, _ = rag
-    invoke(search_documents, run_context(config(all_folders=True)), query='x')
-    assert 'folders' not in json.loads(calls[-1].content)
+    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}]))
+    invoke(search_documents, context, query='x')
+    body = json.loads(calls[-1].content)
+    assert body['collections'] == ['jira'] and 'mode' not in body
+    assert invoke(search_documents, context, query='x', collection='docs') == 'This collection is outside the agent’s document collections.'
+
+
+def test_collection_argument_narrows_to_one_granted_collection(rag):
+    calls, _ = rag
+    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': ''},
+                                              {'name': 'docs', 'description': '', 'path': ''}]))
+    invoke(search_documents, context, query='x', collection='jira')
+    assert json.loads(calls[-1].content)['collections'] == ['jira']
+
+
+def test_all_collections_searches_everything(rag):
+    calls, _ = rag
+    invoke(search_documents, run_context(config(all_collections=True)), query='x')
+    assert 'collections' not in json.loads(calls[-1].content)
+    invoke(search_documents, run_context(config(all_collections=True)), query='x', collection='any')
+    assert json.loads(calls[-1].content)['collections'] == ['any']
+
+
+def test_legacy_config_searches_mapped_collections(rag):
+    calls, _ = rag
+    legacy = config()
+    legacy['documents'] = {'enabled': True, 'grounded': True, 'all_folders': False,
+                           'folders': [{'path': '/work/rag-data/demo/payments', 'search_folder': 'demo.payments'}]}
+    invoke(search_documents, run_context(legacy), query='x')
+    assert json.loads(calls[-1].content)['collections'] == ['demo']
 
 
 def test_rag_failure_is_reported_to_model_and_not_counted(rag):
@@ -95,11 +120,14 @@ def test_rag_failure_is_reported_to_model_and_not_counted(rag):
     assert context.get('grounding', {}).get('searches', 0) == 0
 
 
-def test_read_document_registers_excerpt_and_checks_folder(rag):
-    context = run_context(config())
-    assert invoke(read_document, context, path='payments/retries.md') == '[1] payments/retries.md\nFull retry policy.'
-    assert 'outside' in invoke(read_document, context, path='people/salaries.md')
-    assert 'Use a document path' in invoke(read_document, context, path='../etc/passwd')
+def test_read_document_uses_collection_and_path(rag):
+    calls, _ = rag
+    context = run_context(config(collections=[{'name': 'jira', 'description': '', 'path': ''}]))
+    assert invoke(read_document, context, collection='jira', path='DEMO-1.md') == '[1] jira/DEMO-1.md\nFull retry policy.'
+    assert dict(calls[-1].url.params) == {'collection': 'jira', 'path': 'DEMO-1.md'}
+    assert context['grounding']['excerpts'][0]['collection'] == 'jira'
+    assert 'outside' in invoke(read_document, context, collection='docs', path='a.md')
+    assert 'Use a document path' in invoke(read_document, context, collection='jira', path='../x')
 
 
 def test_report_not_covered_records_reason(rag):
@@ -109,8 +137,8 @@ def test_report_not_covered_records_reason(rag):
 
 
 def test_result_lists_only_cited_existing_excerpts():
-    state = {'excerpts': [{'n': 1, 'path': 'a/x.md', 'folder': 'a', 'text': 't'},
-                          {'n': 2, 'path': 'a/y.md', 'folder': 'a', 'text': 't'}],
+    state = {'excerpts': [{'n': 1, 'path': 'x.md', 'collection': 'a', 'text': 't'},
+                          {'n': 2, 'path': 'y.md', 'collection': 'a', 'text': 't'}],
              'searches': 1, 'empty_searches': 0, 'reported': None}
     summary = grounding.result('Use x [2][2], not [7].\n```\ncode [1]\n```', state)
     assert summary['sources'] == [{'n': 2, 'path': 'a/y.md', 'heading_path': 'a', 'anchor': None}]
@@ -121,7 +149,7 @@ def test_result_lists_only_cited_existing_excerpts():
 @pytest.mark.parametrize('state, expected', [
     ({'excerpts': [], 'searches': 2, 'empty_searches': 2, 'reported': None}, True),
     ({'excerpts': [], 'searches': 0, 'empty_searches': 0, 'reported': None}, False),
-    ({'excerpts': [{'n': 1, 'path': 'a/x.md', 'folder': 'a', 'text': 't'}], 'searches': 1, 'empty_searches': 0, 'reported': 'gap'}, True),
+    ({'excerpts': [{'n': 1, 'path': 'x.md', 'collection': 'a', 'text': 't'}], 'searches': 1, 'empty_searches': 0, 'reported': 'gap'}, True),
 ])
 def test_not_covered_rule(state, expected):
     assert grounding.result('answer', state)['not_covered'] is expected
@@ -139,10 +167,10 @@ def test_grounded_agents_get_only_citable_tools_and_policy():
     assert grounding.POLICY not in get_prompt(ungrounded, [], [])
 
 
-def test_get_paths_skips_document_folders_for_grounded_agents():
-    missing = [{'path': '/nonexistent/rag-data/payments', 'search_folder': 'payments'}]
-    assert get_paths(config(folders=missing)) == []
-    assert [str(path) for path in get_paths(config(grounded=False, folders=missing))] == ['/nonexistent/rag-data/payments']
+def test_get_paths_skips_document_collections_for_grounded_agents():
+    missing = [{'id': '1', 'name': 'payments', 'description': '', 'path': '/nonexistent/rag-data/payments'}]
+    assert get_paths(config(collections=missing)) == []
+    assert [str(path) for path in get_paths(config(grounded=False, collections=missing))] == ['/nonexistent/rag-data/payments']
 
 
 def test_get_paths_treats_legacy_config_without_grounded_as_ungrounded():

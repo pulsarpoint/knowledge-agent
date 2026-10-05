@@ -40,11 +40,11 @@ def reader(store, tmp_path, monkeypatch, responses_api):
         'base_url': responses_api[0], 'api_key': 'reader-model-secret'}).json()
     with store.connect() as conn:
         conn.execute('''UPDATE ka.agents SET model_id=%s,enabled=true,documents_enabled=true,documents_grounded=true,
-            all_folders=true,repositories_enabled=false,ssh_enabled=false,mcp_enabled=false WHERE id='search' ''', (model['id'],))
+            all_collections=true,repositories_enabled=false,ssh_enabled=false,mcp_enabled=false WHERE id='search' ''', (model['id'],))
     seen = []
     async def fake(config, task, **kwargs):
         seen.append(config)
-        state = {'excerpts': [{'n': 1, 'path': 'payments/retries.md', 'folder': 'payments', 'text': 'Three.'}],
+        state = {'excerpts': [{'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Three.'}],
                  'searches': 1, 'empty_searches': 0, 'reported': None}
         return SimpleNamespace(final_output='Three retries [1].',
             context_wrapper=SimpleNamespace(usage=Usage(), context={'grounding': state}),
@@ -144,15 +144,29 @@ def test_switching_reader_agent_keeps_existing_conversations(reader, store):
     assert [row['id'] for row in client.get('/internal/reader/sessions', headers=reader_headers()).json()['sessions']] == [session_id]
 
 
-def test_narrow_keeps_only_intersection():
-    config = {'documents': {'all_folders': True, 'folders': [
-        {'search_folder': 'payments'}, {'search_folder': 'payments.runbooks'}, {'search_folder': 'people'}]}}
-    assert narrow(config, None, True) is config
-    narrowed = narrow(config, ['payments'], True)
-    assert narrowed['documents']['all_folders'] is False
-    assert [f['search_folder'] for f in narrowed['documents']['folders']] == ['payments', 'payments.runbooks']
-    assert [f['search_folder'] for f in narrow(config, ['payments'], False)['documents']['folders']] == ['payments']
-    assert narrow(config, ['finance'], True)['documents']['folders'] == []
+def test_reader_narrows_to_selected_collections_and_never_broadens():
+    config = {'documents': {'enabled': True, 'all_collections': False, 'collections': [
+        {'id': '1', 'name': 'docs', 'description': '', 'path': '/work/rag-data/docs'},
+        {'id': '2', 'name': 'jira', 'description': '', 'path': '/work/rag-data/jira'}]}}
+    narrowed = narrow(config, ['jira', 'secret'])
+    assert [c['name'] for c in narrowed['documents']['collections']] == ['jira']
+    assert narrowed['documents']['all_collections'] is False
+    assert narrow(config, None) is config
+
+
+def test_narrow_all_collections_agent_uses_the_selection():
+    config = {'documents': {'enabled': True, 'all_collections': True, 'collections': []}}
+    narrowed = narrow(config, ['jira', 'docs'])
+    assert narrowed['documents']['all_collections'] is False
+    assert narrowed['documents']['collections'] == [
+        {'name': 'docs', 'description': '', 'path': ''}, {'name': 'jira', 'description': '', 'path': ''}]
+
+
+def test_transcript_reports_collections(reader):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    transcript = client.get(f'/internal/reader/sessions/{session_id}', headers=reader_headers()).json()
+    assert transcript['collections'] is None and 'folders' not in transcript and 'include_subfolders' not in transcript
 
 
 def test_reader_answers_with_the_active_version_snapshot(reader, store):

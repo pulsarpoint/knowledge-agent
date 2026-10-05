@@ -178,7 +178,7 @@ def grounded_run(answer, state):
 
 
 def test_completed_run_carries_grounding_summary(direct, monkeypatch):
-    state = {'excerpts': [{'n': 1, 'path': 'payments/retries.md', 'folder': 'payments', 'text': 'Three retries.'}],
+    state = {'excerpts': [{'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Three retries.'}],
              'searches': 1, 'empty_searches': 0, 'reported': None}
     monkeypatch.setattr('knowledge_admin.agent_sessions.agent', grounded_run('Three retries [1].', state))
     client, _, path = direct

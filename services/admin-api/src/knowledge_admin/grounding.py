@@ -23,9 +23,9 @@ def result(answer: str, state: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     by_number = {excerpt['n']: excerpt for excerpt in state['excerpts']}
     cited = sorted({int(number) for number in CITATION.findall(FENCE.sub('', answer))} & by_number.keys())
-    sources = [{'n': n, 'path': by_number[n]['path'], 'heading_path': by_number[n]['folder'], 'anchor': None}
+    sources = [{'n': n, 'path': f"{by_number[n]['collection']}/{by_number[n]['path']}", 'heading_path': by_number[n]['collection'], 'anchor': None}
                for n in cited]
     searched_nothing = state['searches'] > 0 and state['empty_searches'] == state['searches']
     return {'sources': sources, 'not_covered': state['reported'] is not None or searched_nothing,
-            'near_misses': [{'path': e['path'], 'heading_path': e['folder']} for e in state['excerpts'][:3]],
+            'near_misses': [{'path': f"{e['collection']}/{e['path']}", 'heading_path': e['collection']} for e in state['excerpts'][:3]],
             'results': len(state['excerpts']), 'reason': state['reported']}
