@@ -70,7 +70,7 @@ test("streamChat includes sources in the body when passed", async () => {
 test("reader chat sends advanced context with the selected sources", async () => {
   const fetchMock = vi.fn(async () => new Response('event: done\ndata: {"text":"ok","not_covered":false}\n\n'));
   vi.stubGlobal("fetch", fetchMock);
-  const context = { folders: ['payments', 'support/incidents'], include_subfolders: true, repositories: null };
+  const context = { collections: ['payments', 'support'] };
   for await (const _event of streamChat('docs', 'Explain', undefined, { docs: true }, context)) { /* drain */ }
   expect(fetchMock).toHaveBeenCalledWith('/api/docs/chat', expect.objectContaining({
     body: JSON.stringify({ question: 'Explain', sources: { docs: true }, context }),

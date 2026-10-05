@@ -218,7 +218,7 @@ export default function ChatPanel({ app, askEnabled, askReason, sessionKey, onSe
       });
   }, [app, sessionKey]);
 
-  const invalidContext = contextEnabled && context.folders?.length === 0;
+  const invalidContext = contextEnabled && context.collections?.length === 0;
   const advanced = contextEnabled ? <AdvancedContext value={context} onChange={setContext}
     available={sources ?? { docs: true }}
     locked={busy || !!session.current || !!sessionKey} options={contextOptions} loading={contextLoading}

@@ -154,9 +154,9 @@ test("a streamed answer renders and creates the session", async () => {
 });
 
 test("a follow-up keeps an existing transcript and its advanced context", async () => {
-  const context = { folders: ['payments'], include_subfolders: false, repositories: null };
-  const fetchMock = vi.fn(async (url: string) => {
-    if (url.endsWith('/context')) return Response.json({ folders: [{ path: 'payments', description: '', indexed_files: 1 }], warnings: [] });
+  const context = { collections: ['payments'] };
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url.endsWith('/context')) return Response.json({ collections: [{ name: 'payments', description: 'Payments', indexed_files: 2 }], warnings: [] });
     if (url.endsWith('/chats/saved')) return Response.json({ session: 'saved', messages: [{ role: 'assistant', content: 'Historical answer' }], context, sources: { docs: true } });
     return doneResponse('Follow-up answer');
   });
@@ -165,11 +165,13 @@ test("a follow-up keeps an existing transcript and its advanced context", async 
   expect(await screen.findByText('Historical answer')).toBeVisible();
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Advanced' }));
-  expect(screen.getByRole('checkbox', { name: 'payments' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /payments/ })).toBeChecked();
   expect(screen.queryByRole('switch', { name: 'Search Git repositories' })).not.toBeInTheDocument();
   await user.type(screen.getByRole('textbox'), 'Follow up');
   await user.click(screen.getByRole('button', { name: 'Ask' }));
   expect(await screen.findByText('Follow-up answer')).toBeVisible();
+  const post = fetchMock.mock.calls.find(([u]) => !u.endsWith('/context') && !u.endsWith('/chats/saved'))!;
+  expect(post[1]!.body).toContain('"context":{"collections":["payments"]}');
   expect(screen.getByText('Historical answer')).toBeVisible();
   expect(onSession).not.toHaveBeenCalled();
 });
@@ -234,4 +236,18 @@ test("other errors do not offer a New conversation link", async () => {
   await user.click(screen.getByRole('button', { name: 'Ask' }));
   expect(await screen.findByText('Wait for the current answer.')).toBeVisible();
   expect(screen.queryByRole('link', { name: 'New conversation' })).not.toBeInTheDocument();
+});
+
+test("choosing no collection blocks asking", async () => {
+  const fetchMock = vi.fn(async (url: string) => url.endsWith('/context')
+    ? Response.json({ collections: [{ name: 'docs', description: '', indexed_files: 1 }], warnings: [] })
+    : doneResponse('x'));
+  vi.stubGlobal('fetch', fetchMock);
+  renderPanel({ contextEnabled: true, sources: { docs: true } });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Advanced' }));
+  await user.click(await screen.findByRole('checkbox', { name: 'All collections' }));
+  expect(screen.getByText('Select at least one collection.')).toBeInTheDocument();
+  await user.type(screen.getByRole('textbox'), 'Question');
+  expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
 });

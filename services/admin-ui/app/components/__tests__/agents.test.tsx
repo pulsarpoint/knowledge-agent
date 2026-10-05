@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import SearchAgentView from "../SearchAgentView";
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
-const contextOptions = { folders: [{ path: 'payments', description: 'Payment operations', indexed_files: 2 }], warnings: [] };
+const contextOptions = { collections: [{ name: 'payments', description: 'Payment operations', indexed_files: 2 }], warnings: [] };
 
 test("search TODO preserves context and input without creating or loading a session", async () => {
   const payloads: Record<string, unknown>[] = [];
@@ -17,7 +17,7 @@ test("search TODO preserves context and input without creating or loading a sess
   render(<MemoryRouter><SearchAgentView /></MemoryRouter>);
   const input = await screen.findByRole('textbox');
   fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'All document folders' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'All collections' }));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
   fireEvent.click(await screen.findByRole('checkbox', { name: 'payments' }));
   fireEvent.change(input, { target: { value: 'Explain retries' } });
@@ -26,7 +26,7 @@ test("search TODO preserves context and input without creating or loading a sess
   expect(input).toHaveValue('Explain retries');
   expect(input).toBeEnabled();
   expect(screen.getByRole('checkbox', { name: 'payments' })).toBeEnabled();
-  expect(payloads[0]).toMatchObject({ question: 'Explain retries', context: { folders: ['payments'] } });
+  expect(payloads[0]).toMatchObject({ question: 'Explain retries', context: { collections: ['payments'] } });
   expect(payloads[0]).not.toHaveProperty('session');
   fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
   await waitFor(() => expect(payloads).toHaveLength(2));

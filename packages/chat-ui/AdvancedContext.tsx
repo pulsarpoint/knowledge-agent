@@ -6,9 +6,8 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
-import { Switch } from "~/components/ui/switch";
 
-export const DEFAULT_CONTEXT: AgentContext = { folders: null, include_subfolders: true, repositories: null };
+export const DEFAULT_CONTEXT: AgentContext = { collections: null };
 
 export default function AdvancedContext({ value, onChange, available, locked, options, loading, error, refresh }: {
   value: AgentContext; onChange: (value: AgentContext) => void;
@@ -18,11 +17,11 @@ export default function AdvancedContext({ value, onChange, available, locked, op
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
-  const folders = options?.folders ?? [];
-  const summary = value.folders === null ? "All document folders" : `${value.folders.length} document folders`;
-  function toggleFolder(item: string) {
-    const selected = value.folders ?? [];
-    onChange({ ...value, folders: selected.includes(item) ? selected.filter((path) => path !== item) : [...selected, item] });
+  const collections = options?.collections ?? [];
+  const summary = value.collections === null ? "All collections" : `${value.collections.length} collections`;
+  function toggle(name: string) {
+    const selected = value.collections ?? [];
+    onChange({ ...value, collections: selected.includes(name) ? selected.filter((n) => n !== name) : [...selected, name] });
   }
   return <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border p-3">
     <div className="flex flex-wrap items-center gap-2">
@@ -39,29 +38,26 @@ export default function AdvancedContext({ value, onChange, available, locked, op
       {(error || options?.warnings.length) ? <Alert className="mb-4"><AlertDescription>{error ?? options?.warnings.join(" ")}</AlertDescription></Alert> : null}
       <FieldGroup>
         {available.docs && <FieldSet>
-          <FieldLegend>Documents</FieldLegend>
+          <FieldLegend>Collections</FieldLegend>
           <FieldGroup>
             <Field orientation="horizontal">
-              <Checkbox id={`${id}-all-folders`} checked={value.folders === null} disabled={locked} onCheckedChange={(checked) => onChange({ ...value, folders: checked ? null : [] })} />
-              <FieldLabel htmlFor={`${id}-all-folders`}>All document folders</FieldLabel>
+              <Checkbox id={`${id}-all`} checked={value.collections === null} disabled={locked}
+                onCheckedChange={(checked) => onChange({ ...value, collections: checked ? null : [] })} />
+              <FieldLabel htmlFor={`${id}-all`}>All collections</FieldLabel>
             </Field>
-            {value.folders !== null && <>
-              <Field orientation="horizontal">
-                <Switch id={`${id}-children`} checked={value.include_subfolders} disabled={locked} onCheckedChange={(checked) => onChange({ ...value, include_subfolders: checked })} />
-                <FieldLabel htmlFor={`${id}-children`}>Include subfolders</FieldLabel>
-              </Field>
+            {value.collections !== null && <>
               <FieldGroup className="max-h-64 overflow-y-auto" data-slot="checkbox-group">
-                {folders.map((folder, index) => <Field key={folder.path} orientation="horizontal">
-                  <Checkbox id={`${id}-folder-${index}`} checked={value.folders!.includes(folder.path)} disabled={locked} onCheckedChange={() => toggleFolder(folder.path)} />
+                {collections.map((item, index) => <Field key={item.name} orientation="horizontal">
+                  <Checkbox id={`${id}-c-${index}`} checked={value.collections!.includes(item.name)} disabled={locked} onCheckedChange={() => toggle(item.name)} />
                   <FieldContent>
-                    <FieldLabel htmlFor={`${id}-folder-${index}`} className="break-all font-mono">{folder.path}</FieldLabel>
-                    <FieldDescription>{folder.description ? `${folder.description} · ` : ""}{folder.indexed_files} indexed files in this folder</FieldDescription>
+                    <FieldLabel htmlFor={`${id}-c-${index}`}>{item.name}</FieldLabel>
+                    <FieldDescription>{item.description ? `${item.description} · ` : ""}{item.indexed_files} indexed files</FieldDescription>
                   </FieldContent>
                 </Field>)}
-                {value.folders.filter((path) => !folders.some((folder) => folder.path === path)).map((path) => <p key={path} className="text-sm text-muted-foreground">{path} (unavailable)</p>)}
-                {!folders.length && !loading && <p className="text-sm text-muted-foreground">No document folders available.</p>}
+                {value.collections.filter((n) => !collections.some((c) => c.name === n)).map((n) => <p key={n} className="text-sm text-muted-foreground">{n} (unavailable)</p>)}
+                {!collections.length && !loading && <p className="text-sm text-muted-foreground">No collections available.</p>}
               </FieldGroup>
-              {!value.folders.length && <p className="text-sm text-destructive">Select at least one folder.</p>}
+              {!value.collections.length && <p className="text-sm text-destructive">Select at least one collection.</p>}
             </>}
           </FieldGroup>
         </FieldSet>}
