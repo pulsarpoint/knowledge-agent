@@ -114,6 +114,50 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
     return str(folder)
 
 
+def export_input(conn, document_id: UUID) -> dict | None:
+    """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata."""
+    row = conn.execute('''SELECT d.slug, d.revision, d.project_id, v.markdown, v.source_snapshot, v.generation_id
+        FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s''', (document_id,)).fetchone()
+    if row is None:
+        return None
+    phase_metadata = None
+    generation_id = row['generation_id']
+    if generation_id is None:  # A manual edit keeps the phase layout of the latest generated version.
+        latest = conn.execute('SELECT generation_id FROM ka.document_versions WHERE document_id=%s AND generation_id IS NOT NULL ORDER BY version DESC LIMIT 1', (document_id,)).fetchone()
+        generation_id = latest['generation_id'] if latest else None
+    if generation_id is not None:
+        job = conn.execute('SELECT result FROM ka.jobs WHERE id=%s AND project_id=%s', (generation_id, row['project_id'])).fetchone()
+        if job is not None and job['result']:
+            phase_metadata = job['result'].get('phase_metadata') or job['result'].get('overview_metadata')
+    commits = {item['id']: item['git_commit'] for item in row['source_snapshot']['code_projects'] if item.get('git_commit')}
+    if phase_metadata is not None:
+        phase_metadata = {**phase_metadata, 'source_commits': commits}
+    return {'slug': row['slug'], 'markdown': row['markdown'], 'revision': row['revision'],
+            'source_commits': commits, 'phase_metadata': phase_metadata}
+
+
+def export_args(value: dict) -> dict:
+    phase_metadata = value.pop('phase_metadata')
+    return {'document': value, 'phase_metadata': phase_metadata}
+
+
+def remove_exported_folder(slug: str) -> None:
+    """Remove the regular files of a renamed document's old folder; subdirectories stay, and the folder goes only if empty."""
+    configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
+    root = Path(configured)
+    if not configured or not root.is_absolute():
+        raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
+    root = root.resolve(strict=True)
+    folder = root / slug
+    if folder.parent != root or folder.is_symlink() or not folder.is_dir():
+        return
+    for entry in folder.iterdir():
+        if entry.is_file() and not entry.is_symlink():
+            entry.unlink()
+    if not any(folder.iterdir()):
+        folder.rmdir()
+
+
 def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
                   document_id: UUID | None = None, generation_id: UUID | None = None) -> dict:
     """Save a complete immutable version within the caller's transaction."""
@@ -261,18 +305,9 @@ def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Cl
     def export(document_id: UUID, request: Request) -> dict:
         request_actor(request)
         document = get_document(document_id)
-        phase_metadata = None
-        if document['current_version']['generation_id'] is not None:
-            with database().connect() as conn:
-                job = conn.execute('SELECT result FROM ka.jobs WHERE id=%s AND project_id=%s',
-                    (document['current_version']['generation_id'],document['project_id'])).fetchone()
-                if job is not None:
-                    phase_metadata = job['result'].get('phase_metadata') or job['result'].get('overview_metadata')
         try:
-            commits = {row['id']: row['git_commit'] for row in document['current_version']['source_snapshot']['code_projects'] if row.get('git_commit')}
-            if phase_metadata is not None:
-                phase_metadata['source_commits'] = commits
-            folder = export_document({**document, 'markdown': document['current_version']['markdown'], 'source_commits': commits}, phase_metadata=phase_metadata)
+            with database().connect() as conn:
+                folder = export_document(**export_args(export_input(conn, document['id'])))
         except (ValueError, OSError):
             raise HTTPException(503, 'Could not export the document. Check the DOCUMENT_OUTPUT_ROOT mount and write permissions.') from None
         return {'folder': folder}
@@ -294,14 +329,21 @@ def build_api(app_name: str, store: RepositoryStore | None, rag_client: httpx.Cl
             with db.connect() as conn:
                 project = db.project(conn, app_name)
                 actor = db.actor(conn,subject,email)
+                old_slug = None
+                if document_id is not None:
+                    old = conn.execute('SELECT slug FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone()
+                    old_slug = old['slug'] if old else None
                 saved = save_document(conn,project,actor,value,document_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A document with this slug already exists') from None
         try:
             with db.connect() as conn:
-                document = conn.execute('''SELECT d.slug, v.markdown, d.revision FROM ka.documents d
-                    JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s''', (saved['id'],)).fetchone()
-            export_document({'slug': document['slug'], 'markdown': document['markdown'], 'revision': document['revision']})
+                current = export_input(conn, saved['id'])
+            if current is not None:
+                phase = current['phase_metadata'] is not None
+                export_document(**export_args(current))
+                if old_slug is not None and old_slug != current['slug'] and not phase:
+                    remove_exported_folder(old_slug)
         except (OSError, ValueError):
             saved = {**saved, 'export_error': 'Saved. Writing the document file failed; use Export to folder to retry.'}
         # After commit: a published document follows its latest version; failures are shown on the document.

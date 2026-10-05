@@ -213,3 +213,30 @@ def test_messaging_prompt_covers_contracts_effects_reliability_and_missing_evide
                  'acknowledgements','idempotency','outbox/inbox','Messaging-to-state matrix','no messaging is found',
                  'Do not connect to brokers','code_graph','Coverage and remaining gaps']:
         assert term in prompt
+
+
+def test_editor_save_of_a_phase_document_keeps_the_phase_folder_and_metadata(store, tmp_path, monkeypatch):
+    client, original, calls = setup_request(store, tmp_path, monkeypatch)
+    value = phase_request(client, original, 'overview')
+    async def run(config, task, **kwargs):
+        if kwargs['output_type'] is None:
+            return SimpleNamespace(final_output='Evidence: app/main.py:10',
+                to_input_list=lambda: [{'role':'assistant','content':'Evidence: app/main.py:10'}])
+        return SimpleNamespace(final_output=generation.CodeDocumentation(title='Application overview', description='Purpose and flows',
+            markdown='# Overview\n\nEvidence: app/main.py:10. HTTP input changes a stored record. The API receives a customer request, validates the supplied fields, and passes them to the storage component. The stored record becomes available to later requests; current deployment and live status are not verified.',
+            diagram=generation.ComponentGraph(nodes=[{'id': 'api', 'label': 'API', 'parent_id': None},
+                {'id': 'db', 'label': 'Storage', 'parent_id': None}], edges=[{'source':'api','target':'db','label':'writes'}], explanation='Source: app/main.py:10')))
+    monkeypatch.setattr(generation, 'agent', run)
+    assert client.post('/api/documentation/generations', headers=HEADERS, json=value).status_code == 202
+    assert generation.run_once(store)
+    row = client.get('/api/documentation/generations', headers=HEADERS, params={'service_id': value['service_id'], 'kind': 'overview'}).json()['generations'][0]
+    artifact = row['result']['documents'][0]
+    folder = Path(row['result']['output_folders'][0])
+    endpoint = '/api/documentation/documents/' + artifact['id']
+    detail = client.get(endpoint, headers=HEADERS).json()
+    edited = client.put(endpoint, headers=HEADERS, json={'slug': detail['slug'], 'title': detail['title'], 'markdown': '# Edited overview',
+        'revision': detail['revision'], 'code_project_ids': detail['code_project_ids'], 'service_ids': detail['service_ids']})
+    assert edited.status_code == 200 and 'export_error' not in edited.json(), edited.text
+    assert (folder / 'overview.md').read_text().startswith('# Edited overview')
+    assert (folder / 'metadata.json').exists()
+    assert not (tmp_path / detail['slug']).exists()

@@ -223,3 +223,46 @@ def test_export_failure_keeps_the_saved_version(store, tmp_path, monkeypatch):
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
     response = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'})
     assert response.status_code == 201 and 'export_error' in response.json()
+
+
+def test_editor_save_keeps_source_commit_metadata(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    repo = str(store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', ''))
+    value = {**VALUE, 'code_project_ids': [repo], 'source_commits': {repo: 'a' * 40}}
+    created = client.post('/api/documentation/documents', headers=HEADERS, json=value).json()
+    assert (out / 'payments-runbook' / 'metadata.json').exists()
+    value.pop('source_commits')
+    client.put('/api/documentation/documents/' + created['id'], headers=HEADERS, json={**value, 'markdown': '# Two', 'revision': 1})
+    assert 'a' * 40 in (out / 'payments-runbook' / 'metadata.json').read_text()
+
+
+def test_slug_rename_removes_old_files_but_not_subfolders(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    created = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'old-name', 'title': 'T', 'markdown': '# T'}).json()
+    endpoint = '/api/documentation/documents/' + created['id']
+    client.put(endpoint, headers=HEADERS, json={'slug': 'new-name', 'title': 'T', 'markdown': '# T', 'revision': 1})
+    assert (out / 'new-name' / 'README.md').exists() and not (out / 'old-name').exists()
+    (out / 'new-name' / 'v1').mkdir()
+    (out / 'new-name' / 'v1' / 'README.md').write_text('old')
+    client.put(endpoint, headers=HEADERS, json={'slug': 'newer-name', 'title': 'T', 'markdown': '# T', 'revision': 2})
+    assert not (out / 'new-name' / 'README.md').exists() and (out / 'new-name' / 'v1' / 'README.md').exists()
+
+
+def test_cleanup_leaves_subdirectories_and_symlinks(tmp_path, monkeypatch):
+    from knowledge_admin.documents import export_document
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
+    target = tmp_path / 'target.txt'
+    target.write_text('keep')
+    folder = tmp_path / 'doc'
+    (folder / 'v1').mkdir(parents=True)
+    (folder / 'stale.txt').write_text('x')
+    (folder / 'link.txt').symlink_to(target)
+    export_document({'slug': 'doc', 'markdown': '# D', 'revision': 1})
+    assert not (folder / 'stale.txt').exists() and (folder / 'v1').is_dir()
+    assert (folder / 'link.txt').is_symlink() and target.read_text() == 'keep'
