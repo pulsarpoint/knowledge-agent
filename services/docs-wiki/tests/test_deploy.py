@@ -5,6 +5,12 @@ from pathlib import Path
 import yaml
 
 DEPLOY = Path(__file__).resolve().parents[3] / "deploy"
+ROOT = "${DATA_ROOT:?Run make setup DATA_ROOT=/path}"
+
+
+def host(variable: str, folder: str) -> str:
+    """A host folder: its own override, else a subfolder of the required DATA_ROOT."""
+    return "${" + variable + ":-" + ROOT + "/" + folder + "}"
 
 
 def test_bundle_keeps_runtime_and_migrates_v3_database():
@@ -34,7 +40,7 @@ def test_private_services_and_separate_persistent_state():
 def test_repository_worker_has_exclusive_write_mount_and_credentials():
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
     worker = services["repository-worker"]
-    assert worker["volumes"] == ["${CODE_PATH:-../.local/code}:/work/code", "${CODE_INDEX_PATH:-../.local/code-index}:/work/code-index"]
+    assert worker["volumes"] == [host("CODE_PATH", "code") + ":/work/code", host("CODE_INDEX_PATH", "code-index") + ":/work/code-index"]
     assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     for name in ("admin-api", "repository-worker"):
         assert "CREDENTIAL_ENCRYPTION_KEY" in services[name]["environment"]
@@ -50,8 +56,8 @@ def test_agent_config_paths_match_code_and_document_mounts():
         rag_root = service['environment']['RAG_SOURCE_ROOT']
         assert code_root == services['repository-worker']['environment']['CODE_ROOT']
         assert rag_root == services['rag']['environment']['RAG_SOURCE_ROOT']
-        assert '${CODE_PATH:-../.local/code}:' + code_root + ':ro' in service['volumes']
-        assert {'type': 'bind', 'source': '${RG_DATA:?Run make setup}',
+        assert host('CODE_PATH', 'code') + ':' + code_root + ':ro' in service['volumes']
+        assert {'type': 'bind', 'source': host('RG_DATA', 'rag-data'),
                 'target': rag_root, 'read_only': True} in service['volumes']
 
 
@@ -124,3 +130,14 @@ def test_documentation_worker_can_publish_to_rag():
     env = compose["services"]["documentation-worker"]["environment"]
     assert env["DOCS_WIKI_RAG_URL"] == "http://rag:8790"
     assert env["RAG_BACKOFFICE_KEY"] == "${RAG_BACKOFFICE_KEY:?Run make setup}"
+
+
+def test_host_folders_come_from_data_root_not_the_checkout():
+    text = (DEPLOY / "compose.yaml").read_text(encoding="utf-8")
+    assert ".local" not in text
+    services = yaml.safe_load(text)["services"]
+    for service in services.values():
+        for volume in service.get("volumes", []):
+            source = volume["source"] if isinstance(volume, dict) else volume.split(":/work/")[0]
+            if source.startswith("${"):
+                assert ROOT in source, source

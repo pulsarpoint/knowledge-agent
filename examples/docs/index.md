@@ -20,7 +20,7 @@ Full-text search works without an embedding model.
 
 ## How do I use my own content and source code?
 
-Set RG_DATA in the root .env to an absolute host folder and restart the RAG
-containers. RAG Settings displays its mapping to /work/rag-data. Add and pull
+Put sources in DATA_ROOT/rag-data (or set RG_DATA in the root .env to another
+absolute host folder) and restart the RAG containers. RAG Settings displays its mapping to /work/rag-data. Add and pull
 repositories through GitHub Projects. Configure model connections in LLM Settings
 and test the search agent from Agents.

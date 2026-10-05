@@ -18,7 +18,7 @@ The worker uses the public library API of [CodeGraph](https://github.com/colbymc
 
 The mounted source is read-only for analysis. A filtered mirror under `CODE_INDEX_ROOT` allows CodeGraph to maintain its local SQLite index without writing `.codegraph` into Git checkouts. Symlinks, credentials files, `.env*`, dependency/build directories, binaries and files over 1 MiB are excluded. Source hashes cover the filtered files, selected folders, missing folders and analyzer/pipeline versions. The application hashes file content on each request; unchanged snapshots are reused, and added, changed and deleted files update the index incrementally.
 
-`CODE_INDEX_PATH` maps the host directory (default `.local/code-index`) to `/work/code-index`. Storage overview includes this location. Each project directory contains the current source mirror, a manifest with file hashes, and immutable content-hash directories containing `graph.sqlite` and `summary.json`. Graph snapshots are retained so previously queued jobs retain their evidence. There is currently no automatic pruning of old snapshots.
+The host folder `DATA_ROOT/code-index` (or an absolute `CODE_INDEX_PATH`) is mounted at `/work/code-index`. Storage overview includes this location. Each project directory contains the current source mirror, a manifest with file hashes, and immutable content-hash directories containing `graph.sqlite` and `summary.json`. Graph snapshots are retained so previously queued jobs retain their evidence. There is currently no automatic pruning of old snapshots.
 
 ## Phase 2: Application overview
 

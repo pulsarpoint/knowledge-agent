@@ -93,9 +93,13 @@ make smoke       # verify logins, isolation, search, DB migrations, Phoenix (no 
 make admin-user  # create an extra admin "local-admin" (password in .local/users/local-admin.json)
 ```
 
+- The first time, choose where the application keeps its files:
+  `make setup DATA_ROOT=/opt/knowledge-agent` (an absolute path; create it with `sudo`
+  and `chown` it to your user if needed). `make up` refuses to start without it.
 - `make up` runs `scripts/setup.py`, which creates `.env` (mode 0600) from
   `.env.example`, fills empty secrets with random values (never overwriting existing
-  ones), sets `RG_DATA` to `.local/rag-data`, and creates `.local/{rag-data,docs,code}`.
+  ones), records `DATA_ROOT`, and creates `code/`, `code-index/`, `rag-data/`,
+  `generated-documents/` and `docs/` inside it.
 - The bootstrap admin is `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
   Change it in Keycloak afterwards, not in `.env`.
 - Additional admins: `make admin-user ADMIN_USERNAME=alice` (optional `ADMIN_EMAIL`).
@@ -136,7 +140,7 @@ Sign in through Keycloak. The Reader is read-only: there is no editing and no ad
 navigation (admin paths return 404).
 
 **Where its content comes from.** The Reader shows the **RAG workspace** (the
-`RG_DATA` folder managed in Admin → RAG), not `.local/docs`. With a single
+`DATA_ROOT/rag-data` folder managed in Admin → RAG), not the bootstrap `DATA_ROOT/docs`. With a single
 configured app (the default, named `docs`), `/` redirects straight to `/docs`.
 
 ### Layout
@@ -289,7 +293,7 @@ number, path, chunk text and hash. This is retrieval only; it does not generate 
 ### 5.4 Code projects
 
 `/code-projects` — the source code the platform can analyze. Files live under
-`CODE_PATH` on the host (default `.local/code`), mounted read-only as `/work/code`
+`DATA_ROOT/code` on the host (or `CODE_PATH`), mounted read-only as `/work/code`
 (only the repository worker writes there).
 
 **Folder browser** — navigate the code root, preview text files (up to 512 KB).
@@ -683,11 +687,12 @@ selected** to `jira` → **RAG → Files & folders** → **Process folder**.
 | --- | --- |
 | `WEB_PORT` 8180, `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
-| `RG_DATA` | Absolute host path of the RAG workspace |
-| `CODE_PATH` | Code projects and Git clones (default `.local/code`) |
-| `CODE_INDEX_PATH` | Code graph snapshots (default `.local/code-index`; not in `.env.example`) |
-| `GENERATED_DOCS_PATH` | Generated documentation exports |
-| `DOCS_PATH` | Bootstrap docs folder (not what the Reader shows) |
+| `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
+| `RG_DATA` | Optional override for the RAG workspace (default `DATA_ROOT/rag-data`) |
+| `CODE_PATH` | Optional override for code projects and Git clones (default `DATA_ROOT/code`) |
+| `CODE_INDEX_PATH` | Optional override for code graph snapshots (default `DATA_ROOT/code-index`) |
+| `GENERATED_DOCS_PATH` | Optional override for document exports (default `DATA_ROOT/generated-documents`) |
+| `DOCS_PATH` | Optional override for bootstrap docs (default `DATA_ROOT/docs`; not what the Reader shows) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |
@@ -699,8 +704,8 @@ Model credentials are **not** in `.env`; they are configured in LLM Settings.
 ### Backup
 
 Back up the Docker volumes `knowledge-agent-v3_postgres-data`, `_wiki-data`,
-`_keycloak-data`, `_phoenix-data`, the folders `RG_DATA`, `CODE_PATH`,
-`GENERATED_DOCS_PATH`, `DOCS_PATH`, and `.env`. Store `CREDENTIAL_ENCRYPTION_KEY`
+`_keycloak-data`, `_phoenix-data`, the `DATA_ROOT` folder (plus any folder
+overridden outside it), and `.env`. Store `CREDENTIAL_ENCRYPTION_KEY`
 separately from database backups — without it, saved tokens and keys cannot be decrypted.
 
 ### Database migrations
@@ -776,7 +781,6 @@ and always save trusted host keys.
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
 | README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models |
-| README.md | "docs live in `.local/docs`" | The Reader shows the RAG workspace (`RG_DATA`); `.local/docs` is only a bootstrap folder |
 | services/docs-wiki-ui/README.md | Freshness badges, streaming chat, highlighted snippets | Not present in workspace mode |
 | docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |

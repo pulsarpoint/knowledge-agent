@@ -9,12 +9,12 @@ Open the standalone admin app and choose **RAG** in the sidebar:
 
 ## Source directory
 
-The deployment has one workspace. `RG_DATA` selects the absolute host folder mounted at `/work/rag-data`. `make setup` initializes it to this checkout's `.local/rag-data` and preserves an explicit value. Compose uses the same environment value for the actual bind mount and the path displayed in **RAG Settings** and **Files & folders**. Paths cannot be changed through the backoffice API.
+The deployment has one workspace: the host folder `DATA_ROOT/rag-data`, or an absolute `RG_DATA` override, mounted at `/work/rag-data`. `make setup DATA_ROOT=...` creates it. Compose uses the same environment value for the actual bind mount and the path displayed in **RAG Settings** and **Files & folders**. Paths cannot be changed through the backoffice API.
 
-For the local checkout:
+For example:
 
 ```dotenv
-RG_DATA='/Users/graovic/fincore/knowledge-agent-v3/.local/rag-data'
+DATA_ROOT='/opt/knowledge-agent'      # RAG sources in /opt/knowledge-agent/rag-data
 ```
 
 Collections live directly inside the mount, with no application or UUID directory:
@@ -27,7 +27,7 @@ Collections live directly inside the mount, with no application or UUID director
       operations.md
 ```
 
-Change `RG_DATA` in the deployment environment and recreate the RAG API and worker containers to use a different host folder. Move existing sources with the deployment if they should remain available. Host paths are deployment metadata and are never resolved inside the container.
+Change `DATA_ROOT` (or set `RG_DATA`) in the deployment environment and recreate the RAG API and worker containers to use a different host folder. Move existing sources with the deployment if they should remain available. Host paths are deployment metadata and are never resolved inside the container.
 
 Upgrading from the initial UUID layout: back up PostgreSQL and the source folder, stop the RAG API and worker, and run `python3 scripts/flatten_rag_sources.py --root /absolute/host/rag-data --project-id 716d3333-723e-5a82-99d7-db34b32570a5`. The script moves collection folders into the mount root, refuses destination conflicts, and can be repeated. Apply migrations and recreate the updated services. Indexed paths and hashes are already collection-relative, so this move does not require reprocessing.
 

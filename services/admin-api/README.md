@@ -13,7 +13,7 @@ binds no API host port and uses the same audit data volume as the reader.
 uv sync --frozen
 uv run --frozen pytest -q
 # Native development; set the PostgreSQL and issuer variables described below first.
-uv run --frozen knowledge-admin ../../.local/docs --env-file ../../.env
+uv run --frozen knowledge-admin "$DATA_ROOT/docs" --env-file ../../.env
 ```
 
 Use `make up` from the repository root for the authenticated local stack. The

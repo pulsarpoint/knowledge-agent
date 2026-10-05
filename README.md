@@ -28,7 +28,9 @@ make up
 make smoke
 ```
 
-`make up` generates local secrets in `.env` (mode 0600), seeds `.local/docs` only
+The first run needs the host folder for the application's files:
+`make setup DATA_ROOT=/opt/knowledge-agent` (see [data folders](deploy/README.md#data-folders)).
+`make up` generates local secrets in `.env` (mode 0600), seeds `DATA_ROOT/docs` only
 when empty, builds the application images from this checkout, migrates
 PostgreSQL, and waits for service health. Repeating setup preserves credentials
 and documentation. `make smoke` checks both Keycloak logins and application isolation, initializes the
@@ -44,7 +46,7 @@ database. It does not invoke a model.
 | PostgreSQL | `127.0.0.1:5438` | database/user `knowledge_agent`, password from `POSTGRES_PASSWORD` |
 
 The defaults bind only to localhost. Runtime state lives in Compose volumes
-prefixed `knowledge-agent-v3_`; docs live in `.local/docs`. V2's data, credentials,
+prefixed `knowledge-agent-v3_`; files live in the `DATA_ROOT` host folder. V2's data, credentials,
 volumes and ports are not reused. Keycloak realm import creates the application
 admin on the first boot; change its password in Keycloak afterward, not by
 editing the bootstrap value in `.env`.
@@ -170,8 +172,8 @@ to save configuration and use **Clone** later. **Automatic pulls** schedules pul
 at the selected interval (5 minutes to 7 days), or leave it off for manual pulls.
 A Git project can include additional existing folders too.
 
-`CODE_PATH` in root `.env` selects the host directory (default `../.local/code`,
-relative to `deploy/`). Compose mounts it at `/work/code`; the browser displays
+Code lives in `DATA_ROOT/code` on the host (override with an absolute `CODE_PATH`).
+Compose mounts it at `/work/code`; the browser displays
 both paths. The admin API and source browser mount it read-only; the repository
 worker writes clones. Arbitrary host paths and symbolic links cannot be mapped.
 
@@ -198,7 +200,7 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-Set `RG_DATA` in root `.env` to an absolute host folder. It mounts at
+RAG sources live in `DATA_ROOT/rag-data` (override with an absolute `RG_DATA`). It mounts at
 `/work/rag-data`; RAG Settings displays both paths. Manage folders, descriptions,
 uploads and processing jobs through RAG administration. Unchanged files are
 identified by content hash so processing can be reused. Add and pull Git repositories

@@ -34,15 +34,41 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 - Each service receives an explicit subset of environment variables. The complete
   root `.env` is never mounted into a container or included in a Docker image.
 
+## Data folders
+
+The application keeps its files in one host folder that you choose, `DATA_ROOT`.
+Set it once; it is recorded in `.env` and later `make setup`/`make up` runs reuse it:
+
+```bash
+sudo mkdir -p /opt/knowledge-agent && sudo chown "$(id -u):$(id -g)" /opt/knowledge-agent
+make setup DATA_ROOT=/opt/knowledge-agent
+```
+
+Compose refuses to start without it (`Run make setup DATA_ROOT=/path`); nothing is
+created inside the checkout. Paths must be absolute.
+
+| Folder | Override | Container path | Contents |
+| --- | --- | --- | --- |
+| `DATA_ROOT/code` | `CODE_PATH` | `/work/code` | Code projects, Git clones and caches |
+| `DATA_ROOT/code-index` | `CODE_INDEX_PATH` | `/work/code-index` | Code graph snapshots |
+| `DATA_ROOT/rag-data` | `RG_DATA` | `/work/rag-data` | RAG source folders (what the Reader shows) |
+| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Versioned Markdown/D2 exports `<slug>/v<version>/` |
+| `DATA_ROOT/docs` | `DOCS_PATH` | `/work/docs` | Bootstrap docs seeded from `examples/docs` |
+
+Set an override in `.env` (absolute path) only to put one folder elsewhere, for
+example code on a larger disk. Admin → Storage shows the host and container path
+of each folder.
+
+**Moving the data:** `make down`, copy the folders (for example
+`rsync -a .local/ /opt/knowledge-agent/`), set `DATA_ROOT` in `.env`, remove any
+overrides that pointed at the old place, then `make up`.
+
 ## Data and lifecycle
 
 | Location | Contents |
 | --- | --- |
-| `DOCS_PATH` (default `.local/docs`) | Bootstrap directory seeded from examples/docs; not the active RAG or document export folder |
-| `.local/code` | Local project folders, named Git clones and caches; configurable with CODE_PATH |
+| `DATA_ROOT` host folder | Code, code graphs, RAG sources, document exports and bootstrap docs (see above) |
 | `knowledge-agent-v3_postgres-data` | V3 application metadata, processing jobs, searchable text and vectors |
-| `RG_DATA` host directory | Source folders mounted at `/work/rag-data` |
-| `GENERATED_DOCS_PATH` (default `.local/generated-documents`) | Versioned Markdown/D2 exports at `/work/generated-documents/<slug>/v<version>/` |
 | `knowledge-agent-v3_wiki-data` | Reader sessions, audit transcript and gaps |
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |

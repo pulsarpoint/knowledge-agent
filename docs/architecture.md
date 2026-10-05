@@ -189,8 +189,8 @@ Claude worker subprocess environment.
 
 ## File uploads and directory consistency
 
-`DATA_ROOT/docs/<project-id>/<set-id>/` is the human-readable Markdown folder.
-Immutable bytes live at `DATA_ROOT/blobs/<project-id>/<revision-id>`. Database
+`<upload root>/docs/<project-id>/<set-id>/` is the human-readable Markdown folder.
+Immutable bytes live at `<upload root>/blobs/<project-id>/<revision-id>`. Database
 file pointers are authoritative; the docs folder is a materialized view and is
 repairable from those pointers after a crash.
 
