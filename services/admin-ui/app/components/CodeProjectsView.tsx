@@ -1,7 +1,8 @@
 import CodeGraphExplorer from './CodeGraphExplorer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Folder, Plus, RefreshCw, X } from 'lucide-react';
-import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
+import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, saveCodeProject, collectionSlug, setCodeProjectSearch, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
+import { getCollectionNames } from '../lib/rag';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -43,6 +44,28 @@ export default function CodeProjectsView() {
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [fileError, setFileError] = useState('');
 
+  const [collectionNames, setCollectionNames] = useState<string[]>([]);
+  const [searchDrafts, setSearchDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const controller = new AbortController();
+    getCollectionNames(controller.signal)
+      .then(value => { if (!controller.signal.aborted) setCollectionNames((value.collections ?? []).map(row => row.name)); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [refresh]);
+  const searchDraft = (project: CodeProject) => searchDrafts[project.id] ?? project.collection ?? collectionSlug(project.name);
+  async function setSearch(project: CodeProject, enabled: boolean, collection: string | null) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await setCodeProjectSearch(project.id, enabled, collection || undefined);
+      if (!result.search_error) setNotice(result.searchable
+        ? `${project.name} is searchable in ${result.collection}. Refresh that collection in RAG to update search.`
+        : `${project.name} was removed from search.`);
+      setSearchDrafts(drafts => { const next = { ...drafts }; delete next[project.id]; return next; });
+      setRefresh(n => n + 1);
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -154,8 +177,8 @@ export default function CodeProjectsView() {
       </CardContent>
     </Card>
     {filePath !== null && <Card className="min-w-0"><CardHeader><div className="flex items-center justify-between gap-3"><CardTitle className="break-all">{filePath}</CardTitle><Button variant="ghost" size="icon" aria-label="Close file preview" onClick={() => setFilePath(null)}><X /></Button></div><CardDescription>File preview</CardDescription></CardHeader><CardContent>{fileError ? <Alert variant="destructive"><AlertDescription>{fileError}</AlertDescription></Alert> : !file ? <Spinner /> : <pre aria-label="Code file content" tabIndex={0} className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs">{file.text}</pre>}</CardContent></Card>}
-    <Card><CardHeader><CardTitle>Code projects</CardTitle><CardDescription>Each project groups one or more folders. Phase 1 generates a CodeGraph index for inspection. Generate it again after changing source, then continue to documentation as a separate action.</CardDescription></CardHeader><CardContent>
-      {loading ? <Spinner /> : projects.length === 0 ? <Empty><EmptyHeader><EmptyTitle>No code projects yet</EmptyTitle><EmptyDescription>Add a project to map existing folders or clone a Git repository.</EmptyDescription></EmptyHeader></Empty> : <Table><TableHeader><TableRow><TableHead>Project</TableHead><TableHead>Folders</TableHead><TableHead>Git sync</TableHead><TableHead>Code processing</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{projects.map(project => <TableRow key={project.id}>
+    <Card><CardHeader><CardTitle>Code projects</CardTitle><CardDescription>Each project groups one or more folders. Phase 1 generates a CodeGraph index for inspection. Generate it again after changing source, then continue to documentation as a separate action. Turn on Searchable to add a project's folders to a RAG collection; agents and Reader users then find its code.</CardDescription></CardHeader><CardContent>
+      {loading ? <Spinner /> : projects.length === 0 ? <Empty><EmptyHeader><EmptyTitle>No code projects yet</EmptyTitle><EmptyDescription>Add a project to map existing folders or clone a Git repository.</EmptyDescription></EmptyHeader></Empty> : <Table><TableHeader><TableRow><TableHead>Project</TableHead><TableHead>Folders</TableHead><TableHead>Git sync</TableHead><TableHead>Code processing</TableHead><TableHead>Search</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{projects.map(project => <TableRow key={project.id}>
         <TableCell className="max-w-sm whitespace-normal"><p className="font-medium">{project.name}</p><p className="text-sm text-muted-foreground">{project.description}</p>{project.remote_url && <div className="flex flex-col items-start gap-2"><a href={project.remote_url} target="_blank" rel="noreferrer" className="break-all text-xs underline">{project.remote_url}</a><Badge variant="outline">{project.has_token ? 'Authentication saved' : 'Public access'}</Badge></div>}</TableCell>
         <TableCell className="max-w-sm whitespace-normal">{project.folder_paths.map(folder => <Button key={folder} variant="link" className="max-w-full whitespace-normal break-all" onClick={() => browse(folder)}>{folder}</Button>)}{project.folder_paths.length === 0 && <span className="text-muted-foreground">Not cloned yet</span>}</TableCell>
         <TableCell className="max-w-xs whitespace-normal">{project.remote_url ? <div className="flex flex-col items-start gap-2"><Badge variant={project.sync_status === 'failed' ? 'destructive' : 'secondary'}>{syncing(project) && <Spinner />}{project.sync_status ?? 'Not cloned'}</Badge><span className="text-xs">{project.sync_interval_minutes ? `Every ${project.sync_interval_minutes} minutes` : 'Manual pulls'}</span>{project.synced_at && <span className="text-xs text-muted-foreground">Last success: {new Date(project.synced_at).toLocaleString()}</span>}{project.next_sync_at && <span className="text-xs text-muted-foreground">Next pull: {new Date(project.next_sync_at).toLocaleString()}</span>}{project.sync_error && <span className="text-sm text-destructive">{project.sync_error}</span>}</div> : <Badge variant="outline">Local folders</Badge>}</TableCell>
@@ -164,8 +187,22 @@ export default function CodeProjectsView() {
           {project.code_index && <><span className="text-xs">{project.code_index.stats.fileCount} indexed files · {project.code_index.stats.nodeCount} symbols · {project.code_index.stats.edgeCount} relationships</span><span className="text-xs">{Object.keys(project.code_index.stats.filesByLanguage).join(', ')}</span><span className="text-xs text-muted-foreground">{project.code_index.unresolved_references} unresolved references · {project.code_index.parse_error_files.length} files with parse errors</span><span className="text-xs text-muted-foreground">Last processed: {new Date(project.code_index.processed_at).toLocaleString()}</span></>}
           {project.processing?.error && <span className="text-sm text-destructive">{project.processing.error}</span>}
         </div></TableCell>
+        <TableCell className="max-w-xs whitespace-normal"><div className="flex flex-col items-start gap-2">
+          <div className="flex items-center gap-2"><Switch aria-label={`Searchable ${project.name}`} checked={project.searchable} disabled={busy}
+            onCheckedChange={checked => void setSearch(project, checked, checked ? searchDraft(project) : null)} />
+            <span className="text-sm">{project.searchable ? 'Searchable' : 'Not searchable'}</span></div>
+          <Input aria-label={`Search collection for ${project.name}`} list="code-search-collections" className="h-8" maxLength={60} disabled={busy}
+            value={searchDraft(project)} onChange={e => setSearchDrafts(drafts => ({ ...drafts, [project.id]: e.target.value.trim() }))} />
+          {project.searchable && searchDraft(project) !== project.collection && <Button size="sm" variant="outline" disabled={busy}
+            onClick={() => void setSearch(project, true, searchDraft(project))}>Move to {searchDraft(project)}</Button>}
+          {project.searchable && project.collection && <a className="text-xs underline" href={`/rag/collections?name=${encodeURIComponent(project.collection)}`}>Open collection {project.collection}</a>}
+          {project.search_error && <><span className="text-sm text-destructive">{project.search_error}</span>
+            <Button size="sm" variant="outline" aria-label={`Retry search for ${project.name}`} disabled={busy}
+              onClick={() => void setSearch(project, project.searchable, project.collection)}>Retry</Button></>}
+        </div></TableCell>
         <TableCell><div className="flex flex-wrap gap-2">{project.code_index && <Button type="button" variant="outline" size="sm" onClick={() => setGraphProject(project.id)}>View graph</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Generate graph for ${project.name}`} onClick={async () => { setBusy(true); setError(''); try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } }}>Generate graph</Button><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}</div></TableCell>
       </TableRow>)}</TableBody></Table>}
+      <datalist id="code-search-collections">{collectionNames.map(name => <option key={name} value={name} />)}</datalist>
     </CardContent></Card>
     {graphProject && projects.find(p => p.id === graphProject)?.code_index && <Card><CardHeader><CardTitle>{projects.find(p => p.id === graphProject)?.name} · Code graph</CardTitle><Button type="button" variant="outline" className="self-start" onClick={() => setGraphProject(null)}>Close graph</Button></CardHeader><CardContent><CodeGraphExplorer projectId={graphProject} sourceHash={projects.find(p => p.id === graphProject)!.code_index!.source_hash} /></CardContent></Card>}
   </div>;
