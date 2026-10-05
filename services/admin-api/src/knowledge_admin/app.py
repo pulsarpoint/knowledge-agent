@@ -1,6 +1,7 @@
 """Standalone admin application, including isolated agent tests."""
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 
 import httpx
@@ -13,7 +14,20 @@ from starlette.exceptions import HTTPException
 from docs_wiki.config import Config, ServerConfig
 from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
+from knowledge_admin.documents import backfill_exports
 from knowledge_admin.repositories import RepositoryStore
+
+logger = logging.getLogger(__name__)
+
+
+async def backfill_document_exports(store: RepositoryStore | None) -> None:
+    """Re-export documents that lack a current export; runs in the background and never blocks startup."""
+    if store is None:
+        return
+    try:
+        await asyncio.to_thread(backfill_exports, store)
+    except Exception:  # noqa: BLE001 - a startup convenience must never take the service down
+        logger.exception('Document export backfill failed')
 
 
 def create_app(cfg: Config, *, server: ServerConfig,
@@ -29,14 +43,16 @@ def create_app(cfg: Config, *, server: ServerConfig,
                         await asyncio.to_thread(expire_sessions, repository_store)
                 await asyncio.sleep(60)
         expiry = asyncio.create_task(expire_idle_sessions())
+        backfill = asyncio.create_task(backfill_document_exports(repository_store))
         try:
             yield
         finally:
             expiry.cancel()
+            backfill.cancel()
             tasks = list(app.state.agent_runs)
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(expiry,*tasks,return_exceptions=True)
+            await asyncio.gather(expiry,backfill,*tasks,return_exceptions=True)
 
     app = FastAPI(title="Knowledge Agent Administration", docs_url=None,
                   redoc_url=None, openapi_url=None, lifespan=lifespan)

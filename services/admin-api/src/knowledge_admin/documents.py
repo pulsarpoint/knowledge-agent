@@ -71,25 +71,36 @@ def document_files(markdown: str) -> dict[str, str]:
     return files
 
 
-def export_document(document: dict, *, phase_metadata: dict | None = None) -> str:
-    """Materialize a saved version. PostgreSQL remains the source of truth."""
+def _output_root() -> Path:
     configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
     root = Path(configured)
     if not configured or not root.is_absolute():
         raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
-    root = root.resolve(strict=True)
-    folder = root / document['slug']
+    return root.resolve(strict=True)
+
+
+def export_location(slug: str, phase_metadata: dict | None = None) -> tuple[Path, str]:
+    """Folder and main file of a document's current export: <slug>/README.md or services/<svc>/<phase>/<phase>.md."""
+    root = _output_root()
+    if phase_metadata is None:
+        return root / slug, 'README.md'
+    service_folder = re.sub(r'[^a-z0-9]+', '-', phase_metadata['service_name'].lower()).strip('-')[:40] or 'service'
+    service_folder += '-' + str(UUID(phase_metadata['service_id']))[:8]
+    phase = phase_metadata['phase']
+    if phase not in ('overview', 'api', 'messaging'):
+        raise ValueError('Unknown code documentation phase')
+    return root / 'services' / service_folder / phase, f'{phase}.md'
+
+
+def export_document(document: dict, *, phase_metadata: dict | None = None) -> str:
+    """Materialize a saved version. PostgreSQL remains the source of truth."""
+    root = _output_root()
+    folder, main = export_location(document['slug'], phase_metadata)
     files = document_files(document['markdown'])
+    files[main] = files.pop('README.md')
     if document.get('source_commits'):
         files['metadata.json'] = json.dumps({'source_commits': document['source_commits']}, indent=2) + '\n'
     if phase_metadata is not None:
-        service_folder = re.sub(r'[^a-z0-9]+', '-', phase_metadata['service_name'].lower()).strip('-')[:40] or 'service'
-        service_folder += '-' + str(UUID(phase_metadata['service_id']))[:8]
-        phase = phase_metadata['phase']
-        if phase not in ('overview', 'api', 'messaging'):
-            raise ValueError('Unknown code documentation phase')
-        folder = root / 'services' / service_folder / phase
-        files[f'{phase}.md'] = files.pop('README.md')
         files['metadata.json'] = json.dumps(phase_metadata, ensure_ascii=False, indent=2) + '\n'
     for parent in reversed([folder, *folder.parents]):
         if parent == root or not parent.is_relative_to(root):
@@ -139,21 +150,70 @@ def export_args(value: dict) -> dict:
     return {'document': value, 'phase_metadata': phase_metadata}
 
 
-def remove_exported_folder(slug: str) -> None:
-    """Remove the regular files of a renamed document's old folder; subdirectories stay, and the folder goes only if empty."""
-    configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
-    root = Path(configured)
-    if not configured or not root.is_absolute():
-        raise ValueError('DOCUMENT_OUTPUT_ROOT must be a mounted absolute path')
-    root = root.resolve(strict=True)
-    folder = root / slug
-    if folder.parent != root or folder.is_symlink() or not folder.is_dir():
-        return
+def _real_folder(root: Path, folder: Path) -> bool:
+    """A directory inside root reached without symbolic links."""
+    return (folder.is_relative_to(root) and folder != root and folder.is_dir()
+            and not any(p.is_symlink() for p in [folder, *folder.parents] if p.is_relative_to(root) and p != root))
+
+
+def _remove_files(folder: Path, keep=lambda name: False) -> None:
     for entry in folder.iterdir():
-        if entry.is_file() and not entry.is_symlink():
+        if entry.is_file() and not entry.is_symlink() and not keep(entry.name):
             entry.unlink()
     if not any(folder.iterdir()):
         folder.rmdir()
+
+
+def remove_exported_folder(slug: str) -> None:
+    """Remove the regular files of a document's <slug>/ folder; subdirectories stay, and the folder goes only if empty."""
+    root = _output_root()
+    folder = root / slug
+    if folder.parent == root and _real_folder(root, folder):
+        _remove_files(folder)
+
+
+def remove_export(current: dict) -> None:
+    """Remove a document's current export (see export_input); phase folders lose only the exporter's files."""
+    phase_metadata = current['phase_metadata']
+    if phase_metadata is None:
+        remove_exported_folder(current['slug'])
+        return
+    root = _output_root()
+    folder, main = export_location(current['slug'], phase_metadata)
+    if _real_folder(root, folder):
+        exporter = lambda name: name in (main, 'metadata.json') or re.fullmatch(r'architecture-\d+\.d2', name)
+        _remove_files(folder, keep=lambda name: not exporter(name))
+
+
+def backfill_exports(store: RepositoryStore) -> int:
+    """Write the current export of every document that lacks one (e.g. after upgrading from <slug>/v<n>/ exports).
+
+    Idempotent: documents whose main export file exists are left untouched. Failures are logged, never raised.
+    """
+    try:
+        _output_root()
+        with store.connect() as conn:
+            ids = [row['id'] for row in conn.execute('SELECT id FROM ka.documents ORDER BY id').fetchall()]
+    except (OSError, ValueError, psycopg.Error) as error:
+        logger.warning('Skipping the document export backfill: %s', error)
+        return 0
+    written = 0
+    for document_id in ids:
+        try:
+            with store.connect() as conn:
+                current = export_input(conn, document_id)
+            if current is None:
+                continue
+            folder, main = export_location(current['slug'], current['phase_metadata'])
+            if (folder / main).is_file():
+                continue
+            export_document(**export_args(current))
+            written += 1
+        except (OSError, ValueError, KeyError, psycopg.Error) as error:
+            logger.warning('Could not export document %s: %s', document_id, error)
+    if written:
+        logger.info('Exported the current version of %d documents', written)
+    return written
 
 
 def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
@@ -368,10 +428,17 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['revision'] != revision:
                 raise HTTPException(409, 'This document changed. Cancel, reload, and try again.')
             actor = db.actor(conn,subject,email)
+            current = export_input(conn, document_id)
             conn.execute('DELETE FROM ka.documents WHERE id=%s', (document_id,))
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'document.deleted','document',%s,%s)''', (project,actor,document_id,Jsonb({'revision':revision})))
-            return {'id':document_id}
+        # After the commit: the export goes so a Refresh drops it from search; a failure never fails the delete.
+        if current is not None:
+            try:
+                remove_export(current)
+            except (OSError, ValueError) as error:
+                logger.warning('Could not remove the export of deleted document %s: %s', document_id, error)
+        return {'id':document_id}
 
     @router.get('/generations/{job_id}/api-analysis')
     def api_analysis(job_id: UUID) -> dict:

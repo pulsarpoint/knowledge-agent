@@ -1,5 +1,7 @@
 import hashlib
+import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import psycopg
@@ -266,3 +268,91 @@ def test_cleanup_leaves_subdirectories_and_symlinks(tmp_path, monkeypatch):
     export_document({'slug': 'doc', 'markdown': '# D', 'revision': 1})
     assert not (folder / 'stale.txt').exists() and (folder / 'v1').is_dir()
     assert (folder / 'link.txt').is_symlink() and target.read_text() == 'keep'
+
+
+def test_deleting_a_document_removes_its_export(store, tmp_path, monkeypatch):
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    created = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'gone', 'title': 'G', 'markdown': '# G'}).json()
+    keep = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'kept', 'title': 'K', 'markdown': '# K'}).json()
+    assert (out / 'gone' / 'README.md').exists()
+    (out / 'gone' / 'v1').mkdir()
+    (out / 'gone' / 'v1' / 'README.md').write_text('old')
+    endpoint = '/api/documentation/documents/' + created['id']
+    assert client.delete(endpoint, headers=HEADERS, params={'revision': 1, 'confirmed': True}).status_code == 200
+    assert not (out / 'gone' / 'README.md').exists() and (out / 'gone' / 'v1' / 'README.md').exists()
+    assert (out / 'kept' / 'README.md').exists()
+    # A missing export folder never fails the delete.
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
+    response = client.delete('/api/documentation/documents/' + keep['id'], headers=HEADERS, params={'revision': 1, 'confirmed': True})
+    assert response.status_code == 200
+
+
+def test_remove_export_of_a_phase_document_keeps_other_files(tmp_path, monkeypatch):
+    from knowledge_admin.documents import export_document, export_location, remove_export
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
+    metadata = {'service_name': 'Payments API', 'service_id': str(uuid4()), 'phase': 'api'}
+    document = {'slug': 'payments-api', 'markdown': '# API\n\n```d2\na -> b\n```\n', 'revision': 1}
+    folder = Path(export_document(document, phase_metadata=metadata))
+    assert export_location(document['slug'], metadata) == (folder, 'api.md')
+    (folder / 'v1').mkdir()
+    (folder / 'notes.txt').write_text('keep')
+    remove_export({**document, 'phase_metadata': metadata})
+    assert {p.name for p in folder.iterdir()} == {'v1', 'notes.txt'}
+    (folder / 'notes.txt').unlink()
+    (folder / 'v1').rmdir()
+    export_document(document, phase_metadata=metadata)
+    remove_export({**document, 'phase_metadata': metadata})
+    assert not folder.exists()
+
+
+def test_startup_backfill_writes_missing_exports_only(store, tmp_path, monkeypatch):
+    import os
+    from knowledge_admin.documents import backfill_exports
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'legacy', 'title': 'L', 'markdown': '# Legacy'})
+    client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'current', 'title': 'C', 'markdown': '# Current'})
+    # legacy only has an old <slug>/v1/ export from before the upgrade
+    (out / 'legacy' / 'README.md').unlink()
+    (out / 'legacy' / 'v1').mkdir()
+    (out / 'legacy' / 'v1' / 'README.md').write_text('# Legacy')
+    current = out / 'current' / 'README.md'
+    old = time.time() - 3600
+    os.utime(current, (old, old))
+    assert backfill_exports(store) == 1
+    assert (out / 'legacy' / 'README.md').read_text() == '# Legacy' and (out / 'legacy' / 'v1').is_dir()
+    assert current.stat().st_mtime == old
+    assert backfill_exports(store) == 0
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
+    assert backfill_exports(store) == 0  # logged, never raised
+
+
+def test_app_startup_runs_the_export_backfill(store, tmp_path, monkeypatch):
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    _client(tmp_path, repository_store=store).post('/api/documentation/documents', headers=HEADERS,
+                                                   json={'slug': 'legacy', 'title': 'L', 'markdown': '# Legacy'})
+    (out / 'legacy' / 'README.md').unlink()
+    with _client(tmp_path, repository_store=store) as client:  # entering the client runs the lifespan
+        for _ in range(100):
+            if (out / 'legacy' / 'README.md').exists():
+                break
+            time.sleep(0.05)
+        assert client.get('/health').status_code == 200
+    assert (out / 'legacy' / 'README.md').read_text() == '# Legacy'
+
+
+def test_app_starts_when_the_backfill_fails(store, tmp_path, monkeypatch):
+    import knowledge_admin.app as app_module
+
+    def broken(store):
+        raise RuntimeError('boom')
+    monkeypatch.setattr(app_module, 'backfill_exports', broken)
+    with _client(tmp_path, repository_store=store) as client:
+        assert client.get('/health').status_code == 200
