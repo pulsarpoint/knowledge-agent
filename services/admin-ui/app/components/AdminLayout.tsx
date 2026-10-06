@@ -70,14 +70,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </SidebarMenuButton></SidebarMenuItem></SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup><SidebarGroupLabel>Administration</SidebarGroupLabel><SidebarMenu>
+        <SidebarGroup role="navigation" aria-label="Administration"><SidebarGroupLabel>Administration</SidebarGroupLabel><SidebarMenu>
 
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/storage"}><Link to="/storage"><Database /><span>Storage</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={environments}><Link to="/environments"><Network /><span>Environments</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={services}><Link to={`/services`}><Layers /><span>Services</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/skills"}><Link to="/skills"><BookOpen /><span>Skills</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/mcp-servers"}><Link to="/mcp-servers"><Plug /><span>MCP servers</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={servers}><Link to={`/servers`}><Server /><span>Servers</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname.startsWith(`/activity`) && !runsPage}><Link to={`/activity`}><Activity /><span>Activity</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={runsPage}><Link to="/activity/runs"><ListChecks /><span>Agent runs</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
@@ -91,6 +88,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <SidebarGroup><SidebarGroupLabel>Jira</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraTickets}><Link to={`/jira/tickets`}><Ticket /><span>Tickets</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraSettings}><Link to={`/jira/settings`}><Settings /><span>Settings</span></Link></SidebarMenuButton></SidebarMenuItem>
+        </SidebarMenu></SidebarGroup>
+        <SidebarGroup role="navigation" aria-label="Environments"><SidebarGroupLabel>Environments</SidebarGroupLabel><SidebarMenu>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={environments}><Link to="/environments"><Network /><span>Environments</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={services}><Link to={`/services`}><Layers /><span>Services</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={servers}><Link to={`/servers`}><Server /><span>Servers</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Code"><SidebarGroupLabel>Code</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={repositories}><Link to="/code-projects"><FolderGit2 /><span>Projects</span></Link></SidebarMenuButton></SidebarMenuItem>

@@ -36,5 +36,10 @@ test('preserves reported usage in failed runs and identifies missing provider re
 
 test('shows current usage while a phase is running', () => {
   render(<DocumentationTokenUsage run={{...run,status:'running'}} />);
-  expect(screen.getByText('Token usage · 4,700 tokens so far')).toBeInTheDocument();
+  expect(screen.getByText('Token usage · 3,800 in · 900 out · 4,700 total so far')).toBeInTheDocument();
+});
+
+test('the compact summary says which tokens are input and which are output', () => {
+  render(<DocumentationTokenUsage run={run} compact />);
+  expect(screen.getByRole('button', { name: '3,800 in · 900 out · 4,700 total' })).toBeInTheDocument();
 });

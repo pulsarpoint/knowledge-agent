@@ -14,8 +14,12 @@ test("administration has its own navigation without reader pages", async () => {
   expect(code.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/code-projects");
   expect(code.getByRole("link", { name: "Code graphs" })).toHaveAttribute("href", "/code-graphs");
   expect(screen.queryByRole("link", { name: "Code projects" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
-  expect(screen.getByRole("link", { name: "Environments" })).toHaveAttribute("href", "/environments");
+  const environments = within(screen.getByRole("navigation", { name: "Environments" }));
+  expect(environments.getByRole("link", { name: "Environments" })).toHaveAttribute("href", "/environments");
+  expect(environments.getByRole("link", { name: "Services" })).toHaveAttribute("href", "/services");
+  expect(environments.getByRole("link", { name: "Servers" })).toHaveAttribute("href", "/servers");
+  const administration = within(screen.getByRole("navigation", { name: "Administration" }));
+  for (const name of ["Environments", "Services", "Servers"]) expect(administration.queryByRole("link", { name })).toBeNull();
   expect(screen.getAllByRole("link", { name: "Search" }).some(link => link.getAttribute("href") === "/rag/search")).toBe(true);
   const agents = within(screen.getByRole("navigation", { name: "Agents" }));
   expect(agents.getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");

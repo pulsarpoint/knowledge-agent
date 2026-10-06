@@ -33,6 +33,13 @@ function api(projects: CodeProject[] = []) {
   return fetch;
 }
 
+
+async function action(project: string, item: string) {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: `Actions for ${project}` }));
+  await user.click(await screen.findByRole('menuitem', { name: item }));
+}
+
 test('maps multiple existing folders into a local code project', async () => {
   const fetch = api(); render(<CodeProjectsView />);
   await screen.findByText('/host/code → /work/code');
@@ -101,7 +108,7 @@ test('browses folders and previews file contents without following symlinks', as
 
 test('editing preserves hidden credentials unless removal is explicit and sends the revision', async () => {
   const fetch = api([project]); render(<CodeProjectsView />);
-  fireEvent.click(await screen.findByRole('button',{name:'Edit Payments'}));
+  await action('Payments', 'Edit');
   expect(screen.getByLabelText('Git repository URL')).toBeDisabled();
   expect(screen.getByLabelText('Clone folder')).toBeDisabled();
   expect(screen.getByRole('switch',{name:'Private repository'})).toBeChecked();
@@ -116,7 +123,7 @@ test('editing preserves hidden credentials unless removal is explicit and sends 
   expect(bodies[0]).toMatchObject({revision:3,clone_now:false,folder_paths:['payments']});
   expect(bodies[0]).not.toHaveProperty('token');
   expect(bodies[0]).not.toHaveProperty('username');
-  fireEvent.click(screen.getByRole('button',{name:'Edit Payments'}));
+  await action('Payments', 'Edit');
   fireEvent.click(screen.getByRole('switch',{name:'Private repository'}));
   expect(screen.queryByLabelText('Access token')).not.toBeInTheDocument();
   expect(screen.getByText(/Saving will remove the saved username and token/)).toBeVisible();
@@ -153,7 +160,7 @@ test('new private repositories require credentials and submit them separately fr
 
 test('replacing only the token does not send a blank username', async () => {
   const fetch = api([project]); render(<CodeProjectsView />);
-  fireEvent.click(await screen.findByRole('button',{name:'Edit Payments'}));
+  await action('Payments', 'Edit');
   fireEvent.change(screen.getByLabelText('Access token'), {target:{value:'new-private-token'}});
   fireEvent.click(screen.getByRole('button',{name:'Save project'}));
   await screen.findByText('Code project saved.');
@@ -187,7 +194,7 @@ test('selects nested folders across branches and keeps selections when collapsed
 test('editing expands selected folder ancestors and allows removing a nested mapping', async () => {
   const fetch = api([{...project, remote_url:null, clone_path:null, current_commit:null, checkout_path:null,
     folder_paths:['api/src/billing','shared'], has_token:false}]); render(<CodeProjectsView />);
-  fireEvent.click(await screen.findByRole('button', {name:'Edit Payments'}));
+  await action('Payments', 'Edit');
   expect(await screen.findByRole('checkbox', {name:'Select folder api/src/billing'})).toBeChecked();
   fireEvent.click(screen.getByRole('checkbox', {name:'Select folder api/src/billing'}));
   fireEvent.click(screen.getByRole('button', {name:'Save project'}));
@@ -207,7 +214,7 @@ test('code projects have no Searchable switch or collection field and never call
 
 test('Remove asks for confirmation, keeps files by default and drops the project from the list', async () => {
   const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
-  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  await action('Payments', 'Remove');
   const dialog = await screen.findByRole('alertdialog');
   expect(dialog).toHaveTextContent('code/payments');
   const box = screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ });
@@ -227,7 +234,7 @@ test('Remove with the delete box sends delete_files and reports what was deleted
     return base(raw, init);
   });
   render(<CodeProjectsView />);
-  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  await action('Payments', 'Remove');
   await user.click(screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole('button', { name: 'Remove project' }));
   await screen.findByText('Payments removed. Deleted code/payments.');
@@ -243,9 +250,26 @@ test('a refused Remove shows the reason and keeps the project', async () => {
     return base(raw, init);
   });
   render(<CodeProjectsView />);
-  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  await action('Payments', 'Remove');
   await user.click(screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ }));
   await user.click(screen.getByRole('button', { name: 'Remove project' }));
   await screen.findByText(/RAG collection code-docs indexes code\/payments/);
-  expect(screen.getByRole('button', { name: 'Remove Payments' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Actions for Payments' })).toBeInTheDocument();
+});
+
+test('each project row has one actions menu instead of separate buttons', async () => {
+  const user = userEvent.setup(); api([project]); render(<CodeProjectsView />);
+  const trigger = await screen.findByRole('button', { name: 'Actions for Payments' });
+  for (const name of ['Edit Payments', 'Remove Payments', 'Pull Payments', 'Generate graph for Payments']) expect(screen.queryByRole('button', { name })).toBeNull();
+  await user.click(trigger);
+  const items = (await screen.findAllByRole('menuitem')).map(item => item.textContent);
+  expect(items).toEqual(['Generate graph', 'Edit', 'Pull', 'Remove']);
+});
+
+test('the actions menu offers View graph when a graph exists and Clone before the first clone', async () => {
+  const user = userEvent.setup();
+  const indexed = { ...project, current_commit: null, code_index: { status: 'ready', source_hash: 'h', source_file_count: 1, engine_version: '1', stats: { nodeCount: 1, edgeCount: 0, fileCount: 1, filesByLanguage: {} }, unresolved_references: 0, parse_error_files: [], missing_folders: [], processed_at: '2026-10-07T10:00:00Z' } };
+  api([indexed]); render(<CodeProjectsView />);
+  await user.click(await screen.findByRole('button', { name: 'Actions for Payments' }));
+  expect((await screen.findAllByRole('menuitem')).map(item => item.textContent)).toEqual(['View graph', 'Generate graph', 'Edit', 'Clone', 'Remove']);
 });

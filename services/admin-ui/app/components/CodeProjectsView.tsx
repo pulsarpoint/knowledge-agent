@@ -1,6 +1,6 @@
 import CodeGraphExplorer from './CodeGraphExplorer';
 import { useEffect, useState, type FormEvent } from 'react';
-import { FileText, Folder, Plus, RefreshCw, X } from 'lucide-react';
+import { FileText, Folder, MoreHorizontal, Plus, RefreshCw, X } from 'lucide-react';
 import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, removeCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
@@ -8,6 +8,7 @@ import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';
 import { Checkbox } from '~/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '~/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '~/components/ui/empty';
 import CodeFolderTree from './CodeFolderTree';
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '~/components/ui/field';
@@ -118,6 +119,13 @@ export default function CodeProjectsView() {
     finally { setBusy(false); }
   }
 
+  async function generateGraph(project: CodeProject) {
+    setBusy(true); setError(''); setNotice('');
+    try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); }
+    catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
+
   async function pull(project: CodeProject) {
     setBusy(true); setError(''); setNotice('');
     try { await pullCodeProject(project.id); setNotice('Git pull queued.'); setRefresh(n => n+1); }
@@ -183,7 +191,15 @@ export default function CodeProjectsView() {
           {project.code_index && <><span className="text-xs">{project.code_index.stats.fileCount} indexed files · {project.code_index.stats.nodeCount} symbols · {project.code_index.stats.edgeCount} relationships</span><span className="text-xs">{Object.keys(project.code_index.stats.filesByLanguage).join(', ')}</span><span className="text-xs text-muted-foreground">{project.code_index.unresolved_references} unresolved references · {project.code_index.parse_error_files.length} files with parse errors</span><span className="text-xs text-muted-foreground">Last processed: {new Date(project.code_index.processed_at).toLocaleString()}</span></>}
           {project.processing?.error && <span className="text-sm text-destructive">{project.processing.error}</span>}
         </div></TableCell>
-        <TableCell><div className="flex flex-wrap gap-2">{project.code_index && <Button type="button" variant="outline" size="sm" onClick={() => setGraphProject(project.id)}>View graph</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Generate graph for ${project.name}`} onClick={async () => { setBusy(true); setError(''); try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } }}>Generate graph</Button><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Remove ${project.name}`} onClick={() => { setDeleteFiles(false); setRemoving(project); }}>Remove</Button></div></TableCell>
+        <TableCell><DropdownMenu modal={false}><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${project.name}`} disabled={busy}><MoreHorizontal /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {project.code_index && <DropdownMenuItem onSelect={() => setGraphProject(project.id)}>View graph</DropdownMenuItem>}
+            <DropdownMenuItem disabled={syncing(project)} onSelect={() => void generateGraph(project)}>Generate graph</DropdownMenuItem>
+            <DropdownMenuItem disabled={syncing(project)} onSelect={() => open(project)}>Edit</DropdownMenuItem>
+            {project.remote_url && <DropdownMenuItem disabled={syncing(project)} onSelect={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</DropdownMenuItem>}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive focus:text-destructive" disabled={syncing(project)} onSelect={() => { setDeleteFiles(false); setRemoving(project); }}>Remove</DropdownMenuItem>
+          </DropdownMenuContent></DropdownMenu></TableCell>
       </TableRow>)}</TableBody></Table>}
     </CardContent></Card>
     <AlertDialog open={removing !== null} onOpenChange={open => { if (!open) setRemoving(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove code project?</AlertDialogTitle>
