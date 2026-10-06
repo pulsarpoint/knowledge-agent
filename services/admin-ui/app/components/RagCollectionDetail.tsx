@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { deleteCollection, getChunks, getCollection, getCollectionFiles, removeFolder, syncCollection, type CollectionFile, type CollectionPath, type RagCollection, type SkippedCounts } from "../lib/rag";
+import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, type CollectionPath, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
@@ -8,16 +8,16 @@ import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import RagCollectionForm from "./RagCollectionForm";
+import RagFileLog from "./RagFileLog";
 import RagFolderPicker from "./RagFolderPicker";
 import { statusLabel, statusVariant, TOO_LARGE_HINT, tooLarge, when } from "./RagCollectionsView";
 
 type Chunk = { position: number; text: string; embedded: boolean };
-interface Files { files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }
 
 export default function RagCollectionDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [collection, setCollection] = useState<RagCollection | null>(null);
-  const [files, setFiles] = useState<Files | null>(null);
+  const [logVersion, setLogVersion] = useState(0);
   const [selected, setSelected] = useState("");
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [editing, setEditing] = useState(false);
@@ -29,9 +29,9 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   const [notice, setNotice] = useState("");
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [row, list] = await Promise.all([getCollection(id, signal), getCollectionFiles(id, signal)]);
+      const row = await getCollection(id, signal);
       if (signal?.aborted) return;
-      setCollection(row); setFiles(list); setError("");
+      setCollection(row); setLogVersion((value) => value + 1); setError("");
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Could not load the collection"); }
   }, [id]);
   useEffect(() => { const controller = new AbortController(); load(controller.signal); return () => controller.abort(); }, [load]);
@@ -66,7 +66,8 @@ export default function RagCollectionDetail({ id }: { id: string }) {
         <dt className="text-muted-foreground">Status</dt><dd><Badge variant={statusVariant(c.status)}>{statusLabel(c)}</Badge>
           {c.status === "folder_missing" && <span className="ml-2 text-destructive">Missing: {c.missing_paths.join(", ")}</span>}
           {c.status === "failed" && c.job?.error && <span className="ml-2 text-destructive">{c.job.error}</span>}</dd>
-        <dt className="text-muted-foreground">Files indexed</dt><dd>{c.indexed_files} / {c.file_count}</dd>
+        <dt className="text-muted-foreground">Files</dt><dd>{c.log_counts.indexed} indexed · {c.log_counts.skipped} skipped · {c.log_counts.failed} failed</dd>
+        <dt className="text-muted-foreground">Files found</dt><dd>{c.file_count}{c.truncated && " (or more)"}</dd>
         <dt className="text-muted-foreground">Embedded chunks</dt><dd>{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</dd>
         <dt className="text-muted-foreground">Folders changed</dt><dd>{when(c.folder_changed_at)}</dd>
         <dt className="text-muted-foreground">Last synced</dt><dd>{when(c.last_synced_at)}</dd>
@@ -85,16 +86,9 @@ export default function RagCollectionDetail({ id }: { id: string }) {
       </TableBody></Table>
     </section>
     <section className="flex flex-col gap-3">
-      <h3 className="text-base font-semibold">Indexed files</h3>
-      {files && <p className="text-xs text-muted-foreground">Skipped: {files.skipped.links} links, {files.skipped.special} special, {files.skipped.unreadable} unreadable, {files.skipped.invalid_names} invalid names.{files.truncated && " The list is truncated; only the first files are shown."}</p>}
-      <Table><TableHeader><TableRow><TableHead>Path</TableHead><TableHead>Chunks</TableHead><TableHead>Embedded</TableHead><TableHead>Indexed</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-        {files?.files.map((f) => <TableRow key={f.path} data-state={f.path === selected ? "selected" : undefined}>
-          <TableCell><Button variant="link" className="h-auto p-0 break-all" onClick={() => select(f.path)}>{f.path}</Button></TableCell>
-          <TableCell>{f.chunks}</TableCell><TableCell>{f.embedded_chunks} embedded</TableCell><TableCell className="text-xs">{when(f.indexed_at)}</TableCell>
-          <TableCell>{f.stale && <Badge variant="outline">Changed</Badge>}</TableCell>
-        </TableRow>)}
-        {files && files.files.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No files in these folders match the patterns.</TableCell></TableRow>}
-      </TableBody></Table>
+      <h3 className="text-base font-semibold">File log</h3>
+      <p className="text-xs text-muted-foreground">Not listed: {c.skipped.links} links, {c.skipped.special} special files, {c.skipped.unreadable} unreadable entries, {c.skipped.invalid_names} invalid names.</p>
+      <RagFileLog collectionId={id} selected={selected} onSelect={(path) => void select(path)} reload={logVersion} />
     </section>
     {selected && <section className="flex flex-col gap-3"><h3 className="text-base font-semibold">Chunks of {selected}</h3>
       {chunks.map((chunk) => <article key={chunk.position} className="flex flex-col gap-2 rounded-lg border p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground">#{chunk.position}{!chunk.embedded && <Badge variant="outline">Not embedded</Badge>}</div><pre className="whitespace-pre-wrap text-sm">{chunk.text}</pre></article>)}

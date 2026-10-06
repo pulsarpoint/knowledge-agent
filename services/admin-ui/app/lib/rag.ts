@@ -34,19 +34,26 @@ export const DEFAULT_SETTINGS: CollectionSettings = {
   description: "", search_mode: "full_text", embeddings_enabled: false,
   include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200,
 };
+export type LogStatus = "indexed" | "skipped_binary" | "skipped_too_large" | "skipped_unreadable" | "failed" | "removed";
+export type LogFilter = "indexed" | "skipped" | "failed" | "removed";
+export interface LogCounts { indexed: number; skipped: number; failed: number }
+export interface LogFile {
+  path: string; status: LogStatus; size: number | null; mtime: number | null; error: string | null;
+  indexed_at: string | null; last_seen_at: string; removed_at: string | null; chunks: number;
+}
+export const LOG_STATUS_LABEL: Record<LogStatus, string> = {
+  indexed: "Indexed", skipped_binary: "Skipped · binary", skipped_too_large: "Skipped · too large",
+  skipped_unreadable: "Skipped · unreadable", failed: "Failed", removed: "Removed",
+};
 export interface CollectionSummary extends CollectionSettings {
   id: string; name: string; revision: number; synced_revision: number | null; last_synced_at: string | null;
   paths: CollectionPath[]; folder_present: boolean; missing_paths: string[];
-  indexed_files: number; chunks: number; embedded_chunks: number;
+  indexed_files: number; chunks: number; embedded_chunks: number; log_counts: LogCounts;
 }
 export interface RagCollection extends CollectionSummary {
   folder_changed_at: string | null; file_count: number; truncated: boolean; skipped: SkippedCounts;
   needs_refresh: boolean; status: CollectionState;
   job: { id: string; status: string; error: string | null; created_at: string; finished_at: string | null } | null;
-}
-export interface CollectionFile {
-  path: string; source: string | null; size: number | null; mtime: number | null; indexed_at: string | null;
-  content_hash: string | null; chunks: number; embedded_chunks: number; stale: boolean;
 }
 export interface FolderEntry { name: string; path: string }
 export interface FolderListing { path: string | null; folders: FolderEntry[]; truncated: boolean }
@@ -65,5 +72,12 @@ export const getFolders = (path: string | null, signal?: AbortSignal) =>
   ragRequest<FolderListing>(path === null ? "folders" : `folders?path=${encodeURIComponent(path)}`, "GET", undefined, signal);
 export const syncCollection = (id: string, force = false) => ragRequest<{ id: string }>(`collections/${id}/sync`, "POST", { force });
 export const syncStale = () => ragRequest<{ queued: string[] }>("collections/sync-stale", "POST");
-export const getCollectionFiles = (id: string, signal?: AbortSignal) => ragRequest<{ files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }>(`collections/${id}/files`, "GET", undefined, signal);
+export function getFileLog(id: string, query: { status?: LogFilter; q?: string; limit: number; offset: number }, signal?: AbortSignal) {
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.q) params.set("q", query.q);
+  params.set("limit", String(query.limit));
+  params.set("offset", String(query.offset));
+  return ragRequest<{ files: LogFile[]; total: number }>(`collections/${id}/log?${params}`, "GET", undefined, signal);
+}
 export const getChunks = (id: string, path: string) => ragRequest<{ chunks: { position: number; text: string; embedded: boolean }[] }>(`collections/${id}/chunks?path=${encodeURIComponent(path)}`);

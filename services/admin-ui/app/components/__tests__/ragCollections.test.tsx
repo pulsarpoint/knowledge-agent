@@ -18,10 +18,11 @@ const base: RagCollection = {
   exclude: [], chunk_size: 2000, chunk_overlap: 200, revision: 2, synced_revision: 2, last_synced_at: "2026-10-05T09:00:00Z",
   paths: [codePath, jiraPath, notesPath], folder_present: true, missing_paths: [], folder_changed_at: "2026-10-05T10:00:00Z",
   file_count: 90, truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 },
+  log_counts: { indexed: 90, skipped: 2, failed: 1 },
   indexed_files: 90, chunks: 975, embedded_chunks: 0, needs_refresh: true, status: "needs_refresh", job: null,
 };
 const notes: RagCollection = { ...base, id: "c2", name: "notes", paths: [notesPath] };
-const noFiles = { files: [], truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 }, missing_paths: [] };
+const noLog = { files: [], total: 0 };
 
 function detail(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
@@ -97,26 +98,27 @@ test("a collection too large to walk says so instead of Needs refresh", async ()
   expect(screen.queryByText("Needs refresh")).toBeNull();
 });
 
-test("detail lists full paths and chunks, with no upload or file editor", async () => {
+test("detail shows status counts, the file log and a file's chunks", async () => {
   const fetchMock = vi.fn(async (url: string) => {
     if (url.includes("/chunks")) return Response.json({ chunks: [{ position: 0, text: "First chunk text", embedded: false }] });
-    if (url.endsWith("/files")) return Response.json({ ...noFiles, files: [{ path: "rag-data/jira/DEMO-1.md", source: "rag-data/jira", size: 10, mtime: 1,
-      indexed_at: "2026-10-05T09:00:00Z", content_hash: "abc", chunks: 13, embedded_chunks: 0, stale: false }] });
+    if (url.includes("/log?")) return Response.json({ total: 1, files: [{ path: "rag-data/jira/DEMO-1.md", status: "indexed", size: 10,
+      mtime: 1, error: null, indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 13 }] });
     return Response.json(base);
   });
   const user = userEvent.setup();
   detail(fetchMock);
+  expect(await screen.findByText("90 indexed · 2 skipped · 1 failed")).toBeInTheDocument();
   const file = await screen.findByRole("button", { name: "rag-data/jira/DEMO-1.md" });
   expect(within(file.closest("tr")!).getByText("13")).toBeInTheDocument();
   await user.click(file);
   expect(await screen.findByText("First chunk text")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/rag/collections/c1/chunks?path=rag-data%2Fjira%2FDEMO-1.md"), expect.anything());
-  expect(screen.queryByLabelText("Upload file")).toBeNull();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/files"))).toBe(false);
 });
 
 test("Edit changes search settings only", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/files")) return Response.json(noFiles);
+    if (url.includes("/log?")) return Response.json(noLog);
     return Response.json(init?.method === "PUT" ? { ...base, revision: 3 } : base);
   });
   const user = userEvent.setup();
@@ -135,7 +137,7 @@ test("Edit changes search settings only", async () => {
 
 test("Remove collection is always available and asks for confirmation", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/files")) return Response.json(noFiles);
+    if (url.includes("/log?")) return Response.json(noLog);
     if (init?.method === "DELETE") return Response.json({ deleted_files: 3 });
     return Response.json(base);
   });
@@ -152,7 +154,7 @@ test("a failed Remove collection shows the error and reloads so the retry uses t
   let revision = 2;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "DELETE") return Response.json({ error: { message: "Collection changed; refresh before removing" } }, { status: 409 });
-    if (url.endsWith("/files")) return Response.json(noFiles);
+    if (url.includes("/log?")) return Response.json(noLog);
     const row = { ...base, revision }; revision = 5; return Response.json(row);
   });
   const user = userEvent.setup();
@@ -168,13 +170,13 @@ test("a failed Remove collection shows the error and reloads so the retry uses t
 });
 
 test("Refresh is disabled for a collection too large to sync", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/files") ? Response.json(noFiles) : Response.json({ collections: [{ ...base, truncated: true }] })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ collections: [{ ...base, truncated: true }] })));
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   const button = await screen.findByRole("button", { name: "Refresh" });
   expect(button).toBeDisabled();
   expect(button).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
   cleanup();
-  detail(vi.fn(async (url: string) => url.endsWith("/files") ? Response.json(noFiles) : Response.json({ ...base, truncated: true })));
+  detail(vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ ...base, truncated: true })));
   const detailButton = await screen.findByRole("button", { name: "Refresh" });
   expect(detailButton).toBeDisabled();
   expect(detailButton).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
@@ -182,7 +184,7 @@ test("Refresh is disabled for a collection too large to sync", async () => {
 
 test("Add folder connects a typed folder and Remove folder disconnects one", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/files")) return Response.json(noFiles);
+    if (url.includes("/log?")) return Response.json(noLog);
     if (url.startsWith("/api/rag/folders")) return Response.json({ path: null, truncated: false, folders: [] });
     return Response.json(base);
   });
@@ -213,7 +215,7 @@ test("a revision conflict reloads the collection so the next edit uses the new r
   let revision = 2;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PUT") return Response.json({ error: { message: "Collection changed; refresh before saving" } }, { status: 409 });
-    if (url.endsWith("/files")) return Response.json(noFiles);
+    if (url.includes("/log?")) return Response.json(noLog);
     const row = { ...base, revision }; revision = 5; return Response.json(row);
   });
   const user = userEvent.setup();
