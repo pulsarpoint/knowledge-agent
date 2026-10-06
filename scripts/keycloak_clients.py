@@ -4,10 +4,37 @@ import json
 import os
 import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from string import Template
+from typing import Any
 
-from scripts.admin_user import request_json
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def request_json(
+    url: str, *, method: str = "GET", token: str = "", payload: Any = None,
+    form: dict[str, str] | None = None,
+) -> Any:
+    headers = {"Accept": "application/json"}
+    data = None
+    if form is not None:
+        data = urllib.parse.urlencode(form).encode("utf-8")
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    elif payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    # Local administration never sends credentials through a proxy or redirect.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with opener.open(request, timeout=15) as response:
+        body = response.read()
+        return json.loads(body) if body else None
 
 
 def main() -> None:

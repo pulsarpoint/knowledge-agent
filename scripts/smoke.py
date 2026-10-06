@@ -65,7 +65,7 @@ def login(origin: str, keycloak_origin: str, credentials: dict[str, str], title:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--credentials", type=Path, help="JSON username/password file from make admin-user")
+    parser.add_argument("--credentials", type=Path, help="JSON file with username and password of another docs-admins account")
     parser.add_argument("--auth-only", action="store_true", help="verify admin login and access only")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]

@@ -126,32 +126,15 @@ changing those bindings.
 
 ## Local application administrators
 
-`make admin-user` creates `local-admin` in the running `docs` realm. Set
-`ADMIN_USERNAME` and optionally `ADMIN_EMAIL` to add another account. It uses the
-[Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html)
-and the bootstrap administrator credential from `.env`; it only accepts the v3
-Compose project and a loopback Keycloak origin. This creates an application
-administrator through the `docs-admins` group, not a Keycloak server administrator.
+The application administrator is `v3-admin`, created by the Keycloak realm import on the
+first boot with the password `APP_ADMIN_PASSWORD` from `.env`. Add further
+administrators in the Keycloak console (realm `docs`) by adding a user to the
+`docs-admins` group; this is an application administrator, not a Keycloak server
+administrator. Check another account with
+`python3 scripts/smoke.py --credentials <file> --auth-only`, where the file is JSON
+`{"username": …, "password": …}` kept outside the repository.
 
-Passwords are generated and stored in `.local/users/<username>.json` with mode
-0600. Repeating the command retains existing profiles and passwords. To rotate
-one intentionally, run:
-
-```sh
-python3 scripts/admin_user.py --username <username> --reset-password
-```
-
-The script prints a private recovery-file path before each
-password write; if the network fails, retain that file because Keycloak may have
-accepted the write. A successful write moves it to the regular credentials path.
-
-Check an account with:
-
-```sh
-python3 scripts/smoke.py --credentials .local/users/<username>.json --auth-only
-```
-
-The default `make smoke` still uses
+The default `make smoke` uses
 the bootstrap application admin. Disabling/removing accounts, changing groups,
 or other user administration is available through the local Keycloak console.
 

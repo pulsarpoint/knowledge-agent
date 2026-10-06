@@ -40,7 +40,7 @@ database. It does not invoke a model.
 | Service | Local address | Login |
 | --- | --- | --- |
 | Reader | http://localhost:8180 | `v3-admin`, password from `APP_ADMIN_PASSWORD` in `.env` |
-| Administration app | http://localhost:8183 | `local-admin` after `make admin-user`, or the bootstrap `v3-admin` |
+| Administration app | http://localhost:8183 | `v3-admin`, password from `APP_ADMIN_PASSWORD` in `.env` |
 | Keycloak administration | http://localhost:8181 | `admin`, password from `KEYCLOAK_ADMIN_PASSWORD` |
 | Phoenix | http://localhost:8182 | `admin@localhost`, password from `PHOENIX_ADMIN_PASSWORD` |
 | PostgreSQL | `127.0.0.1:5438` | database/user `knowledge_agent`, password from `POSTGRES_PASSWORD` |
@@ -67,32 +67,19 @@ navigation, pages or API routes, even for administrators. The admin API serves c
 the gateway and the API.
 
 Both applications use the same Keycloak realm and underlying project data.
-The existing `local-admin` account therefore works in the new admin application.
+Any member of the `docs-admins` group can sign in to the admin application.
 `make up` configures both OIDC clients for fresh and existing environments without
 reimporting users. `ADMIN_PORT` controls the administration port.
 
-## Add local test administrators
+## Administrators
 
-With the environment running, create a separate application admin:
-
-```sh
-make admin-user                              # creates local-admin
-make admin-user ADMIN_USERNAME=alice         # creates another admin
-python3 scripts/smoke.py --credentials .local/users/local-admin.json --auth-only
-```
-
-Open [Administration → RAG](http://localhost:8183/rag/files) and sign in
-with `local-admin`. Its generated password is in `.local/users/local-admin.json`
-(mode 0600, ignored by Git). Additional users have their own files in that folder;
-set `ADMIN_EMAIL` to override the default `<username>@example.test` address.
-The command works after the first boot, preserves existing passwords, and grants
-the `docs-admins` group in v3's Keycloak realm. An already signed-in account must
-sign out and sign in again to pick up newly granted access.
-
-To explicitly generate a replacement password:
+Sign in to both applications as `v3-admin` with the password `APP_ADMIN_PASSWORD` from
+`.env`. To add another administrator, create the user in the Keycloak console
+(http://localhost:8181, realm `docs`) and add it to the `docs-admins` group; the user
+must sign out and in again to pick up the group.
 
 ```sh
-python3 scripts/admin_user.py --username local-admin --reset-password
+python3 scripts/smoke.py --auth-only
 ```
 
 The auth-only check verifies real SSO and protected admin access. `make smoke`

@@ -91,7 +91,6 @@ credentials are needed to start.
 ```sh
 make up          # generate .env secrets, build images, migrate DB, start everything
 make smoke       # verify logins, isolation, search, DB migrations, Phoenix (no model calls)
-make admin-user  # create an extra admin "local-admin" (password in .local/users/local-admin.json)
 ```
 
 - The first time, choose where the application keeps its files:
@@ -103,9 +102,8 @@ make admin-user  # create an extra admin "local-admin" (password in .local/users
   `generated-documents/` and `docs/` inside it.
 - The bootstrap admin is `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
   Change it in Keycloak afterwards, not in `.env`.
-- Additional admins: `make admin-user ADMIN_USERNAME=alice` (optional `ADMIN_EMAIL`).
-  Re-running keeps existing passwords; reset with
-  `python3 scripts/admin_user.py --username alice --reset-password`.
+- Additional admins: create the user in the Keycloak console and add it to the
+  `docs-admins` group.
 - **Reader-only users** and group changes are managed in the Keycloak console
   (http://localhost:8181, user `admin`, password `KEYCLOAK_ADMIN_PASSWORD`), realm `docs`.
   Any user in the realm can open the Reader; only `docs-admins` members can open

@@ -2,7 +2,7 @@ COMPOSE = docker compose --env-file .env -f deploy/compose.yaml
 UI_DIR = services/docs-wiki-ui
 export ADMIN_USERNAME ADMIN_EMAIL
 
-.PHONY: setup up down status logs build build-ui build-api build-docker admin-user smoke test test-api test-ui test-setup db-up db-down db-migrate db-adopt db-test compose-validate index
+.PHONY: setup up down status logs build build-ui build-api build-docker smoke test test-api test-ui test-setup db-up db-down db-migrate db-adopt db-test compose-validate index
 setup:
 	python3 scripts/setup.py
 
@@ -38,9 +38,6 @@ build-ui:
 
 build-docker: setup
 	$(COMPOSE) build
-
-admin-user:
-	python3 scripts/admin_user.py
 
 smoke:
 	python3 scripts/smoke.py

@@ -12,8 +12,7 @@ pnpm test
 ```
 
 Use `make up` from the repository root to run through Keycloak on port 8183.
-`make admin-user` provisions `local-admin`; its password is saved privately at
-`.local/users/local-admin.json` in the repository root.
+Sign in as `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
 
 The root route opens `/rag/collections`. RAG includes Collections, Jobs, Settings,
 and Search. `/github-projects`, `/services`, and `/servers` manage agent assets.
