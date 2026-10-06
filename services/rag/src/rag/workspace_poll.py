@@ -69,9 +69,15 @@ def check(workspace, row: dict, now: float) -> str:
         return "changing"
     with workspace.connect() as conn:
         # The partial unique index rag_collection_one_active_job lets a concurrent manual Refresh win.
+        # Only while the collection still exists: it may have been deleted since due() claimed it.
         queued = conn.execute("""INSERT INTO ka.jobs(project_id,kind,rag_collection_id,requested_by,input)
-            VALUES (%s,'rag_collection_sync',%s,NULL,%s) ON CONFLICT DO NOTHING RETURNING id""",
-            (row["project_id"], row["id"], Jsonb({"auto": True}))).fetchone()
+            SELECT %s,'rag_collection_sync',%s,NULL,%s WHERE EXISTS (
+                SELECT 1 FROM ka.rag_collections WHERE id=%s AND deleted_at IS NULL FOR SHARE)
+            ON CONFLICT DO NOTHING RETURNING id""",
+            (row["project_id"], row["id"], Jsonb({"auto": True}), row["id"])).fetchone()
+        if queued is None and conn.execute("""SELECT 1 FROM ka.rag_collections WHERE id=%s AND deleted_at IS NULL""",
+                                           (row["id"],)).fetchone() is None:
+            return "deleted"
     return "queued" if queued else "active"
 
 

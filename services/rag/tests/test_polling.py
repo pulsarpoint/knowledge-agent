@@ -262,3 +262,16 @@ def test_status_and_poller_agree_on_excluded_and_included_changes(env):
     assert status(env, created) == "needs_refresh"
     assert poll(env[0]) == {"docs": "queued"}
 
+
+def test_a_collection_deleted_during_the_check_gets_no_job(env, monkeypatch):
+    from rag import workspace_poll
+    created, folder = synced(env)
+    change(folder)
+    real = workspace_poll.needs_sync
+
+    def deleted_meanwhile(row, walk, log):
+        with env[0].connect() as conn:
+            conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE id=%s", (created,))
+        return real(row, walk, log)
+    monkeypatch.setattr(workspace_poll, "needs_sync", deleted_meanwhile)
+    assert poll(env[0]) == {"docs": "deleted"} and len(jobs(env, created)) == 1
