@@ -37,13 +37,16 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCol
   const [exclude, setExclude] = useState(initial.exclude.join("\n"));
   const [chunkSize, setChunkSize] = useState(initial.chunk_size);
   const [chunkOverlap, setChunkOverlap] = useState(initial.chunk_overlap);
+  const [autoSync, setAutoSync] = useState(initial.auto_sync);
+  const [pollInterval, setPollInterval] = useState(initial.poll_interval_minutes);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const nameInvalid = !collection && (name.length > 60 || !NAME.test(name));
   async function submit() {
     setBusy(true); setError("");
     const value: CollectionSettings = { description, search_mode: searchMode, embeddings_enabled: embeddings,
-      include: lines(include), exclude: lines(exclude), chunk_size: chunkSize, chunk_overlap: chunkOverlap };
+      include: lines(include), exclude: lines(exclude), chunk_size: chunkSize, chunk_overlap: chunkOverlap,
+      auto_sync: autoSync, poll_interval_minutes: pollInterval };
     try {
       onSaved(collection
         ? await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })
@@ -73,6 +76,10 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCol
         <Field><FieldLabel htmlFor="collection-chunk-size">Chunk size</FieldLabel><Input id="collection-chunk-size" type="number" required min={200} max={12000} value={chunkSize} onChange={(e) => setChunkSize(Number(e.target.value))} /></Field>
         <Field><FieldLabel htmlFor="collection-chunk-overlap">Chunk overlap</FieldLabel><Input id="collection-chunk-overlap" type="number" required min={0} max={2000} value={chunkOverlap} onChange={(e) => setChunkOverlap(Number(e.target.value))} /></Field>
       </div>
+      <Field orientation="horizontal"><Switch id="collection-auto-sync" checked={autoSync} onCheckedChange={setAutoSync} /><FieldLabel htmlFor="collection-auto-sync">Auto-sync</FieldLabel></Field>
+      <Field><FieldLabel htmlFor="collection-poll-interval">Check every (minutes)</FieldLabel>
+        <Input id="collection-poll-interval" type="number" required min={1} max={1440} disabled={!autoSync} value={pollInterval} onChange={(e) => setPollInterval(Number(e.target.value))} />
+        <FieldDescription>RAG checks the folders at this interval and syncs changes once they have been quiet for 2 minutes.</FieldDescription></Field>
     </FieldGroup>
     <Button className="self-start" type="submit" disabled={busy || nameInvalid}>{collection ? "Save collection" : "Create collection"}</Button>
   </form>;

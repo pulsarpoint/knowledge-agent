@@ -99,3 +99,9 @@ test("an empty result says so", async () => {
   setup("/rag/jobs?status=failed", [], 0);
   expect(await screen.findByText("No jobs match these filters.")).toBeInTheDocument();
 });
+
+test("automatic syncs show mode Auto", async () => {
+  setup("/rag/jobs", [{ ...job, input: { auto: true } }]);
+  const row = (await screen.findByText("jira", { selector: "td *, td" })).closest("tr")!;
+  expect(within(row).getByText("Auto")).toBeInTheDocument();
+});

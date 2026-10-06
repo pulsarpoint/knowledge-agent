@@ -102,7 +102,7 @@ export default function RagJobsView() {
   const columns: ColumnDef<RagJob, unknown>[] = [
     { id: "collection", header: "Collection", cell: ({ row }) => <span className="font-medium">{row.original.collection}</span> },
     { id: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "failed" ? "destructive" : "secondary"}>{row.original.status}</Badge> },
-    { id: "mode", header: "Mode", cell: ({ row }) => row.original.input.force ? "Force rebuild" : "Incremental" },
+    { id: "mode", header: "Mode", cell: ({ row }) => row.original.input.auto ? "Auto" : row.original.input.force ? "Force rebuild" : "Incremental" },
     { id: "started", header: "Started", cell: ({ row }) => <span className="whitespace-nowrap">{new Date(row.original.created_at).toLocaleString()}</span> },
     { id: "duration", header: "Duration", cell: ({ row }) => duration(row.original, now) },
     { id: "result", header: "Result", cell: ({ row }) => <div className="max-w-md">

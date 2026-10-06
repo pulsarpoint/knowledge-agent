@@ -15,7 +15,7 @@ const notesPath: CollectionPath = { ...jiraPath, id: "p3", source_path: "rag-dat
   host_path: "/opt/ka/rag-data/notes", container_path: "/work/rag-data/notes" };
 const base: RagCollection = {
   id: "c1", name: "jira", description: "Jira tickets", search_mode: "full_text", embeddings_enabled: true, include: ["**/*.md"],
-  exclude: [], chunk_size: 2000, chunk_overlap: 200, revision: 2, synced_revision: 2, last_synced_at: "2026-10-05T09:00:00Z",
+  exclude: [], chunk_size: 2000, chunk_overlap: 200, auto_sync: false, poll_interval_minutes: 5, last_polled_at: null, revision: 2, synced_revision: 2, last_synced_at: "2026-10-05T09:00:00Z",
   paths: [codePath, jiraPath, notesPath], folder_present: true, missing_paths: [], folder_changed_at: "2026-10-05T10:00:00Z",
   file_count: 90, truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 },
   log_counts: { indexed: 90, skipped: 2, failed: 1 },
@@ -68,7 +68,7 @@ test("New collection creates a collection and opens it", async () => {
   const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST")!;
   expect(post[0]).toBe("/api/rag/collections");
   expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ name: "payments", description: "", search_mode: "full_text",
-    embeddings_enabled: false, include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200 });
+    embeddings_enabled: false, include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200, auto_sync: false, poll_interval_minutes: 5 });
 });
 
 test("an invalid name disables Create collection", async () => {
@@ -132,7 +132,7 @@ test("Edit changes search settings only", async () => {
   const put = fetchMock.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PUT")!;
   expect(put[0]).toBe("/api/rag/collections/c1");
   expect(JSON.parse((put[1] as RequestInit).body as string)).toEqual({ description: "Jira tickets", search_mode: "full_text",
-    embeddings_enabled: true, include: ["**/*.py"], exclude: [], chunk_size: 2000, chunk_overlap: 200, revision: 2 });
+    embeddings_enabled: true, include: ["**/*.py"], exclude: [], chunk_size: 2000, chunk_overlap: 200, auto_sync: false, poll_interval_minutes: 5, revision: 2 });
 });
 
 test("Remove collection is always available and asks for confirmation", async () => {
@@ -230,4 +230,30 @@ test("a revision conflict reloads the collection so the next edit uses the new r
   await waitFor(() => expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT")).toHaveLength(2));
   const puts = fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT");
   expect(JSON.parse((puts[1][1] as RequestInit).body as string).revision).toBe(5);
+});
+
+test("auto-sync settings are saved and the list shows Auto or Manual", async () => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes("/log?")) return Response.json(noLog);
+    if (url === "/api/rag/collections") return Response.json({ collections: [{ ...base, auto_sync: true, poll_interval_minutes: 15 }, notes] });
+    return Response.json(init?.method === "PUT" ? { ...base, revision: 3 } : base);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  const list = render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
+  const auto = (await screen.findByRole("link", { name: "jira" })).closest("tr")!;
+  expect(within(auto).getByText("Auto · every 15 min")).toBeInTheDocument();
+  expect(within(screen.getByRole("link", { name: "notes" }).closest("tr")!).getByText("Manual")).toBeInTheDocument();
+  list.unmount();
+  detail(fetchMock);
+  expect(await screen.findByText("Manual")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Edit" }));
+  expect(screen.getByLabelText("Check every (minutes)")).toBeDisabled();
+  await user.click(screen.getByRole("switch", { name: "Auto-sync" }));
+  await user.clear(screen.getByLabelText("Check every (minutes)"));
+  await user.type(screen.getByLabelText("Check every (minutes)"), "15");
+  await user.click(screen.getByRole("button", { name: "Save collection" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "PUT")).toBe(true));
+  const put = fetchMock.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PUT")!;
+  expect(JSON.parse((put[1] as RequestInit).body as string)).toMatchObject({ auto_sync: true, poll_interval_minutes: 15, revision: 2 });
 });

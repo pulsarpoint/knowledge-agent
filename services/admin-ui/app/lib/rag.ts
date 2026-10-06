@@ -4,7 +4,7 @@ export interface RagSettings { max_file_bytes: number }
 export interface RagArea { area: string; container_root: string; host_root: string | null }
 export interface RagConfig { revision: number; settings: RagSettings; embedding_model_id: string | null; areas: RagArea[] }
 export interface RagJob {
-  id: string; status: string; input: { force?: boolean }; result: Record<string, number>;
+  id: string; status: string; input: { force?: boolean; auto?: boolean }; result: Record<string, number>;
   error: string | null; created_at: string; started_at: string | null; finished_at: string | null;
   collection: string; collection_id: string | null;
 }
@@ -29,11 +29,15 @@ export interface CollectionPath {
 export interface CollectionSettings {
   description: string; search_mode: SearchMode; embeddings_enabled: boolean;
   include: string[]; exclude: string[]; chunk_size: number; chunk_overlap: number;
+  auto_sync: boolean; poll_interval_minutes: number;
 }
 export const DEFAULT_SETTINGS: CollectionSettings = {
   description: "", search_mode: "full_text", embeddings_enabled: false,
   include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200,
+  auto_sync: false, poll_interval_minutes: 5,
 };
+export const syncLabel = (c: Pick<CollectionSettings, "auto_sync" | "poll_interval_minutes">) =>
+  c.auto_sync ? `Auto · every ${c.poll_interval_minutes} min` : "Manual";
 export type LogStatus = "indexed" | "skipped_binary" | "skipped_too_large" | "skipped_unreadable" | "failed" | "removed";
 export type LogFilter = "indexed" | "skipped" | "failed" | "removed";
 export interface LogCounts { indexed: number; skipped: number; failed: number }
@@ -46,7 +50,7 @@ export const LOG_STATUS_LABEL: Record<LogStatus, string> = {
   skipped_unreadable: "Skipped · unreadable", failed: "Failed", removed: "Removed",
 };
 export interface CollectionSummary extends CollectionSettings {
-  id: string; name: string; revision: number; synced_revision: number | null; last_synced_at: string | null;
+  id: string; name: string; revision: number; synced_revision: number | null; last_synced_at: string | null; last_polled_at: string | null;
   paths: CollectionPath[]; folder_present: boolean; missing_paths: string[];
   indexed_files: number; chunks: number; embedded_chunks: number; log_counts: LogCounts;
 }

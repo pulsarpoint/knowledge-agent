@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, type CollectionPath, type RagCollection } from "../lib/rag";
+import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, syncLabel, type CollectionPath, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
@@ -69,6 +69,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
         <dt className="text-muted-foreground">Files</dt><dd>{c.log_counts.indexed} indexed · {c.log_counts.skipped} skipped · {c.log_counts.failed} failed</dd>
         <dt className="text-muted-foreground">Files found</dt><dd>{c.file_count}{c.truncated && " (or more)"}</dd>
         <dt className="text-muted-foreground">Embedded chunks</dt><dd>{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</dd>
+        <dt className="text-muted-foreground">Sync</dt><dd>{syncLabel(c)}</dd>
         <dt className="text-muted-foreground">Folders changed</dt><dd>{when(c.folder_changed_at)}</dd>
         <dt className="text-muted-foreground">Last synced</dt><dd>{when(c.last_synced_at)}</dd>
       </dl>

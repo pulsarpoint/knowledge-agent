@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, RefreshCw } from "lucide-react";
-import { getCollections, syncCollection, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
+import { getCollections, syncCollection, syncLabel, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -57,7 +57,7 @@ export default function RagCollectionsView() {
         <Button onClick={() => setCreating(true)}><Plus />New collection</Button>
       </div>
     </div>
-    <Table><TableHeader><TableRow><TableHead>Collection</TableHead><TableHead>Folders</TableHead><TableHead>Files</TableHead><TableHead>Embedded</TableHead><TableHead>Last synced</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
+    <Table><TableHeader><TableRow><TableHead>Collection</TableHead><TableHead>Folders</TableHead><TableHead>Files</TableHead><TableHead>Embedded</TableHead><TableHead>Sync</TableHead><TableHead>Last synced</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
       {collections.map((c) => <TableRow key={c.id}>
         <TableCell className="align-top"><Link className="font-medium underline-offset-4 hover:underline" to={`/rag/collections/${c.id}`}>{c.name}</Link>{c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}</TableCell>
         <TableCell className="align-top"><ul className="flex flex-col gap-1">
@@ -70,11 +70,12 @@ export default function RagCollectionsView() {
         </ul></TableCell>
         <TableCell className="align-top">{c.indexed_files} / {c.file_count}</TableCell>
         <TableCell className="align-top">{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</TableCell>
+        <TableCell className="align-top text-xs">{syncLabel(c)}</TableCell>
         <TableCell className="align-top text-xs">{when(c.last_synced_at)}</TableCell>
         <TableCell className="align-top"><Badge variant={statusVariant(c.status)}>{statusLabel(c)}</Badge>{c.status === "failed" && c.job?.error && <p className="mt-1 max-w-xs text-xs text-destructive">{c.job.error}</p>}{c.status === "folder_missing" && <p className="mt-1 text-xs text-destructive">Missing: {c.missing_paths.join(", ")}</p>}</TableCell>
         <TableCell className="align-top">{(c.status === "needs_refresh" || c.status === "failed") && <Button variant="outline" size="sm" disabled={busy || tooLarge(c)} title={tooLarge(c) ? TOO_LARGE_HINT : undefined} onClick={() => run(async () => { await syncCollection(c.id); })}>Refresh</Button>}</TableCell>
       </TableRow>)}
-      {collections.length === 0 && <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">No collections yet. Choose New collection, then add folders to it.</TableCell></TableRow>}
+      {collections.length === 0 && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No collections yet. Choose New collection, then add folders to it.</TableCell></TableRow>}
     </TableBody></Table>
     <RagCollectionForm open={creating} onOpenChange={setCreating} onSaved={(saved) => { setCreating(false); navigate(`/rag/collections/${saved.id}`); }} />
   </div>;
