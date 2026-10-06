@@ -11,10 +11,10 @@ import RagCollectionForm from "./RagCollectionForm";
 export const STATUS_LABEL: Record<CollectionState, string> = {
   up_to_date: "Up to date", needs_refresh: "Needs refresh", syncing: "Syncing", failed: "Failed", folder_missing: "Folder missing",
 };
-/** A capped status walk reads as needs_refresh; say why instead, and do not offer a sync that would fail. */
-export const tooLarge = (c: Pick<RagCollection, "status" | "truncated">) => c.truncated && c.status === "needs_refresh";
+/** Over the sync limits: never offer a sync that would fail, and say why instead of Needs refresh. */
+export const tooLarge = (c: Pick<RagCollection, "too_large">) => c.too_large;
 export const TOO_LARGE_HINT = "Over the sync limits — narrow the include patterns or folders";
-export const statusLabel = (c: Pick<RagCollection, "status" | "truncated">) => tooLarge(c) ? "Too large to sync" : STATUS_LABEL[c.status];
+export const statusLabel = (c: Pick<RagCollection, "status" | "too_large">) => tooLarge(c) && c.status === "needs_refresh" ? "Too large to sync" : STATUS_LABEL[c.status];
 export const statusVariant = (status: CollectionState) => status === "failed" || status === "folder_missing" ? "destructive" as const : status === "up_to_date" ? "secondary" as const : "outline" as const;
 export const when = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 

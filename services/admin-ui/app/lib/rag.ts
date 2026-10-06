@@ -55,7 +55,8 @@ export interface CollectionSummary extends CollectionSettings {
   indexed_files: number; chunks: number; embedded_chunks: number; log_counts: LogCounts;
 }
 export interface RagCollection extends CollectionSummary {
-  folder_changed_at: string | null; file_count: number; truncated: boolean; skipped: SkippedCounts;
+  /** truncated: the walk stopped at the sync caps; too_large: a sync would fail on a limit (files, entries or 200 MB). */
+  folder_changed_at: string | null; file_count: number; truncated: boolean; too_large: boolean; skipped: SkippedCounts;
   needs_refresh: boolean; status: CollectionState;
   job: { id: string; status: string; error: string | null; created_at: string; finished_at: string | null } | null;
 }

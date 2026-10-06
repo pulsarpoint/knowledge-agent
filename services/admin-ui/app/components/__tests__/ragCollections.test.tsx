@@ -17,7 +17,7 @@ const base: RagCollection = {
   id: "c1", name: "jira", description: "Jira tickets", search_mode: "full_text", embeddings_enabled: true, include: ["**/*.md"],
   exclude: [], chunk_size: 2000, chunk_overlap: 200, auto_sync: false, poll_interval_minutes: 5, last_polled_at: null, revision: 2, synced_revision: 2, last_synced_at: "2026-10-05T09:00:00Z",
   paths: [codePath, jiraPath, notesPath], folder_present: true, missing_paths: [], folder_changed_at: "2026-10-05T10:00:00Z",
-  file_count: 90, truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 },
+  file_count: 90, truncated: false, too_large: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 },
   log_counts: { indexed: 90, skipped: 2, failed: 1 },
   indexed_files: 90, chunks: 975, embedded_chunks: 0, needs_refresh: true, status: "needs_refresh", job: null,
 };
@@ -92,10 +92,18 @@ test("missing folders are named and failed syncs show the error", async () => {
 });
 
 test("a collection too large to walk says so instead of Needs refresh", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [{ ...base, truncated: true }] })));
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [{ ...base, too_large: true }] })));
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   expect(await screen.findByText("Too large to sync")).toBeInTheDocument();
   expect(screen.queryByText("Needs refresh")).toBeNull();
+});
+
+test("a collection whose status walk stopped but that fits the sync limits can be refreshed", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [{ ...base, truncated: true, too_large: false }] })));
+  render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
+  expect(await screen.findByText("Needs refresh")).toBeInTheDocument();
+  expect(screen.queryByText("Too large to sync")).toBeNull();
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
 });
 
 test("detail shows status counts, the file log and a file's chunks", async () => {
@@ -170,13 +178,13 @@ test("a failed Remove collection shows the error and reloads so the retry uses t
 });
 
 test("Refresh is disabled for a collection too large to sync", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ collections: [{ ...base, truncated: true }] })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ collections: [{ ...base, too_large: true }] })));
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   const button = await screen.findByRole("button", { name: "Refresh" });
   expect(button).toBeDisabled();
   expect(button).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
   cleanup();
-  detail(vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ ...base, truncated: true })));
+  detail(vi.fn(async (url: string) => url.includes("/log?") ? Response.json(noLog) : Response.json({ ...base, too_large: true })));
   const detailButton = await screen.findByRole("button", { name: "Refresh" });
   expect(detailButton).toBeDisabled();
   expect(detailButton).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
