@@ -1,6 +1,11 @@
 """Deployment contracts for the independently runnable v3 bundle."""
 import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 import yaml
 
@@ -167,3 +172,21 @@ def test_services_compute_their_roots_from_the_folder_variables():
         assert {key: env[key] for key in expected} == expected, name
         assert not removed & set(env), name
     assert "environment" not in services["shell-worker"]  # it reads DATA_ROOT_DIR's default, /work/data
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker compose renders the commands")
+def test_docs_commands_serve_the_docs_folder_inside_the_data_root(tmp_path):
+    """The images' default /work/docs is not mounted; Compose points both servers at DOCS_FOLDER."""
+    text = (DEPLOY / "compose.yaml").read_text(encoding="utf-8")
+    required = sorted(set(re.findall(r"\$\{([A-Z0-9_]+):\?", text)) - {"DATA_ROOT"})
+    env = tmp_path / ".env"
+    env.write_text("".join(f"{key}=x\n" for key in required)
+                   + f"DATA_ROOT={tmp_path / 'data'}\nDOCS_FOLDER=manuals/bootstrap\n", encoding="utf-8")
+    result = subprocess.run(["docker", "compose", "--env-file", str(env), "-f", str(DEPLOY / "compose.yaml"),
+                             "config", "--format", "json"], capture_output=True, text=True, check=True)
+    services = json.loads(result.stdout)["services"]
+    assert services["docs-wiki"]["command"] == ["serve", "/work/data/manuals/bootstrap", "--host", "0.0.0.0"]
+    assert services["admin-api"]["command"] == ["/work/data/manuals/bootstrap", "--host", "0.0.0.0"]
+    for name in ("docs-wiki", "admin-api"):
+        dockerfile = (DEPLOY / f"Dockerfile.{name}").read_text(encoding="utf-8")
+        assert "/work/data/docs" in dockerfile and '"/work/docs"' not in dockerfile, name

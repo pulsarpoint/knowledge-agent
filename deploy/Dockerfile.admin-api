@@ -22,4 +22,4 @@ RUN uv sync --frozen --no-dev
 RUN mkdir -p /work/agent-workspaces
 EXPOSE 8766
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "knowledge-admin"]
-CMD ["/work/docs", "--host", "0.0.0.0"]
+CMD ["/work/data/docs", "--host", "0.0.0.0"]

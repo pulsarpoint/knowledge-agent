@@ -1,7 +1,8 @@
 name: knowledge-agent-v3
 # DATA_ROOT is mounted once, read-only, at /work/data. A service that writes gets that
 # folder as a writable bind on top, at the same relative path. make setup validates the
-# folder variables (relative, no overlap); Compose cannot.
+# folder variables (relative, no overlap) and creates the folders, which must exist as the
+# nested mount points; Compose does neither.
 x-data-root: &data-root
   type: bind
   source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}
@@ -107,6 +108,7 @@ services:
   docs-wiki:
     build: {context: .., dockerfile: deploy/Dockerfile.docs-wiki}
     restart: unless-stopped
+    command: [serve, "/work/data/${DOCS_FOLDER:-docs}", --host, "0.0.0.0"]
     volumes:
       - *data-root
       - wiki-data:/data
@@ -138,6 +140,7 @@ services:
   admin-api:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
+    command: ["/work/data/${DOCS_FOLDER:-docs}", --host, "0.0.0.0"]
     networks: [default, jira-test, agent-shell]
     # Use the host/VPN search domain for short SSH and Jira hostnames.
     dns_search: ${DOCKER_DNS_SEARCH:-.}
