@@ -32,7 +32,7 @@ test('shows actual mount configuration and explains the separation from database
   expect(screen.getByText('/host/rag')).toBeInTheDocument();
   expect(screen.getByText('/work/generated-documents')).toBeInTheDocument();
   expect(screen.getByText('Relative to the Compose file directory on the host.')).toBeInTheDocument();
-  expect(screen.getByText(/Documents are searchable through the `documents` collection/)).toBeInTheDocument();
+  expect(screen.getByText(/Jira exports go to rag-data\/jira/)).toBeInTheDocument();
   expect(screen.getByText(/PostgreSQL stores managed documents and versions/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Manage documents' })).toHaveAttribute('href', '/documents');
 });

@@ -5,7 +5,7 @@ import type { CodeProject } from '../../lib/codeProjects';
 
 const project: CodeProject = { id:'code-1', name:'Payments', description:'Payment sources', remote_url:'https://github.com/example/payments.git',
   requested_ref:null, clone_path:'payments', folder_paths:['payments'], current_commit:'a'.repeat(40), checkout_path:'payments', has_token:true,
-  synced_at:null, sync_status:null, sync_error:null, sync_interval_minutes:null, next_sync_at:null, revision:3, searchable:false, collection:null, search_error:null };
+  synced_at:null, sync_status:null, sync_error:null, sync_interval_minutes:null, next_sync_at:null, revision:3 };
 
 function api(projects: CodeProject[] = []) {
   const fetch = vi.fn(async (raw: string, init?: RequestInit) => {
@@ -197,69 +197,10 @@ test('editing expands selected folder ancestors and allows removing a nested map
   expect(body.revision).toBe(3);
 });
 
-const putBody = (fetch: ReturnType<typeof api>, path: string) => {
-  const call = fetch.mock.calls.find(([url, init]) => url === path && init?.method === 'PUT');
-  return call ? JSON.parse(call[1]!.body as string) : undefined;
-};
-
-test('Searchable switch adds the project to the chosen collection', async () => {
-  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
-  const field = await screen.findByLabelText('Search collection for Payments');
-  expect(field).toHaveValue('payments');
-  await user.clear(field); await user.type(field, 'payments-code');
-  await user.click(screen.getByRole('switch', { name: 'Searchable Payments' }));
-  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments-code' }));
-});
-
-test('turning Searchable off removes the project from search', async () => {
-  const user = userEvent.setup();
-  const fetch = api([{ ...project, searchable: true, collection: 'payments' }]); render(<CodeProjectsView />);
-  await user.click(await screen.findByRole('switch', { name: 'Searchable Payments' }));
-  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: false }));
-});
-
-test('a searchable project can move to another collection', async () => {
-  const user = userEvent.setup();
-  const fetch = api([{ ...project, searchable: true, collection: 'payments' }]); render(<CodeProjectsView />);
-  const field = await screen.findByLabelText('Search collection for Payments');
-  expect(screen.queryByRole('button', { name: /^Move to/ })).toBeNull();
-  await user.clear(field); await user.type(field, 'payments-docs');
-  await user.click(screen.getByRole('button', { name: 'Move to payments-docs' }));
-  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments-docs' }));
-});
-
-test('a RAG failure shows the error with Retry, which repeats the saved choice', async () => {
-  const user = userEvent.setup();
-  const fetch = api([{ ...project, searchable: true, collection: 'payments', search_error: 'RAG service is unavailable. Retry later.' }]);
-  render(<CodeProjectsView />);
-  expect(await screen.findByText('RAG service is unavailable. Retry later.')).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Retry search for Payments' }));
-  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments' }));
-});
-
-test('an invalid collection name shows a hint and sends no request', async () => {
-  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
-  const field = await screen.findByLabelText('Search collection for Payments');
-  await user.clear(field); await user.type(field, 'Payments_Code');
-  expect(field).toHaveAttribute('aria-invalid', 'true');
-  expect(screen.getByRole('alert')).toHaveTextContent(/lowercase letters/);
-  await user.click(screen.getByRole('switch', { name: 'Searchable Payments' }));
-  expect(putBody(fetch, '/api/code-projects/code-1/search')).toBeUndefined();
-});
-
-test('an invalid draft disables Move and an empty draft shows no Move', async () => {
-  const user = userEvent.setup(); api([{ ...project, searchable: true, collection: 'payments' }]); render(<CodeProjectsView />);
-  const field = await screen.findByLabelText('Search collection for Payments');
-  await user.clear(field);
-  expect(screen.queryByRole('button', { name: /^Move to/ })).toBeNull();
-  await user.type(field, 'Bad_Name');
-  expect(screen.getByRole('button', { name: 'Move to Bad_Name' })).toBeDisabled();
-});
-
-test('turning Searchable on with an empty field uses the default collection', async () => {
-  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
-  const field = await screen.findByLabelText('Search collection for Payments');
-  await user.clear(field);
-  await user.click(screen.getByRole('switch', { name: 'Searchable Payments' }));
-  await waitFor(() => expect(putBody(fetch, '/api/code-projects/code-1/search')).toEqual({ enabled: true, collection: 'payments' }));
+test('code projects have no Searchable switch or collection field and never call RAG', async () => {
+  const fetch = api([project]); render(<CodeProjectsView />);
+  expect((await screen.findAllByText('Payments')).length).toBeGreaterThan(0);
+  expect(screen.queryByRole('switch', { name: /Searchable/ })).toBeNull();
+  expect(screen.queryByLabelText(/Search collection/)).toBeNull();
+  expect(fetch.mock.calls.some(([url]) => String(url).startsWith('/api/rag/'))).toBe(false);
 });

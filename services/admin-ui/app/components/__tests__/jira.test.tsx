@@ -115,25 +115,23 @@ test("JQL is submitted and filtering the saved list limits bulk selection", asyn
 
 const collections = [{ id: "c1", name: "jira", writable: true }, { id: "c2", name: "docs-code", writable: false }];
 
-test("export sends only selected IDs and destination, then links to RAG processing", async () => {
+test("export sends only the selected ticket and links to RAG collections", async () => {
   const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/export")
-    ? { issue_key: "DEMO-1", collection: "jira", path: "DEMO-1.md", status: "unchanged", hash: "hash", comments: 5 }
+    ? { issue_key: "DEMO-1", path: "DEMO-1.md", status: "unchanged", hash: "hash", comments: 5 }
     : url.startsWith("/api/rag/collections") ? { collections: collections }
     : twoTickets)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select DEMO-1" }));
-  const target = await screen.findByLabelText("Target collection");
-  expect(target).toHaveValue("jira");
-  expect(document.querySelectorAll("#jira-collection-names option")).toHaveLength(2);
   await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
   expect(await screen.findByText("Export complete")).toBeInTheDocument();
-  expect(screen.getByText("0 files saved, 1 unchanged in collection jira. 5 comments included.")).toBeInTheDocument();
+  expect(screen.getByText("0 files saved, 1 unchanged in rag-data/jira. 5 comments included.")).toBeInTheDocument();
   const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
   expect(call[0]).toBe("/api/jira/tickets/ticket-1/export");
-  expect(JSON.parse(call[1].body as string)).toEqual({ collection: "jira", connection_revision: 2 });
-  expect(screen.getByRole("link", { name: "jira" })).toHaveAttribute("href", "/rag/collections?name=jira");
+  expect(JSON.parse(call[1].body as string)).toEqual({ connection_revision: 2 });
+  expect(screen.getByRole("link", { name: "RAG → Collections" })).toHaveAttribute("href", "/rag/collections");
+  expect(fetch.mock.calls.some(([url]) => String(url).startsWith("/api/rag/"))).toBe(false);
   expect(fetch.mock.calls.some(([url]) => url.includes("ticket-2/export"))).toBe(false);
 });
 
@@ -178,21 +176,10 @@ test("leaving the page aborts the current export and does not start another tick
   expect(fetch.mock.calls.filter(([url]) => url.endsWith("/export"))).toHaveLength(1);
 });
 
-test("a new collection name is sent and invalid names disable export", async () => {
-  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/export")
-    ? { issue_key: "DEMO-1", collection: "support", path: "rag-data/jira/DEMO-1.md", status: "created", hash: "hash", comments: 0 }
-    : url.startsWith("/api/rag/collections") ? { collections } : twoTickets)));
-  vi.stubGlobal("fetch", fetch);
+test("the export has no collection field", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(twoTickets))));
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
-  fireEvent.click(await screen.findByRole("checkbox", { name: "Select DEMO-1" }));
-  const target = await screen.findByLabelText("Target collection");
-  fireEvent.change(target, { target: { value: "Support Tickets" } });
-  expect(screen.getByText("Use lowercase letters, digits and single hyphens.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeDisabled();
-  fireEvent.change(target, { target: { value: "support" } });
-  fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
-  expect(await screen.findByText("Export complete")).toBeInTheDocument();
-  const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
-  expect(JSON.parse(call[1].body as string)).toEqual({ collection: "support", connection_revision: 2 });
-  expect(screen.getByRole("link", { name: "support" })).toHaveAttribute("href", "/rag/collections?name=support");
+  await screen.findByText("Worker retries");
+  expect(screen.queryByLabelText("Target collection")).toBeNull();
+  expect(screen.getByText(/Each selected ticket becomes rag-data\/jira\/<KEY>\.md/)).toBeInTheDocument();
 });

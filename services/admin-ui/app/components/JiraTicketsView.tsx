@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Download, FolderOutput, Ticket } from "lucide-react";
 import { ApiError, exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "../lib/api";
-import { getCollectionNames } from "../lib/rag";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -16,7 +15,6 @@ import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 
 const DEFAULT_JQL = "ORDER BY updated DESC, key DESC";
-const COLLECTION_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export default function JiraTicketsView() {
   const [data, setData] = useState<JiraTickets | null>(null);
@@ -30,18 +28,10 @@ export default function JiraTicketsView() {
   const [project, setProject] = useState("all");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [collection, setCollection] = useState("jira");
-  const [known, setKnown] = useState<string[]>([]);
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
-  const [exportSummary, setExportSummary] = useState<{ collection: string; results: JiraExportResult[]; failures: string[] } | null>(null);
+  const [exportSummary, setExportSummary] = useState<{ results: JiraExportResult[]; failures: string[] } | null>(null);
   const exportController = useRef<AbortController | null>(null);
   const busy = loading || fetching || exportProgress !== null;
-  const validCollection = COLLECTION_NAME.test(collection) && collection.length <= 60;
-  useEffect(() => {
-    const controller = new AbortController();
-    getCollectionNames(controller.signal).then(({ collections }) => { if (!controller.signal.aborted) setKnown((collections ?? []).map((row) => row.name)); }).catch(() => { if (!controller.signal.aborted) setKnown([]); });
-    return () => controller.abort();
-  }, []);
   useEffect(() => () => exportController.current?.abort(), []);
   useEffect(() => {
     const controller = new AbortController();
@@ -73,12 +63,11 @@ export default function JiraTicketsView() {
     event.preventDefault();
     if (busy || !data?.connection || selectedTickets.length === 0) return;
     const controller = new AbortController(); exportController.current = controller;
-    const destination = collection;
     const results: JiraExportResult[] = [], failures: string[] = [], failedIds: string[] = [];
     setExportSummary(null); setExportProgress({ done: 0, total: selectedTickets.length });
     for (const [index, ticket] of selectedTickets.entries()) {
       if (controller.signal.aborted) return;
-      try { results.push(await exportJiraTicket(ticket.id, destination, data.connection.revision, controller.signal)); }
+      try { results.push(await exportJiraTicket(ticket.id, data.connection.revision, controller.signal)); }
       catch (error) {
         if (controller.signal.aborted) return;
         failures.push(`${ticket.issue_key}: ${error instanceof ApiError ? error.message : "Export could not be confirmed. Retry to check the file."}`);
@@ -87,7 +76,7 @@ export default function JiraTicketsView() {
       if (controller.signal.aborted) return;
       setExportProgress({ done: index + 1, total: selectedTickets.length });
     }
-    setSelected(new Set(failedIds)); setExportProgress(null); setExportSummary({ collection: destination, results, failures });
+    setSelected(new Set(failedIds)); setExportProgress(null); setExportSummary({ results, failures });
   }
   return <div className="flex flex-col gap-6">
     <form onSubmit={fetchTickets} className="flex flex-col gap-3">
@@ -114,24 +103,18 @@ export default function JiraTicketsView() {
       </div>
       <form onSubmit={exportTickets} className="flex flex-col gap-3 border-t pt-5">
         <div className="flex flex-wrap items-end gap-3">
-          <FieldGroup className="max-w-md flex-1"><Field><FieldLabel htmlFor="jira-collection">Target collection</FieldLabel>
-            <Input id="jira-collection" list="jira-collection-names" maxLength={60} value={collection} disabled={busy} aria-invalid={!validCollection}
-              onChange={(event) => setCollection(event.target.value.trim())} />
-            <datalist id="jira-collection-names">{known.map((name) => <option key={name} value={name} />)}</datalist>
-            {!validCollection && <FieldDescription className="text-destructive">Use lowercase letters, digits and single hyphens.</FieldDescription>}
-          </Field></FieldGroup>
-          <Button disabled={busy || selectedTickets.length === 0 || !validCollection}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
+          <Button disabled={busy || selectedTickets.length === 0}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
           <Button asChild variant="outline"><Link to="/rag/collections">Open RAG collections</Link></Button>
         </div>
-        <FieldDescription>Each selected ticket becomes rag-data/jira/&lt;KEY&gt;.md, a Markdown file with its description and all comments visible to the Jira user. Exporting adds the rag-data/jira folder to the chosen collection, which is created if it does not exist; choosing another collection later moves the folder there. Re-exporting refreshes that ticket’s file. Then refresh the collection to update search.</FieldDescription>
+        <FieldDescription>Each selected ticket becomes rag-data/jira/&lt;KEY&gt;.md, a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Collections that hold rag-data/jira index the tickets at their next sync.</FieldDescription>
       </form>
       {exportProgress && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Exporting {exportProgress.done} of {exportProgress.total} tickets. Keep this page open.</p>}
       {exportSummary && <Alert variant={exportSummary.failures.length > 0 ? "destructive" : "default"}>
         <AlertTitle>{exportSummary.failures.length > 0 ? "Export finished with errors" : "Export complete"}</AlertTitle>
         <AlertDescription>
-          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in collection {exportSummary.collection}. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
+          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in rag-data/jira. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
           {exportSummary.failures.length > 0 && <><p>Failed tickets remain selected for retry.</p><ul className="list-disc pl-5">{exportSummary.failures.map((failure) => <li key={failure}>{failure}</li>)}</ul></>}
-          {exportSummary.results.length > 0 && <p>Refresh <Link className="underline underline-offset-4" to={`/rag/collections?name=${encodeURIComponent(exportSummary.collection)}`}>{exportSummary.collection}</Link> to update search.</p>}
+          {exportSummary.results.length > 0 && <p>Add rag-data/jira to a collection in <Link className="underline underline-offset-4" to="/rag/collections">RAG → Collections</Link> if it is not in one yet, then refresh that collection to update search.</p>}
         </AlertDescription>
       </Alert>}
       {filtered.length === 0 ? <Empty className="border"><EmptyHeader><EmptyTitle>No matching tickets</EmptyTitle><EmptyDescription>Adjust the saved-list filters or fetch a different Jira query.</EmptyDescription></EmptyHeader></Empty> :
