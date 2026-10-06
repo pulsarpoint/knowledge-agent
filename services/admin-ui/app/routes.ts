@@ -5,6 +5,7 @@ export default [
   route("docs/*", "./routes/legacyAdmin.tsx"),
   route("github-projects", "./routes/githubProjects.tsx"),
   route("code-projects", "./routes/codeProjects.tsx"),
+  route("code-graphs", "./routes/codeGraphs.tsx"),
   route("storage", "./routes/storage.tsx"),
   route("documents", "./routes/documents.tsx"),
   route("documents/new", "./routes/documentNew.tsx"),

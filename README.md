@@ -141,7 +141,7 @@ See [Jira setup, mock scenarios, and API behavior](docs/jira.md).
 
 ## Code projects
 
-Open [Administration → Code projects](http://localhost:8183/code-projects).
+Open [Code → Projects](http://localhost:8183/code-projects); generated graphs are listed under [Code → Code graphs](http://localhost:8183/code-graphs).
 The folder browser shows the mounted code root, including nested folders and text
 file previews. **Add project** groups one or more existing folders under a name
 and description. The form contains an expandable folder tree with checkboxes:

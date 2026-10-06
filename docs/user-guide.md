@@ -214,10 +214,11 @@ General conventions throughout the admin app:
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Code projects · Environments · Services · Skills · MCP servers · Servers · Activity |
+| Administration | Storage · Environments · Services · Skills · MCP servers · Servers · Activity |
 | Agents | All agents · Multi-agent board |
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
+| Code | Projects · Code graphs |
 | Docs | Documents · Prompts · Generate documents |
 | RAG | Collections · Processing jobs · Settings · Search |
 
@@ -357,7 +358,10 @@ are shown as a safe summary ("Check the URL, branch, token permissions…").
 **Generate graph** builds a code graph with CodeGraph (no LLM, 15-minute limit):
 symbols, relationships, routes, languages and parse errors. It skips `.env*`, keys,
 dependency/build folders, binaries and files over 1 MiB, and reuses unchanged files.
-**View graph** opens an explorer (files → symbols, filter, paging). The graph is a
+**View graph** opens an explorer (files → symbols, filter, paging). **Code → Code graphs**
+lists every project's graph (status, files, symbols, relationships, languages, last
+generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
+directly. The graph is a
 prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
 
 Code projects only clone and pull into `code/…`. To search code, add the project's folders

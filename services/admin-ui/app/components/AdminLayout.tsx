@@ -34,6 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   </main>;
   if (!authorized) return <main className="p-8"><Skeleton className="h-32 w-full" /></main>;
   const repositories = pathname === `/code-projects`;
+  const codeGraphs = pathname === '/code-graphs';
   const services = pathname === `/services`;
   const environments = pathname === "/environments";
   const servers = pathname === `/servers`;
@@ -52,8 +53,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsPrompts = pathname.startsWith('/documentation/prompts');
   const docsHistory = pathname.startsWith('/documentation/generations');
   const runsPage = pathname.startsWith('/activity/runs');
-  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
+  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
   const description = runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : boardPage ? "Coordinate one main task across your agents and review their shared results." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
+    : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
     : servers ? "Manage hosts, descriptions, and tags for your service infrastructure."
     : jiraSettings ? "Configure access to your Jira Data Center server and test the connection."
@@ -70,7 +72,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <SidebarGroup><SidebarGroupLabel>Administration</SidebarGroupLabel><SidebarMenu>
 
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/storage"}><Link to="/storage"><Database /><span>Storage</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={repositories}><Link to={`/code-projects`}><FolderGit2 /><span>Code projects</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={environments}><Link to="/environments"><Network /><span>Environments</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={services}><Link to={`/services`}><Layers /><span>Services</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/skills"}><Link to="/skills"><BookOpen /><span>Skills</span></Link></SidebarMenuButton></SidebarMenuItem>
@@ -89,6 +90,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <SidebarGroup><SidebarGroupLabel>Jira</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraTickets}><Link to={`/jira/tickets`}><Ticket /><span>Tickets</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraSettings}><Link to={`/jira/settings`}><Settings /><span>Settings</span></Link></SidebarMenuButton></SidebarMenuItem>
+        </SidebarMenu></SidebarGroup>
+        <SidebarGroup role="navigation" aria-label="Code"><SidebarGroupLabel>Code</SidebarGroupLabel><SidebarMenu>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={repositories}><Link to="/code-projects"><FolderGit2 /><span>Projects</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={codeGraphs}><Link to="/code-graphs"><Network /><span>Code graphs</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Docs"><SidebarGroupLabel>Docs</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname.startsWith('/documents')}><Link to="/documents"><Files /><span>Documents</span></Link></SidebarMenuButton></SidebarMenuItem>
