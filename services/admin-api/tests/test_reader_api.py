@@ -132,16 +132,38 @@ def test_ended_conversation(reader, store):
     assert response.json()['error']['message'] == 'This conversation has ended. Start a new one.'
 
 
-def test_switching_reader_agent_keeps_existing_conversations(reader, store):
+def publish_code(store):
+    with store.connect() as conn:
+        conn.execute("""UPDATE ka.agents SET documents_grounded=true,documents_enabled=true,repositories_enabled=false,all_collections=true,ssh_enabled=false,mcp_enabled=false,
+            reader_enabled=true,model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id='code'""")
+
+
+def test_publishing_another_agent_keeps_existing_conversations(reader, store):
     client, seen = reader
     session_id = sse(ask(client))[0][1]['id']
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET documents_grounded=true,documents_enabled=true,model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id='code'")
-        conn.execute("UPDATE ka.agents SET repositories_enabled=false WHERE id='code'")
-        conn.execute("UPDATE ka.reader_settings SET knowledge_agent_id='code'")
+    publish_code(store)
     follow = sse(ask(client, session_id=session_id, question='Again?'))
     assert follow[-1][1]['status'] == 'completed' and seen[-1]['id'] == 'search'
     assert [row['id'] for row in client.get('/internal/reader/sessions', headers=reader_headers()).json()['sessions']] == [session_id]
+
+
+def test_new_conversation_uses_the_requested_published_agent(reader, store):
+    client, seen = reader
+    publish_code(store)
+    response = ask(client, agent_id='code')
+    assert response.status_code == 200, response.text
+    assert sse(response)[-1][1]['status'] == 'completed' and seen[-1]['id'] == 'code'
+    assert ask(client, agent_id='operations').json()['error']['message'] == "The assistant's configuration isn't allowed in the Reader."
+    assert ask(client, agent_id='missing').json()['error']['message'] == "The assistant's configuration isn't allowed in the Reader."
+
+
+def test_unpublishing_stops_new_and_existing_conversations(reader, store):
+    client, _ = reader
+    session_id = sse(ask(client))[0][1]['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET reader_enabled=false WHERE id='search'")
+    assert ask(client, session_id=session_id).json()['error']['message'] == "The assistant's configuration isn't allowed in the Reader."
+    assert ask(client).json()['error']['message'] == "The assistant isn't configured yet. Ask an administrator."
 
 
 def test_reader_narrows_to_selected_collections_and_never_broadens():

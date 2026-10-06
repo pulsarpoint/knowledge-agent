@@ -29,6 +29,7 @@ class ReaderRunInput(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     session_id: UUID | None = None
     question: str = Field(min_length=1, max_length=10000)
+    agent_id: str | None = Field(default=None, min_length=1, max_length=100)
     collections: list[CollectionName] | None = Field(default=None, max_length=200)
 
 
@@ -78,18 +79,23 @@ def build_api(app_name: str, store) -> APIRouter:
     async def run(value: ReaderRunInput, request: Request):
         actor = reader(request)
         await asyncio.to_thread(expire_sessions, store)
-        if value.session_id is not None:
-            with store.connect() as conn:
+        with store.connect() as conn:
+            if value.session_id is not None:
                 saved = owned(conn, actor, value.session_id)
-            if saved['status'] != 'active':
-                raise HTTPException(409, ENDED)
-            agent_id = saved['agent']
-        else:
-            with store.connect() as conn:
-                settings = conn.execute('SELECT knowledge_agent_id FROM ka.reader_settings').fetchone()
-            if settings is None:
-                raise HTTPException(409, NOT_CONFIGURED)
-            agent_id = settings['knowledge_agent_id']
+                if saved['status'] != 'active':
+                    raise HTTPException(409, ENDED)
+                agent_id = saved['agent']
+            elif value.agent_id is not None:
+                agent_id = value.agent_id
+            else:
+                first = conn.execute('''SELECT id FROM ka.agents WHERE reader_enabled AND runtime='openai'
+                    ORDER BY lower(name),id LIMIT 1''').fetchone()
+                if first is None:
+                    raise HTTPException(409, NOT_CONFIGURED)
+                agent_id = first['id']
+            # Unpublishing an agent also stops its existing Reader conversations.
+            if conn.execute('SELECT 1 FROM ka.agents WHERE id=%s AND reader_enabled', (agent_id,)).fetchone() is None:
+                raise HTTPException(409, NOT_ALLOWED)
         turn_input = RunInput(id=value.id, session_id=value.session_id, is_test=False, task=value.question)
         try:
             turn = await start_turn(request.app.state, store, app_name, agent_id, turn_input, actor,

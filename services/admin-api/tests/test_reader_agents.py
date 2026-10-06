@@ -1,4 +1,4 @@
-"""The Reader assistant is chosen in admin and must satisfy the Knowledge tier."""
+"""Any agent that meets the Knowledge tier can be published to Reader users."""
 import pytest
 
 from knowledge_admin.reader_policy import knowledge_violations
@@ -44,62 +44,83 @@ def admin(store, tmp_path, monkeypatch):
     return client
 
 
-def test_settings_default_to_search_and_list_candidates(admin):
-    settings = admin.get('/api/reader/settings', headers=HEADERS).json()
-    assert settings['knowledge_agent_id'] == 'search' and settings['revision'] == 1
-    by_id = {row['id']: row for row in settings['candidates']}
-    assert 'coordinator' not in by_id
-    assert 'uses SSH' in by_id['operations']['violations']
-    assert by_id['search']['violations'] == []
+def save(client, agent_id, **changes):
+    profile = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
+    body = {key: profile[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'all_collections', 'all_repositories',
+        'collection_ids', 'repository_ids', 'service_ids', 'documents_enabled', 'documents_grounded', 'repositories_enabled', 'ssh_enabled',
+        'skills_enabled', 'mcp_enabled', 'services_enabled')}
+    return client.put(f'/api/agents/{agent_id}', headers=HEADERS, json={**body, **changes})
 
 
-def test_save_rejects_violating_agent_and_stale_revision(admin, store):
+def listed(client):
+    return {row['id']: row for row in client.get('/api/agents', headers=HEADERS).json()['agents']}
+
+
+def test_search_starts_published_and_ready(admin):
+    agents = listed(admin)
+    assert agents['search']['reader_enabled'] is True and agents['search']['reader_violations'] == []
+    assert agents['operations']['reader_enabled'] is False and agents['operations']['reader_violations'] == []
+
+
+def test_publishing_requires_the_reader_rules(admin, store):
     custom = create(admin, 'Docs helper')
-    rejected = admin.put('/api/reader/settings', headers=HEADERS, json={'knowledge_agent_id': custom['id'], 'revision': 1})
+    rejected = save(admin, custom['id'], reader_enabled=True)
     assert rejected.status_code == 400 and 'document search is off' in rejected.text
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET documents_enabled=true,documents_grounded=true,model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id=%s", (custom['id'],))
-    saved = admin.put('/api/reader/settings', headers=HEADERS, json={'knowledge_agent_id': custom['id'], 'revision': 1})
-    assert saved.status_code == 200 and saved.json()['knowledge_agent_id'] == custom['id'] and saved.json()['revision'] == 2
-    stale = admin.put('/api/reader/settings', headers=HEADERS, json={'knowledge_agent_id': 'search', 'revision': 1})
-    assert stale.status_code == 409
-    missing = admin.put('/api/reader/settings', headers=HEADERS, json={'knowledge_agent_id': 'nope', 'revision': 2})
-    assert missing.status_code == 400
+        conn.execute("UPDATE ka.agents SET model_id=NULL WHERE id=%s", (custom['id'],))
+    modelless = save(admin, custom['id'], reader_enabled=True, documents_enabled=True, documents_grounded=True)
+    assert modelless.status_code == 400 and 'no enabled model' in modelless.text
     with store.connect() as conn:
-        assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='reader.settings.updated'").fetchone()['n'] == 1
+        conn.execute("UPDATE ka.agents SET model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id=%s", (custom['id'],))
+    published = save(admin, custom['id'], reader_enabled=True, documents_enabled=True, documents_grounded=True)
+    assert published.status_code == 200 and published.json()['reader_enabled'] is True
+    assert listed(admin)[custom['id']]['reader_enabled'] is True and listed(admin)['search']['reader_enabled'] is True
 
 
-def test_reader_agent_cannot_be_deleted(admin, store):
+@pytest.mark.parametrize('changes, reason', [
+    ({'ssh_enabled': True}, 'uses SSH'),
+    ({'mcp_enabled': True}, 'uses MCP tools'),
+    ({'repositories_enabled': True}, 'uses code projects'),
+    ({'documents_grounded': False}, 'Answer only from documents is off'),
+])
+def test_published_agent_cannot_gain_capabilities(admin, changes, reason):
+    response = save(admin, 'search', **changes)
+    assert response.status_code == 400 and reason in response.text
+    assert 'Turn off Available in Reader' in response.text
+    assert save(admin, 'search', reader_enabled=False, **changes).status_code == 200
+
+
+def test_published_agent_without_a_model_can_still_be_edited(admin, store):
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET model_id=NULL WHERE id='search'")
+    assert save(admin, 'search', description='Docs answers').status_code == 200
+    assert listed(admin)['search']['reader_violations'] == ['no enabled model']
+
+
+def test_published_agent_can_be_deleted(admin, store):
     custom = create(admin, 'Docs helper')
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET documents_enabled=true,documents_grounded=true,model_id=(SELECT model_id FROM ka.agents WHERE id='search') WHERE id=%s", (custom['id'],))
-    admin.put('/api/reader/settings', headers=HEADERS, json={'knowledge_agent_id': custom['id'], 'revision': 1})
+        conn.execute("UPDATE ka.agents SET documents_enabled=true,documents_grounded=true,reader_enabled=true WHERE id=%s", (custom['id'],))
     revision = admin.get(f"/api/agents/{custom['id']}", headers=HEADERS).json()['revision']
-    response = admin.request('DELETE', f"/api/agents/{custom['id']}", headers=HEADERS,
-                             json={'revision': revision, 'confirmed': True})
-    assert response.status_code == 409
-    assert response.json()['error']['message'] == 'This agent is the Reader assistant. Choose another Reader agent first.'
+    response = admin.request('DELETE', f"/api/agents/{custom['id']}", headers=HEADERS, json={'revision': revision, 'confirmed': True})
+    assert response.status_code == 204
 
 
-def test_settings_require_admin(admin):
-    assert admin.get('/api/reader/settings').status_code == 403
+def test_reader_settings_api_is_gone(admin):
+    assert admin.get('/api/reader/settings', headers=HEADERS).status_code == 404
 
 
-def test_versioned_agent_whose_snapshot_predates_reader_settings_explains_the_upgrade(admin, store):
+def test_versioned_agent_whose_snapshot_predates_reader_rules_explains_the_upgrade(admin, store):
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET documents_grounded=false WHERE id='search'")
     draft(admin, 'search')
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET documents_grounded=true WHERE id='search'")
-    by_id = {row['id']: row for row in admin.get('/api/reader/settings', headers=HEADERS).json()['candidates']}
-    assert by_id['search']['violations'] == [
+    assert listed(admin)['search']['reader_violations'] == [
         'Answer only from documents is off', 'active version v1 predates these settings — save and activate a new version']
 
 
-def test_disabled_or_modelless_agents_list_why_they_cannot_answer(admin, store):
+def test_disabled_published_agent_lists_why_it_cannot_answer(admin, store):
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET enabled=false WHERE id='search'")
-        conn.execute("UPDATE ka.agents SET model_id=NULL WHERE id='code'")
-    by_id = {row['id']: row for row in admin.get('/api/reader/settings', headers=HEADERS).json()['candidates']}
-    assert by_id['search']['violations'] == ['agent is disabled']
-    assert 'no enabled model' in by_id['code']['violations']
+    assert listed(admin)['search']['reader_violations'] == ['agent is disabled']

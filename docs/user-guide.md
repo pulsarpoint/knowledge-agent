@@ -530,11 +530,14 @@ Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire 
 1 hour idle, one running message per session. A run is blocked if the agent is
 disabled, has no enabled model, or other tabs have unsaved changes.
 
-**Reader assistant.** A card at the top of `/agents` chooses which agent answers
-Reader chat (default: the Search agent). Agents that are disabled, have no enabled
-model, use SSH, MCP tools or code projects, or have Documents off, or have **Answer
-only from documents** off, are disabled in the list with the reason, and the card
-warns when the current Reader agent can't answer. The Reader agent cannot be deleted.
+**Available in Reader.** In an agent's General tab, this switch lets every signed-in
+Reader user ask the agent questions (the Search agent starts with it on). It can be
+turned on only when Documents and **Answer only from documents** are on and SSH, MCP
+tools and code projects are off; otherwise the switch lists what blocks it. While it is
+on, those settings cannot be changed until you turn it off. In the agent list, published
+agents show a **Reader** badge, or **Reader can't answer** with the reasons on hover
+(for example no enabled model). New Reader conversations use the first published agent
+by name; turning the switch off also ends that agent's Reader conversations.
 
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back

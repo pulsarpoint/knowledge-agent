@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
-import { getAgentOptions, saveAgent, type AgentProfile, type AgentOptions } from '../lib/profiles';
+import { getAgentOptions, readerRules, saveAgent, type AgentProfile, type AgentOptions } from '../lib/profiles';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '~/components/ui/card';
@@ -37,6 +37,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
     catch (e) { setError(e instanceof Error ? e.message : 'Could not save this agent.'); }
     finally { setBusy(false); }
   }
+  const rules = readerRules(draft);
   const capability = ({ documents: ['documents_enabled','Document search'], git: ['repositories_enabled','Code project access'], ssh: ['ssh_enabled','SSH access'], skills: ['skills_enabled','Skills'], mcp: ['mcp_enabled','MCP tools'], services: ['services_enabled','Service context'] } as const)[view as 'documents' | 'git' | 'ssh' | 'skills' | 'mcp' | 'services'];
   return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>{profile.is_coordinator ? 'Edit the coordinator’s identity. Model, notes, and prompt versions are configured below and in Prompts.' : 'Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.'}</CardDescription></CardHeader>
     <form onSubmit={event => void save(event)}><CardContent className="pb-6"><FieldGroup>
@@ -46,6 +47,9 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. {profile.is_coordinator ? 'The coordinator handles every board task.' : 'Agents are currently selected explicitly.'}</FieldDescription></Field>
       {profile.is_coordinator ? <FieldDescription>The coordinator is always enabled.</FieldDescription> : <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>}
+      {!profile.is_coordinator && <Field orientation="horizontal"><Switch id="agent-reader" disabled={busy || !draft.reader_enabled && rules.length > 0} checked={!!draft.reader_enabled} onCheckedChange={reader_enabled => change({ reader_enabled })} /><div><FieldLabel htmlFor="agent-reader">Available in Reader</FieldLabel><FieldDescription>{rules.length
+        ? `${draft.reader_enabled ? 'Reader users can’t use this agent with these settings' : 'Not available'}: ${rules.join(', ')}. Reader agents may only search documents, with “Answer only from documents” on.`
+        : 'Every signed-in Reader user can ask this agent questions. It answers only from documents and cites them.'}</FieldDescription></div></Field>}
       </FieldGroup></div>
       {capability && <Field orientation="horizontal"><Switch id={`capability-${capability[0]}`} checked={draft[capability[0]]} disabled={busy} onCheckedChange={enabled => { change({ [capability[0]]: enabled }); if (view === 'skills') setSkillsDirty(true); }} /><div><FieldLabel htmlFor={`capability-${capability[0]}`}>Enable {capability[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</FieldLabel><FieldDescription>{draft[capability[0]] ? 'Enabled for this agent after saving.' : 'Disabled. Its saved settings are retained.'}</FieldDescription></div></Field>}
       <div hidden={view !== 'skills'}><FieldGroup>
@@ -56,7 +60,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <div hidden={view !== 'documents'}><FieldGroup>
         <Field orientation="horizontal"><Switch id="all-collections" disabled={busy || !draft.documents_enabled} checked={draft.all_collections} onCheckedChange={all_collections => change({ all_collections, collection_ids: [] })} /><FieldLabel htmlFor="all-collections">All collections</FieldLabel></Field>
         {!draft.all_collections && <ResourceSelection label="Collections" options={options?.collections ?? []} selected={draft.collection_ids} onChange={collection_ids => change({ collection_ids })} disabled={busy || !options || !draft.documents_enabled} />}
-        <Field orientation="horizontal"><Switch id="documents-grounded" disabled={busy || !draft.documents_enabled} checked={draft.documents_grounded} onCheckedChange={documents_grounded => change({ documents_grounded })} /><div><FieldLabel htmlFor="documents-grounded">Answer only from documents</FieldLabel><FieldDescription>Search the knowledge base, cite every claim, and report questions the documents do not cover. Required for the Reader assistant.</FieldDescription></div></Field>
+        <Field orientation="horizontal"><Switch id="documents-grounded" disabled={busy || !draft.documents_enabled} checked={draft.documents_grounded} onCheckedChange={documents_grounded => change({ documents_grounded })} /><div><FieldLabel htmlFor="documents-grounded">Answer only from documents</FieldLabel><FieldDescription>Search the knowledge base, cite every claim, and report questions the documents do not cover. Required to make the agent available in the Reader.</FieldDescription></div></Field>
       </FieldGroup></div>
       <div hidden={view !== 'git'}><FieldGroup>
         <Field orientation="horizontal"><Switch id="all-repositories" disabled={busy || !draft.repositories_enabled} checked={draft.all_repositories} onCheckedChange={all_repositories => change({ all_repositories, repository_ids: [] })} /><FieldLabel htmlFor="all-repositories">All code projects</FieldLabel></Field>

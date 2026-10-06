@@ -10,7 +10,7 @@ Phoenix remains available for tracing.
 
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
 and connection tests work. Reader chat answers from the knowledge base using the
-agent chosen in Admin → Agents → Reader assistant; agent Test and the multi-agent
+agents marked **Available in Reader** in Admin → Agents; agent Test and the multi-agent
 board run models. The legacy admin search chat endpoint
 (`/api/agents/search/chat`) still returns HTTP 200 with plain text `TODO`.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
