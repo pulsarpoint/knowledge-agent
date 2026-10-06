@@ -180,7 +180,7 @@ root, so **Add folder** can pick any folder in `DATA_ROOT`; it writes only into
   "jira")`. Existing tests that used `rag-data/<name>` as a writable scratch folder
   now use `jira/<name>` (a mechanical rename); `collection()` creates its folders
   before connecting them, since Add folder no longer does.
-- **The `.local` archive move is not code.** It is the last step of Task 10, done by
+- **The move to a clean `DATA_ROOT` (`.local/data`) is not code.** It is the last step of Task 10, done by
   hand on this machine only after the user confirms the list.
 
 ## Delivery and test boundaries
@@ -2310,7 +2310,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 10: Docs, full verification and the confirmed `.local` archive move
+### Task 10: Docs, full verification and the confirmed move to a clean DATA_ROOT
 
 **Files:**
 - Modify: `deploy/README.md`, `README.md`, `docs/rag.md`, `docs/jira.md`,
@@ -2425,22 +2425,21 @@ git commit -m "docs: one data folder with named subfolders
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Manual, confirmed — archive this machine's extra `DATA_ROOT` entries (not code)**
+- [ ] **Step 5: Manual, confirmed — give this machine a clean `DATA_ROOT` (not code)**
 
-This machine's `DATA_ROOT` is `/Users/graovic/fincore/knowledge-agent-v3/.local`.
-Besides the configured folders it holds `backups/`, `users/`, `benchmarks/`,
-`rag-data/demo` (test data of the `demo` collection) and about 30 `*.log` files.
-1. Run `ls -A .local` and show the user the exact list of entries to move to the
-   sibling `.local-archive/` (the `DATA_ARCHIVE` for this setup): `backups`, `users`,
-   `benchmarks` (not named in the spec; ask about it explicitly), every `*.log`, and
-   `rag-data/demo`. **Stop and wait for the user's confirmation.** Move nothing
-   without it; delete nothing in any case.
-2. After confirmation: `make down`; then
-   `mkdir -p .local-archive/rag-data && mv .local/backups .local/users .local/*.log .local-archive/`,
-   `mv .local/benchmarks .local-archive/` only if confirmed, and
-   `mv .local/rag-data/demo .local-archive/rag-data/`.
-3. `make setup` moves `.local/rag-data/jira` to `.local/jira`, removes the now-empty
-   `.local/rag-data`, and prints no warning. Then `make up` (runs migration 0067).
-4. Ask the user whether to remove the `demo` collection or reconnect it to another
-   folder in RAG → Collections; do what they choose. Refresh the `jira` collection and
-   confirm a search returns a Jira ticket.
+This machine's `DATA_ROOT` is `/Users/graovic/fincore/knowledge-agent-v3/.local`, which is
+also the repository's scratch folder: `users/` (the old local-admin password file),
+`backups/`, `benchmarks/` and about 30 `*.log` files stay there. Instead of moving those
+out, point `DATA_ROOT` at a new folder `.local/data` and move only the data folders in.
+1. Show the user the exact moves and **wait for confirmation**. Move nothing without it;
+   delete nothing in any case.
+2. After confirmation: `make down`; `mkdir .local/data`;
+   `mv .local/code .local/code-index .local/docs .local/generated-documents .local/data/`;
+   `mv .local/rag-data/jira .local/data/jira`. `.local/rag-data/demo` stays in `.local`
+   (not a configured folder).
+3. `make setup DATA_ROOT=/Users/graovic/fincore/knowledge-agent-v3/.local/data` (prints
+   no warning), then `make up` (runs migration 0067). RAG paths are relative to
+   `DATA_ROOT`, so they stay valid.
+4. Ask the user whether to remove the `demo` collection (its folder is now outside
+   `DATA_ROOT`, so it shows Folder missing) or reconnect it; do what they choose. Refresh
+   the `jira` collection and confirm a search returns a Jira ticket.

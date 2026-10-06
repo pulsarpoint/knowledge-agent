@@ -109,11 +109,12 @@ in a sibling `DATA_ARCHIVE` folder; RAG never sees them.
 - **`make setup`:** after creating the folders, it lists any other top-level entries in
   `DATA_ROOT` as a warning, naming each and suggesting it be moved out (for example to
   `DATA_ARCHIVE`). The warning never stops setup, and setup never moves or deletes them.
-- **This machine:** `.local` holds `backups/`, `users/`, `rag-data/demo` and about 30 log
-  files. A one-time manual step, done only after you confirm, moves `backups/`, `users/`
-  and the logs to a sibling `.local-archive/` (the `DATA_ARCHIVE` for this setup). It never
-  deletes anything. `rag-data/demo` is test data for the `demo` collection; it moves to
-  `.local-archive/` too, and that collection is removed or reconnected in RAG.
+- **This machine:** `.local` is also the repository's scratch folder (`users/` with the
+  old local-admin password file, `backups/`, `benchmarks/`, logs). A one-time manual step,
+  done only after you confirm, points `DATA_ROOT` at a new `.local/data` and moves only
+  the data folders there (`code`, `code-index`, `docs`, `generated-documents`, and
+  `rag-data/jira` as `jira`). Everything else stays in `.local`; nothing is deleted.
+  `rag-data/demo` stays outside, so the `demo` collection is removed or reconnected.
 
 ## Admin UI
 
