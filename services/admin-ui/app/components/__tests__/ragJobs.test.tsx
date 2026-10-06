@@ -105,3 +105,10 @@ test("automatic syncs show mode Auto", async () => {
   const row = (await screen.findByText("jira", { selector: "td *, td" })).closest("tr")!;
   expect(within(row).getByText("Auto")).toBeInTheDocument();
 });
+
+test("an automatic sync that rebuilds still shows mode Auto", async () => {
+  setup("/rag/jobs", [{ ...job, input: { auto: true, force: true } }]);
+  const row = (await screen.findByText("jira", { selector: "td *, td" })).closest("tr")!;
+  expect(within(row).getByText("Auto")).toBeInTheDocument();
+  expect(within(row).queryByText("Force rebuild")).toBeNull();
+});
