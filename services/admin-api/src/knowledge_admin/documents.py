@@ -243,6 +243,8 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
     """Save a complete immutable version within the caller's transaction.
 
     `folder` places a new document in a documentation folder; an existing document keeps its own folder."""
+    # Serialize saves per project so the folder / folder-less export check below cannot race another save.
+    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
     if document_id is None:
         if value.revision is not None:
             raise HTTPException(400, 'New documents cannot reuse a revision')

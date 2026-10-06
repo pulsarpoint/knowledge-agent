@@ -416,3 +416,70 @@ def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, 
     refused = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'team', 'title': 'T', 'markdown': '# T'})
     assert refused.status_code == 409
     assert refused.json()['error']['message'] == 'The slug team is used by a documentation folder. Choose another slug.'
+
+
+def test_colliding_folder_and_folderless_saves_are_serialized(store):
+    import threading
+    from fastapi import HTTPException
+    from knowledge_admin.documents import DocumentInput, save_document
+    outcome = {}
+
+    def other(project):
+        try:
+            with store.connect() as conn:
+                save_document(conn, project, None, DocumentInput(slug='x', title='X', markdown='# X'), folder='team/x')
+            outcome['result'] = 'saved'
+        except HTTPException as error:
+            outcome['result'] = error.status_code
+
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        save_document(conn, project, None, DocumentInput(slug='team', title='T', markdown='# T'))
+        thread = threading.Thread(target=other, args=(project,))
+        thread.start()
+        thread.join(1)
+        assert thread.is_alive()  # waits for the first transaction instead of reading around it
+    thread.join(10)
+    assert outcome == {'result': 409}
+
+
+def test_exports_in_a_shared_folder_leave_siblings_alone_and_refuse_symlinked_parents(store, tmp_path, monkeypatch):
+    from knowledge_admin.documents import DocumentInput, export_args, export_document, export_input, save_document
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        first = save_document(conn, project, None, DocumentInput(slug='one', title='One', markdown='# One\n\n```d2\na -> b\n```\n'), folder='team/payments')
+        second = save_document(conn, project, None, DocumentInput(slug='two', title='Two', markdown='# Two\n\n```d2\nc -> d\n```\n'), folder='team/payments')
+        for saved in (first, second):
+            export_document(**export_args(export_input(conn, saved['id'])))
+        assert (out / 'team/payments/two/architecture-1.d2').is_file()
+        edited = save_document(conn, project, None, DocumentInput(slug='one', title='One', markdown='# One', revision=1), document_id=first['id'])
+        export_document(**export_args(export_input(conn, edited['id'])))
+    assert not (out / 'team/payments/one/architecture-1.d2').exists()
+    assert (out / 'team/payments/two/README.md').is_file() and (out / 'team/payments/two/architecture-1.d2').is_file()
+    # A symbolic link anywhere in the folder path is refused and nothing is written through it.
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (out / 'linked').symlink_to(outside)
+    with store.connect() as conn:
+        escaped = save_document(conn, project, None, DocumentInput(slug='three', title='Three', markdown='# Three'), folder='linked/deep')
+        with pytest.raises(ValueError):
+            export_document(**export_args(export_input(conn, escaped['id'])))
+    assert list(outside.iterdir()) == []
+
+
+def test_renames_respect_folder_collisions_and_never_conflict_with_themselves(store, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from knowledge_admin.documents import DocumentInput, save_document
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        plain = save_document(conn, project, None, DocumentInput(slug='notes', title='N', markdown='# N'))
+        save_document(conn, project, None, DocumentInput(slug='x', title='X', markdown='# X'), folder='team/x')
+        with pytest.raises(HTTPException) as error:
+            save_document(conn, project, None, DocumentInput(slug='team', title='N', markdown='# N', revision=1), document_id=plain['id'])
+        assert error.value.status_code == 409
+        again = save_document(conn, project, None, DocumentInput(slug='notes', title='N2', markdown='# N2', revision=1), document_id=plain['id'])
+        assert again['revision'] == 2
