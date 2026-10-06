@@ -137,6 +137,8 @@ def build_api(app_name, store):
                 old = read(conn, agent_id)
                 if old['revision'] != value.revision:
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
+                if old['runtime'] != 'openai':
+                    raise HTTPException(409, 'Claude Code agents have only a name and a description; edit them on their agent page.')
                 if old['is_coordinator'] and not value.enabled:
                     raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
                 if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
@@ -189,7 +191,8 @@ def build_api(app_name, store):
             if conn.execute('''SELECT 1 FROM ka.operations_runs WHERE agent=%s
                 UNION ALL SELECT 1 FROM ka.agent_board_tasks WHERE agent_id=%s
                 UNION ALL SELECT 1 FROM ka.agent_board_members WHERE agent_id=%s
-                UNION ALL SELECT 1 FROM ka.agent_sessions WHERE agent=%s LIMIT 1''', (agent_id,agent_id,agent_id,agent_id)).fetchone():
+                UNION ALL SELECT 1 FROM ka.agent_sessions WHERE agent=%s
+                UNION ALL SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%s LIMIT 1''', (agent_id,agent_id,agent_id,agent_id,agent_id)).fetchone():
                 raise HTTPException(409, 'This agent has retained sessions or run history. Disable it to preserve that history.')
             conn.execute('SELECT agent FROM ka.agent_prompts WHERE agent=%s FOR UPDATE', (agent_id,))
             audit(conn, request, agent_id, 'agent.deleted')
@@ -219,6 +222,8 @@ def build_api(app_name, store):
             conn.execute('SELECT singleton FROM ka.llm_assignment_revision FOR UPDATE')
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
             old = read(conn, agent_id)
+            if old['runtime'] != 'openai':
+                raise HTTPException(409, 'Claude Code agents choose their model when a session starts.')
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Refresh before saving its model.')
             if value.model_id is not None:

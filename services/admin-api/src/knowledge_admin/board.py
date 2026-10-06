@@ -443,7 +443,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         or previous_team != set(value.subagent_ids)):
                     raise HTTPException(409, 'This task request ID has already been used.')
                 return {'id': old['id']}
-            profiles = conn.execute('''SELECT a.id,a.name,a.enabled,a.is_coordinator,m.enabled AS model_enabled,p.active_version_id
+            profiles = conn.execute('''SELECT a.id,a.name,a.enabled,a.is_coordinator,a.runtime,m.enabled AS model_enabled,p.active_version_id
                 FROM ka.agents a LEFT JOIN ka.agent_versions v ON v.id=a.active_config_version_id
                 LEFT JOIN ka.llm_models m ON m.id=CASE WHEN v.id IS NULL THEN a.model_id ELSE (v.config->'model'->>'id')::uuid END
                 LEFT JOIN ka.agent_prompts p ON p.agent=a.id WHERE a.id=ANY(%s) FOR SHARE OF a''',
@@ -452,6 +452,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(404, 'A selected agent was not found.')
             if any(p['is_coordinator'] for p in profiles):
                 raise HTTPException(400, 'The coordinator cannot be selected as a subagent.')
+            if any(p['runtime'] != 'openai' for p in profiles):
+                raise HTTPException(400, 'Claude Code agents cannot join the multi-agent board.')
             if any(not p['enabled'] or not p['model_enabled'] or p['active_version_id'] is None for p in profiles):
                 raise HTTPException(400, 'Choose enabled agents with models and active system prompts.')
             if conn.execute("SELECT count(*) AS n FROM ka.agent_board_tasks WHERE parent_id IS NULL AND status IN ('queued','running')").fetchone()['n'] >= 30:

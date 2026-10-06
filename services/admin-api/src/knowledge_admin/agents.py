@@ -33,6 +33,8 @@ from knowledge_admin.tools.code_search import code_search
 from knowledge_admin.tools.ssh import ssh_run
 from knowledge_admin.tools.shell import shell_run
 
+CLAUDE_CODE_ONLY = 'Claude Code agents run in documentation sessions only (Docs → Generate documents → With an agent).'
+
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
                 timeout_seconds: float = 300, output_type: type[BaseModel] | None = None,
@@ -292,13 +294,15 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     """
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,
+        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,runtime,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
         if agent['is_coordinator']:
             raise ValueError('The coordinator uses its own Agents SDK configuration on the board.')
+        if agent['runtime'] != 'openai':
+            raise ValueError(CLAUDE_CODE_ONLY)
         selected_version = version_id or (None if working_copy else agent['active_config_version_id'])
         if selected_version is not None:
             version = conn.execute('SELECT id,version,label,config FROM ka.agent_versions WHERE id=%s AND agent=%s', (selected_version,agent_id)).fetchone()

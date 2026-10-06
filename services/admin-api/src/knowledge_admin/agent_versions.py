@@ -63,11 +63,13 @@ def build_api(app_name, store):
         return store
 
     def owner(conn, agent_id, *, lock=False):
-        row = conn.execute('SELECT id,is_coordinator,active_config_version_id,next_config_version FROM ka.agents WHERE id=%s' + (' FOR UPDATE' if lock else ''), (agent_id,)).fetchone()
+        row = conn.execute('SELECT id,is_coordinator,runtime,active_config_version_id,next_config_version FROM ka.agents WHERE id=%s' + (' FOR UPDATE' if lock else ''), (agent_id,)).fetchone()
         if row is None:
             raise HTTPException(404, 'Agent not found.')
         if row['is_coordinator']:
             raise HTTPException(409, 'Configuration versions are available for specialist agents.')
+        if row['runtime'] != 'openai':
+            raise HTTPException(409, 'Claude Code agents have no configuration versions.')
         return row
 
     def source(conn, agent_id, version_id, review_id):

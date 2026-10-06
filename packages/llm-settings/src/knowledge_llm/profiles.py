@@ -9,6 +9,8 @@ def profile(conn, agent_id: str, *, runnable: bool = False) -> dict:
     row = conn.execute('SELECT * FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
     if row is None:
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
+    if runnable and row.get('runtime', 'openai') != 'openai':
+        raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and not row['enabled']:
         raise ModelUnavailable('This agent is disabled. Enable it in its settings before running a task.')
     row['collections'] = [r['name'] for r in conn.execute('''SELECT c.name FROM ka.agent_collections a

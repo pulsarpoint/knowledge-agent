@@ -40,7 +40,7 @@ def build_api(app_name: str, store) -> APIRouter:
     def read() -> dict:
         with database().connect() as conn:
             row = conn.execute('SELECT knowledge_agent_id,revision,updated_at FROM ka.reader_settings').fetchone()
-            agents = conn.execute('SELECT id,name,enabled FROM ka.agents WHERE NOT is_coordinator ORDER BY lower(name),id').fetchall()
+            agents = conn.execute("SELECT id,name,enabled FROM ka.agents WHERE NOT is_coordinator AND runtime='openai' ORDER BY lower(name),id").fetchall()
         candidates = [{**agent, 'violations': violations(agent['id'], store.conninfo)} for agent in agents]
         settings = row or {'knowledge_agent_id': None, 'revision': 0, 'updated_at': None}
         return {**settings, 'candidates': candidates}
