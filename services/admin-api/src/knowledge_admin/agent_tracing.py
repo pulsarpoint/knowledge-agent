@@ -11,7 +11,6 @@ from opentelemetry import trace as otel
 from openinference.instrumentation import OITracer, TraceConfig
 from openinference.instrumentation.openai_agents._processor import OpenInferenceTracingProcessor
 
-from docs_wiki import tracing
 from knowledge_admin.agent_activity import redact
 
 # This application exports to its configured Phoenix instance, not OpenAI's backend.
@@ -44,8 +43,31 @@ class RedactingProcessor(OpenInferenceTracingProcessor):
         super().on_span_end(span)
 
 
+_registered = False
+
+
+def register(endpoint: str | None, api_key: str | None) -> bool:
+    """Register the OTel tracer provider against Phoenix once; failure is a warning, never an error."""
+    global _registered
+    if _registered:
+        return True
+    if not endpoint:
+        return False
+    try:
+        import phoenix.otel
+
+        # The project name predates the admin API; existing traces live under it.
+        phoenix.otel.register(endpoint=endpoint, project_name='docs-wiki', batch=True, api_key=api_key or None,
+                              auto_instrument=False, set_global_tracer_provider=True, verbose=False)
+    except Exception:
+        logger.warning('Phoenix tracing setup failed; continuing untraced.', exc_info=True)
+        return False
+    _registered = True
+    return True
+
+
 def setup():
-    if tracing.setup(os.environ.get('DOCS_WIKI_PHOENIX_ENDPOINT'), os.environ.get('DOCS_WIKI_PHOENIX_API_KEY')):
+    if register(os.environ.get('DOCS_WIKI_PHOENIX_ENDPOINT'), os.environ.get('DOCS_WIKI_PHOENIX_API_KEY')):
         try:
             instrument(otel.get_tracer_provider())
         except Exception:

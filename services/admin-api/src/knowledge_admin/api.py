@@ -3,7 +3,7 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from docs_wiki.config import App, ServerConfig
+from knowledge_admin.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin import documents, documentation_workflows, documentation_generation, documentation_prompts, documentation_folders, environments, agent_sessions, agent_versions, board, claude_code_api, jira_api, repository_api, service_api, rag_api, skills, storage
 

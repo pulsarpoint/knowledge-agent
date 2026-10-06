@@ -14,9 +14,7 @@ RUN ast-grep --version
 RUN apt-get update && apt-get install -y --no-install-recommends bash bubblewrap git openssh-client ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 WORKDIR /services/admin-api
-# The two applications reuse storage/configuration modules, but mount disjoint APIs.
 COPY packages/llm-settings /packages/llm-settings
-COPY services/docs-wiki /services/docs-wiki
 COPY services/admin-api /services/admin-api
 RUN uv sync --frozen --no-dev
 RUN mkdir -p /work/agent-workspaces

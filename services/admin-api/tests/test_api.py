@@ -2,13 +2,13 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from docs_wiki.config import App, Config, ServerConfig
+from knowledge_admin.config import App, Config, ServerConfig
 from knowledge_admin.app import create_app
 
 
 def _client(tmp_path, **kwargs):
-    cfg = Config(apps=[App(name="shop", app_root=None)], llm=None)
-    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path / "state"))
+    cfg = Config(apps=[App(name="shop")])
+    server = ServerConfig()
     return TestClient(create_app(cfg, server=server, **kwargs))
 
 
@@ -25,8 +25,8 @@ def test_admin_discovery_and_health(tmp_path):
 
 @pytest.mark.parametrize("names", [[], ["docs", "another"]])
 def test_administration_requires_one_workspace(tmp_path, names):
-    cfg = Config(apps=[App(name=name, app_root=None) for name in names], llm=None)
-    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
+    cfg = Config(apps=[App(name=name) for name in names])
+    server = ServerConfig()
     with pytest.raises(ValueError, match="exactly one configured workspace"):
         create_app(cfg, server=server)
 

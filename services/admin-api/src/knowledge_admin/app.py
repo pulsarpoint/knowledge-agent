@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from docs_wiki.config import Config, ServerConfig
+from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
 from knowledge_admin.documents import backfill_exports
