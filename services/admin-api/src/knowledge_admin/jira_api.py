@@ -20,6 +20,14 @@ SETTINGS_FIELDS = """id,base_url,username,revision,jql,(credential_id IS NOT NUL
     last_tested_at,last_test_error,last_successful_sync_at,last_fetch_limit,last_fetch_total"""
 
 
+def export_folder() -> str | None:
+    """The Jira export folder, or None when JIRA_EXPORT_ROOT is not a folder inside DATA_ROOT_DIR."""
+    try:
+        return jira_folder()
+    except ValueError:
+        return None
+
+
 def build_api(app: str, store: RepositoryStore | None,
               transport: httpx.BaseTransport | None = None,
               backoffice_client: httpx.Client | None = None) -> APIRouter:
@@ -146,7 +154,7 @@ def build_api(app: str, store: RepositoryStore | None,
             rows = [] if config is None else conn.execute("""SELECT id,issue_key,jira_project_key,issue_type,labels,summary,status_name,priority,
                 assignee_name,source_updated_at FROM ka.jira_tickets WHERE connection_id=%s AND project_id=%s
                 AND out_of_scope_at IS NULL ORDER BY source_updated_at DESC,issue_key DESC LIMIT 200""", (config["id"], project)).fetchall()
-        return {"connection": config, "tickets": rows, "export_folder": jira_folder()}
+        return {"connection": config, "tickets": rows, "export_folder": export_folder()}
 
     @router.post("/jira/tickets/fetch")
     def fetch_tickets(value: TicketFetchInput, request: Request) -> dict:
@@ -190,6 +198,8 @@ def build_api(app: str, store: RepositoryStore | None,
 
     @router.post("/jira/tickets/{ticket_id}/export")
     def export_ticket(ticket_id: UUID, value: TicketExportInput, request: Request) -> dict:
+        if export_folder() is None:
+            raise HTTPException(503, "JIRA_EXPORT_ROOT must be a folder inside DATA_ROOT_DIR")
         db = database()
         subject, email = request_actor(request)
         rag_key = os.environ.get("RAG_BACKOFFICE_KEY")

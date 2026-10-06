@@ -242,3 +242,16 @@ def test_export_writes_into_the_configured_jira_folder_and_the_list_names_it(exp
     assert listing["export_folder"] == "exports/jira" and set(listing) == {"connection", "tickets", "export_folder"}
     fetched = client.post("/api/jira/tickets/fetch", headers=HEADERS, json={"limit": 3}).json()
     assert fetched["export_folder"] == "exports/jira"
+
+
+@pytest.mark.parametrize("root", ["relative/jira", "/elsewhere/jira", "/work/data"])
+def test_a_misconfigured_jira_root_keeps_the_list_working_and_blocks_export(exporting, monkeypatch, root):
+    client, snapshot, state = exporting
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", root)
+    listing = client.get("/api/jira/tickets", headers=HEADERS)
+    assert listing.status_code == 200 and listing.json()["export_folder"] is None
+    assert client.post("/api/jira/tickets/fetch", headers=HEADERS, json={"limit": 3}).json()["export_folder"] is None
+    calls = len(state["jira_calls"]) + len(state["rag_calls"])
+    response = export(client, snapshot)
+    assert response.status_code == 503 and "JIRA_EXPORT_ROOT must be a folder inside DATA_ROOT_DIR" in response.text
+    assert len(state["jira_calls"]) + len(state["rag_calls"]) == calls
