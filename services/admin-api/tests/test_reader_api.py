@@ -32,7 +32,7 @@ def sse(response):
 @pytest.fixture
 def reader(store, tmp_path, monkeypatch, responses_api):
     monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
     monkeypatch.setenv('READER_AGENT_KEY', KEY)
     client = _client(tmp_path, repository_store=store)
     model = client.post('/api/llm/models', headers=HEADERS, json={

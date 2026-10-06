@@ -41,7 +41,7 @@ function setup(graphReady = true, workflow?: DocumentationWorkflow) {
         prompt_snapshot: [{kind,version: 1,content: value.units[0].prompt_override ?? 'Active prompt',overridden: Boolean(value.units[0].prompt_override)}],
         token_usage: [{phase:kind,step:'inspection',requests:2,reported_calls:2,input_tokens:1200,output_tokens:300,total_tokens:1500},
           {phase:kind,step:'writing',requests:1,reported_calls:1,input_tokens:600,output_tokens:200,total_tokens:800}],
-        result: { documents: [{id:`${kind}-doc`,version_id:`${kind}-version`,revision:1}],output_folders:[`/work/generated-documents/services/app/${kind}/v1`] } };
+        result: { documents: [{id:`${kind}-doc`,version_id:`${kind}-version`,revision:1}],output_folders:[`/work/data/generated-documents/services/app/${kind}/v1`] } };
     }
     const prompt = prompts.find(p => url === '/api/documentation/prompts/' + p.id);
     const data = saved && url === '/api/documentation/workflows/'+saved.id ? structuredClone(saved) : url === '/api/code-projects' ? { projects: [{ id: 'repo', name: 'Application code', code_index: graphReady ? { source_hash: 'fixture-hash', status: 'ready', stats: { nodeCount: 2, edgeCount: 1 }, unresolved_references: 0 } : null }] } : url === '/api/services' ? { services }

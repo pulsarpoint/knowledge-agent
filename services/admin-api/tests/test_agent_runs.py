@@ -18,7 +18,7 @@ from test_repositories import HEADERS
 @pytest.fixture
 def direct(store, tmp_path, monkeypatch, responses_api):
     monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
     client = _client(tmp_path, repository_store=store)
     profile = create(client, 'Direct specialist')
     model = client.post('/api/llm/models', headers=HEADERS, json={

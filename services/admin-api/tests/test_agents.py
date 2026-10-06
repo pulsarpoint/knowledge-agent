@@ -220,8 +220,7 @@ def test_multiple_servers_have_independent_runbooks_skills_and_mcp(store, saved_
 def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(store, saved_agent, tmp_path, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', '/agent/source')
     monkeypatch.setenv('DATA_ROOT_DIR', '/agent/documents')
-    monkeypatch.setenv('CODE_PATH', '/host/source')
-    monkeypatch.setenv('RG_DATA', '/host/documents')
+    monkeypatch.setenv('DATA_ROOT', '/host/data')  # the host folder is display-only; agents get container paths
     config = get_agent_config('operations', conninfo=store.conninfo)
     monkeypatch.chdir(tmp_path)
     assert get_agent_config('operations', conninfo=store.conninfo) == config

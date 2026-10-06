@@ -75,14 +75,14 @@ def _workspace_client(calls):
             return httpx.Response(200, json={'project_id': 'p'})
         if path.endswith('/documents'):
             return httpx.Response(200, json=[
-                {'collection': 'jira', 'path': 'rag-data/jira/DEMO-1.md', 'description': 'd', 'collection_description': ''},
-                {'collection': 'wiki', 'path': 'rag-data/wiki/a/b.md', 'description': 'd', 'collection_description': ''}])
+                {'collection': 'jira', 'path': 'jira/DEMO-1.md', 'description': 'd', 'collection_description': ''},
+                {'collection': 'wiki', 'path': 'wiki/a/b.md', 'description': 'd', 'collection_description': ''}])
         if path.endswith('/file'):
-            if request.url.params['path'] == 'rag-data/jira/unselected.py':
+            if request.url.params['path'] == 'jira/unselected.py':
                 return httpx.Response(404, json={'error': {'message': 'Document not found'}})
-            return httpx.Response(200, json={'collection': 'jira', 'path': 'rag-data/jira/DEMO-1.md', 'content': '# Demo'})
+            return httpx.Response(200, json={'collection': 'jira', 'path': 'jira/DEMO-1.md', 'content': '# Demo'})
         if path == '/search':
-            return httpx.Response(200, json={'results': [{'collection': 'jira', 'path': 'rag-data/jira/DEMO-1.md', 'text': 'x', 'score': 1}]})
+            return httpx.Response(200, json={'results': [{'collection': 'jira', 'path': 'jira/DEMO-1.md', 'text': 'x', 'score': 1}]})
         raise AssertionError(path)
     return WorkspaceRagClient('http://rag.test', 'k', httpx.MockTransport(handle))
 
@@ -91,34 +91,34 @@ def test_workspace_toc_groups_by_collection(tmp_path):
     client = _client(tmp_path, rag_client=_workspace_client([]))
     body = client.get("/api/shop/toc").json()
     assert [g["group"] for g in body] == ["jira", "wiki"]
-    assert body[0]["docs"][0]["path"] == "jira/rag-data/jira/DEMO-1.md"
+    assert body[0]["docs"][0]["path"] == "jira/jira/DEMO-1.md"
     assert body[0]["docs"][0]["title"] == "DEMO-1.md"
 
 
 def test_workspace_doc_reads_full_path(tmp_path):
     calls = []
     client = _client(tmp_path, rag_client=_workspace_client(calls))
-    body = client.get("/api/shop/doc", params={"path": "jira/rag-data/jira/DEMO-1.md"}).json()
-    assert body["path"] == "jira/rag-data/jira/DEMO-1.md" and body["markdown"] == "# Demo" and body["title"] == "DEMO-1.md"
+    body = client.get("/api/shop/doc", params={"path": "jira/jira/DEMO-1.md"}).json()
+    assert body["path"] == "jira/jira/DEMO-1.md" and body["markdown"] == "# Demo" and body["title"] == "DEMO-1.md"
     last = [c for c in calls if c.url.path.endswith("/file")][-1]
-    assert dict(last.url.params) == {"collection": "jira", "path": "rag-data/jira/DEMO-1.md"}
+    assert dict(last.url.params) == {"collection": "jira", "path": "jira/DEMO-1.md"}
 
 
 def test_workspace_doc_never_serves_hidden_or_unindexed_files(tmp_path):
     calls = []
     client = _client(tmp_path, rag_client=_workspace_client(calls))
-    for path in ("jira/rag-data/jira/.env", "jira/rag-data/jira/.env.local", "jira/rag-data/jira/.git/config",
-                 "jira/rag-data/jira/node_modules/x/README.md"):
+    for path in ("jira/jira/.env", "jira/jira/.env.local", "jira/jira/.git/config",
+                 "jira/jira/node_modules/x/README.md"):
         response = client.get("/api/shop/doc", params={"path": path})
         assert response.status_code == 404, path
     assert not [c for c in calls if c.url.path.endswith("/file")]
-    assert client.get("/api/shop/doc", params={"path": "jira/rag-data/jira/unselected.py"}).status_code == 404
+    assert client.get("/api/shop/doc", params={"path": "jira/jira/unselected.py"}).status_code == 404
 
 
 def test_workspace_search_links_collection_path(tmp_path):
     client = _client(tmp_path, rag_client=_workspace_client([]))
     body = client.get("/api/shop/search", params={"q": "demo"}).json()
-    assert body[0]["path"] == "jira/rag-data/jira/DEMO-1.md"
+    assert body[0]["path"] == "jira/jira/DEMO-1.md"
 
 
 def test_toc_rag_error_returns_502(tmp_path, rag):

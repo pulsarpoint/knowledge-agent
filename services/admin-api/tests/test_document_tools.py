@@ -206,8 +206,8 @@ def test_get_paths_treats_legacy_config_without_grounded_as_ungrounded():
 def test_read_document_passes_full_path(rag):
     calls, _ = rag
     context = run_context(config(collections=[{'name': 'jira', 'description': '', 'paths': []}]))
-    result = invoke(read_document, context, collection='jira', path='rag-data/jira/DEMO-1.md')
-    assert result == '[1] jira/rag-data/jira/DEMO-1.md\nFull retry policy.'
-    assert dict(calls[-1].url.params) == {'collection': 'jira', 'path': 'rag-data/jira/DEMO-1.md'}
-    assert context['grounding']['excerpts'][0]['path'] == 'rag-data/jira/DEMO-1.md'
-    assert invoke(read_document, context, collection='jira', path='rag-data/jira/.env') == 'Document not found.'
+    result = invoke(read_document, context, collection='jira', path='jira/DEMO-1.md')
+    assert result == '[1] jira/jira/DEMO-1.md\nFull retry policy.'
+    assert dict(calls[-1].url.params) == {'collection': 'jira', 'path': 'jira/DEMO-1.md'}
+    assert context['grounding']['excerpts'][0]['path'] == 'jira/DEMO-1.md'
+    assert invoke(read_document, context, collection='jira', path='jira/.env') == 'Document not found.'
