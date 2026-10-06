@@ -4,10 +4,12 @@
 
 **Goal:** An administrator generates one document for one code project with a chosen
 documentation prompt and per-run comments, and saves it into a named documentation folder
-under `GENERATED_DOCS_FOLDER` (`<folder>/<document-slug>/README.md`). PostgreSQL stays the
-source of truth with versions. A new **Docs → Folders** page lists those folders with their
-documents and RAG state, and connects a folder to an existing or new RAG collection (or
-disconnects it) through RAG's existing collection API. Nothing is copied.
+under `GENERATED_DOCS_FOLDER` (`<folder>/<document-slug>/README.md`); the default folder is
+the project's slug plus `-docs`. PostgreSQL stays the source of truth with versions. A new
+**Docs → Folders** page browses those folders, their documents and, read-only, the RAG
+collections that include them, and links to **RAG → Collections**. There, **New
+collection** can now select folders: creating it connects them and queues a sync at once.
+Nothing is copied, and the RAG service is unchanged.
 
 **Architecture:**
 - **Rules (`knowledge_admin/data_root.py`, `knowledge_admin/documents.py`)**:
@@ -33,24 +35,30 @@ disconnects it) through RAG's existing collection API. Nothing is copied.
   `project` through the existing loop, saves a `purpose='code'` document linked to the
   code project in its folder, and exports it there. The generation history gains a
   `scope` filter and `scope`, `document_name`, `folder` fields.
-- **Folders API (`documentation_folders.py`, new)**: `GET /api/documentation/folders`,
-  `GET /api/documentation/folders/{folder}`, `POST …/{folder}/index`,
-  `DELETE …/{folder}/index/{collection_id}` over `RagFiles` (`POST collections`,
-  `POST collections/{id}/paths`, `DELETE collections/{id}/paths/{path_id}`,
-  `POST collections/{id}/sync`, `GET collections?status=false`).
-- **admin-ui**: **New documentation** gets a third scope, **Code project**, which renders
-  `CodeProjectDocumentationForm` (Phase 1 graph gating with the existing
-  `CodeGraphPhase`, code/mixed prompts only, comments, document name, folder with the
-  project name as default, same-name confirmation). The Generate documents page shows the
-  code project runs. A new **Docs → Folders** page (`DocumentationFoldersView`) shows
-  folders, their documents and RAG state, **Index in RAG** and **Disconnect**.
+- **Folders API (`documentation_folders.py`, new, read-only)**: `GET /api/documentation/folders`
+  (folders with document count, code projects, last generated and their RAG folder path)
+  and `GET /api/documentation/folders/{folder}` (its documents). They never call RAG.
+- **admin-ui, documentation**: **New documentation** gets a third scope, **Code project**,
+  which renders `CodeProjectDocumentationForm` (Phase 1 graph gating with the existing
+  `CodeGraphPhase`, code/mixed prompts only, comments, document name, folder defaulting to
+  `<project-slug>-docs`, same-name confirmation). The Generate documents page shows the
+  code project runs. A new **Docs → Folders** page (`DocumentationFoldersView`) browses the
+  folders and their documents and shows, read-only, the collections whose folders include
+  each one (from `GET /api/rag/collections?status=false`), with a link **Index in RAG →
+  Collections** to `/rag/collections?folder=generated-documents/<folder>`.
+- **admin-ui, RAG**: **New collection** (`RagCollectionForm`) gets an optional **Folders**
+  selection built on the existing folder picker (`FolderBrowser`, extracted from
+  `RagFolderPicker`). **Create collection** chains RAG's existing calls: `POST collections`,
+  `POST collections/{id}/paths` per folder, `POST collections/{id}/sync`. If a folder
+  cannot be added, the collection is kept and opened with the error. `?folder=` opens New
+  collection with that folder selected.
 
 **Tech Stack:**
 - PostgreSQL 17 with pgvector, golang-migrate SQL migrations, `db/tests/run.sh`;
 - FastAPI, pydantic v2 and psycopg3 (`services/admin-api`), pytest against a real
   PostgreSQL container (`knowledge-agent-v3-postgres:17.10-vector0.8.6`), `httpx.MockTransport`
   as the fake RAG;
-- React Router 7 with shadcn/ui and Vitest with Testing Library (`services/admin-ui`).
+- React Router 7 with shadcn/ui, Vitest with Testing Library and user-event (`services/admin-ui`).
 
 **Spec:** `docs/superpowers/specs/2026-10-07-project-documentation-design.md` (binding).
 
@@ -61,19 +69,21 @@ disconnects it) through RAG's existing collection API. Nothing is copied.
 - Folder rule text (400 responses, `ValueError`, UI): `A documentation folder is a path such as payments or team/payments: each segment uses letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.`
 - DB check `documents_folder_check`: `length(folder) <= 200 AND folder ~ '^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$' AND folder !~ '(^|/)node_modules(/|$)' AND split_part(folder, '/', 1) <> 'services'`.
 - Slug from the document name: `re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:120].rstrip('-')`; an empty slug is refused (`Enter a document name with letters or digits`). `Payments – API reference` → `payments-api-reference`.
-- Default folder (UI only): `name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 200)`; `Payments API` → `payments-api`.
+- Default folder (UI only, always editable; pick an existing folder or type a new one): the project name as a slug plus `-docs` — `base = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 195).replace(/-+$/, '')`, then `base ? `${base}-docs` : 'docs'`; `Payments API` → `payments-api-docs`. The folder rule still applies to whatever is submitted.
 - Export path: `<DOCUMENT_OUTPUT_ROOT>/<folder>/<slug>/README.md`, plus `architecture-<n>.d2` per D2 block and `metadata.json` (`{"source_commits": …}`) as today. A document without a folder exports to `<DOCUMENT_OUTPUT_ROOT>/<slug>/README.md` as today.
-- RAG collection folder of a documentation folder: `<generated_docs_folder()>/<folder>`, where `generated_docs_folder()` is `DOCUMENT_OUTPUT_ROOT` relative to `DATA_ROOT_DIR` (default `generated-documents`); outside `DATA_ROOT_DIR` → `ValueError('DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR')`.
+- RAG folder of a documentation folder: `<generated_docs_folder()>/<folder>`, where `generated_docs_folder()` is `DOCUMENT_OUTPUT_ROOT` relative to `DATA_ROOT_DIR` (default `generated-documents`); outside `DATA_ROOT_DIR` → `ValueError('DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR')`.
 - Slug uniqueness: constraint `documents_project_id_folder_slug_key UNIQUE NULLS NOT DISTINCT (project_id, folder, slug)` replaces `documents_project_id_slug_key`.
 - Top-level export collision: a folder whose first segment equals a folderless document's slug → 409 `The folder <first> holds the export of the document <first>. Choose another folder.`; a folderless slug equal to an existing folder's first segment → 409 `The slug <slug> is used by a documentation folder. Choose another slug.`
 - Generation input for `scope='code_project'`: `code_project_id`, `prompt_id`, `prompt_version_id` required; `comments` ≤ 20,000 characters, no NUL; `document_name` ≤ 240 characters, trimmed, no NUL; `folder` (folder rule); `update_existing` (default `false`); `code_graph_hashes`, `source_commits` and `model_id` as today. `units`, `workflow_id`, `service_id`, `environment_id`, `code_project_ids`, `server_ids` and `instructions` must be empty. Service and environment scopes refuse every code-project field and still need at least one unit.
 - Generation errors: server-only prompt → 400 `Select an active documentation prompt for code (code or mixed input)`; prompt changed → 409 `The prompt changed. Reload the prompt before generating.`; same name in the same folder without confirming → 409 `A document with this name already exists in this folder. Confirm to save a new version.` (`SAME_DOCUMENT_NAME`, also in `lib/documents.ts`); a queued or running run for the same code project or the same folder and slug → 409 `Documentation for this code project or document is already queued or running`; no or stale graph → 409 with `load_code_graph`'s message.
 - Agent snapshot key `project`: `id: 'documentation-project'`, `name: 'Documentation: code project'`, `system_prompt.content` = active prompt content + `\n\n## Comments for this run\n\n<comments>` when the comments are not blank, `code.enabled: true` with the one project and its graph, `ssh`, `documents`, `mcp`, `skills`, `services` all disabled. Target kind `project`; prompt snapshot kind `project` (with `comments`); generation `instructions` = the comments; `mode` = `update` when confirmed, else `create`. Saved document: `purpose='code'`, `title` = the document name, `code_project_ids` = `[code_project_id]`, `source_commits` = the run's commits, no services, servers, deployments or environments.
-- Folders API: `GET /api/documentation/folders` → `{generated_folder, rag_error, folders: [{folder, document_count, updated_at, source_path, collections: [{id, name, path_id, source_path, inherited}]}]}` (collections sorted by name; `inherited` when a parent folder is the connected path). `GET /api/documentation/folders/{folder}` → `{folder, documents: [{id, slug, title, version, updated_at, last_generated_at, code_projects}]}` or 404 `Documentation folder not found`. `POST …/{folder}/index` with exactly one of `{collection_id}` or `{new_collection: {name}}` (name `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 60) → `{collection_id, name, path_id, source_path, sync_job_id}`. `DELETE …/{folder}/index/{collection_id}` → `{collection_id, source_path}`; 404 `This folder is not connected to that collection` for an unknown or inherited connection. No RAG key or client → 503 `RAG is not configured`; RAG unreachable → 502 `RAG service is unavailable. Retry later.`; RAG's own 4xx (for example overlap 409) is passed through with its message.
-- Index rollback: when connecting or syncing fails, the folder path this request added is removed and a collection this request created is deleted (best effort), so RAG is left as before. A sync 409 (already queued or running) counts as connected, `sync_job_id: null`.
+- Folders API (read-only, never calls RAG): `GET /api/documentation/folders` → `{generated_folder, folders: [{folder, document_count, updated_at, last_generated_at, code_projects, source_path}]}` (`generated_folder`/`source_path` are `null` when `DOCUMENT_OUTPUT_ROOT` is outside `DATA_ROOT_DIR`; `code_projects` are distinct names, sorted). `GET /api/documentation/folders/{folder}` → `{folder, documents: [{id, slug, title, version, updated_at, last_generated_at, code_projects}]}` or 404 `Documentation folder not found`. A bad folder → 400 with the rule text.
+- Folders page RAG state: from `GET /api/rag/collections?status=false`; a collection includes a folder when one of its paths equals `source_path` or is a parent of it (`source_path.startsWith(path + '/')`, shown as `through <path>`); none → **Not indexed**. Each collection links to `/rag/collections/<id>`; each folder links **Index in RAG → Collections** to `/rag/collections?folder=<encodeURIComponent(source_path)>`. No index or disconnect actions on the Docs side.
+- RAG **New collection** with folders: selected folders are normalized (`normalizeFolder`) and unique; **Create collection** sends `POST /api/rag/collections` (settings as today), then `POST /api/rag/collections/<id>/paths {source_path}` per folder in selection order, then `POST /api/rag/collections/<id>/sync {force: false}`; with no folders only the first call is made (as today). A failed folder or sync stops the chain, keeps the collection, and opens `/rag/collections/<id>` with `state.folderError` = `Collection <name> was created, but folder <path> could not be added: <RAG message>. Fix its folders here.` (or `… but its sync could not be queued: …`), shown as a destructive alert on the collection page. `?folder=<path>` opens New collection with `[normalizeFolder(path)]` selected and the name `collectionNameFor(path)` (last segment, lowercase, runs of other characters → `-`, ≤ 60).
 - Generation history `GET /api/documentation/generations` gains `scope` (`service` | `environment` | `code_project`) and the fields `scope`, `document_name`, `folder`.
 - Migration number 0068 (`0068_document_folders`). `db/tests/run.sh` pins the rolled-back version to `67`. The down migration raises `Documents in different folders share a slug; rename or delete them before rolling back 0068` when two documents of a project share a slug.
 - UI: sidebar **Docs** group order Documents · Prompts · Generate documents · Folders (`/documentation/folders`, icon `FolderOpen`); folder pages `/documentation/folders/<folder>`.
+- The RAG service and its API do not change; admin-api gains no RAG calls.
 - Commit trailer: `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
 - Python stays compatible with 3.12.
 
@@ -87,7 +97,7 @@ disconnects it) through RAG's existing collection API. Nothing is copied.
    - Task 1: `test_documentation_folders_follow_the_rag_segment_rule`;
    - Task 2: `test_folder_column_and_per_folder_slug_uniqueness`;
    - Task 4: `test_code_project_input_is_validated`;
-   - Task 6: `test_folder_routes_reject_bad_names_before_calling_rag`.
+   - Task 6: `test_folder_routes_reject_bad_names`.
 2. **The wrong document gets a new version.** Examples: a service generation whose slug
    equals a folder document's slug; the same name in another folder; the same name in the
    same folder without confirming; two documents in different folders blocking a
@@ -110,13 +120,18 @@ disconnects it) through RAG's existing collection API. Nothing is copied.
    - Task 4: `test_code_project_generation_snapshots_the_prompt_comments_and_code_tools_only`;
    - Task 5: `test_code_project_document_is_saved_linked_and_exported_into_its_folder`;
    - Task 5: `test_code_project_document_is_not_saved_when_the_graph_changes_during_the_run`.
-5. **Partial RAG changes.** Examples: a new collection created but the folder never
-   connected; a folder connected but RAG gone before the sync; an overlap with
-   `generated-documents` already in the collection; disconnecting a parent connection
-   that indexes other folders. Each failure leaves RAG's collections and paths as they
-   were; the files on disk stay. Pinned in Task 6:
-   - `test_index_refuses_overlap_and_rag_failures_and_changes_nothing`;
-   - `test_disconnect_removes_only_the_direct_connection_and_keeps_the_files`.
+5. **New collection with folders leaving a half-made or silent state.** Examples: a
+   folder that does not exist or overlaps another selected folder; a sync queued before
+   every folder was connected; the created collection deleted on failure (the admin then
+   loses its settings); an error that disappears when the page changes; a `?folder=`
+   prefill that is not the folder the Docs page meant; a lookalike collection path
+   (`generated-documents/pay`) shown as including `generated-documents/payments`. The chain
+   stops at the first failure, keeps and opens the collection with the error, and never
+   syncs a partial selection. Pinned in:
+   - Task 8: `New collection with folders connects each folder and queues a sync right away`;
+   - Task 8: `a folder that cannot be added keeps the collection and opens it with the error`;
+   - Task 8: `?folder= opens New collection with that folder selected and a name from it`;
+   - Task 9: `folders show their documents, projects and the RAG collections that include them, read-only`.
 
 ## Decisions (where the spec leaves a choice)
 
@@ -156,21 +171,31 @@ disconnects it) through RAG's existing collection API. Nothing is copied.
 - **`services` and top-level collisions are refused.** `<GENERATED_DOCS_FOLDER>/services/`
   holds the service phase exports, and a folderless document `payments` exports to
   `<GENERATED_DOCS_FOLDER>/payments/`; a folder sharing either first segment would mix
-  exports and make **Index in RAG** index unrelated files.
-- **RAG state: connections from admin-api, status from the existing RAG list.** The
-  folders API reads `GET collections?status=false` (cheap, no folder walks) and reports
-  each collection whose path is the folder (`inherited: false`) or a parent of it
-  (`inherited: true`, for example a collection that holds all of `generated-documents`).
-  The page joins live statuses (Up to date, Needs refresh, …) from the existing
-  `GET /api/rag/collections`. Only direct connections can be disconnected. When RAG is
-  down the folder list still loads, with `rag_error` and no connections.
-- **New collection**: name defaults to the folder with runs of other characters turned
-  into `-` (`team/payments` → `team-payments`), validated against RAG's collection name
-  rule before RAG is called; it is created with RAG's default settings (only `name` is
-  sent).
-- **Index rollback** removes what the failed request added (path, then the collection it
-  created, using the revision from the last RAG response). A sync 409 counts as
-  connected.
+  exports, and connecting that folder to a RAG collection would index unrelated files.
+- **Indexing lives in RAG → Collections, not in Docs.** The Docs side only browses and
+  links. RAG's New collection already owns names and settings; adding an optional folder
+  selection there serves every folder under `DATA_ROOT`, not only documentation folders,
+  and needs no new admin-api or RAG route.
+- **The chain runs in the admin UI** over RAG's existing calls (`createCollection`,
+  `addFolder`, `syncCollection`). The sync is queued only after every folder was
+  connected, so a partial selection is never processed. On failure the collection is
+  kept (its settings are not lost) and opened with the error in router state; the admin
+  fixes folders there with the existing Add folder, Remove folder and Refresh.
+- **Folder selection reuses the existing picker.** `FolderBrowser` is the browsing list
+  and **Folder path** field of `RagFolderPicker`, extracted unchanged; the Add folder sheet
+  and the New collection form both use it. The browser mounts only after **Choose a
+  folder**, so creating without folders never lists `DATA_ROOT`.
+- **Read-only RAG state on the Folders page** comes from the UI's existing
+  `getCollectionNames()` (`GET /api/rag/collections?status=false`, no folder walks): a
+  collection includes a folder when a path equals it or is a parent of it (for example a
+  collection that holds all of `generated-documents`). Live status (Up to date, Needs
+  refresh) stays on the collection pages, which each name links to. When RAG is down the
+  folders still list, with a notice.
+- **The `?folder=` prefill** names the collection after the folder's last segment
+  (`generated-documents/payments-api-docs` → `payments-api-docs`); both stay editable.
+- **Default folder `<project-slug>-docs`**: one folder per project by default, named so
+  it reads as documentation next to other folders; the admin can pick an existing folder
+  or type any valid one.
 - **The 0068 rollback refuses shared slugs** instead of renaming documents; dropping the
   folder column is otherwise lossless for documents (they export at the root again).
 
@@ -182,9 +207,11 @@ each task:
 - Task 2's migration must precede Task 3: admin-api tests run every migration and Task 3
   writes `documents.folder`.
 - Tasks 4–5 need Task 3 (`save_document(folder=)`, `export_conflict`, folder exports).
-- Task 6 needs Tasks 1–3. Tasks 7–8 need the response shapes of Tasks 4–6.
+- Task 6 needs Tasks 1–3. Task 7 needs the shapes of Tasks 4 and 6. Task 8 (RAG New
+  collection) needs no backend change. Task 9 needs Tasks 6–8 (the folder API, its types
+  and the `?folder=` prefill).
 
-Each task lists the exact tests to run; Task 9 runs every suite.
+Each task lists the exact tests to run; Task 10 runs every suite.
 
 ---
 
@@ -1262,7 +1289,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Folders API — list, open, index in RAG and disconnect
+### Task 6: Folders API — list folders and open one (read-only, no RAG calls)
 
 **Files:**
 - Create: `services/admin-api/src/knowledge_admin/documentation_folders.py`
@@ -1271,90 +1298,24 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Task 1's `documentation_folder`, `FOLDER_RULE`, `generated_docs_folder`;
-  Task 2's `documents.folder`; `knowledge_admin.rag_files.RagFiles`.
-- Produces: the four routes and response shapes in the Global Constraints.
+  Task 2's `documents.folder`.
+- Produces: `GET /api/documentation/folders` and `GET /api/documentation/folders/{folder}`
+  with the response shapes in the Global Constraints. Neither route calls RAG.
 
 - [ ] **Step 1: Write the failing tests**
 
 Create `services/admin-api/tests/test_documentation_folders.py`:
 
 ```python
-"""Documentation folders: listed from the database, connected in RAG through RAG's own collection API."""
-import json
-import re
+"""Documentation folders: listed from the database for browsing; indexing happens in RAG → Collections."""
 from uuid import uuid4
 
-import httpx
 import pytest
 
 from knowledge_admin.data_root import FOLDER_RULE
 from knowledge_admin.documents import DocumentInput, save_document
 from test_api import _client
 from test_repositories import HEADERS
-
-
-class FakeRag:
-    """RAG's collection API in memory. `down` fails every request; `fail` maps a regex over 'METHOD resource' to
-    'down' (connection error) or an HTTP status."""
-
-    def __init__(self):
-        self.collections: dict[str, dict] = {}
-        self.calls: list[str] = []
-        self.down = False
-        self.fail: dict[str, str | int] = {}
-
-    def add(self, name: str, *paths: str) -> str:
-        collection_id = str(uuid4())
-        self.collections[collection_id] = {'id': collection_id, 'name': name, 'revision': 1,
-                                           'paths': [{'id': str(uuid4()), 'source_path': p} for p in paths]}
-        return collection_id
-
-    def state(self) -> dict:
-        return {c['name']: sorted(p['source_path'] for p in c['paths']) for c in self.collections.values()}
-
-    def __call__(self, request: httpx.Request) -> httpx.Response:
-        assert request.headers['x-rag-key'] == 'rag-folder-key'
-        resource = request.url.path.split('/projects/', 1)[1].split('/', 1)[1]
-        call = f'{request.method} {resource}'
-        self.calls.append(call)
-        for pattern, outcome in self.fail.items():
-            if re.fullmatch(pattern, call):
-                if outcome == 'down':
-                    raise httpx.ConnectError('down')
-                return httpx.Response(outcome, json={'error': {'message': f'{call} failed'}})
-        if self.down:
-            raise httpx.ConnectError('down')
-        if call == 'GET collections':
-            assert request.url.params['status'] == 'false'
-            return httpx.Response(200, json={'collections': list(self.collections.values())})
-        body = json.loads(request.content) if request.content else None
-        if call == 'POST collections':
-            assert set(body) == {'name'}  # RAG's default settings
-            if any(c['name'] == body['name'] for c in self.collections.values()):
-                return httpx.Response(409, json={'error': {'message': f"Collection {body['name']} already exists"}})
-            return httpx.Response(201, json=self.collections[self.add(body['name'])])
-        parts = resource.split('/')
-        collection = self.collections[parts[1]]
-        if request.method == 'POST' and parts[2:] == ['paths']:
-            new = body['source_path']
-            for path in collection['paths']:
-                old = path['source_path']
-                if old == new or new.startswith(old + '/') or old.startswith(new + '/'):
-                    return httpx.Response(409, json={'error': {'message': f"Folder overlaps {old} in collection {collection['name']}"}})
-            collection['paths'].append({'id': str(uuid4()), 'source_path': new})
-            collection['revision'] += 1
-            return httpx.Response(200, json=collection)
-        if request.method == 'DELETE' and parts[2:3] == ['paths']:
-            collection['paths'] = [p for p in collection['paths'] if p['id'] != parts[3]]
-            collection['revision'] += 1
-            return httpx.Response(200, json=collection)
-        if request.method == 'POST' and parts[2:] == ['sync']:
-            return httpx.Response(202, json={'id': str(uuid4())})
-        if request.method == 'DELETE' and len(parts) == 2:
-            assert request.url.params['confirmed'] == 'true' and int(request.url.params['revision']) == collection['revision']
-            del self.collections[parts[1]]
-            return httpx.Response(200, json={'deleted_files': 0})
-        raise AssertionError(call)
 
 
 @pytest.fixture
@@ -1364,8 +1325,6 @@ def folders(store, tmp_path, monkeypatch):
     output.mkdir(parents=True)
     monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path / 'data'))
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(output))
-    monkeypatch.setenv('RAG_BACKOFFICE_KEY', 'rag-folder-key')
-    rag = FakeRag()
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         repo = uuid4()
@@ -1373,155 +1332,51 @@ def folders(store, tmp_path, monkeypatch):
         for slug, folder in (('api-reference', 'payments'), ('runbook', 'payments'), ('api-reference', 'team/payments'), ('handbook', None)):
             save_document(conn, project, None, DocumentInput(slug=slug, title=slug.replace('-', ' ').capitalize(),
                           markdown='# ' + slug, code_project_ids=[repo]), folder=folder)
-    with httpx.Client(base_url='http://rag.test', transport=httpx.MockTransport(rag)) as backend:
-        yield _client(tmp_path, repository_store=store, backoffice_client=backend), rag, output
+    return _client(tmp_path, repository_store=store)
 
 
-def test_folders_list_documents_and_the_collections_that_index_them(folders):
-    client, rag, _ = folders
-    direct = rag.add('payments-docs', 'generated-documents/payments')
-    everything = rag.add('all-docs', 'generated-documents')
-    rag.add('jira', 'jira')
-    body = client.get('/api/documentation/folders', headers=HEADERS).json()
-    assert body['generated_folder'] == 'generated-documents' and body['rag_error'] is None
-    assert [(f['folder'], f['document_count'], f['source_path']) for f in body['folders']] == [
-        ('payments', 2, 'generated-documents/payments'), ('team/payments', 1, 'generated-documents/team/payments')]
-    payments, team = body['folders']
-    assert [(c['id'], c['source_path'], c['inherited']) for c in payments['collections']] == [
-        (everything, 'generated-documents', True), (direct, 'generated-documents/payments', False)]
-    assert [(c['name'], c['inherited']) for c in team['collections']] == [('all-docs', True)]
-    detail = client.get('/api/documentation/folders/team/payments', headers=HEADERS).json()
+def test_folders_list_their_documents_projects_and_rag_folder(folders, monkeypatch):
+    body = folders.get('/api/documentation/folders', headers=HEADERS).json()
+    assert body['generated_folder'] == 'generated-documents'
+    assert [(f['folder'], f['document_count'], f['code_projects'], f['last_generated_at'], f['source_path'])
+            for f in body['folders']] == [
+        ('payments', 2, ['Payments API'], None, 'generated-documents/payments'),
+        ('team/payments', 1, ['Payments API'], None, 'generated-documents/team/payments')]
+    detail = folders.get('/api/documentation/folders/team/payments', headers=HEADERS).json()
+    assert detail['folder'] == 'team/payments'
     assert [(d['slug'], d['title'], d['code_projects'], d['last_generated_at']) for d in detail['documents']] == [
         ('api-reference', 'Api reference', ['Payments API'], None)]
-    assert client.get('/api/documentation/folders/missing', headers=HEADERS).status_code == 404
-    rag.down = True
-    degraded = client.get('/api/documentation/folders', headers=HEADERS).json()
-    assert degraded['rag_error'] == 'RAG service is unavailable. Retry later.'
-    assert [f['collections'] for f in degraded['folders']] == [[], []]
-
-
-def test_index_connects_an_existing_or_new_collection_and_queues_a_sync(folders):
-    client, rag, _ = folders
-    handbook = rag.add('handbook', 'docs/handbook')
-    response = client.post('/api/documentation/folders/payments/index', headers=HEADERS, json={'collection_id': handbook})
-    assert response.status_code == 200, response.text
-    assert response.json()['source_path'] == 'generated-documents/payments' and response.json()['sync_job_id']
-    created = client.post('/api/documentation/folders/team/payments/index', headers=HEADERS,
-                          json={'new_collection': {'name': 'team-payments'}})
-    assert created.status_code == 200, created.text
-    assert created.json()['name'] == 'team-payments'
-    assert rag.state() == {'handbook': ['docs/handbook', 'generated-documents/payments'],
-                           'team-payments': ['generated-documents/team/payments']}
-    assert [c for c in rag.calls if c.endswith('/sync')] == [
-        f'POST collections/{handbook}/sync', f"POST collections/{created.json()['collection_id']}/sync"]
-    before = list(rag.calls)
-    for body in ({'new_collection': {'name': 'Team Payments'}}, {}, {'collection_id': handbook, 'new_collection': {'name': 'x'}}):
-        assert client.post('/api/documentation/folders/payments/index', headers=HEADERS, json=body).status_code == 400
-    assert rag.calls == before
-    rag.fail['POST collections/[^/]+/sync'] = 409  # a sync is already queued: the folder stays connected
-    queued = client.post('/api/documentation/folders/payments/index', headers=HEADERS, json={'new_collection': {'name': 'payments'}})
-    assert queued.status_code == 200 and queued.json()['sync_job_id'] is None
-    assert rag.state()['payments'] == ['generated-documents/payments']
-
-
-def test_index_refuses_overlap_and_rag_failures_and_changes_nothing(folders):
-    client, rag, _ = folders
-    everything = rag.add('all-docs', 'generated-documents')
-    overlap = client.post('/api/documentation/folders/payments/index', headers=HEADERS, json={'collection_id': everything})
-    assert overlap.status_code == 409
-    assert overlap.json()['error']['message'] == 'Folder overlaps generated-documents in collection all-docs'
-    assert rag.state() == {'all-docs': ['generated-documents']}
-    rag.down = True
-    down = client.post('/api/documentation/folders/payments/index', headers=HEADERS, json={'new_collection': {'name': 'payments'}})
-    assert down.status_code == 502 and down.json()['error']['message'] == 'RAG service is unavailable. Retry later.'
-    rag.down = False
-    assert rag.state() == {'all-docs': ['generated-documents']}
-    rag.fail['POST collections/[^/]+/sync'] = 'down'  # RAG goes away after the folder was connected
-    handbook = rag.add('handbook', 'docs/handbook')
-    for body in ({'new_collection': {'name': 'payments'}}, {'collection_id': handbook}):
-        assert client.post('/api/documentation/folders/payments/index', headers=HEADERS, json=body).status_code == 502
-    assert rag.state() == {'all-docs': ['generated-documents'], 'handbook': ['docs/handbook']}
-
-
-def test_disconnect_removes_only_the_direct_connection_and_keeps_the_files(folders):
-    client, rag, output = folders
-    direct = rag.add('payments-docs', 'generated-documents/payments', 'jira')
-    everything = rag.add('all-docs', 'generated-documents')
-    (output / 'payments' / 'runbook').mkdir(parents=True)
-    (output / 'payments' / 'runbook' / 'README.md').write_text('# runbook')
-    inherited = client.delete(f'/api/documentation/folders/payments/index/{everything}', headers=HEADERS)
-    assert inherited.status_code == 404
-    assert inherited.json()['error']['message'] == 'This folder is not connected to that collection'
-    response = client.delete(f'/api/documentation/folders/payments/index/{direct}', headers=HEADERS)
-    assert response.status_code == 200, response.text
-    assert rag.state() == {'payments-docs': ['jira'], 'all-docs': ['generated-documents']}
-    assert (output / 'payments' / 'runbook' / 'README.md').read_text() == '# runbook'
-    rag.down = True
-    assert client.delete(f'/api/documentation/folders/payments/index/{direct}', headers=HEADERS).status_code == 502
+    assert folders.get('/api/documentation/folders/missing', headers=HEADERS).status_code == 404
+    # Without a RAG path for the export folder the folders are still listed.
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/elsewhere/generated-documents')
+    elsewhere = folders.get('/api/documentation/folders', headers=HEADERS).json()
+    assert elsewhere['generated_folder'] is None and [f['source_path'] for f in elsewhere['folders']] == [None, None]
 
 
 @pytest.mark.parametrize('folder', ['.hidden', 'team/.git', 'a%20b', 'team/node_modules', 'services/payments', 'x' * 201])
-def test_folder_routes_reject_bad_names_before_calling_rag(folders, folder):
-    client, rag, _ = folders
-    collection = rag.add('handbook')
-    for method, path, body in (('GET', '', None), ('POST', '/index', {'collection_id': collection}),
-                               ('DELETE', f'/index/{collection}', None)):
-        response = client.request(method, f'/api/documentation/folders/{folder}{path}', headers=HEADERS, json=body)
-        assert response.status_code == 400 and response.json()['error']['message'] == FOLDER_RULE
-    assert rag.calls == []
+def test_folder_routes_reject_bad_names(folders, folder):
+    response = folders.get(f'/api/documentation/folders/{folder}', headers=HEADERS)
+    assert response.status_code == 400 and response.json()['error']['message'] == FOLDER_RULE
 
 
-def test_index_needs_a_known_folder_and_a_configured_rag(folders, monkeypatch):
-    client, rag, _ = folders
-    unknown = client.post('/api/documentation/folders/unknown/index', headers=HEADERS, json={'new_collection': {'name': 'unknown'}})
-    assert unknown.status_code == 404
-    monkeypatch.delenv('RAG_BACKOFFICE_KEY')
-    response = client.post('/api/documentation/folders/payments/index', headers=HEADERS, json={'new_collection': {'name': 'payments'}})
-    assert response.status_code == 503 and response.json()['error']['message'] == 'RAG is not configured'
-    assert client.get('/api/documentation/folders', headers=HEADERS).json()['rag_error'] == 'RAG is not configured'
-    assert rag.calls == []
+def test_folders_require_admin(folders):
+    assert folders.get('/api/documentation/folders').status_code == 403
 ```
 
 - [ ] **Step 2: Run the tests and confirm they fail**
 
 Run: `cd services/admin-api && uv run --frozen pytest tests/test_documentation_folders.py -q`
-Expected: FAIL with 404 for every `/api/documentation/folders` route.
+Expected: FAIL with 404 for every `/api/documentation/folders` route (the 403 test passes).
 
 - [ ] **Step 3: Create `services/admin-api/src/knowledge_admin/documentation_folders.py`**
 
 ```python
-"""Documentation folders under GENERATED_DOCS_FOLDER and their RAG connections, through RAG's own API; nothing is copied."""
-import os
-from contextlib import suppress
-from uuid import UUID
+"""Documentation folders under GENERATED_DOCS_FOLDER, for browsing. Indexing happens in RAG → Collections; these routes
+never call RAG."""
+from fastapi import APIRouter, HTTPException
 
-import httpx
-from fastapi import APIRouter, HTTPException, Request
-from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import FOLDER_RULE, documentation_folder, generated_docs_folder
-from knowledge_admin.rag_files import RagFiles
 from knowledge_admin.repositories import RepositoryStore
-
-
-class NewCollection(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    name: str = Field(max_length=60, pattern=r'^[a-z0-9]+(-[a-z0-9]+)*$')
-
-
-class IndexInput(BaseModel):
-    """Connect a folder to an existing collection, or to a new one created with RAG's default settings."""
-    model_config = ConfigDict(extra='forbid')
-    collection_id: UUID | None = None
-    new_collection: NewCollection | None = None
-
-    @model_validator(mode='after')
-    def one_target(self):
-        if (self.collection_id is None) == (self.new_collection is None):
-            raise ValueError('Choose an existing collection or name a new one')
-        return self
 
 
 def valid_folder(folder: str) -> str:
@@ -1531,32 +1386,7 @@ def valid_folder(folder: str) -> str:
         raise HTTPException(400, FOLDER_RULE) from None
 
 
-def source_path(folder: str) -> str:
-    """The folder as a RAG collection path, relative to DATA_ROOT."""
-    try:
-        return f'{generated_docs_folder()}/{folder}'
-    except ValueError as error:
-        raise HTTPException(503, str(error)) from None
-
-
-def connections(listing: dict, source: str) -> list[dict]:
-    """Collections that index `source`: through its own path, or through a connected parent folder (inherited)."""
-    rows = [{'id': c['id'], 'name': c['name'], 'path_id': p['id'], 'source_path': p['source_path'],
-             'inherited': p['source_path'] != source}
-            for c in listing.get('collections', []) for p in c.get('paths', [])
-            if p['source_path'] == source or source.startswith(p['source_path'] + '/')]
-    return sorted(rows, key=lambda row: (row['name'], row['source_path']))
-
-
-def undo(client: RagFiles, collection_id: str, path_id: str | None, created: dict | None) -> None:
-    """Best effort after a failed index: remove the folder this request connected and the collection it created."""
-    with suppress(HTTPException):
-        current = client.request('DELETE', f'collections/{collection_id}/paths/{path_id}') if path_id else created
-        if created is not None:
-            client.request('DELETE', f'collections/{collection_id}', params={'revision': current['revision'], 'confirmed': 'true'})
-
-
-def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: httpx.Client | None) -> APIRouter:
+def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation/folders')
 
     def database() -> RepositoryStore:
@@ -1564,84 +1394,26 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
             raise HTTPException(503, 'Document storage is not configured')
         return store
 
-    def rag(project: UUID, actor: UUID | None) -> RagFiles:
-        key = os.environ.get('RAG_BACKOFFICE_KEY')
-        if backoffice_client is None or not key:
-            raise HTTPException(503, 'RAG is not configured')
-        return RagFiles(backoffice_client, key, project, actor)
-
-    def audit(project: UUID, actor: UUID, action: str, collection_id: str, source: str) -> None:
-        with database().connect() as conn:
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,%s,'rag_collection',%s,%s)''', (project, actor, action, UUID(collection_id), Jsonb({'source_path': source})))
-
     @router.get('')
     def listing() -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app_name)
-            rows = conn.execute('''SELECT folder, count(*) AS document_count, max(updated_at) AS updated_at
-                FROM ka.documents WHERE project_id=%s AND folder IS NOT NULL GROUP BY folder ORDER BY folder''', (project,)).fetchall()
+            rows = conn.execute('''SELECT f.folder, f.document_count, f.updated_at,
+                (SELECT max(v.created_at) FROM ka.documents d JOIN ka.document_versions v ON v.document_id=d.id
+                    WHERE d.project_id=%s AND d.folder=f.folder AND v.origin='generated') AS last_generated_at,
+                COALESCE((SELECT array_agg(DISTINCT r.name ORDER BY r.name) FROM ka.documents d
+                    JOIN ka.document_code_projects l ON l.document_id=d.id JOIN ka.repositories r ON r.id=l.code_project_id
+                    WHERE d.project_id=%s AND d.folder=f.folder),'{}') AS code_projects
+                FROM (SELECT folder, count(*) AS document_count, max(updated_at) AS updated_at FROM ka.documents
+                    WHERE project_id=%s AND folder IS NOT NULL GROUP BY folder) f ORDER BY f.folder''',
+                (project, project, project)).fetchall()
         try:
-            generated, rag_error = generated_docs_folder(), None
-        except ValueError as error:
-            generated, rag_error = None, str(error)
-        found = {'collections': []}
-        if generated is not None:
-            try:
-                found = rag(project, None).request('GET', 'collections', params={'status': 'false'})
-            except HTTPException as error:
-                rag_error = str(error.detail)
-        return {'generated_folder': generated, 'rag_error': rag_error, 'folders': [
-            {**row, 'source_path': f'{generated}/{row["folder"]}' if generated else None,
-             'collections': connections(found, f'{generated}/{row["folder"]}') if generated else []} for row in rows]}
-
-    @router.post('/{folder:path}/index')
-    def index(folder: str, value: IndexInput, request: Request) -> dict:
-        folder = valid_folder(folder)
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            actor = db.actor(conn, *request_actor(request))
-            if conn.execute('SELECT 1 FROM ka.documents WHERE project_id=%s AND folder=%s LIMIT 1', (project, folder)).fetchone() is None:
-                raise HTTPException(404, 'Documentation folder not found')
-        source = source_path(folder)
-        client = rag(project, actor)
-        created = client.request('POST', 'collections', json={'name': value.new_collection.name}) if value.new_collection else None
-        collection_id = created['id'] if created else str(value.collection_id)
-        path_id = None
-        try:
-            summary = client.request('POST', f'collections/{collection_id}/paths', json={'source_path': source})
-            path_id = next(p['id'] for p in summary['paths'] if p['source_path'] == source)
-            try:
-                job = client.request('POST', f'collections/{collection_id}/sync', json={'force': False})
-            except HTTPException as error:
-                if error.status_code != 409:
-                    raise
-                job = None  # A sync is already queued or running for this collection.
-        except HTTPException:
-            undo(client, collection_id, path_id, created)
-            raise
-        audit(project, actor, 'documentation.folder_indexed', collection_id, source)
-        return {'collection_id': collection_id, 'name': summary['name'], 'path_id': path_id, 'source_path': source,
-                'sync_job_id': job['id'] if job else None}
-
-    @router.delete('/{folder:path}/index/{collection_id}')
-    def disconnect(folder: str, collection_id: UUID, request: Request) -> dict:
-        folder = valid_folder(folder)
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            actor = db.actor(conn, *request_actor(request))
-        source = source_path(folder)
-        client = rag(project, actor)
-        listed = client.request('GET', 'collections', params={'status': 'false'})
-        direct = next((row for row in connections(listed, source) if row['id'] == str(collection_id) and not row['inherited']), None)
-        if direct is None:
-            raise HTTPException(404, 'This folder is not connected to that collection')
-        client.request('DELETE', f'collections/{collection_id}/paths/{direct["path_id"]}')
-        audit(project, actor, 'documentation.folder_disconnected', str(collection_id), source)
-        return {'collection_id': str(collection_id), 'source_path': source}
+            generated = generated_docs_folder()
+        except ValueError:
+            generated = None  # the export folder is outside DATA_ROOT: RAG cannot see it
+        return {'generated_folder': generated, 'folders': [
+            {**row, 'source_path': f'{generated}/{row["folder"]}' if generated else None} for row in rows]}
 
     @router.get('/{folder:path}')
     def folder_documents(folder: str) -> dict:
@@ -1666,12 +1438,12 @@ Add `documentation_folders` to the `from knowledge_admin import …` line, and a
 `router.include_router(documentation_prompts.build_api(app_name, repository_store))` add:
 
 ```python
-    router.include_router(documentation_folders.build_api(app_name, repository_store, backoffice_client))
+    router.include_router(documentation_folders.build_api(app_name, repository_store))
 ```
 
 - [ ] **Step 5: Run the tests and confirm they pass**
 
-Run: `cd services/admin-api && uv run --frozen pytest tests/test_documentation_folders.py tests/test_api.py tests/test_rag.py -q`
+Run: `cd services/admin-api && uv run --frozen pytest tests/test_documentation_folders.py tests/test_api.py tests/test_documents.py -q`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -1679,7 +1451,7 @@ Expected: PASS.
 ```bash
 git add services/admin-api/src/knowledge_admin/documentation_folders.py services/admin-api/src/knowledge_admin/api.py \
   services/admin-api/tests/test_documentation_folders.py
-git commit -m "feat(admin-api): documentation folders with their documents, Index in RAG and Disconnect
+git commit -m "feat(admin-api): browse documentation folders and their documents
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1699,11 +1471,10 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: Task 4's input and history fields; Task 6's `GET /api/documentation/folders`.
 - Produces, in `lib/documents.ts`: `SAME_DOCUMENT_NAME`, `FOLDER_RULE`, `folderError`,
-  `documentSlug`, `defaultFolder`, `collectionName`, `CodeProjectGenerationInput`,
+  `documentSlug`, `defaultFolder`, `CodeProjectGenerationInput`,
   `generateDocumentation(value: GenerationInput | CodeProjectGenerationInput)`, folder types
-  (`FolderConnection`, `DocumentationFolder`, `DocumentationFolders`, `FolderDocument`) and
-  `getDocumentationFolders`, `getDocumentationFolder`, `indexDocumentationFolder`,
-  `disconnectDocumentationFolder` (Task 8 uses the last three);
+  (`DocumentationFolder`, `DocumentationFolders`, `FolderDocument`) and
+  `getDocumentationFolders`, `getDocumentationFolder` (Task 9 uses them);
   `DocumentationGenerationsView({ workflowId?, scope?, title? })`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1743,8 +1514,9 @@ function setup({ graphReady = false, sameName = false } = {}) {
       '/api/code-projects': { projects: [{ id: 'repo', name: 'Payments API', code_index: graphReady
         ? { source_hash: 'graph-hash', status: 'ready', stats: { nodeCount: 2, edgeCount: 1 }, unresolved_references: 0 } : null }] },
       '/api/documentation/prompts': { prompts },
-      '/api/documentation/folders': { generated_folder: 'generated-documents', rag_error: null, folders: [
-        { folder: 'payments', source_path: 'generated-documents/payments', document_count: 1, updated_at: '2026-10-07T10:00:00Z', collections: [] }] },
+      '/api/documentation/folders': { generated_folder: 'generated-documents', folders: [
+        { folder: 'payments', source_path: 'generated-documents/payments', document_count: 1, updated_at: '2026-10-07T10:00:00Z',
+          last_generated_at: null, code_projects: ['Payments API'] }] },
     };
     return json(200, bodies[url] ?? { generations: [], workflows: [] });
   });
@@ -1761,11 +1533,12 @@ async function select(label: string, option: string) {
 }
 
 test('code project is a third choice that generates one document into a folder after Phase 1', async () => {
+  // The folder defaults to the project's slug plus -docs and stays editable.
   const { posts } = setup();
   await select('Scope', 'Code project');
   expect(screen.queryByRole('button', { name: 'Create workflow' })).toBeNull();
   await select('Code project', 'Payments API');
-  expect(screen.getByLabelText('Documentation folder')).toHaveValue('payments-api');
+  expect(screen.getByLabelText('Documentation folder')).toHaveValue('payments-api-docs');
   await select('Prompt', 'Code analysis and architecture');
   fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'Payments – API reference' } });
   fireEvent.change(screen.getByLabelText('Comments'), { target: { value: 'Focus on refunds.' } });
@@ -1813,7 +1586,7 @@ test('the same name in the same folder asks before saving a new version', async 
   fireEvent.click(screen.getByRole('button', { name: 'Save new version' }));
   expect(await screen.findByText('Generation history page')).toBeInTheDocument();
   expect(posts.map(p => p.update_existing)).toEqual([false, true]);
-  expect(posts[1]).toMatchObject({ folder: 'payments-api', document_name: 'Payments – API reference' });
+  expect(posts[1]).toMatchObject({ folder: 'payments-api-docs', document_name: 'Payments – API reference' });
 });
 
 test('the generate documents page lists code project runs with their document name and folder', async () => {
@@ -1852,25 +1625,22 @@ export function folderError(folder: string) {
   return folder.length > 200 || parts.some(part => !FOLDER_SEGMENT.test(part) || part === 'node_modules') || parts[0] === 'services' ? FOLDER_RULE : '';
 }
 export const documentSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120).replace(/-+$/, '');
-export const defaultFolder = (name: string) => name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 200);
-export const collectionName = (folder: string) => folder.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
+/** The default documentation folder for a code project: its name as a slug plus -docs ("Payments API" → "payments-api-docs"). */
+export function defaultFolder(name: string) {
+  const base = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 195).replace(/-+$/, '');
+  return base ? `${base}-docs` : 'docs';
+}
 
 export interface CodeProjectGenerationInput {
   scope: 'code_project'; model_id: string; code_project_id: string; prompt_id: string; prompt_version_id: string;
   code_graph_hashes: Record<string, string>; comments: string; document_name: string; folder: string; update_existing: boolean;
 }
-export interface FolderConnection { id: string; name: string; path_id: string; source_path: string; inherited: boolean }
-export interface DocumentationFolder { folder: string; source_path: string | null; document_count: number; updated_at: string; collections: FolderConnection[] }
-export interface DocumentationFolders { generated_folder: string | null; rag_error: string | null; folders: DocumentationFolder[] }
+export interface DocumentationFolder { folder: string; document_count: number; updated_at: string; last_generated_at: string | null; code_projects: string[]; source_path: string | null }
+export interface DocumentationFolders { generated_folder: string | null; folders: DocumentationFolder[] }
 export interface FolderDocument { id: string; slug: string; title: string; version: number; updated_at: string; last_generated_at: string | null; code_projects: string[] }
 const folderUrl = (folder: string) => `/api/documentation/folders/${folder.split('/').map(encodeURIComponent).join('/')}`;
 export const getDocumentationFolders = (signal?: AbortSignal) => request<DocumentationFolders>('/api/documentation/folders', { signal });
 export const getDocumentationFolder = (folder: string, signal?: AbortSignal) => request<{ folder: string; documents: FolderDocument[] }>(folderUrl(folder), { signal });
-export const indexDocumentationFolder = (folder: string, target: { collection_id: string } | { new_collection: { name: string } }) =>
-  request<{ collection_id: string; name: string; path_id: string; source_path: string; sync_job_id: string | null }>(`${folderUrl(folder)}/index`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(target) });
-export const disconnectDocumentationFolder = (folder: string, collectionId: string) =>
-  request<{ collection_id: string; source_path: string }>(`${folderUrl(folder)}/index/${collectionId}`, { method: 'DELETE' });
 ```
 
 Change `generateDocumentation`'s parameter to `value: GenerationInput | CodeProjectGenerationInput`,
@@ -1975,7 +1745,7 @@ export default function CodeProjectDocumentationForm({ modelId, onQueued }: { mo
       <Field><FieldLabel htmlFor="project-doc-name">Document name</FieldLabel><Input id="project-doc-name" maxLength={240} value={name} onChange={e => setName(e.target.value)} placeholder="Payments – API reference" />{name && !documentSlug(name) && <FieldDescription className="text-destructive">Use letters or digits in the name.</FieldDescription>}</Field>
       <Field><FieldLabel htmlFor="project-doc-folder">Documentation folder</FieldLabel><Input id="project-doc-folder" list="documentation-folders" maxLength={200} value={folder} onChange={e => { setFolderTouched(true); setFolder(e.target.value.trim()); }} placeholder="payments or team/payments" />
         <datalist id="documentation-folders">{data.folders.map(f => <option key={f} value={f} />)}</datalist>
-        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `Saved as ${folder || '<folder>'}/${documentSlug(name) || '<document>'}/README.md in the generated documents folder. Pick an existing folder or type a new one.`}</FieldDescription></Field>
+        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `Saved as ${folder || '<folder>'}/${documentSlug(name) || '<document>'}/README.md in the generated documents folder. The default is the project name plus -docs; pick an existing folder or type a new one. Make it searchable in RAG → Collections.`}</FieldDescription></Field>
       {projectId && !graphHashes[projectId] && <FieldDescription>Generate the code graph before generating the document.</FieldDescription>}
     </fieldset>
     {error && <Alert variant="destructive"><AlertDescription>{error}{error.includes('Reload the prompt') && prompt && <Button type="button" variant="link" onClick={() => void selectPrompt(prompt.id)}>Reload prompt</Button>}</AlertDescription></Alert>}
@@ -2036,7 +1806,250 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 8: admin-ui — Docs → Folders with Index in RAG and Disconnect
+### Task 8: admin-ui — RAG New collection with folders, synced right away; `?folder=` prefill
+
+**Files:**
+- Modify: `services/admin-ui/app/components/RagFolderPicker.tsx` (extract `FolderBrowser`)
+- Modify: `services/admin-ui/app/components/RagCollectionForm.tsx`
+- Modify: `services/admin-ui/app/components/RagCollectionsView.tsx`
+- Modify: `services/admin-ui/app/components/RagCollectionDetail.tsx`
+- Modify: `services/admin-ui/app/lib/rag.ts` (add `collectionNameFor`)
+- Modify: `services/admin-ui/app/components/__tests__/ragCollections.test.tsx`
+
+**Interfaces:**
+- Consumes: RAG's existing `POST collections`, `POST collections/{id}/paths`,
+  `POST collections/{id}/sync` through `/api/rag/…` (`createCollection`, `addFolder`,
+  `syncCollection` in `lib/rag.ts`). The RAG service and admin-api do not change.
+- Produces: `FolderBrowser({ value, onChange })` (exported from `RagFolderPicker.tsx`);
+  `RagCollectionForm` props `initialName?: string`, `initialFolders?: string[]`,
+  `onSaved(saved: { id: string }, problem?: string)`; `collectionNameFor(folder: string): string`;
+  `/rag/collections?folder=<path>` opens New collection with that folder selected and the
+  name prefilled; `RagCollectionDetail` shows `location.state.folderError`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `services/admin-ui/app/components/__tests__/ragCollections.test.tsx`, add `useLocation`
+to the `react-router` import and append:
+
+```tsx
+function Opened() {
+  const location = useLocation();
+  return <div>detail page {(location.state as { folderError?: string } | null)?.folderError ?? ""}</div>;
+}
+function creating(failPaths = false) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/rag/folders")) return Response.json({ path: null, truncated: false,
+      folders: url === "/api/rag/folders" ? [{ name: "jira", path: "jira" }] : [] });
+    if (init?.method === "POST" && url === "/api/rag/collections") return Response.json({ ...base, id: "c9", name: "payments-api-docs", paths: [] }, { status: 201 });
+    if (init?.method === "POST" && url.endsWith("/paths")) return failPaths
+      ? Response.json({ error: { message: "Folder does not exist" } }, { status: 409 })
+      : Response.json({ ...base, id: "c9", paths: [] });
+    if (init?.method === "POST" && url.endsWith("/sync")) return Response.json({ id: "job" }, { status: 202 });
+    return Response.json({ collections: [] });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+function collectionsAt(entry: string) {
+  render(<MemoryRouter initialEntries={[entry]}><Routes>
+    <Route path="/rag/collections" element={<RagCollectionsView />} />
+    <Route path="/rag/collections/:id" element={<Opened />} /></Routes></MemoryRouter>);
+}
+const writes = (fetchMock: ReturnType<typeof creating>) => fetchMock.mock.calls
+  .filter(([, init]) => init?.method && init.method !== "GET")
+  .map(([url, init]) => [init!.method, url, JSON.parse(init!.body as string)]);
+
+test("New collection with folders connects each folder and queues a sync right away", async () => {
+  const fetchMock = creating();
+  const user = userEvent.setup();
+  collectionsAt("/rag/collections");
+  await user.click(await screen.findByRole("button", { name: "New collection" }));
+  await user.type(screen.getByLabelText("Name"), "payments-api-docs");
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.click(await screen.findByRole("button", { name: "jira" }));
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.type(screen.getByLabelText("Folder path"), "generated-documents/payments-api-docs");
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Remove jira" }));
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.click(await screen.findByRole("button", { name: "jira" }));
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Create collection" }));
+  expect(await screen.findByText("detail page")).toBeInTheDocument();
+  expect(writes(fetchMock).map(([method, url, body]) => url === "/api/rag/collections" ? [method, url, body.name] : [method, url, body])).toEqual([
+    ["POST", "/api/rag/collections", "payments-api-docs"],
+    ["POST", "/api/rag/collections/c9/paths", { source_path: "generated-documents/payments-api-docs" }],
+    ["POST", "/api/rag/collections/c9/paths", { source_path: "jira" }],
+    ["POST", "/api/rag/collections/c9/sync", { force: false }]]);
+});
+
+test("?folder= opens New collection with that folder selected and a name from it", async () => {
+  const fetchMock = creating();
+  collectionsAt("/rag/collections?folder=generated-documents%2Fpayments-api-docs");
+  expect(await screen.findByLabelText("Name")).toHaveValue("payments-api-docs");
+  expect(screen.getByText("generated-documents/payments-api-docs")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Remove generated-documents/payments-api-docs" })).toBeInTheDocument();
+  expect(writes(fetchMock)).toEqual([]);
+});
+
+test("a folder that cannot be added keeps the collection and opens it with the error", async () => {
+  const fetchMock = creating(true);
+  const user = userEvent.setup();
+  collectionsAt("/rag/collections?folder=generated-documents%2Fpayments-api-docs");
+  await user.click(await screen.findByRole("button", { name: "Create collection" }));
+  expect(await screen.findByText(/Collection payments-api-docs was created, but folder generated-documents\/payments-api-docs could not be added: Folder does not exist\. Fix its folders here\./)).toBeInTheDocument();
+  expect(writes(fetchMock).map(([method, url]) => [method, url])).toEqual([
+    ["POST", "/api/rag/collections"], ["POST", "/api/rag/collections/c9/paths"]]);  // no sync, nothing deleted
+});
+
+test("a collection opened after a failed folder shows why", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(url.includes("/log") ? noLog : base)));
+  render(<MemoryRouter initialEntries={[{ pathname: "/rag/collections/c1", state: { folderError: "Collection jira was created, but folder x could not be added: Folder does not exist. Fix its folders here." } }]}><Routes>
+    <Route path="/rag/collections/:id" element={<RagCollectionDetail id="c1" />} /></Routes></MemoryRouter>);
+  expect(await screen.findByText(/folder x could not be added/)).toBeInTheDocument();
+});
+```
+
+The existing tests "New collection creates a collection and opens it" and "an invalid
+name disables Create collection" stay unchanged: with no folder selected, Create
+collection sends only `POST collections` and never browses `DATA_ROOT`.
+
+- [ ] **Step 2: Run the tests and confirm they fail**
+
+Run: `cd services/admin-ui && pnpm exec tsc --noEmit; pnpm test -- ragCollections ragFolderPicker`
+Expected: the four new tests FAIL (no **Choose a folder** button, no prefill, no
+`folderError` alert); the existing tests pass.
+
+- [ ] **Step 3: Extract `FolderBrowser` in `components/RagFolderPicker.tsx`**
+
+Move the browsing state, the listing effect, the browsing list and the **Folder path**
+field out of `Picker` into an exported component, unchanged in markup and labels:
+
+```tsx
+/** Browse DATA_ROOT or type a folder path; `value` is the typed or browsed path, relative to DATA_ROOT. */
+export function FolderBrowser({ value, onChange }: { value: string; onChange: (path: string) => void }) {
+  const [browsing, setBrowsing] = useState<string | null>(null);
+  const [listing, setListing] = useState<FolderListing | null>(null);
+  const [browseError, setBrowseError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setListing(null); setBrowseError("");
+    getFolders(browsing, controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setListing(result); })
+      .catch((e) => { if (!controller.signal.aborted) setBrowseError(e instanceof Error ? e.message : "Could not list folders"); });
+    return () => controller.abort();
+  }, [browsing]);
+  function browse(path: string | null) { setBrowsing(path); onChange(path ?? ""); }
+  return <>
+    {/* the existing "Browsing … / Up / folder list / truncated" block, unchanged */}
+    <Field><FieldLabel htmlFor="folder-path">Folder path</FieldLabel>
+      <Input id="folder-path" value={value} placeholder="code/payments" onChange={(e) => onChange(e.target.value)} />
+      <FieldDescription>Relative to DATA_ROOT, such as jira or code/payments.</FieldDescription></Field>
+  </>;
+}
+```
+
+`Picker` keeps `value`, `error`, `busy` and `submit`, and renders
+`<FolderBrowser value={value} onChange={setValue} />` between its error alert and the
+**Connect folder** button. `ragFolderPicker.test.tsx` passes unchanged.
+
+- [ ] **Step 4: Folders in `components/RagCollectionForm.tsx`**
+
+- Props: add `initialName?: string; initialFolders?: string[];` and change
+  `onSaved` to `(saved: { id: string }, problem?: string) => void`; pass the two initial
+  values to `SettingsFields`.
+- `SheetDescription` for a new collection: `Name the collection and choose its search settings. Optionally select folders: they are connected and synced right away.`
+- In `SettingsFields`: `const [name, setName] = useState(initialName ?? "");`,
+  `const [folders, setFolders] = useState<string[]>(initialFolders ?? []);`,
+  `const [choosing, setChoosing] = useState(false);`, `const [folderValue, setFolderValue] = useState("");`.
+- Replace `submit`'s `try` block:
+
+```tsx
+    try {
+      if (collection) { onSaved(await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })); return; }
+      const created = await createCollection({ name, ...value });
+      let step = "";
+      try {
+        for (const folder of folders) { step = `folder ${folder} could not be added`; await addFolder(created.id, folder); }
+        if (folders.length) { step = "its sync could not be queued"; await syncCollection(created.id); }
+      } catch (e) {
+        // The collection exists: keep it and open it, so the admin fixes its folders there.
+        onSaved(created, `Collection ${name} was created, but ${step}: ${e instanceof Error ? e.message : "request failed"}. Fix its folders here.`);
+        return;
+      }
+      onSaved(created);
+    } catch (e) {
+```
+
+  (the existing `catch` stays).
+- Before the **Create collection** button, for a new collection only:
+
+```tsx
+      {!collection && <FieldSet><FieldLegend>Folders</FieldLegend>
+        <FieldDescription>Optional. Each folder is connected to the new collection and a sync is queued at once. Folders must exist under DATA_ROOT.</FieldDescription>
+        {folders.length > 0 && <ul className="flex flex-col gap-1">{folders.map((folder) => <li key={folder} className="flex items-center gap-2 text-sm">
+          <code className="break-all">{folder}</code>
+          <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${folder}`} onClick={() => setFolders((current) => current.filter((f) => f !== folder))}>Remove</Button></li>)}</ul>}
+        {choosing ? <>
+          <FolderBrowser value={folderValue} onChange={setFolderValue} />
+          <Button type="button" variant="outline" className="self-start" disabled={normalizeFolder(folderValue) === "" || folders.includes(normalizeFolder(folderValue))}
+            onClick={() => { setFolders((current) => [...current, normalizeFolder(folderValue)]); setFolderValue(""); setChoosing(false); }}>Add to selection</Button>
+        </> : <Button type="button" variant="outline" className="self-start" onClick={() => setChoosing(true)}>Choose a folder</Button>}
+      </FieldSet>}
+```
+
+  Imports: `addFolder`, `normalizeFolder`, `syncCollection` from `../lib/rag`;
+  `FieldLegend`, `FieldSet` from `~/components/ui/field`; `FolderBrowser` from `./RagFolderPicker`.
+
+- [ ] **Step 5: The prefill in `components/RagCollectionsView.tsx` and the error in `RagCollectionDetail.tsx`**
+
+In `lib/rag.ts`, add:
+
+```ts
+/** A collection name from a folder's last segment: lowercase letters, digits and single hyphens, at most 60 characters. */
+export const collectionNameFor = (folder: string) => (normalizeFolder(folder).split("/").pop() ?? "").toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "");
+```
+
+In `RagCollectionsView`:
+- `const prefill = params.get("folder");` and `const [creating, setCreating] = useState(prefill !== null);`;
+- the form becomes:
+
+```tsx
+    <RagCollectionForm open={creating} onOpenChange={setCreating}
+      initialName={prefill ? collectionNameFor(prefill) : ""} initialFolders={prefill ? [normalizeFolder(prefill)] : []}
+      onSaved={(saved, problem) => { setCreating(false); navigate(`/rag/collections/${saved.id}`, problem ? { state: { folderError: problem } } : undefined); }} />
+```
+
+  (import `collectionNameFor`, `normalizeFolder`); the empty-table text becomes
+  `No collections yet. Choose New collection and select its folders.`
+
+In `RagCollectionDetail`, import `useLocation` and add
+`const location = useLocation();` and
+`const [folderError] = useState(() => (location.state as { folderError?: string } | null)?.folderError ?? "");`;
+render `{folderError && <Alert variant="destructive"><AlertDescription>{folderError}</AlertDescription></Alert>}`
+directly above the existing error alert. It is never cleared by `load`.
+
+- [ ] **Step 6: Run the tests and confirm they pass**
+
+Run: `cd services/admin-ui && pnpm exec tsc --noEmit && pnpm test -- ragCollections ragFolderPicker`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add services/admin-ui/app/components/RagFolderPicker.tsx services/admin-ui/app/components/RagCollectionForm.tsx \
+  services/admin-ui/app/components/RagCollectionsView.tsx services/admin-ui/app/components/RagCollectionDetail.tsx \
+  services/admin-ui/app/lib/rag.ts services/admin-ui/app/components/__tests__/ragCollections.test.tsx
+git commit -m "feat(admin-ui): New collection connects selected folders and syncs them right away
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: admin-ui — Docs → Folders browse page
 
 **Files:**
 - Create: `services/admin-ui/app/components/DocumentationFoldersView.tsx`
@@ -2048,8 +2061,8 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `services/admin-ui/app/components/__tests__/adminLayout.test.tsx`
 
 **Interfaces:**
-- Consumes: Task 7's folder API functions and `collectionName`; `getCollections` and
-  `statusLabel` (RAG pages).
+- Consumes: Task 7's `getDocumentationFolders`, `getDocumentationFolder` and folder types;
+  `getCollectionNames` (`GET /api/rag/collections?status=false`); Task 8's `?folder=` prefill.
 - Produces: `DocumentationFoldersView` (default export) and `DocumentationFolderView({ folder })`;
   routes `/documentation/folders` and `/documentation/folders/*`.
 
@@ -2058,76 +2071,49 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 Create `services/admin-ui/app/components/__tests__/documentationFolders.test.tsx`:
 
 ```tsx
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 import DocumentationFoldersView, { DocumentationFolderView } from '../DocumentationFoldersView';
 
 afterEach(() => vi.unstubAllGlobals());
-const folders = { generated_folder: 'generated-documents', rag_error: null, folders: [
-  { folder: 'payments', source_path: 'generated-documents/payments', document_count: 2, updated_at: '2026-10-07T10:00:00Z', collections: [
-    { id: 'c3', name: 'all-docs', path_id: 'p3', source_path: 'generated-documents', inherited: true },
-    { id: 'c1', name: 'payments-docs', path_id: 'p1', source_path: 'generated-documents/payments', inherited: false }] },
-  { folder: 'team/payments', source_path: 'generated-documents/team/payments', document_count: 1, updated_at: '2026-10-07T10:00:00Z', collections: [] }] };
+const folders = { generated_folder: 'generated-documents', folders: [
+  { folder: 'payments', document_count: 2, updated_at: '2026-10-07T10:00:00Z', last_generated_at: '2026-10-07T10:00:00Z',
+    code_projects: ['Payments API'], source_path: 'generated-documents/payments' },
+  { folder: 'team/payments', document_count: 1, updated_at: '2026-10-07T10:00:00Z', last_generated_at: null,
+    code_projects: [], source_path: 'generated-documents/team/payments' }] };
 const collections = { collections: [
-  { id: 'c1', name: 'payments-docs', status: 'needs_refresh', too_large: false, paths: [] },
-  { id: 'c2', name: 'handbook', status: 'up_to_date', too_large: false, paths: [] }] };
-const connected = () => Response.json({ collection_id: 'c9', name: 'team-payments', path_id: 'p9',
-  source_path: 'generated-documents/team/payments', sync_job_id: 'job' });
+  { id: 'c1', name: 'payments-docs', paths: [{ id: 'p1', source_path: 'generated-documents/payments' }] },
+  { id: 'c2', name: 'jira', paths: [{ id: 'p2', source_path: 'jira' }] },
+  { id: 'c3', name: 'all-docs', paths: [{ id: 'p3', source_path: 'generated-documents' }] },
+  { id: 'c4', name: 'lookalike', paths: [{ id: 'p4', source_path: 'generated-documents/pay' }] }] };
 
-function setup(post: (url: string) => Response = connected) {
-  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST') return post(url);
-    if (init?.method === 'DELETE') return Response.json({ collection_id: 'c1', source_path: 'generated-documents/payments' });
-    return Response.json(url === '/api/rag/collections' ? collections : folders);
-  });
+function setup(rag: () => Response = () => Response.json(collections)) {
+  const fetch = vi.fn(async (url: string) => url === '/api/rag/collections?status=false' ? rag() : Response.json(folders));
   vi.stubGlobal('fetch', fetch);
   render(<MemoryRouter><DocumentationFoldersView /></MemoryRouter>);
   return fetch;
 }
-async function select(label: string, option: string) {
-  fireEvent.click(await screen.findByLabelText(label));
-  fireEvent.click(await screen.findByRole('option', { name: option }));
-}
-const posted = (fetch: ReturnType<typeof setup>) => fetch.mock.calls.find(([, init]) => init?.method === 'POST')!;
 
-test('folders show their document counts and RAG state', async () => {
-  setup();
+test('folders show their documents, projects and the RAG collections that include them, read-only', async () => {
+  const fetch = setup();
   expect(await screen.findByRole('link', { name: 'team/payments' })).toHaveAttribute('href', '/documentation/folders/team/payments');
-  expect(screen.getByText('Not indexed')).toBeInTheDocument();
-  expect(await screen.findByText('payments-docs · Needs refresh')).toBeInTheDocument();
-  expect(screen.getByText('all-docs · Status unavailable')).toBeInTheDocument();
-  expect(screen.getByText('through generated-documents')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Disconnect all-docs' })).toBeNull();
+  expect(screen.getByText('Payments API')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'payments-docs' })).toHaveAttribute('href', '/rag/collections/c1');
+  expect(screen.getAllByRole('link', { name: 'all-docs' })).toHaveLength(2);
+  expect(screen.getAllByText('through generated-documents')).toHaveLength(2);
+  expect(screen.queryByRole('link', { name: 'jira' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'lookalike' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Index team/payments in RAG → Collections' }))
+    .toHaveAttribute('href', '/rag/collections?folder=generated-documents%2Fteam%2Fpayments');
+  expect(screen.queryByRole('button', { name: /Disconnect|Index/ })).toBeNull();
+  expect(fetch.mock.calls.every(([, init]) => !(init as RequestInit | undefined)?.method || (init as RequestInit).method === 'GET')).toBe(true);
 });
 
-test('Index in RAG connects the folder to a new collection named after it', async () => {
-  const fetch = setup();
-  fireEvent.click(await screen.findByRole('button', { name: 'Index team/payments in RAG' }));
-  expect(screen.getByLabelText('Collection name')).toHaveValue('team-payments');
-  fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-  await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
-  const [url, init] = posted(fetch);
-  expect(url).toBe('/api/documentation/folders/team/payments/index');
-  expect(JSON.parse(init!.body as string)).toEqual({ new_collection: { name: 'team-payments' } });
-  await waitFor(() => expect(screen.queryByRole('form', { name: 'Index team/payments in RAG' })).toBeNull());
-});
-
-test("Index in RAG into an existing collection shows RAG's overlap refusal", async () => {
-  const fetch = setup(() => Response.json({ error: { message: 'Folder overlaps generated-documents in collection handbook' } }, { status: 409 }));
-  await screen.findByText('payments-docs · Needs refresh');
-  fireEvent.click(screen.getByRole('button', { name: 'Index payments in RAG' }));
-  await select('Collection', 'handbook');
-  fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-  expect(await screen.findByText('Folder overlaps generated-documents in collection handbook')).toBeInTheDocument();
-  expect(JSON.parse(posted(fetch)[1]!.body as string)).toEqual({ collection_id: 'c2' });
-});
-
-test('Disconnect removes the folder from that collection only', async () => {
-  const fetch = setup();
-  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect payments-docs' }));
-  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) =>
-    init?.method === 'DELETE' && url === '/api/documentation/folders/payments/index/c1')).toBe(true));
+test('folders still list when RAG is unavailable', async () => {
+  setup(() => Response.json({ error: { message: 'RAG service is unavailable' } }, { status: 502 }));
+  expect(await screen.findByRole('link', { name: 'payments' })).toBeInTheDocument();
+  expect(await screen.findByText('RAG collections unavailable: RAG service is unavailable')).toBeInTheDocument();
 });
 
 test('opening a folder lists its documents linking to Documents', async () => {
@@ -2160,91 +2146,60 @@ link.
 ```tsx
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { collectionName, disconnectDocumentationFolder, getDocumentationFolder, getDocumentationFolders, indexDocumentationFolder,
-  type DocumentationFolders, type FolderConnection, type FolderDocument } from '~/lib/documents';
-import { getCollections, type RagCollection } from '~/lib/rag';
-import { statusLabel } from './RagCollectionsView';
+import { getDocumentationFolder, getDocumentationFolders, type DocumentationFolders, type FolderDocument } from '~/lib/documents';
+import { getCollectionNames, type CollectionSummary } from '~/lib/rag';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
-import { Button } from '~/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '~/components/ui/field';
-import { Input } from '~/components/ui/input';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
 const folderLink = (folder: string) => `/documentation/folders/${folder.split('/').map(encodeURIComponent).join('/')}`;
 const message = (e: unknown, fallback: string) => e instanceof Error ? e.message : fallback;
+const when = (value: string | null) => value ? new Date(value).toLocaleString() : '—';
 
-function IndexFolderForm({ folder, collections, onDone, onCancel }: { folder: string; collections: { id: string; name: string }[]; onDone: () => void; onCancel: () => void }) {
-  const [target, setTarget] = useState('new');
-  const [name, setName] = useState(collectionName(folder));
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  async function connect(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true); setError('');
-    try {
-      await indexDocumentationFolder(folder, target === 'new' ? { new_collection: { name } } : { collection_id: target });
-      onDone();
-    } catch (e) { setError(message(e, 'Could not connect the folder')); }
-    finally { setPending(false); }
-  }
-  return <form aria-label={`Index ${folder} in RAG`} onSubmit={connect} className="flex flex-col gap-4 rounded-lg border p-4">
-    <h2 className="font-semibold">Index {folder} in RAG</h2>
-    <fieldset disabled={pending}><FieldGroup>
-      <Field><FieldLabel htmlFor="index-collection">Collection</FieldLabel><Select value={target} onValueChange={setTarget}><SelectTrigger id="index-collection"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>
-        <SelectItem value="new">New collection…</SelectItem>{collections.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-      </SelectGroup></SelectContent></Select></Field>
-      {target === 'new' && <Field><FieldLabel htmlFor="index-collection-name">Collection name</FieldLabel><Input id="index-collection-name" required maxLength={60} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={name} onChange={e => setName(e.target.value)} /><FieldDescription>Lowercase letters, digits and hyphens. The new collection gets the default settings.</FieldDescription></Field>}
-      <FieldDescription>RAG indexes the folder where it is; nothing is copied. A sync is queued now; after a document is regenerated the collection shows Needs refresh, and Auto-sync picks it up when it is on.</FieldDescription>
-    </FieldGroup></fieldset>
-    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    <div className="flex gap-2"><Button type="submit" disabled={pending || (target === 'new' && !name)}>{pending ? 'Connecting…' : 'Connect'}</Button><Button type="button" variant="outline" onClick={onCancel}>Cancel</Button></div>
-  </form>;
+/** Collections whose folders include `source`: the folder itself, or a parent folder ("through" it). */
+function including(collections: Pick<CollectionSummary, 'id' | 'name' | 'paths'>[], source: string) {
+  return collections.flatMap(c => c.paths.filter(p => p.source_path === source || source.startsWith(p.source_path + '/'))
+    .map(p => ({ id: c.id, name: c.name, through: p.source_path === source ? null : p.source_path })));
 }
 
 export default function DocumentationFoldersView() {
   const [data, setData] = useState<DocumentationFolders | null>(null);
-  const [collections, setCollections] = useState<RagCollection[]>([]);
-  const [indexing, setIndexing] = useState<string | null>(null);
-  const [refresh, setRefresh] = useState(0);
+  const [collections, setCollections] = useState<CollectionSummary[] | null>(null);
+  const [ragError, setRagError] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     getDocumentationFolders(controller.signal).then(result => { if (!controller.signal.aborted) setData(result); })
       .catch(e => { if (!controller.signal.aborted) setError(message(e, 'Could not load documentation folders')); });
-    // Live status is optional: the folder list still shows its connections without it.
-    getCollections(controller.signal).then(result => { if (!controller.signal.aborted) setCollections(result.collections); }).catch(() => {});
+    // Read-only RAG state: which collections include each folder. Indexing happens in RAG → Collections.
+    getCollectionNames(controller.signal).then(result => { if (!controller.signal.aborted) setCollections(result.collections); })
+      .catch(e => { if (!controller.signal.aborted) setRagError(message(e, 'RAG is unavailable')); });
     return () => controller.abort();
-  }, [refresh]);
-  const status = (id: string) => { const found = collections.find(c => c.id === id); return found ? statusLabel(found) : 'Status unavailable'; };
-  async function disconnect(folder: string, connection: FolderConnection) {
-    setError('');
-    try { await disconnectDocumentationFolder(folder, connection.id); setRefresh(n => n + 1); }
-    catch (e) { setError(message(e, 'Could not disconnect the folder')); }
-  }
+  }, []);
   return <div className="flex flex-col gap-5">
-    <div><h1 className="text-2xl font-semibold">Documentation folders</h1><p className="text-muted-foreground">Folders in the generated documents folder{data?.generated_folder ? ` (${data.generated_folder})` : ''}. Index a folder in RAG to make its documents searchable; disconnecting keeps the files.</p></div>
+    <div><h1 className="text-2xl font-semibold">Documentation folders</h1><p className="text-muted-foreground">Folders in the generated documents folder{data?.generated_folder ? ` (${data.generated_folder})` : ''}. To make a folder searchable, create a collection with it in RAG → Collections.</p></div>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    {data?.rag_error && <Alert><AlertDescription>RAG state unavailable: {data.rag_error}</AlertDescription></Alert>}
+    {ragError && <Alert><AlertDescription>{`RAG collections unavailable: ${ragError}`}</AlertDescription></Alert>}
     {data === null ? (!error && <Skeleton className="h-40" />) : data.folders.length === 0
       ? <p>No documentation folders yet. Generate a code project document into a folder in Docs → Generate documents.</p>
-      : <Table><TableHeader><TableRow><TableHead>Folder</TableHead><TableHead>Documents</TableHead><TableHead>RAG</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
-        {data.folders.map(row => <TableRow key={row.folder}>
-          <TableCell><Link className="underline" to={folderLink(row.folder)}>{row.folder}</Link></TableCell>
-          <TableCell>{row.document_count}</TableCell>
-          <TableCell><div className="flex flex-col gap-1">{row.collections.length === 0 ? <Badge variant="outline">Not indexed</Badge> : row.collections.map(c =>
-            <div key={`${c.id}:${c.path_id}`} className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{`${c.name} · ${status(c.id)}`}</Badge>
-              {c.inherited ? <span className="text-xs text-muted-foreground">{`through ${c.source_path}`}</span>
-                : <Button type="button" variant="link" size="sm" aria-label={`Disconnect ${c.name}`} onClick={() => void disconnect(row.folder, c)}>Disconnect</Button>}
-            </div>)}</div></TableCell>
-          <TableCell><Button type="button" variant="outline" size="sm" aria-label={`Index ${row.folder} in RAG`} disabled={!row.source_path} onClick={() => setIndexing(row.folder)}>Index in RAG</Button></TableCell>
-        </TableRow>)}
+      : <Table><TableHeader><TableRow><TableHead>Folder</TableHead><TableHead>Documents</TableHead><TableHead>Code projects</TableHead><TableHead>Last generated</TableHead><TableHead>RAG collections</TableHead><TableHead>Index</TableHead></TableRow></TableHeader><TableBody>
+        {data.folders.map(row => {
+          const found = row.source_path && collections ? including(collections, row.source_path) : [];
+          return <TableRow key={row.folder}>
+            <TableCell><Link className="underline" to={folderLink(row.folder)}>{row.folder}</Link></TableCell>
+            <TableCell>{row.document_count}</TableCell>
+            <TableCell>{row.code_projects.join(', ') || '—'}</TableCell>
+            <TableCell>{when(row.last_generated_at)}</TableCell>
+            <TableCell>{collections === null ? (ragError ? '—' : 'Loading…') : found.length === 0 ? <Badge variant="outline">Not indexed</Badge>
+              : <ul className="flex flex-col gap-1">{found.map(c => <li key={`${c.id}:${c.through ?? ''}`} className="text-sm">
+                  <Link className="underline" to={`/rag/collections/${c.id}`}>{c.name}</Link>
+                  {c.through && <span className="ml-2 text-xs text-muted-foreground">{`through ${c.through}`}</span>}</li>)}</ul>}</TableCell>
+            <TableCell>{row.source_path ? <Link className="underline" aria-label={`Index ${row.folder} in RAG → Collections`}
+              to={`/rag/collections?folder=${encodeURIComponent(row.source_path)}`}>Index in RAG → Collections</Link> : '—'}</TableCell>
+          </TableRow>;
+        })}
       </TableBody></Table>}
-    {indexing && <IndexFolderForm key={indexing} folder={indexing} collections={collections.map(c => ({ id: c.id, name: c.name }))}
-      onCancel={() => setIndexing(null)} onDone={() => { setIndexing(null); setRefresh(n => n + 1); }} />}
   </div>;
 }
 
@@ -2261,7 +2216,7 @@ export function DocumentationFolderView({ folder }: { folder: string }) {
   return <div className="flex flex-col gap-5"><Link className="underline" to="/documentation/folders">Documentation folders</Link><h1 className="text-2xl font-semibold">{folder}</h1>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {rows === null ? (!error && <Skeleton className="h-40" />) : <Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Code project</TableHead><TableHead>Last generated</TableHead><TableHead>Version</TableHead></TableRow></TableHeader><TableBody>
-      {rows.map(d => <TableRow key={d.id}><TableCell><Link className="underline" to={`/documents/${d.id}`}>{d.title}</Link></TableCell><TableCell>{d.code_projects.join(', ') || '—'}</TableCell><TableCell>{d.last_generated_at ? new Date(d.last_generated_at).toLocaleString() : '—'}</TableCell><TableCell>v{d.version}</TableCell></TableRow>)}
+      {rows.map(d => <TableRow key={d.id}><TableCell><Link className="underline" to={`/documents/${d.id}`}>{d.title}</Link></TableCell><TableCell>{d.code_projects.join(', ') || '—'}</TableCell><TableCell>{when(d.last_generated_at)}</TableCell><TableCell>v{d.version}</TableCell></TableRow>)}
     </TableBody></Table>}
   </div>;
 }
@@ -2322,33 +2277,33 @@ Expected: PASS.
 git add services/admin-ui/app/components/DocumentationFoldersView.tsx services/admin-ui/app/routes/documentationFolders.tsx \
   services/admin-ui/app/routes/documentationFolder.tsx services/admin-ui/app/routes.ts services/admin-ui/app/components/AdminLayout.tsx \
   services/admin-ui/app/components/__tests__/documentationFolders.test.tsx services/admin-ui/app/components/__tests__/adminLayout.test.tsx
-git commit -m "feat(admin-ui): Docs → Folders with documents, RAG state, Index in RAG and Disconnect
+git commit -m "feat(admin-ui): Docs → Folders browses folders, their documents and the collections that include them
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 9: User guide and full verification
+### Task 10: User guide and full verification
 
 **Files:**
 - Modify: `docs/user-guide.md`
 
 **Interfaces:**
-- Consumes: the behaviour of Tasks 1–8. The guide repeats the Global Constraints' rule
+- Consumes: the behaviour of Tasks 1–9. The guide repeats the Global Constraints' rule
   text, paths and messages exactly.
 
 - [ ] **Step 1: Write the docs**
 
 `docs/user-guide.md`:
 - **§5.1 Navigation**: the Docs row becomes `Documents · Prompts · Generate documents · Folders`.
-- **§5.3 RAG**, after the Workflow list, add a paragraph **Documentation folders**: a
-  folder of generated documents (`generated-documents/<folder>`) is connected from
-  **Docs → Folders → Index in RAG** (existing collection, or a new one named after the
-  folder with the default settings); RAG indexes it in place and queues a sync; a folder
-  inside a folder already connected to that collection (for example the whole
-  `generated-documents`) is refused with `Folder overlaps …`; **Disconnect** removes the
-  folder from the collection and keeps the files.
+- **§5.3 RAG**: Workflow step 1 becomes **New collection** → name, description,
+  settings and, optionally, **Folders** (**Choose a folder**, browse or type, **Add to
+  selection**; several allowed) → **Create collection** connects them and queues a sync
+  at once. If a folder cannot be added, the collection is kept and opened with the error;
+  fix its folders there. `?folder=<path>` (used by Docs → Folders) opens New collection
+  with that folder selected. Steps 2–3 (Add folder, Refresh) stay for existing
+  collections.
 - **§5.13 Documentation generation**: in the intro, workflows are for services and
   environments, and code projects get a single document without a workflow. Under
   **Create a workflow**, mention the third scope. Add a subsection **Code project
@@ -2358,8 +2313,8 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
     graph) → **Prompt** (active prompts for code or mixed input; server prompts are hidden
     because the run has no server access) → **Comments** (optional, up to 20,000
     characters, appended to the prompt for this run) → **Document name** →
-    **Documentation folder** (default: the project name; pick an existing folder or type a
-    new one) → **Generate**;
+    **Documentation folder** (default: the project name plus `-docs`, for example
+    `payments-api-docs`; pick an existing folder or type a new one) → **Generate**;
   - the folder rule text from the Global Constraints;
   - what the agent gets: that project's code and graph tools; no SSH, RAG or MCP;
   - the result: a document in **Docs → Documents** (versions; linked to the code
@@ -2373,15 +2328,17 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
     prompt**), "Source or graph selection changed…" (run **Generate graph** again), and a
     folder whose first part is already a document's export folder (choose another folder).
 - **§5.14 Documents and documentation prompts**: add **Folders**
-  (`/documentation/folders`): the folders with their document counts and RAG state (**Not
-  indexed**, or each collection with its status; a collection that holds a parent folder
-  is shown "through <folder>" and is disconnected from RAG → Collections), **Index in RAG**,
-  **Disconnect**; opening a folder lists its documents (title, code project, last
-  generated), each opening in Documents. Note that editing a folder document keeps it in
-  its folder.
+  (`/documentation/folders`): the folders with their document count, code projects and
+  last generated time, and read-only the RAG collections that include each one (**Not
+  indexed**, or each collection, "through <folder>" when it holds a parent folder), each
+  linking to its collection; **Index in RAG → Collections** opens RAG's New collection
+  with the folder selected. Opening a folder lists its documents (title, code project,
+  last generated), each opening in Documents. Editing a folder document keeps it in its
+  folder.
 - **§6**: add **G. Make one code project's documentation searchable**: Generate documents →
-  New documentation → Code project → … → Generate; Docs → Folders → Index in RAG → new
-  collection; grant the collection to agents in Agents.
+  New documentation → Code project → … → Generate; Docs → Folders → **Index in RAG →
+  Collections** → Create collection (the folder is selected, the sync starts at once);
+  grant the collection to agents in Agents.
 
 - [ ] **Step 2: Run every suite**
 
@@ -2403,6 +2360,9 @@ Expected: only `db/migrations/0068_document_folders.up.sql` and `.down.sql`.
 
 Run: `git grep -n "d.slug=%s" -- services/admin-api/src`
 Expected: every match also filters the folder (`d.folder IS NULL` or `d.folder=%s`).
+
+Run: `git diff main --stat -- services/rag`
+Expected: no changes.
 
 - [ ] **Step 4: Commit**
 

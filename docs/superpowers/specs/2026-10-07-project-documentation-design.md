@@ -5,8 +5,9 @@ Date: 2026-10-07. Status: draft for review.
 ## Goal
 
 Generate a document for one code project with a chosen prompt and comments, and save it
-into a named documentation folder. A documentation folder can then be made searchable
-by connecting it to a RAG collection.
+into a named documentation folder. A documentation folder is made searchable in
+**RAG → Collections**: a new collection can be created with that folder already selected,
+and it is synced right away.
 
 ## Flow
 
@@ -20,7 +21,7 @@ by connecting it to a RAG collection.
    | Prompt | Any active documentation prompt whose input is code or mixed. Server-only prompts are hidden: the run has no server access |
    | Comments | Optional extra instructions for this run (up to 20,000 characters) |
    | Document name | The document title, for example "Payments – API reference" |
-   | Documentation folder | A folder under `GENERATED_DOCS_FOLDER`. Pick an existing one or type a new name, for example `payments` or `team/payments`. The default is the project's name. Same segment rules as RAG folders: visible names of letters, digits, `.`, `_` and `-` |
+   | Documentation folder | A folder under `GENERATED_DOCS_FOLDER`. Pick an existing one or type a new name, for example `payments` or `team/payments`; the field is always editable. The default is the project's name as a slug plus `-docs` (`Payments API` → `payments-api-docs`). Same segment rules as RAG folders: visible names of letters, digits, `.`, `_` and `-`; no `node_modules` segment and no first segment `services` (where the service phase exports live) |
 
 3. **Generate** queues a documentation job. The agent:
    - reads that project's code and graph;
@@ -39,23 +40,33 @@ by connecting it to a RAG collection.
 
 ## Documentation folders
 
-- **Docs → Folders**, a new page, lists the folders under `GENERATED_DOCS_FOLDER`:
-  - each folder's documents (title, project, last generated) and document count;
-  - its RAG state: **Not indexed**, or the collections it is connected to, with each
-    collection's status (Up to date, Needs refresh and so on).
-- **Opening a folder** shows its documents. Each one opens in Docs → Documents.
-- **Index in RAG** connects the folder to a collection:
-  - pick an existing collection, or create a new one with a name (default: the folder
-    name) and default settings;
-  - RAG adds `generated-documents/<folder>` (the path relative to `DATA_ROOT`) as a
-    collection folder and queues a sync;
-  - **Disconnect** removes the folder from that collection; the files stay.
+- **Docs → Folders**, a new browse page, lists the folders under `GENERATED_DOCS_FOLDER`:
+  - each folder's document count;
+  - read-only, the RAG collections that include it: collections whose folders (from
+    `GET /api/rag/collections?status=false`) are `generated-documents/<folder>` itself or a
+    parent of it (for example all of `generated-documents`), each linking to its collection
+    page; **Not indexed** when there are none;
+  - a link **Index in RAG → Collections** to
+    `/rag/collections?folder=generated-documents/<folder>`, which opens **New collection**
+    with that folder selected.
+- **Opening a folder** shows its documents (title, code project, last generated). Each
+  one opens in Docs → Documents.
+- **Indexing lives in RAG.** **RAG → Collections → New collection** gets an optional
+  **Folders** selection: the existing folder picker over `DATA_ROOT`, one or more folders.
+  **Create collection** creates the collection, connects each selected folder and queues
+  a sync at once, so the data is synced and processed right away. It chains RAG's existing
+  API from the admin UI: `POST collections`, then `POST collections/{id}/paths` per
+  folder, then `POST collections/{id}/sync`. With no folders selected, creating works as
+  today (no sync).
+- **A folder that cannot be added** (missing, skipped, overlapping another selected
+  folder): the error is shown and the created collection is kept; the page opens that
+  collection so the admin can fix its folders. No sync is queued then.
+- Connecting, disconnecting and syncing existing collections stay on the collection page
+  as today. Disconnecting a folder keeps its files.
 - **No copying.** RAG already sees all of `DATA_ROOT`, so connecting a folder indexes the
   documents where they are. A copy into another input folder would duplicate files and
   go stale whenever a document is regenerated. After a new version is exported, the
   collection shows **Needs refresh**, and auto-sync picks it up when it is on.
-- **Overlap:** a folder whose parent or child is already connected to the same collection
-  is refused by RAG's existing overlap rule (409, shown on the page).
 
 ## Model and API
 
@@ -67,20 +78,17 @@ by connecting it to a RAG collection.
     `ka.documents.folder`). Documents without a folder export as today.
   - **Slugs:** unique per folder. Existing slugs stay unique because they have no
     folder.
-- **New admin-api routes:**
+- **New admin-api routes** (read-only; they never call RAG):
 
   | Route | Purpose |
   | --- | --- |
-  | `GET /api/documentation/folders` | List folders with document counts and the collections connected to each |
+  | `GET /api/documentation/folders` | List folders with document counts and their RAG folder path (`generated-documents/<folder>`) |
   | `GET /api/documentation/folders/{folder}` | List one folder's documents |
-  | `POST /api/documentation/folders/{folder}/index` with `{collection_id}` or `{new_collection: {name}}` | Connect the folder in RAG and queue a sync |
-  | `DELETE /api/documentation/folders/{folder}/index/{collection_id}` | Disconnect the folder |
 
   Folder names are validated with the same rules as above (no `..`, hidden names or
-  links). These routes use RAG's existing API (`POST collections`,
-  `POST collections/{id}/paths`, `DELETE collections/{id}/paths/{path_id}`,
-  `POST collections/{id}/sync`, `GET collections?status=false`) through the backoffice
-  client.
+  links). The RAG service is unchanged: New collection uses its existing API
+  (`POST collections`, `POST collections/{id}/paths`, `POST collections/{id}/sync`) through
+  the admin RAG proxy.
 
 ## Errors
 
@@ -90,8 +98,8 @@ by connecting it to a RAG collection.
 | Prompt changed since the form loaded | 409 "Reload the prompt" |
 | Same document name in the folder without confirming | 409, with the option to save a new version |
 | Bad folder name | 400 naming the rule |
-| RAG unavailable when indexing | 502, and nothing changes |
-| Folder overlaps one already connected to that collection | 409 from RAG, shown |
+| RAG unavailable when creating a collection | The error is shown, nothing is created |
+| A selected folder cannot be added to the new collection (missing, skipped, overlapping another selected folder) | RAG's error is shown; the created collection is kept and opened, with no sync queued |
 
 ## Testing
 
@@ -102,8 +110,6 @@ by connecting it to a RAG collection.
   - the export path `<folder>/<slug>/README.md`;
   - same name in the same folder: refused, or a new version when confirmed;
   - the folder list and folder documents;
-  - index and disconnect against a fake RAG (existing or new collection, overlap 409,
-    RAG down 502);
   - folder name validation.
 - **Migration:** `documents.folder` up and down, and per-folder slug uniqueness.
 - **admin-ui:**
@@ -111,8 +117,11 @@ by connecting it to a RAG collection.
   - the prompt filter;
   - graph-first gating;
   - same-name confirmation;
-  - the Folders page with **Index in RAG** (existing or new collection) and
-    **Disconnect**.
+  - the `<project>-docs` default folder;
+  - the Folders page with the read-only collections and the **Index in RAG →
+    Collections** link;
+  - RAG **New collection** with folders (connect and sync), a folder that fails (collection
+    kept and opened with the error) and the `?folder=` prefill.
 - **Docs:** the user guide's documentation and RAG sections.
 
 ## Out of scope
