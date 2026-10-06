@@ -3,6 +3,8 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 
+from knowledge_admin.data_root import data_dir, jira_folder
+
 LEGACY_RAG_ROOT = PurePosixPath('/work/rag-data')  # where folder-era configs (before 0063) kept folders
 
 
@@ -18,21 +20,41 @@ def _with_paths(item: dict[str, Any]) -> dict[str, Any]:
     return {**rest, 'paths': [item['path']] if item.get('path') else []}
 
 
+def _legacy_folder(top_or_path: str) -> tuple[str, PurePosixPath] | None:
+    """(collection name, container folder) for a folder-era entry, or None when it names no folder.
+
+    Folder-era entries name a top-level rag-data folder. Jira moved to the Jira folder (migration 0067 also
+    rewrote saved /work/rag-data/jira paths to /work/data/jira); other rag-data folders keep their old path,
+    which no longer exists. A path already under DATA_ROOT_DIR keeps its first segment.
+    """
+    path, rag_root, root = PurePosixPath(top_or_path), LEGACY_RAG_ROOT, data_dir()
+    jira = PurePosixPath(jira_folder())
+    if not path.is_absolute():  # a search_folder's first segment
+        if not path.parts:
+            return None
+        top = path.parts[0]
+        return ('jira', root / jira) if top == 'jira' else (top, rag_root / top)
+    if path.is_relative_to(rag_root) and path != rag_root:
+        top = path.relative_to(rag_root).parts[0]
+        return ('jira', root / jira) if top == 'jira' else (top, rag_root / top)
+    if path.is_relative_to(root) and path != root:
+        relative = path.relative_to(root)
+        if relative.is_relative_to(jira):
+            return 'jira', root / jira
+        return relative.parts[0], root / relative.parts[0]
+    return None
+
+
 def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
     """(all_collections, [{id?, name, description, paths}]) for current, path-era and folder-era configs."""
     documents = config['documents']
     if 'collections' in documents:
         return bool(documents.get('all_collections')), [_with_paths(item) for item in documents['collections']]
-    rag_root = LEGACY_RAG_ROOT
     items: dict[str, dict[str, Any]] = {}
     for folder in documents.get('folders', []):
-        if 'search_folder' in folder:
-            top = folder['search_folder'].split('.')[0]
-        else:
-            # Older configs may carry only the container path; keep its first segment below the old rag-data mount.
-            path = PurePosixPath(folder['path'])
-            if not path.is_relative_to(rag_root) or path == rag_root:
-                continue
-            top = path.relative_to(rag_root).parts[0]
-        items.setdefault(slug(top), {'name': slug(top), 'description': folder.get('description', ''), 'paths': [str(rag_root / top)]})
+        found = _legacy_folder(folder['search_folder'].split('.')[0] if 'search_folder' in folder else folder['path'])
+        if found is None:
+            continue
+        name, path = found
+        items.setdefault(slug(name), {'name': slug(name), 'description': folder.get('description', ''), 'paths': [str(path)]})
     return bool(documents.get('all_folders')), list(items.values())

@@ -74,7 +74,7 @@ def test_agent_config_maps_any_folder_under_the_data_root(store, monkeypatch):
 
 
 def test_legacy_folder_config_maps_to_collections(monkeypatch):
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
     legacy = {'documents': {'enabled': True, 'all_folders': False, 'include_subfolders': True, 'folders': [
         {'id': 'x', 'path': '/work/rag-data/demo/payments', 'description': 'd', 'search_folder': 'demo.payments'},
         {'id': 'y', 'path': '/work/rag-data/Old_Stuff', 'description': 'o', 'search_folder': 'Old_Stuff'}]}}
@@ -86,13 +86,30 @@ def test_legacy_folder_config_maps_to_collections(monkeypatch):
 
 
 def test_legacy_folders_without_search_folder_use_their_path(monkeypatch):
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
     legacy = {'documents': {'enabled': True, 'all_folders': False, 'folders': [
         {'path': '/work/rag-data/Runbooks/payments', 'description': 'r'},
         {'path': '/work/rag-data/Runbooks', 'description': 'duplicate top'},
         {'path': '/elsewhere/notes', 'description': 'outside the RAG root'},
         {'path': '/work/rag-data', 'description': 'the root itself'}]}}
     assert document_collections(legacy) == (False, [{'name': 'runbooks', 'description': 'r', 'paths': ['/work/rag-data/Runbooks']}])
+
+
+def test_legacy_folder_configs_find_jira_in_the_jira_folder_and_accept_data_root_paths(monkeypatch):
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
+    monkeypatch.setenv('JIRA_EXPORT_ROOT', '/work/data/exports/jira')
+    # Migration 0067 rewrote /work/rag-data/jira paths to /work/data/jira; search_folder values stayed.
+    legacy = {'documents': {'enabled': True, 'all_folders': False, 'folders': [
+        {'path': '/work/data/jira/PAY', 'description': 'tickets', 'search_folder': 'jira.PAY'},
+        {'path': '/work/rag-data/demo', 'description': 'demo', 'search_folder': 'demo'},
+        {'path': '/work/data/exports/jira/OPS', 'description': 'ops'},
+        {'path': '/work/data/runbooks/payments', 'description': 'runbooks'},
+        {'path': '/work/rag-data/jira', 'description': 'unmigrated'},
+        {'path': '/work/data', 'description': 'the root itself'}]}}
+    assert document_collections(legacy) == (False, [
+        {'name': 'jira', 'description': 'tickets', 'paths': ['/work/data/exports/jira']},
+        {'name': 'demo', 'description': 'demo', 'paths': ['/work/rag-data/demo']},
+        {'name': 'runbooks', 'description': 'runbooks', 'paths': ['/work/data/runbooks']}])
 
 
 def test_profile_api_grants_collections(store, tmp_path):
