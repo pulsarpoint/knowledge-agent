@@ -49,6 +49,9 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
             body = {"json": {}} if method in ("POST", "PUT") else {}
             assert client.request(method, f"/api/rag/{resource}", headers=HEADERS, **body).status_code == 200, resource
             assert (calls[-1].method, calls[-1].url.path) == (method, prefix + resource)
+        log = client.get(f"/api/rag/collections/{collection}/log?status=failed&q=jira&limit=25&offset=50", headers=HEADERS)
+        assert log.status_code == 200 and calls[-1].url.path == prefix + f"collections/{collection}/log"
+        assert dict(calls[-1].url.params) == {"status": "failed", "q": "jira", "limit": "25", "offset": "50"}
         response = client.post("/api/rag/search", headers=HEADERS, json={"project_id": str(uuid4()), "query": "test"})
         assert response.status_code == 200
         assert json.loads(calls[-1].content)["project_id"] == str(project)
