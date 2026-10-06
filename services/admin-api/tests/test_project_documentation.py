@@ -39,7 +39,7 @@ def test_code_project_input_is_validated():
     value = generation.GenerationInput(**BASE)
     assert (value.document_name, value.folder, value.units, value.comments) == ('Payments – API reference', 'team/payments', [], '')
     for change in ({'folder': '../payments'}, {'folder': '.hidden'}, {'folder': 'a//b'}, {'folder': '/srv/docs'},
-                   {'folder': 'team/node_modules'}, {'folder': 'services/payments'}, {'folder': 'my docs'},
+                   {'folder': 'team/node_modules'}, {'folder': 'services/payments'}, {'folder': 'my docs'}, {'folder': 'Payments'},
                    {'folder': 'x' * 201}, {'folder': None}, {'document_name': '  '}, {'document_name': '– –'},
                    {'document_name': None}, {'document_name': 'x' * 241}, {'comments': 'x' * 20001}, {'comments': 'a\x00b'},
                    {'code_project_id': None}, {'prompt_id': None}, {'prompt_version_id': None},

@@ -88,6 +88,11 @@ test('a bad folder names the rule and keeps Generate disabled', async () => {
   fireEvent.change(screen.getByLabelText('Documentation folder'), { target: { value: '../payments' } });
   expect(screen.getByText(FOLDER_RULE)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  // Folders are lowercase-only: Payments and payments are one directory on case-insensitive filesystems.
+  fireEvent.change(screen.getByLabelText('Documentation folder'), { target: { value: 'team/Payments' } });
+  expect(screen.getByText(FOLDER_RULE)).toBeInTheDocument();
+  expect(FOLDER_RULE).toContain('lowercase letters');
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
 });
 
 test('the same name in the same folder asks before saving a new version', async () => {

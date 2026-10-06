@@ -89,8 +89,9 @@ export const generateDocumentation = (value: GenerationInput | CodeProjectGenera
 });
 
 export const SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.';
-export const FOLDER_RULE = "A documentation folder is a path such as payments or team/payments: each segment uses letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.";
-const FOLDER_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+export const FOLDER_RULE = "A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.";
+// Lowercase-only, unlike RAG folders: on case-insensitive filesystems Payments and payments are one directory.
+const FOLDER_SEGMENT = /^[a-z0-9_-][a-z0-9._-]*$/;
 /** The server's documentation folder rule: '' when valid, else the rule text. */
 export function folderError(folder: string) {
   const parts = folder.split('/');
