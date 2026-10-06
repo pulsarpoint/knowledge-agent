@@ -48,6 +48,8 @@ class CollectionFields(BaseModel):
     exclude: list[GlobPattern] = Field(default_factory=list, max_length=50)
     chunk_size: int = Field(2000, ge=200, le=12000)
     chunk_overlap: int = Field(200, ge=0, le=2000)
+    auto_sync: bool = False
+    poll_interval_minutes: int = Field(5, ge=1, le=1440)
 
     @model_validator(mode="after")
     def valid(self):
@@ -99,6 +101,8 @@ LOG_COUNTS_SQL = """SELECT count(*) FILTER (WHERE status='indexed') AS indexed,
     count(*) FILTER (WHERE status='failed') AS failed
     FROM ka.rag_file_log WHERE collection_id=%s"""
 SETTINGS_COLUMNS = ("description", "search_mode", "embeddings_enabled", "include", "exclude", "chunk_size", "chunk_overlap")
+# Auto-sync settings do not change what is indexed: saving only these leaves the revision alone.
+POLL_COLUMNS = ("auto_sync", "poll_interval_minutes")
 ACTIVE = ("queued", "running", "waiting_input")
 
 
@@ -235,13 +239,13 @@ def build_api(workspace: Workspace, key: str, transport=None):
     @router.post(prefix + "/collections", status_code=201)
     def create_collection(project: UUID, payload: NewCollection):
         """Create an empty collection with its settings; folders are connected with POST collections/{id}/paths."""
-        columns = ["project_id", "name", *SETTINGS_COLUMNS]
+        columns = ["project_id", "name", *SETTINGS_COLUMNS, *POLL_COLUMNS]
         with workspace.connect() as conn:
             workspace.ensure(conn, project)
             row = conn.execute(f"""INSERT INTO ka.rag_collections({','.join(columns)})
                 VALUES ({','.join(['%s'] * len(columns))})
                 ON CONFLICT (project_id,name) WHERE deleted_at IS NULL DO NOTHING RETURNING *""",
-                [project, payload.name, *(getattr(payload, c) for c in SETTINGS_COLUMNS)]).fetchone()
+                [project, payload.name, *(getattr(payload, c) for c in (*SETTINGS_COLUMNS, *POLL_COLUMNS))]).fetchone()
             if row is None:
                 raise HTTPException(409, f"Collection {payload.name} already exists")
             return collection_summary(workspace, conn, row)
@@ -297,9 +301,11 @@ def build_api(workspace: Workspace, key: str, transport=None):
             row = workspace.collection(conn, project, collection_id, lock=True)
             if payload.revision != row["revision"]:
                 raise HTTPException(409, "Collection changed; refresh before saving")
-            row = conn.execute(f"""UPDATE ka.rag_collections SET {','.join(c + '=%s' for c in SETTINGS_COLUMNS)},
-                revision=revision+1,updated_at=now() WHERE id=%s RETURNING *""",
-                               (*(getattr(payload, c) for c in SETTINGS_COLUMNS), collection_id)).fetchone()
+            columns = (*SETTINGS_COLUMNS, *POLL_COLUMNS)
+            bump_revision = int(any(getattr(payload, c) != row[c] for c in SETTINGS_COLUMNS))
+            row = conn.execute(f"""UPDATE ka.rag_collections SET {','.join(c + '=%s' for c in columns)},
+                revision=revision+%s,updated_at=now() WHERE id=%s RETURNING *""",
+                               (*(getattr(payload, c) for c in columns), bump_revision, collection_id)).fetchone()
             return collection_status(workspace, conn, row)
 
     @router.delete(prefix + "/collections/{collection_id}")

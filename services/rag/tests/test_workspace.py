@@ -15,7 +15,8 @@ from rag.workspace import Workspace
 from rag.workspace_worker import claim, process
 
 
-SETTINGS = ("description", "search_mode", "embeddings_enabled", "include", "exclude", "chunk_size", "chunk_overlap")
+SETTINGS = ("description", "search_mode", "embeddings_enabled", "include", "exclude", "chunk_size", "chunk_overlap",
+            "auto_sync", "poll_interval_minutes")
 
 
 def update(env, collection_id, **changes):

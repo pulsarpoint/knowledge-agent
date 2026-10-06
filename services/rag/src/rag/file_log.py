@@ -57,3 +57,16 @@ def record(conn, collection_id, path_ids: dict, decisions: dict[str, dict], curr
         (SELECT f.indexed_at FROM ka.rag_files f WHERE f.collection_id=l.collection_id AND f.path=l.path) END
         WHERE l.collection_id=%s AND l.path = ANY(%s)""", (collection_id, list(changed)))
     return removed
+
+
+def differs(walk, log: dict[str, dict]) -> bool:
+    """Whether the folders differ from the log: a new, changed or deleted file, by size and mtime only.
+
+    Equality, not "newer than the last sync", so files copied with old modification times (rsync -a,
+    cp -p, archives, restored backups) still count as changed.
+    """
+    seen = {entry["path"]: entry for entry in walk.files}
+    known = {path: row for path, row in log.items() if row["status"] != "removed"}
+    if seen.keys() != known.keys():
+        return True
+    return any(row["size"] != seen[path]["size"] or row["mtime"] != seen[path]["mtime"] for path, row in known.items())

@@ -24,6 +24,7 @@ from rag.collections import MAX_BYTES, Walk
 from rag.structure import Section, parse_structure
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed, embedding_profile
+from rag.workspace_poll import poll
 
 logger = logging.getLogger(__name__)
 
@@ -305,14 +306,22 @@ def process(workspace: Workspace, job: dict, transport=None):
         return None
 
 
+def step(workspace: Workspace, transport=None) -> bool:
+    """One worker iteration: run a queued sync, or poll due collections. Returns whether a sync ran."""
+    job = claim(workspace)
+    if job is not None:
+        process(workspace, job, transport)
+        return True
+    poll(workspace)
+    return False
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     workspace = Workspace.from_env()
     while True:
         try:
-            job = claim(workspace)
-            if job is not None:
-                process(workspace, job)
+            if step(workspace):
                 continue
         except (psycopg.Error, OSError):
             logger.error("RAG worker cannot reach its database or collection folders")
