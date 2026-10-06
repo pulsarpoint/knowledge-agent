@@ -96,13 +96,24 @@ Migration 0067 and `make setup` move existing Jira data:
    assumes the default `JIRA_FOLDER`; with another value, the collection shows Folder
    missing until an admin replaces the folder (index kept). The down migration rewrites
    back.
-3. **Other `rag-data/…` folders** (for example `rag-data/demo`) stay where they are and
-   keep working as ordinary folders under `DATA_ROOT`. The `rag-data` name has no meaning
-   any more.
+3. **Other `rag-data/…` folders** (for example `rag-data/demo`) are not configured folders:
+   `make setup` lists `rag-data` in its warning, and a collection that used them shows
+   Folder missing once they are moved out.
 
-Anything else in `DATA_ROOT` becomes visible to RAG. On this machine `.local` also holds
-`backups/`, `users/` and about 30 log files. The plan moves them to a sibling folder
-(`.local-archive/`), but only after confirming with you; it never deletes them.
+### Only the configured folders live in `DATA_ROOT`
+
+`DATA_ROOT` holds only the five configured folders (and folders an admin deliberately
+adds for RAG). Backups, logs, user state and anything else belong outside it, for example
+in a sibling `DATA_ARCHIVE` folder; RAG never sees them.
+
+- **`make setup`:** after creating the folders, it lists any other top-level entries in
+  `DATA_ROOT` as a warning, naming each and suggesting it be moved out (for example to
+  `DATA_ARCHIVE`). The warning never stops setup, and setup never moves or deletes them.
+- **This machine:** `.local` holds `backups/`, `users/`, `rag-data/demo` and about 30 log
+  files. A one-time manual step, done only after you confirm, moves `backups/`, `users/`
+  and the logs to a sibling `.local-archive/` (the `DATA_ARCHIVE` for this setup). It never
+  deletes anything. `rag-data/demo` is test data for the `demo` collection; it moves to
+  `.local-archive/` too, and that collection is removed or reconnected in RAG.
 
 ## Admin UI
 
@@ -117,6 +128,7 @@ Anything else in `DATA_ROOT` becomes visible to RAG. On this machine `.local` al
 | --- | --- |
 | A folder variable is absolute, uses `..`, is hidden, or overlaps another | `make setup` stops naming the variable |
 | An old override variable is set | `make setup` stops with the replacement variable |
+| `DATA_ROOT` holds other top-level entries | `make setup` warns, naming each; nothing is moved |
 | Add folder with a missing path | 409 "Folder does not exist" |
 | A Jira write outside `JIRA_FOLDER` | 403 from RAG |
 
@@ -128,6 +140,7 @@ Anything else in `DATA_ROOT` becomes visible to RAG. On this machine `.local` al
   - invalid and overlapping values;
   - old overrides refused;
   - the `rag-data/jira` move;
+  - the warning for other top-level entries;
   - idempotency.
 - **compose-validate:** each service gets the expected mounts (read-only base, writable
   folders) and variables.
