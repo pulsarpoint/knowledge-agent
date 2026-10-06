@@ -583,9 +583,10 @@ document without a workflow (see **Code project documents**).
 
 No agent from the Agents page is needed — generation uses fixed built-in specialists.
 
-**Create a workflow:** **New documentation** → choose scope (**Service**, **Whole
-environment** or, without a workflow, **Code project**), the service/environment, and the model → **Create workflow**. The
-workflow page shows a phase summary table, the phases, and the generation history.
+**Create a workflow:** **New documentation** → choose scope (**Service** or **Whole
+environment**), the service/environment, and the model → **Create workflow**. Scope
+**Code project** creates no workflow: it has its own **Generate** (see **Code project
+documents** below). The workflow page shows a phase summary table, the phases, and the generation history.
 Edits to prompts and context **autosave** ("Saving…" / "Saved"); closing the page does
 not cancel running jobs.
 
@@ -636,12 +637,16 @@ architecture** (inspects one SSH-enabled server).
 5. **Document name**: the document title, for example "Payments – API reference". The
    name needs ASCII letters or digits (the file name is made from them).
 6. **Documentation folder**: the default is the project name plus `-docs`, for example
-   `payments-api-docs`. Pick an existing folder or type a new one.
+   `payments-api-docs`. Pick an existing folder or type a new one. Folder names are
+   lowercase (`Payments` and `payments` would be the same folder on macOS).
 7. **Generate**.
 
 Folder rule: A documentation folder is a path such as payments or team/payments: each
-segment uses letters, digits, '.', '_' and '-' and does not start with '.'; node_modules
-and a first segment services are not allowed; at most 200 characters.
+segment uses lowercase letters, digits, '.', '_' and '-' and does not start with '.';
+node_modules and a first segment services are not allowed; at most 200 characters.
+
+Only one Code project run per project can be queued or running at a time (and one per
+folder and document name); wait for it to finish before generating again.
 
 The agent gets that project's code and graph tools; there is no SSH, RAG or MCP.
 
@@ -655,8 +660,11 @@ The same name in the same folder asks **Save a new version?**; the same name in 
 folder is a separate document.
 
 Errors: "The prompt changed. Reload the prompt before generating." (use **Reload
-prompt**); "Source or graph selection changed…" (run **Generate graph** again); and a
-folder whose first part is already a document's export folder (choose another folder).
+prompt**); "Source or graph selection changed…" (run **Generate graph** again); "The
+document changed after this run was queued. Generate again." (the confirmed document was
+edited meanwhile); and a folder or document whose export folder would overlap another
+document's export at any level, for example folder `a/b` when folder `a` holds a document
+`b` (choose another folder or name).
 
 ### 5.14 Documents and documentation prompts
 
