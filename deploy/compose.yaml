@@ -1,4 +1,36 @@
 name: knowledge-agent-v3
+# DATA_ROOT is mounted once, read-only, at /work/data. A service that writes gets that
+# folder as a writable bind on top, at the same relative path. make setup validates the
+# folder variables (relative, no overlap); Compose cannot.
+x-data-root: &data-root
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}
+  target: /work/data
+  read_only: true
+x-code-rw: &code-rw
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${CODE_FOLDER:-code}
+  target: /work/data/${CODE_FOLDER:-code}
+x-code-index-rw: &code-index-rw
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${CODE_INDEX_FOLDER:-code-index}
+  target: /work/data/${CODE_INDEX_FOLDER:-code-index}
+x-generated-docs-rw: &generated-docs-rw
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${GENERATED_DOCS_FOLDER:-generated-documents}
+  target: /work/data/${GENERATED_DOCS_FOLDER:-generated-documents}
+x-jira-rw: &jira-rw
+  type: bind
+  source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${JIRA_FOLDER:-jira}
+  target: /work/data/${JIRA_FOLDER:-jira}
+x-data-env: &data-env
+  DATA_ROOT_DIR: /work/data
+  DATA_ROOT: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}
+  CODE_ROOT: /work/data/${CODE_FOLDER:-code}
+  CODE_INDEX_ROOT: /work/data/${CODE_INDEX_FOLDER:-code-index}
+  BOOTSTRAP_DOCS_ROOT: /work/data/${DOCS_FOLDER:-docs}
+  DOCUMENT_OUTPUT_ROOT: /work/data/${GENERATED_DOCS_FOLDER:-generated-documents}
+  JIRA_EXPORT_ROOT: /work/data/${JIRA_FOLDER:-jira}
 services:
   postgres:
     image: knowledge-agent-v3-postgres:17.10-vector0.8.6
@@ -36,24 +68,10 @@ services:
     build: {context: .., dockerfile: deploy/Dockerfile.rag}
     restart: unless-stopped
     volumes:
-      - type: bind
-        source: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
-        target: /work/rag-data
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code:ro
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index:ro
-      - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents:ro
-      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
+      - *data-root
+      - *jira-rw
     environment:
-      RAG_SOURCE_ROOT: /work/rag-data
-      CODE_ROOT: /work/code
-      CODE_INDEX_ROOT: /work/code-index
-      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
-      BOOTSTRAP_DOCS_ROOT: /work/docs
-      CODE_PATH: ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}
-      CODE_INDEX_PATH: ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}
-      GENERATED_DOCS_PATH: ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}
-      DOCS_PATH: ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}
-      RG_DATA: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
+      <<: *data-env
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
@@ -75,24 +93,9 @@ services:
     entrypoint: [uv, run, --frozen, --no-dev, rag-workspace-worker]
     command: []
     volumes:
-      - type: bind
-        source: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
-        target: /work/rag-data
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code:ro
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index:ro
-      - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents:ro
-      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
+      - *data-root
     environment:
-      RAG_SOURCE_ROOT: /work/rag-data
-      CODE_ROOT: /work/code
-      CODE_INDEX_ROOT: /work/code-index
-      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
-      BOOTSTRAP_DOCS_ROOT: /work/docs
-      CODE_PATH: ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}
-      CODE_INDEX_PATH: ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}
-      GENERATED_DOCS_PATH: ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}
-      DOCS_PATH: ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}
-      RG_DATA: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
+      <<: *data-env
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -105,7 +108,7 @@ services:
     build: {context: .., dockerfile: deploy/Dockerfile.docs-wiki}
     restart: unless-stopped
     volumes:
-      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
+      - *data-root
       - wiki-data:/data
     environment:
       LLM_SETTINGS_SOURCE: database
@@ -139,29 +142,16 @@ services:
     # Use the host/VPN search domain for short SSH and Jira hostnames.
     dns_search: ${DOCKER_DNS_SEARCH:-.}
     volumes:
-      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code:ro
-      - type: bind
-        source: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
-        target: /work/rag-data
-        read_only: true
+      - *data-root
+      - *code-rw
+      - *code-index-rw
+      - *generated-docs-rw
       - wiki-data:/data
-      - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index
       - agent-workspaces:/work/agent-workspaces
     environment:
+      <<: *data-env
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
-      CODE_INDEX_ROOT: /work/code-index
-      CODE_INDEX_PATH: ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}
-      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
-      GENERATED_DOCS_PATH: ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}
-      BOOTSTRAP_DOCS_ROOT: /work/docs
-      DOCS_PATH: ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}
-      RG_DATA: ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}
-      CODE_ROOT: /work/code
-      RAG_SOURCE_ROOT: /work/rag-data
-      CODE_PATH: ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}
       LLM_SETTINGS_SOURCE: database
       PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:8182}
       DOCS_WIKI_RAG_URL: http://rag:8790
@@ -207,17 +197,17 @@ services:
     entrypoint: [uv, run, --frozen, --no-dev, knowledge-repo-worker]
     command: []
     volumes:
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index
+      - *data-root
+      - *code-rw
+      - *code-index-rw
     environment:
-      CODE_INDEX_ROOT: /work/code-index
+      <<: *data-env
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
       PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
-      CODE_ROOT: /work/code
     depends_on:
       migrate: {condition: service_completed_successfully}
 
@@ -229,24 +219,20 @@ services:
     entrypoint: [uv, run, --frozen, --no-dev, knowledge-doc-worker]
     command: []
     volumes:
-      - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code:ro
-      - ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}:/work/rag-data:ro
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index
+      - *data-root
+      - *code-index-rw
+      - *generated-docs-rw
       - agent-workspaces:/work/agent-workspaces
     environment:
+      <<: *data-env
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
-      CODE_INDEX_ROOT: /work/code-index
-      DOCUMENT_OUTPUT_ROOT: /work/generated-documents
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
       PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
-      CODE_ROOT: /work/code
-      RAG_SOURCE_ROOT: /work/rag-data
       DOCS_WIKI_RAG_URL: http://rag:8790
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
@@ -269,11 +255,7 @@ services:
     cpus: 2
     tmpfs: ["/tmp:size=64m,mode=1777"]
     volumes:
-      - ${CODE_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code}:/work/code:ro
-      - ${RG_DATA:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/rag-data}:/work/rag-data:ro
-      - ${CODE_INDEX_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/code-index}:/work/code-index:ro
-      - ${GENERATED_DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/generated-documents}:/work/generated-documents:ro
-      - ${DOCS_PATH:-${DATA_ROOT:?Run make setup DATA_ROOT=/path}/docs}:/work/docs:ro
+      - *data-root
       - agent-workspaces:/work/agent-workspaces
     entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.shell_worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
     command: []

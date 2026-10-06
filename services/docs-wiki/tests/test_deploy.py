@@ -8,9 +8,26 @@ DEPLOY = Path(__file__).resolve().parents[3] / "deploy"
 ROOT = "${DATA_ROOT:?Run make setup DATA_ROOT=/path}"
 
 
-def host(variable: str, folder: str) -> str:
-    """A host folder: its own override, else a subfolder of the required DATA_ROOT."""
-    return "${" + variable + ":-" + ROOT + "/" + folder + "}"
+DATA = {"type": "bind", "source": ROOT, "target": "/work/data", "read_only": True}
+FOLDERS = {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDER": "docs",
+           "GENERATED_DOCS_FOLDER": "generated-documents", "JIRA_FOLDER": "jira"}
+WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "docs-wiki": [], "shell-worker": [],
+           "admin-api": ["CODE_FOLDER", "CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"],
+           "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"],
+           "documentation-worker": ["CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"]}
+
+
+def folder(variable: str) -> str:
+    return "${" + variable + ":-" + FOLDERS[variable] + "}"
+
+
+def writable(variable: str) -> dict:
+    """A writable folder of DATA_ROOT, bound over the read-only base at the same relative path."""
+    return {"type": "bind", "source": ROOT + "/" + folder(variable), "target": "/work/data/" + folder(variable)}
+
+
+def data_mounts(service: dict) -> list:
+    return [v for v in service.get("volumes", []) if isinstance(v, dict) and v["target"].startswith("/work/data")]
 
 
 def test_bundle_keeps_runtime_and_migrates_v3_database():
@@ -37,28 +54,15 @@ def test_private_services_and_separate_persistent_state():
     assert all(not value or not value.get("external") for value in compose["volumes"].values())
 
 
-def test_repository_worker_has_exclusive_write_mount_and_credentials():
+def test_repository_worker_has_its_write_mounts_and_credentials():
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
     worker = services["repository-worker"]
-    assert worker["volumes"] == [host("CODE_PATH", "code") + ":/work/code", host("CODE_INDEX_PATH", "code-index") + ":/work/code-index"]
+    assert worker["volumes"] == [DATA, writable("CODE_FOLDER"), writable("CODE_INDEX_FOLDER")]
     assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     for name in ("admin-api", "repository-worker"):
         assert "CREDENTIAL_ENCRYPTION_KEY" in services[name]["environment"]
     for name in ("admin-web", "web"):
         assert "CREDENTIAL_ENCRYPTION_KEY" not in services[name].get("environment", {})
-
-
-def test_agent_config_paths_match_code_and_document_mounts():
-    services = yaml.safe_load((DEPLOY / 'compose.yaml').read_text())['services']
-    for name in ('admin-api',):
-        service = services[name]
-        code_root = service['environment']['CODE_ROOT']
-        rag_root = service['environment']['RAG_SOURCE_ROOT']
-        assert code_root == services['repository-worker']['environment']['CODE_ROOT']
-        assert rag_root == services['rag']['environment']['RAG_SOURCE_ROOT']
-        assert host('CODE_PATH', 'code') + ':' + code_root + ':ro' in service['volumes']
-        assert {'type': 'bind', 'source': host('RG_DATA', 'rag-data'),
-                'target': rag_root, 'read_only': True} in service['volumes']
 
 
 def test_oidc_keeps_issuer_validation_with_internal_token_urls():
@@ -136,31 +140,30 @@ def test_host_folders_come_from_data_root_not_the_checkout():
                 assert ROOT in source, source
 
 
-def test_rag_reads_every_data_area_and_writes_only_rag_data():
+def test_data_root_is_mounted_once_read_only_with_writable_folders_only_for_writers():
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
-    expected = {
-        "/work/code": host("CODE_PATH", "code"), "/work/code-index": host("CODE_INDEX_PATH", "code-index"),
-        "/work/generated-documents": host("GENERATED_DOCS_PATH", "generated-documents"), "/work/docs": host("DOCS_PATH", "docs"),
-    }
-    for name in ("rag", "rag-worker"):
-        service = services[name]
-        mounts = {(v["target"] if isinstance(v, dict) else v.split(":")[-2] if v.endswith(":ro") else v.split(":")[-1]): v for v in service["volumes"]}
-        for target, source in expected.items():
-            assert mounts[target] == f"{source}:{target}:ro", (name, target)
-        rag = mounts["/work/rag-data"]
-        assert isinstance(rag, dict) and not rag.get("read_only") and rag["source"] == host("RG_DATA", "rag-data")
-        env = service["environment"]
-        assert env["CODE_ROOT"] == "/work/code" and env["RAG_SOURCE_ROOT"] == "/work/rag-data"
-        assert env["DOCUMENT_OUTPUT_ROOT"] == "/work/generated-documents" and env["BOOTSTRAP_DOCS_ROOT"] == "/work/docs"
-        assert env["CODE_INDEX_ROOT"] == "/work/code-index"
-        for key, folder in (("CODE_PATH", "code"), ("CODE_INDEX_PATH", "code-index"), ("RG_DATA", "rag-data"), ("GENERATED_DOCS_PATH", "generated-documents"), ("DOCS_PATH", "docs")):
-            assert env[key] == host(key, folder)
+    for name, variables in WRITERS.items():
+        assert data_mounts(services[name]) == [DATA, *(writable(v) for v in variables)], name
+    for name, service in services.items():
+        if name not in WRITERS:
+            assert not data_mounts(service), name
+        for volume in service.get("volumes", []):
+            target = volume["target"] if isinstance(volume, dict) else volume.split(":")[1]
+            assert (not target.startswith("/work/") or target.startswith("/work/data")
+                    or target == "/work/agent-workspaces"), (name, target)
 
 
-def test_shell_worker_reads_every_collection_area_read_only():
-    """Shell agents may be granted a collection in any area; each one must be mounted read-only."""
-    volumes = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))["services"]["shell-worker"]["volumes"]
-    for variable, folder in (("CODE_PATH", "code"), ("CODE_INDEX_PATH", "code-index"), ("RG_DATA", "rag-data"),
-                             ("GENERATED_DOCS_PATH", "generated-documents"), ("DOCS_PATH", "docs")):
-        assert host(variable, folder) + ":/work/" + folder + ":ro" in volumes
-    assert "agent-workspaces:/work/agent-workspaces" in volumes
+def test_services_compute_their_roots_from_the_folder_variables():
+    services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
+    expected = {"DATA_ROOT_DIR": "/work/data", "DATA_ROOT": ROOT,
+                "CODE_ROOT": "/work/data/" + folder("CODE_FOLDER"),
+                "CODE_INDEX_ROOT": "/work/data/" + folder("CODE_INDEX_FOLDER"),
+                "BOOTSTRAP_DOCS_ROOT": "/work/data/" + folder("DOCS_FOLDER"),
+                "DOCUMENT_OUTPUT_ROOT": "/work/data/" + folder("GENERATED_DOCS_FOLDER"),
+                "JIRA_EXPORT_ROOT": "/work/data/" + folder("JIRA_FOLDER")}
+    removed = {"RAG_SOURCE_ROOT", "RG_DATA", "CODE_PATH", "CODE_INDEX_PATH", "GENERATED_DOCS_PATH", "DOCS_PATH"}
+    for name in ("rag", "rag-worker", "admin-api", "repository-worker", "documentation-worker"):
+        env = services[name]["environment"]
+        assert {key: env[key] for key in expected} == expected, name
+        assert not removed & set(env), name
+    assert "environment" not in services["shell-worker"]  # it reads DATA_ROOT_DIR's default, /work/data

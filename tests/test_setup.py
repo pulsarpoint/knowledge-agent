@@ -253,33 +253,40 @@ class SetupTests(unittest.TestCase):
             self.assertIn("WEB_PORT=8180\n", text)
             self.assertRegex(text, r"APP_ADMIN_PASSWORD=\S+")
 
-    def test_compose_mount_and_display_use_the_same_literal_host_path(self) -> None:
+    def test_compose_mounts_the_data_root_read_only_and_writer_folders_writable(self) -> None:
         source = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "project with $dollars #and 'quotes'"
             root.mkdir()
             shutil.copy(source / ".env.example", root / ".env.example")
             shutil.copytree(source / "examples", root / "examples")
-            initialize(root, str(root / "data"))
+            (root / ".env").write_text("CODE_FOLDER=src/code\nJIRA_FOLDER=exports/jira\n", encoding="utf-8")
+            run_setup(root, str(root / "data"))
             result = subprocess.run(
                 ["docker", "compose", "--env-file", str(root / ".env"), "-f", str(source / "deploy/compose.yaml"), "config", "--format", "json"],
                 capture_output=True, text=True, check=True,
             )
-            config = json.loads(result.stdout)
+            services = json.loads(result.stdout)["services"]
             # Compose escapes dollars when serializing config for safe reloading.
             data = str(root / "data").replace("$", "$$")
-            for name in ("rag", "rag-worker"):
-                service = config["services"][name]
-                mount = next(volume for volume in service["volumes"] if volume["target"] == "/work/rag-data")
-                self.assertEqual(mount["source"], data + "/rag-data")
-                self.assertEqual(service["environment"]["RG_DATA"], data + "/rag-data")
-            admin = config["services"]["admin-api"]
-            sources = {volume["target"]: volume["source"] for volume in admin["volumes"]}
-            self.assertEqual(sources["/work/code"], data + "/code")
-            self.assertEqual(sources["/work/code-index"], data + "/code-index")
-            self.assertEqual(sources["/work/generated-documents"], data + "/generated-documents")
-            self.assertEqual(admin["environment"]["CODE_PATH"], data + "/code")
-            for service in config["services"].values():
+            folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
+            writers = {"rag": ["jira"], "rag-worker": [], "docs-wiki": [], "shell-worker": [],
+                       "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
+                       "documentation-worker": ["index", "documents"]}
+            for name, writable in writers.items():
+                mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]
+                                if v["target"].startswith("/work/data"))
+                expected = sorted([(data, "/work/data", True)] + [
+                    (f"{data}/{folders[key]}", f"/work/data/{folders[key]}", False) for key in writable])
+                self.assertEqual(mounts, expected, name)
+            for name in ("rag", "admin-api"):
+                env = services[name]["environment"]
+                self.assertEqual(env["DATA_ROOT_DIR"], "/work/data")
+                self.assertEqual(env["DATA_ROOT"], data)
+                self.assertEqual(env["CODE_ROOT"], "/work/data/src/code")
+                self.assertEqual(env["JIRA_EXPORT_ROOT"], "/work/data/exports/jira")
+                self.assertEqual(env["DOCUMENT_OUTPUT_ROOT"], "/work/data/generated-documents")
+            for service in services.values():
                 for volume in service.get("volumes", []):
                     self.assertNotIn(".local", volume.get("source", ""))
 
