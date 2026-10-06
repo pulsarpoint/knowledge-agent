@@ -6,12 +6,10 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 
 ## Service boundaries
 
-- Reader traffic enters through `oauth2-proxy` on port 8180; administration enters
-  through `admin-oauth2-proxy` on port 8183. The two web servers and APIs, `rag`
-  and `litellm` have no published host ports.
-- The proxies use separate `knowledge-agent-v3` and `knowledge-agent-v3-admin`
-  Keycloak clients, client secrets and cookie names. The admin gateway also
-  requires the `docs-admins` group, which the admin API checks independently.
+- Administration enters through `admin-oauth2-proxy` on port 8183. The admin web
+  server and API, `rag` and `litellm` have no published host ports.
+- The gateway uses the `knowledge-agent-v3-admin` Keycloak client, its own client
+  secret and cookie name. It also requires the `docs-admins` group, which the admin API checks independently.
   Browser login uses the public URL, while token/userinfo/JWKS calls use Docker
   service DNS. Issuer validation remains enabled. This follows the documented
   [explicit OIDC endpoint configuration](https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview/)
@@ -21,7 +19,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   startup requires successful migration. Existing checksum-ledger databases need
   the one-time verified adoption procedure in the [migration guide](../docs/migrations.md).
   Repository settings, encrypted
-  tokens and pull jobs use PostgreSQL; SQLite remains the reader's current store.
+  tokens and pull jobs use PostgreSQL.
 - `repository-worker` has no host port and owns the writable `CODE_FOLDER` and
   `CODE_INDEX_FOLDER` binds; everything else sees `DATA_ROOT` read-only at `/work/data`.
   It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders.
@@ -29,8 +27,8 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- Phoenix has its own authenticated UI and volume. The reader exports
-  OpenInference traces to it; tracing failure does not prevent reading or chat.
+- Phoenix has its own authenticated UI and volume. The admin API exports
+  OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
 - Each service receives an explicit subset of environment variables. The complete
   root `.env` is never mounted into a container or included in a Docker image.
 
@@ -47,8 +45,7 @@ make setup DATA_ROOT=/opt/knowledge-agent
 Compose refuses to start without it (`Run make setup DATA_ROOT=/path`); nothing is
 created inside the checkout. `DATA_ROOT` must be an absolute path. `make setup` creates
 the folders below inside it. `DATA_ROOT` is mounted once, read-only, at `/work/data`;
-each folder is writable only in the services listed. `docs-wiki` mounts only
-`DOCS_FOLDER` (read-only), not the rest of `DATA_ROOT`.
+each folder is writable only in the services listed.
 
 | Variable | Default | Container path | Contents | Writable in |
 | --- | --- | --- | --- | --- |
@@ -110,7 +107,6 @@ Set `DATA_ROOT` in `.env` (`make setup DATA_ROOT=/opt/knowledge-agent`), then `m
 | --- | --- |
 | `DATA_ROOT` host folder | Code, code graphs, Jira exports, document exports and bootstrap docs (see above) |
 | `knowledge-agent-v3_postgres-data` | V3 application metadata, processing jobs, searchable text and vectors |
-| `knowledge-agent-v3_wiki-data` | Reader sessions, audit transcript and gaps |
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |
 
@@ -171,48 +167,62 @@ or other user administration is available through the local Keycloak console.
 
 ## Configuration and troubleshooting
 
-Change WEB_PORT, ADMIN_PORT, KEYCLOAK_PORT, PHOENIX_PORT and POSTGRES_PORT in root `.env` if a
+Change ADMIN_PORT, KEYCLOAK_PORT, PHOENIX_PORT and POSTGRES_PORT in root `.env` if a
 port is occupied. Set public WEB_HOST consistently; for an already imported
 realm, `make up` applies the client redirect URIs to match these settings.
 
 ```sh
 make compose-validate
 make status
-docker compose --env-file .env -f deploy/compose.yaml logs --tail=80 keycloak oauth2-proxy
+docker compose --env-file .env -f deploy/compose.yaml logs --tail=80 keycloak admin-oauth2-proxy
 ```
 
-The smoke check uses the bootstrap application admin and intentionally rebuilds
-the configured v3 docs/code indexes. If its password has changed in Keycloak,
-update APP_ADMIN_PASSWORD to the current credential before running the check.
-Smoke does not issue an AI prompt or verify provider credentials. The example
-corpus is expected to contain readable Markdown and extractable Go code.
+The smoke check uses the bootstrap application admin. If its password has changed
+in Keycloak, update APP_ADMIN_PASSWORD to the current credential before running the
+check. Smoke does not issue an AI prompt or verify provider credentials.
 
 For short private hostnames used by SSH or Jira, set `DOCKER_DNS_SEARCH` in root `.env` to the host's DNS search domain (for Tailscale, the tailnet's `tailXXXX.ts.net` domain). Compose applies this to the admin API, where those outbound connections run. Recreate the container with `docker compose --env-file .env -f deploy/compose.yaml up -d --no-deps --wait admin-api`. Docker retains its normal DNS resolver and internal service discovery. With no domain configured, the search suffix is `.`.
 
 This fixes short-name lookup when the full hostname already resolves inside Docker. It does not copy the host's `/etc/hosts`, SSH aliases, or VPN routing configuration. If the full name also fails, fix the Docker/host DNS forwarding or use a reachable DNS server for that domain. See [Compose dns_search](https://docs.docker.com/reference/compose-file/services/#dns_search) and [Tailscale MagicDNS](https://tailscale.com/docs/features/magicdns).
 
-To run native services, use the service guides' `uv run` commands. The frontend's
-reader Vite proxy expects `127.0.0.1:8765`; the admin Vite proxy on port 5174
-expects its own API on `127.0.0.1:8766`. Authenticated Docker entry points use
-8180 and 8183 respectively. Do not expose the native internal APIs as a
+To run native services, use the service guides' `uv run` commands. The admin Vite
+proxy on port 5174 expects its API on `127.0.0.1:8766`. The authenticated Docker
+entry point uses 8183. Do not expose the native internal APIs as a
 substitute for the authenticated gateway.
 
-## Deploy and maintain the applications separately
+## Deploy and maintain administration
 
 ```sh
 # Rebuild just the admin frontend/API after their source changes.
 docker compose --env-file .env -f deploy/compose.yaml up -d --build admin-api admin-web repository-worker admin-oauth2-proxy
-# Stop administration; the reader continues serving its users.
+# Stop administration.
 docker compose --env-file .env -f deploy/compose.yaml stop admin-oauth2-proxy admin-web admin-api repository-worker
 ```
 
-The `keycloak-configure` one-shot service applies only the two v3 client
-definitions after Keycloak becomes healthy. It preserves existing users and
-application data. Admin group claims come from the dedicated client mapper;
+The `keycloak-configure` one-shot service applies the `knowledge-agent-v3-admin`
+client definition after Keycloak becomes healthy and deletes the retired Reader
+client `knowledge-agent-v3` if a persisted realm still has it. It preserves
+existing users and application data. Admin group claims come from the dedicated client mapper;
 the gateway explicitly requests `openid email profile` to avoid requesting a
-nonexistent `groups` scope. Session encryption keys differ across applications.
+nonexistent `groups` scope.
 
-The admin API reuses the reader package's configuration and audit-storage modules
-as a library. It does not call the reader API or mount its routes. Both services
-currently share `wiki-data` to support cross-user audit inspection, and both use
-the RAG service. New PostgreSQL management workflows belong in `services/admin-api`.
+The admin API owns its configuration (`knowledge_admin/config.py`) and uses the
+RAG service. New PostgreSQL management workflows belong in `services/admin-api`.
+
+## Upgrading after the Reader removal
+
+The end-user Reader application (`docs-wiki`, `web` and `oauth2-proxy` on port 8180)
+was removed. After pulling this version on an existing installation:
+
+1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration
+   0071 deletes Reader conversations and drops `ka.reader_settings`,
+   `agent_sessions.channel` and `agent_sessions.hidden_by_owner_at`.
+2. Remove the orphaned containers:
+   `docker compose --env-file .env -f deploy/compose.yaml up -d --remove-orphans`
+   (or run `make up`, then remove the `docs-wiki`, `web` and `oauth2-proxy` containers).
+3. Optionally back up, then delete, the old `wiki-data` volume (Reader gaps and chat
+   files): `docker volume rm knowledge-agent-v3_wiki-data`.
+4. `keycloak-configure` deletes the retired `knowledge-agent-v3` Keycloak client
+   automatically.
+5. Delete the obsolete `.env` keys `WEB_PORT`, `READER_AGENT_KEY`,
+   `OAUTH2_PROXY_CLIENT_SECRET` and `OAUTH2_PROXY_COOKIE_SECRET`.

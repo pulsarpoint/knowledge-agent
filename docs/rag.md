@@ -29,7 +29,7 @@ A collection has:
 | Field | Meaning |
 | --- | --- |
 | Name | Lowercase letters, digits and single hyphens (`payments-code`), at most 60 characters, unique among collections |
-| Description | Up to 2,000 characters; shown to agents and Reader users |
+| Description | Up to 2,000 characters; shown to agents |
 | Folders | One or more `source_path` values, relative to `DATA_ROOT`. A folder is any path relative to `DATA_ROOT` whose segments use letters, digits, `.`, `_` and `-` and do not start with `.`. Added and removed on the collection detail page or through the API, not in the Edit form |
 | Search mode | `full_text` (default), `embedding` or `hybrid` |
 | Embeddings | On or off per collection; needs the global embedding model |
@@ -188,7 +188,7 @@ The sync, the collection status and the automatic poller share this one rule, so
 collection shows **Too large to sync** with Refresh disabled, **Refresh all stale** skips it,
 and Auto-sync queues nothing for it.
 
-The file API (`GET /file?collection=&path=`, used by the Reader's document view and the agents'
+The file API (`GET /file?collection=&path=`, used by the agents'
 `read_document`) takes the full path under `DATA_ROOT` (for example `jira/DEMO-1.md`).
 It serves only files a sync would index, under one of the collection's paths: a hidden,
 `.env*`, `.git` or `node_modules` path or a file outside the paths or the include/exclude
@@ -205,8 +205,7 @@ or not) and marks the result `truncated`. `too_large` is true when the walk was 
 the walked text exceeds 200 MB; a collection that a sync can walk is never too large.
 
 `GET /collections?status=false` skips the walk: it returns the collection rows, the index
-counts (`indexed_files`, `chunks`, `embedded_chunks`) and `folder_present` only. The Reader's
-context panel and Jira export use it.
+counts (`indexed_files`, `chunks`, `embedded_chunks`) and `folder_present` only. Jira export uses it.
 
 Status meanings:
 
@@ -280,8 +279,8 @@ Not in this step: inotify, S3, and per-folder intervals.
 
 Search input is `collections: [name]`; omitting it means every collection the caller may
 use. An unknown name answers 404 unless `ignore_unknown: true` is sent: then unknown names
-are dropped and returned as `unknown: [name]` (all unknown gives empty results). Agents and
-the Reader send `ignore_unknown`, so a renamed or deleted granted collection does not break
+are dropped and returned as `unknown: [name]` (all unknown gives empty results). Agents send
+`ignore_unknown`, so a renamed or deleted granted collection does not break
 their search; the Admin search page keeps the 404 to catch typos. Per collection, full-text ranking applies to `full_text` and `hybrid`, and vector ranking
 applies to `embedding` and `hybrid` only when that collection has embeddings enabled and a
 global embedding model is configured. Otherwise the collection falls back to full text and
@@ -382,4 +381,4 @@ The internal service exposes administration under `/backoffice/projects/{project
 
 Keys are AES-256-GCM encrypted with the existing `CREDENTIAL_ENCRYPTION_KEY`, a fresh 12-byte nonce, and project/purpose-bound associated data. The stored byte value contains nonce followed by ciphertext and authentication tag. Keys are never returned. Omitted key fields retain existing keys; explicit null removes one. Changing an endpoint with a stored key requires re-entering or removing it. Back up the encryption key with PostgreSQL and the source directory.
 
-The search agent in both applications retrieves from this PostgreSQL workspace. It receives the catalog of its granted collections on every turn, then uses `search_documents` (collection names) and `read_document(collection, path)` to ground its answer. `path` is the full path, such as `jira/DEMO-1.md`; the Reader document path is `<collection>/<full path>`. Agents that are not grounded read every path of their granted collections. Agents are granted whole collections ("All collections" or a picked list); there are no subfolder grants. Frozen agent versions that still hold old folder selectors are mapped to the collection of their top-level segment when loaded. The Reader's Advanced panel narrows a chat to chosen collections and never broadens beyond what the agent allows. There is no separate `/rag` answer endpoint. Test the agent under Administration → Agents.
+The search agent retrieves from this PostgreSQL workspace. It receives the catalog of its granted collections on every turn, then uses `search_documents` (collection names) and `read_document(collection, path)` to ground its answer. `path` is the full path, such as `jira/DEMO-1.md`. Agents that are not grounded read every path of their granted collections. Agents are granted whole collections ("All collections" or a picked list); there are no subfolder grants. Frozen agent versions that still hold old folder selectors are mapped to the collection of their top-level segment when loaded. The Reader's Advanced panel narrows a chat to chosen collections and never broadens beyond what the agent allows. There is no separate `/rag` answer endpoint. Test the agent under Administration → Agents.

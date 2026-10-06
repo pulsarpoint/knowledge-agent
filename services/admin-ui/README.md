@@ -17,6 +17,5 @@ Sign in as `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
 The root route opens `/rag/collections`. RAG includes Collections, Jobs, Settings,
 and Search. `/github-projects`, `/services`, and `/servers` manage agent assets.
 Jira settings and tickets live under `/jira`; `/skills`, `/llm-settings`, and
-`/agents` configure and test agents. `/activity` supports user/session audit
-inspection. The gateway and API require `docs-admins`; reader sessions do not
-authenticate this application.
+`/agents` configure and test agents. `/activity/runs` lists agent run records.
+The gateway and API require `docs-admins`.

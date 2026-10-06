@@ -31,7 +31,7 @@ exported. Per-collection settings and the global embedding model are saved throu
 
 The service exposes authenticated `/backoffice/projects/{project_id}/...` and
 `POST /search` routes. The admin API binds `/api/rag/...` requests to the single
-workspace and supplies the service key. Reader and search-agent integrations use
+workspace and supplies the service key. Agent document search uses
 these same workspace APIs. See the [RAG administration guide](../../docs/rag.md)
 for endpoint schemas, collections, freshness, incremental processing and storage.
 

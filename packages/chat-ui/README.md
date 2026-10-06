@@ -14,8 +14,9 @@ The client application can use this export with its own request callbacks.
 
 As with the existing `ChatPanel`, imports under `~/components` and `~/lib` resolve
 to each consuming application's Markdown renderer, shadcn controls and utilities.
-Both applications scan this package for Tailwind classes. The older default
-`ChatPanel` export remains available to the existing reader integration.
+The administration application scans this package for Tailwind classes. The older
+default `ChatPanel` export remains in the package but has no consumer since the
+Reader application was removed.
 
 `ui/message.tsx`, `ui/bubble.tsx` and `ui/message-scroller.tsx` were added with the
 shadcn CLI from the official Radix Nova registry on 2026-09-11. Local adaptations

@@ -43,8 +43,7 @@ specialists. See [execution status](agents.md).
 Prompt versions belong to one profile. Creating an agent requires an explicit, nonempty system prompt, which becomes its first active version; later versions start as drafts until activated. Existing published prompts are preserved, including any instructions describing a former specialization; edit these in Prompts when changing the intended purpose. “When to use” records routing guidance. The board coordinator receives this guidance for the explicitly selected team and chooses which specialists to call.
 
 The default IDs `search`, `code`, and `operations` preserve existing integrations.
-The reader keeps its Search UI and uses the default search profile for context
-discovery. Every agent has its own configuration; no parent agent is introduced.
+Every agent has its own configuration; no parent agent is introduced.
 
 ## New Agent Wizard
 

@@ -1,6 +1,6 @@
 # Architecture and admin workflows
 
-The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. RAG reads `DATA_ROOT` (mounted read-only at `/work/data`) directly and writes only `JIRA_FOLDER`, without a UUID subdirectory. Reader and admin remain separate web applications with independent authentication sessions.
+The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. RAG reads `DATA_ROOT` (mounted read-only at `/work/data`) directly and writes only `JIRA_FOLDER`, without a UUID subdirectory. Administration is the only web application; the former Reader application was removed.
 
 
 Status: target design, with an independently runnable v2-derived baseline now
@@ -14,34 +14,26 @@ v3 project are implementation choices made for this first phase.
 
 ## Runtime structure
 
-Run two independent React/TypeScript applications with shadcn, React Router,
-and Tailwind. Each has its own FastAPI process, web container, authentication
-proxy, Keycloak client and session cookie. The reader never mounts administrative
-routes; the administration application requires `docs-admins` throughout.
-Keycloak remains the shared identity provider, and the applications share the
-underlying project content and audit data. Existing administrators keep their
-accounts. Repository pulls run in a worker owned by the admin
+Run one React/TypeScript administration application with shadcn, React Router,
+and Tailwind, with its own FastAPI process, web container, authentication proxy,
+Keycloak client and session cookie. It requires `docs-admins` throughout. Keycloak
+is the identity provider; existing administrators keep their accounts. The former
+end-user Reader application was removed and will be redesigned later. Repository pulls run in a worker owned by the admin
 backend. PostgreSQL supplies durable jobs; no extra queue broker is needed yet.
 
 ```mermaid
 flowchart LR
-    User --> ReaderLogin[Reader login: Keycloak client]
-    ReaderLogin --> Reader[Reader React app :8180]
-    Reader --> ReaderAPI[Reader FastAPI]
-    Admin --> AdminLogin[Admin login: separate Keycloak client]
+    Admin --> AdminLogin[Admin login: Keycloak client]
     AdminLogin --> AdminUI[Admin React app :8183]
     AdminUI --> AdminAPI[Admin FastAPI]
-    ReaderAPI --> Data[(Project and audit data)]
-    AdminAPI --> Data
-    ReaderAPI --> RAG[Local RAG]
-    AdminAPI --> RAG
+    AdminAPI --> Data[(Project data)]
+    AdminAPI --> RAG[Local RAG]
     AdminAPI --> DB[(PostgreSQL metadata and jobs)]
     Worker[Planned admin worker] --> DB
     Worker --> Plugin[Claude Agent SDK + app-docs]
     Worker --> Jira[Jira Data Center]
     Worker --> RAG
-    ReaderAPI --> CodeAgent[Read-only code agent]
-    ReaderAPI -. traces .-> Phoenix
+    AdminAPI -. traces .-> Phoenix
     Worker -. traces .-> Phoenix
 ```
 
@@ -51,8 +43,6 @@ Current source layout:
 services/admin-ui/             Standalone React administration application
 services/admin-api/            Standalone FastAPI administration service
   src/knowledge_admin/         Admin-only app, route definitions and CLI
-services/docs-wiki-ui/         User-facing reader, search and chat application
-services/docs-wiki/            Reader API and preserved storage/domain modules
 services/rag/                  Retrieval engine, document processing and retrieval
 services/code-graph/           CodeGraph indexing/query scripts bundled into admin-api
 plugins/app-docs/              Preserved plugin, explicit SDK loading
@@ -60,16 +50,14 @@ db/migrations/                Ordered application migrations
 deploy/                       Separate web/API/auth services and shared infrastructure
 ```
 
-The admin service uses the existing Python configuration and audit-storage modules
-as a library, independently of the reader process. It currently provides
+The admin service owns its configuration (`knowledge_admin/config.py`). It currently provides
 initialization, audit, repository, service-inventory and server-inventory
 APIs, plus Jira settings, connection tests and recent-ticket retrieval. Document and server-access modules will be added there. Keep each workflow direct and avoid a separate service
 for every settings page. The frontend apps have no cross-package source imports.
 
 ## Admin navigation
 
-The sidebar has a project switcher and these sections. Reader navigation keeps
-documentation, search and chat available in the separate reader application.
+The sidebar has a project switcher and these sections.
 
 | Page | Main content and actions |
 | --- | --- |
@@ -82,8 +70,7 @@ documentation, search and chat available in the separate reader application.
 | Jira / Settings | Implemented: Data Center URL, username, encrypted PAT, Test connection |
 | Servers | Implemented: register/edit name, hostname/IP, description, tags and search. Planned: SSH port/user/key, host key, Allow sudo, enabled state, Test connection |
 | Jobs | Queued/running/completed jobs, persisted progress, actionable plugin questions |
-| Documentation gaps | Open gaps, code-derived draft answers, resolution state |
-| Activity | Existing user/session audit drilldown plus configuration/job events |
+| Agent runs | Agent run records (`/activity/runs`); configuration/job events planned |
 
 Use a Sidebar shell, Table listings, Field/FieldGroup forms, Switch for sudo,
 Dialog/Sheet for edits, and Alert/Empty/Spinner for state feedback. Use v2's
@@ -118,8 +105,8 @@ Only downloaded repositories expose checkout paths; `current_commit` is distinct
 from the operator's `deployed_version`. Credentials are not joined into this view.
 The API requires the same global admin authorization as other management routes.
 
-This resource is ready for a future agent-run adapter; the current reader and
-code agent do not consume it automatically. Live observations, evidence timestamps,
+This resource is ready for a future agent-run adapter; current agents do not
+consume it automatically. Live observations, evidence timestamps,
 SSH/log collection, health checks, and monitoring remain separate work. Consumers
 must use a trusted authenticated boundary and treat descriptive text as untrusted
 data, never as executable commands or grants of access.
@@ -217,7 +204,7 @@ operation before they become current database revisions.
 
 The fixed source mount is `/work/data` (`DATA_ROOT`, read-only; only the Jira folder is writable for RAG). PostgreSQL stores folder descriptions, file manifests, parsed chunks, full-text indexes, and pgvector embeddings. File content and processing-profile hashes determine which stages need to run. Unchanged parsing and embeddings are reused; changed and deleted files are published atomically. See [RAG administration](rag.md).
 
-The search agent receives the indexed document catalog with short descriptions on every turn. It calls `/search` for retrieval and reads full documents when needed. Source-code questions use read-only analysis of checkouts published by the repository worker. The same agent and chat component serve the reader and the separate administration test page; their conversations are stored separately and scoped to the authenticated user. Phoenix tracks the agent execution.
+The search agent receives the indexed document catalog with short descriptions on every turn. It calls `/search` for retrieval and reads full documents when needed. Source-code questions use read-only analysis of checkouts published by the repository worker. Administrators try agents in the agent Test page; conversations are scoped to the authenticated user. Phoenix tracks the agent execution.
 
 ## Jira Data Center
 
@@ -241,7 +228,7 @@ must not mark unseen tickets deleted. Full reconciliation can mark tickets out
 of the configured scope after all pages succeed; absence does not prove remote
 deletion. Changes to JQL reset the incremental cursor and require full sync.
 Current reads require the global admin group and the configured application scope.
-Future reader access needs an explicit project-membership policy. Per-user Jira
+Future non-admin access needs an explicit project-membership policy. Per-user Jira
 permission replication is a separate capability.
 
 The schema also permits Cloud settings without requiring Cloud support in the
