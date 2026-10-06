@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import get_agent_config
-from knowledge_admin.reader_policy import knowledge_violations, reader_violations
 
 
 class ProfileInput(BaseModel):
@@ -34,7 +33,6 @@ class ProfileInput(BaseModel):
     skills_enabled: bool = Field(strict=True)
     mcp_enabled: bool = Field(strict=True)
     services_enabled: bool = Field(strict=True)
-    reader_enabled: bool | None = Field(default=None, strict=True)
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
@@ -102,8 +100,6 @@ def build_api(app_name, store):
                     row['prompt_version'] = config['system_prompt']['version']
                     for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
                         row[flag] = config[capability]['enabled']
-            for row in rows:
-                row['reader_violations'] = reader_violations(row['id'], store.conninfo) if row['reader_enabled'] else []
             return {'agents': rows}
 
     @router.get('/{agent_id}')
@@ -133,27 +129,6 @@ def build_api(app_name, store):
                 'skills': conn.execute('SELECT id,name,description,enabled FROM ka.agent_skills WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
             }
 
-    def reader_check(conn, old, value, grounded):
-        """Reader users are every signed-in employee: a published agent may only read documents.
-
-        Publishing also requires the agent to be ready; an already published agent stays editable
-        while it is not ready (for example before a model is chosen), and the Reader refuses to run it.
-        """
-        newly = not old['reader_enabled']
-        model = conn.execute('SELECT enabled FROM ka.llm_models WHERE id=%s', (old['model_id'],)).fetchone() if newly else {'enabled': True}
-        config = {'enabled': value.enabled or not newly, 'model': model, 'documents': {'enabled': value.documents_enabled, 'grounded': grounded},
-                  'ssh': {'enabled': value.ssh_enabled}, 'mcp': {'enabled': value.mcp_enabled}, 'code': {'enabled': value.repositories_enabled}}
-        reasons = knowledge_violations(config)
-        if newly and old['active_config_version_id'] is not None:
-            saved = conn.execute('SELECT version,config FROM ka.agent_versions WHERE id=%s', (old['active_config_version_id'],)).fetchone()
-            if knowledge_violations(saved['config']):
-                reasons.append(f"active version v{saved['version']} predates these settings — save and activate a new version")
-        if reasons:
-            message = 'This agent cannot answer Reader users: ' + '; '.join(reasons) + '.'
-            if not newly:
-                message += ' Turn off Available in Reader to change these settings.'
-            raise HTTPException(400, message)
-
     @router.put('/{agent_id}')
     def update(agent_id: str, value: ProfileInput, request: Request):
         try:
@@ -168,7 +143,7 @@ def build_api(app_name, store):
                     raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
                 if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
                         value.skills_enabled,value.mcp_enabled,value.services_enabled,value.collection_ids,value.repository_ids,
-                        value.service_ids,value.skill_ids,value.reader_enabled)):
+                        value.service_ids,value.skill_ids)):
                     raise HTTPException(400, 'Configure resource access on the specialists the coordinator delegates to.')
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
@@ -194,12 +169,9 @@ def build_api(app_name, store):
                     for resource_id in ids:
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
-                published = old['reader_enabled'] if value.reader_enabled is None else value.reader_enabled
-                if published:
-                    reader_check(conn, old, value, grounded)
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,reader_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,published,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

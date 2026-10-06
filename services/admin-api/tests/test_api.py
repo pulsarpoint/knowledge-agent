@@ -69,16 +69,12 @@ def test_retired_initialization_routes_do_not_reach_rag(tmp_path, method, path):
 
 
 @pytest.mark.parametrize('groups', ['', 'readers', 'docs-admins-other'])
-def test_agent_test_requires_exact_admin_group(tmp_path, groups):
-    client = _client(tmp_path)
+def test_admin_api_requires_exact_admin_group(tmp_path, groups):
     headers = {'X-Forwarded-Groups': groups, 'X-Forwarded-User': 'admin'}
-    assert client.get('/api/agents/search/status', headers=headers).status_code == 403
-    assert client.get('/api/agents/search/context', headers=headers).status_code == 403
-    assert client.post('/api/agents/search/chat', headers=headers, json={'question': 'hello'}).status_code == 403
+    assert _client(tmp_path).get('/api/agents', headers=headers).status_code == 403
 
 
-def test_admin_agent_status_is_explicit_when_unconfigured(tmp_path, monkeypatch):
-    monkeypatch.delenv('DOCS_WIKI_CHAT_MODEL', raising=False)
-    response = _client(tmp_path).get('/api/agents/search/status', headers={'X-Forwarded-Groups': 'docs-admins'})
-    assert response.status_code == 200
-    assert response.json()['ask_enabled'] is True
+@pytest.mark.parametrize('method,path', [('GET', '/api/agents/search/status'), ('GET', '/api/agents/search/context'),
+    ('POST', '/api/agents/search/chat'), ('GET', '/api/agents/search/chats')])
+def test_legacy_search_chat_is_removed(tmp_path, method, path):
+    assert _client(tmp_path).request(method, path, headers={'X-Forwarded-Groups': 'docs-admins'}).status_code in (404, 405)

@@ -81,6 +81,4 @@ def create_app(cfg: Config, *, server: ServerConfig,
     if repository_store is not None:
         from knowledge_admin import run_record
         run_record.configure(repository_store, cfg.apps[0].name)
-    from knowledge_admin import reader_api
-    app.include_router(reader_api.build_api(cfg.apps[0].name, repository_store))
     return app

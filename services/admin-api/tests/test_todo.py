@@ -58,20 +58,6 @@ def test_agent_delete_preserves_prompt_invariants_and_other_agents(store, tmp_pa
     assert client.get('/api/llm', headers=HEADERS).status_code == 200
 
 
-def test_admin_search_todo_does_not_create_history(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    async def forbidden(*args, **kwargs):
-        pytest.fail('TODO must not execute')
-    monkeypatch.setattr('httpx.AsyncClient.send', forbidden)
-    before = sorted(str(p) for p in tmp_path.rglob('*'))
-    response = client.post('/api/agents/search/chat', headers=HEADERS, json={'question': 'Inspect'})
-    assert response.status_code == 200 and response.text == 'TODO'
-    assert response.headers['content-type'].startswith('text/plain')
-    assert sorted(str(p) for p in tmp_path.rglob('*')) == before
-    assert client.get('/api/agents/search/chats', headers=HEADERS).json() == {'sessions': []}
-    assert client.post('/api/agents/search/chat', json={'question': 'Inspect'}).status_code == 403
-
-
 def test_delete_cleans_owned_settings_and_keeps_shared_ssh_key(store, tmp_path):
     from test_operations import setup
     from test_agent_ssh import save
