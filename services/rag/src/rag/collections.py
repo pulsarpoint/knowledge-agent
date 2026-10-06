@@ -36,6 +36,11 @@ def source_path(value: str) -> str:
     return value
 
 
+def link_or_not_folder(error: OSError) -> bool:
+    """A path through a symbolic link (refused by O_NOFOLLOW) or through a file used as a folder."""
+    return isinstance(error, (NotADirectoryError, IsADirectoryError)) or error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR)
+
+
 def overlaps(a: str, b: str) -> bool:
     """Whether one collection path contains the other; equal paths overlap."""
     return a == b or a.startswith(b + '/') or b.startswith(a + '/')
@@ -373,3 +378,7 @@ class DataRoot:
                         pass
         except FileNotFoundError:
             raise HTTPException(409, f'Folder {source} does not exist; run make setup to create it') from None
+        except OSError as error:
+            if link_or_not_folder(error):
+                raise HTTPException(409, f'{source}/{path} is a link or not a folder') from None
+            raise

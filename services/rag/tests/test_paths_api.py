@@ -231,7 +231,26 @@ def test_symlinked_files_are_never_served(env, tmp_path):
     (roots["jira"] / "docs" / "link.txt").symlink_to(secret)
     collection(env)
     response = env[1].get(env[3] + "/file", params={"collection": "docs", "path": "jira/docs/link.txt"})
-    assert response.status_code == 400 and "outside-secret" not in response.text
+    assert response.status_code == 404 and "outside-secret" not in response.text
+
+
+def test_jira_file_api_refuses_links_and_files_used_as_folders(env, tmp_path):
+    roots = env[6]
+    client, prefix = env[1], env[3]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.md").write_text("outside-secret")
+    (roots["jira"] / "linked").symlink_to(outside)  # a symlinked Jira subfolder
+    (roots["jira"] / "link.md").symlink_to(outside / "a.md")  # a symlinked file
+    (roots["jira"] / "DEMO-1.md").write_text("# DEMO-1")  # a file used as a folder below
+    for path in ("jira/linked/a.md", "jira/link.md", "jira/DEMO-1.md/a.md", "jira/linked/new/a.md"):
+        got = client.get(prefix + "/file", params={"path": path})
+        assert got.status_code == 404 and "outside-secret" not in got.text, path
+        put = client.put(prefix + "/file", json={"path": path, "content": "# changed", "expected_hash": None})
+        assert put.status_code == 409, (path, put.text)
+        assert put.json()["error"]["message"] == f"{path} is a link or not a folder", path
+    assert (outside / "a.md").read_text() == "outside-secret" and sorted(p.name for p in outside.iterdir()) == ["a.md"]
+    assert (roots["jira"] / "DEMO-1.md").read_text() == "# DEMO-1"
 
 
 def test_jira_writer_writes_only_inside_the_jira_folder(env):

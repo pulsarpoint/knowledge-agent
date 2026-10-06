@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rag import file_log
-from rag.collections import (FolderMissing, indexable, overlaps, refuse_hidden, relative_path, source_path, too_large,
+from rag.collections import (FolderMissing, indexable, link_or_not_folder, overlaps, refuse_hidden, relative_path, source_path, too_large,
                              visible)
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
@@ -442,8 +442,10 @@ def build_api(workspace: Workspace, key: str, transport=None):
         first, _, rest = path.partition("/")
         try:
             data = workspace.data_root.read(first, rest, limit)
-        except FileNotFoundError:
-            raise HTTPException(404, "Document not found") from None
+        except OSError as error:
+            if isinstance(error, FileNotFoundError) or link_or_not_folder(error):
+                raise HTTPException(404, "Document not found") from None
+            raise
         try:
             content = data.decode("utf-8-sig")
         except UnicodeError:
@@ -468,6 +470,10 @@ def build_api(workspace: Workspace, key: str, transport=None):
             previous = digest(workspace.data_root.read(jira, rest, limit))
         except FileNotFoundError:
             previous = None
+        except OSError as error:
+            if link_or_not_folder(error):
+                raise HTTPException(409, f"{path} is a link or not a folder") from None
+            raise
         if previous != payload.expected_hash:
             raise HTTPException(409, "File already exists or has changed; open it before replacing it")
         workspace.data_root.write(jira, rest, data)
