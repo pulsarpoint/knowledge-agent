@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, syncLabel, type CollectionPath, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
@@ -27,6 +27,8 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const location = useLocation();
+  const [folderError] = useState(() => (location.state as { folderError?: string } | null)?.folderError ?? "");
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const row = await getCollection(id, signal);
@@ -50,6 +52,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   if (!collection) return <div className="flex flex-col gap-4">{error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-64" />}</div>;
   const c = collection;
   return <div className="flex flex-col gap-6">
+    {folderError && <Alert variant="destructive"><AlertDescription>{folderError}</AlertDescription></Alert>}
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
     <section className="flex flex-col gap-3 rounded-lg border p-5">

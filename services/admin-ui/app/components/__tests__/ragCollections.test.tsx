@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import RagCollectionsView from "../RagCollectionsView";
 import RagCollectionDetail from "../RagCollectionDetail";
 import { pollIntervalToSend } from "../RagCollectionForm";
@@ -314,4 +314,82 @@ test("the chunk panel closes when the selected file leaves the log page or the f
   expect(await screen.findByText("Chunks of jira/DEMO-2.md")).toBeInTheDocument();
   await user.type(screen.getByRole("searchbox", { name: "Search files" }), "DEMO-2");  // still listed, but the search changed
   await waitFor(() => expect(screen.queryByText(/Chunks of/)).toBeNull());
+});
+
+function Opened() {
+  const location = useLocation();
+  return <div>detail page {(location.state as { folderError?: string } | null)?.folderError ?? ""}</div>;
+}
+function creating(failPaths = false) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/rag/folders")) return Response.json({ path: null, truncated: false,
+      folders: url === "/api/rag/folders" ? [{ name: "jira", path: "jira" }] : [] });
+    if (init?.method === "POST" && url === "/api/rag/collections") return Response.json({ ...base, id: "c9", name: "payments-api-docs", paths: [] }, { status: 201 });
+    if (init?.method === "POST" && url.endsWith("/paths")) return failPaths
+      ? Response.json({ error: { message: "Folder does not exist" } }, { status: 409 })
+      : Response.json({ ...base, id: "c9", paths: [] });
+    if (init?.method === "POST" && url.endsWith("/sync")) return Response.json({ id: "job" }, { status: 202 });
+    return Response.json({ collections: [] });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+function collectionsAt(entry: string) {
+  render(<MemoryRouter initialEntries={[entry]}><Routes>
+    <Route path="/rag/collections" element={<RagCollectionsView />} />
+    <Route path="/rag/collections/:id" element={<Opened />} /></Routes></MemoryRouter>);
+}
+const writes = (fetchMock: ReturnType<typeof creating>) => fetchMock.mock.calls
+  .filter(([, init]) => init?.method && init.method !== "GET")
+  .map(([url, init]) => [init!.method, url, JSON.parse(init!.body as string)]);
+
+test("New collection with folders connects each folder and queues a sync right away", async () => {
+  const fetchMock = creating();
+  const user = userEvent.setup();
+  collectionsAt("/rag/collections");
+  await user.click(await screen.findByRole("button", { name: "New collection" }));
+  await user.type(screen.getByLabelText("Name"), "payments-api-docs");
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.click(await screen.findByRole("button", { name: "jira" }));
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.type(screen.getByLabelText("Folder path"), "generated-documents/payments-api-docs");
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Remove jira" }));
+  await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+  await user.click(await screen.findByRole("button", { name: "jira" }));
+  await user.click(screen.getByRole("button", { name: "Add to selection" }));
+  await user.click(screen.getByRole("button", { name: "Create collection" }));
+  expect(await screen.findByText("detail page")).toBeInTheDocument();
+  expect(writes(fetchMock).map(([method, url, body]) => url === "/api/rag/collections" ? [method, url, body.name] : [method, url, body])).toEqual([
+    ["POST", "/api/rag/collections", "payments-api-docs"],
+    ["POST", "/api/rag/collections/c9/paths", { source_path: "generated-documents/payments-api-docs" }],
+    ["POST", "/api/rag/collections/c9/paths", { source_path: "jira" }],
+    ["POST", "/api/rag/collections/c9/sync", { force: false }]]);
+});
+
+test("?folder= opens New collection with that folder selected and a name from it", async () => {
+  const fetchMock = creating();
+  collectionsAt("/rag/collections?folder=generated-documents%2Fpayments-api-docs");
+  expect(await screen.findByLabelText("Name")).toHaveValue("payments-api-docs");
+  expect(screen.getByText("generated-documents/payments-api-docs")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Remove generated-documents/payments-api-docs" })).toBeInTheDocument();
+  expect(writes(fetchMock)).toEqual([]);
+});
+
+test("a folder that cannot be added keeps the collection and opens it with the error", async () => {
+  const fetchMock = creating(true);
+  const user = userEvent.setup();
+  collectionsAt("/rag/collections?folder=generated-documents%2Fpayments-api-docs");
+  await user.click(await screen.findByRole("button", { name: "Create collection" }));
+  expect(await screen.findByText(/Collection payments-api-docs was created, but folder generated-documents\/payments-api-docs could not be added: Folder does not exist\. Fix its folders here\./)).toBeInTheDocument();
+  expect(writes(fetchMock).map(([method, url]) => [method, url])).toEqual([
+    ["POST", "/api/rag/collections"], ["POST", "/api/rag/collections/c9/paths"]]);  // no sync, nothing deleted
+});
+
+test("a collection opened after a failed folder shows why", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(url.includes("/log") ? noLog : base)));
+  render(<MemoryRouter initialEntries={[{ pathname: "/rag/collections/c1", state: { folderError: "Collection jira was created, but folder x could not be added: Folder does not exist. Fix its folders here." } }]}><Routes>
+    <Route path="/rag/collections/:id" element={<RagCollectionDetail id="c1" />} /></Routes></MemoryRouter>);
+  expect(await screen.findByText(/folder x could not be added/)).toBeInTheDocument();
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, RefreshCw } from "lucide-react";
-import { getCollections, syncCollection, syncLabel, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
+import { collectionNameFor, getCollections, normalizeFolder, syncCollection, syncLabel, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -23,9 +23,10 @@ export default function RagCollectionsView() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const prefill = params.get("folder");
+  const [creating, setCreating] = useState(prefill !== null);
   const wanted = params.get("name");
   const load = useCallback(async (signal?: AbortSignal) => {
     try { const result = await getCollections(signal); if (!signal?.aborted) { setCollections(result.collections); setError(""); } }
@@ -75,8 +76,10 @@ export default function RagCollectionsView() {
         <TableCell className="align-top"><Badge variant={statusVariant(c.status)}>{statusLabel(c)}</Badge>{c.status === "failed" && c.job?.error && <p className="mt-1 max-w-xs text-xs text-destructive">{c.job.error}</p>}{c.status === "folder_missing" && <p className="mt-1 text-xs text-destructive">Missing: {c.missing_paths.join(", ")}</p>}</TableCell>
         <TableCell className="align-top">{(c.status === "needs_refresh" || c.status === "failed") && <Button variant="outline" size="sm" disabled={busy || tooLarge(c)} title={tooLarge(c) ? TOO_LARGE_HINT : undefined} onClick={() => run(async () => { await syncCollection(c.id); })}>Refresh</Button>}</TableCell>
       </TableRow>)}
-      {collections.length === 0 && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No collections yet. Choose New collection, then add folders to it.</TableCell></TableRow>}
+      {collections.length === 0 && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No collections yet. Choose New collection and select its folders.</TableCell></TableRow>}
     </TableBody></Table>
-    <RagCollectionForm open={creating} onOpenChange={setCreating} onSaved={(saved) => { setCreating(false); navigate(`/rag/collections/${saved.id}`); }} />
+    <RagCollectionForm open={creating} onOpenChange={setCreating}
+      initialName={prefill ? collectionNameFor(prefill) : ""} initialFolders={prefill ? [normalizeFolder(prefill)] : []}
+      onSaved={(saved, problem) => { setCreating(false); navigate(`/rag/collections/${saved.id}`, problem ? { state: { folderError: problem } } : undefined); }} />
   </div>;
 }

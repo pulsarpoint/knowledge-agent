@@ -65,6 +65,9 @@ export interface FolderListing { path: string | null; folders: FolderEntry[]; tr
 
 /** A folder path as RAG expects it: relative to DATA_ROOT, no surrounding whitespace or slashes. */
 export const normalizeFolder = (value: string) => value.trim().replace(/^\/+|\/+$/g, "");
+/** A collection name from a folder's last segment: lowercase letters, digits and single hyphens, at most 60 characters. */
+export const collectionNameFor = (folder: string) => (normalizeFolder(folder).split("/").pop() ?? "").toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "");
 export const getCollections = (signal?: AbortSignal) => ragRequest<{ collections: RagCollection[] }>("collections", "GET", undefined, signal);
 export const getCollectionNames = (signal?: AbortSignal) => ragRequest<{ collections: CollectionSummary[] }>("collections?status=false", "GET", undefined, signal);
 export const getCollection = (id: string, signal?: AbortSignal) => ragRequest<RagCollection>(`collections/${id}`, "GET", undefined, signal);

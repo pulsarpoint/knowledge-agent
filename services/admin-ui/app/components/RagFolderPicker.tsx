@@ -20,13 +20,11 @@ export default function RagFolderPicker({ open, collection, onOpenChange, onAdde
   </SheetContent></Sheet>;
 }
 
-function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () => void }) {
+/** Browse DATA_ROOT or type a folder path; `value` is the typed or browsed path, relative to DATA_ROOT. */
+export function FolderBrowser({ value, onChange }: { value: string; onChange: (path: string) => void }) {
   const [browsing, setBrowsing] = useState<string | null>(null);
   const [listing, setListing] = useState<FolderListing | null>(null);
-  const [value, setValue] = useState("");
   const [browseError, setBrowseError] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setListing(null); setBrowseError("");
@@ -35,14 +33,8 @@ function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () =
       .catch((e) => { if (!controller.signal.aborted) setBrowseError(e instanceof Error ? e.message : "Could not list folders"); });
     return () => controller.abort();
   }, [browsing]);
-  function browse(path: string | null) { setBrowsing(path); setValue(path ?? ""); }
-  async function submit() {
-    setBusy(true); setError("");
-    try { await addFolder(collectionId, normalizeFolder(value)); onAdded(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Could not add the folder"); setBusy(false); }
-  }
-  return <form className="flex flex-col gap-4 p-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+  function browse(path: string | null) { setBrowsing(path); onChange(path ?? ""); }
+  return <>
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">Browsing</span><code>{browsing ?? "DATA_ROOT"}</code>
@@ -59,8 +51,23 @@ function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () =
       {listing?.truncated && <p className="text-xs text-muted-foreground">Only the first 1,000 folders are shown; type the path instead.</p>}
     </div>
     <Field><FieldLabel htmlFor="folder-path">Folder path</FieldLabel>
-      <Input id="folder-path" value={value} placeholder="code/payments" onChange={(e) => setValue(e.target.value)} />
+      <Input id="folder-path" value={value} placeholder="code/payments" onChange={(e) => onChange(e.target.value)} />
       <FieldDescription>Relative to DATA_ROOT, such as jira or code/payments.</FieldDescription></Field>
+  </>;
+}
+
+function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () => void }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit() {
+    setBusy(true); setError("");
+    try { await addFolder(collectionId, normalizeFolder(value)); onAdded(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not add the folder"); setBusy(false); }
+  }
+  return <form className="flex flex-col gap-4 p-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+    <FolderBrowser value={value} onChange={setValue} />
     <Button className="self-start" type="submit" disabled={busy || normalizeFolder(value) === ""}>Connect folder</Button>
   </form>;
 }

@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { ApiError } from "../lib/api";
-import { createCollection, DEFAULT_SETTINGS, saveCollectionSettings, type CollectionSettings, type RagCollection, type SearchMode } from "../lib/rag";
+import { addFolder, createCollection, DEFAULT_SETTINGS, normalizeFolder, saveCollectionSettings, syncCollection, type CollectionSettings, type RagCollection, type SearchMode } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Switch } from "~/components/ui/switch";
 import { Textarea } from "~/components/ui/textarea";
+import { FolderBrowser } from "./RagFolderPicker";
 
 const lines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -24,22 +25,29 @@ export function pollIntervalToSend(minutes: number, autoSync: boolean, saved: nu
 }
 
 /** Creates a collection (no `collection`) or edits its settings. */
-export default function RagCollectionForm({ open, collection, onOpenChange, onSaved, onFailed }: {
+export default function RagCollectionForm({ open, collection, onOpenChange, onSaved, onFailed, initialName, initialFolders }: {
   open: boolean; collection?: RagCollection; onOpenChange: (open: boolean) => void;
-  onSaved: (saved: { id: string }) => void; onFailed?: () => void;
+  initialName?: string; initialFolders?: string[];
+  onSaved: (saved: { id: string }, problem?: string) => void; onFailed?: () => void;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
     <SheetHeader><SheetTitle>{collection ? `Edit ${collection.name}` : "New collection"}</SheetTitle>
       <SheetDescription>{collection
         ? "Search settings for this collection. Add and remove folders on the collection page."
-        : "Name the collection and choose its search settings, then add folders to it."}</SheetDescription></SheetHeader>
-    {open && <SettingsFields collection={collection} onSaved={onSaved} onFailed={onFailed} />}
+        : "Name the collection and choose its search settings. Optionally select folders: they are connected and synced right away."}</SheetDescription></SheetHeader>
+    {open && <SettingsFields collection={collection} onSaved={onSaved} onFailed={onFailed} initialName={initialName} initialFolders={initialFolders} />}
   </SheetContent></Sheet>;
 }
 
-function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCollection; onSaved: (saved: { id: string }) => void; onFailed?: () => void }) {
+function SettingsFields({ collection, onSaved, onFailed, initialName, initialFolders }: {
+  collection?: RagCollection; onSaved: (saved: { id: string }, problem?: string) => void; onFailed?: () => void;
+  initialName?: string; initialFolders?: string[];
+}) {
   const initial: CollectionSettings = collection ?? DEFAULT_SETTINGS;
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName ?? "");
+  const [folders, setFolders] = useState<string[]>(initialFolders ?? []);
+  const [choosing, setChoosing] = useState(false);
+  const [folderValue, setFolderValue] = useState("");
   const [description, setDescription] = useState(initial.description);
   const [searchMode, setSearchMode] = useState<SearchMode>(initial.search_mode);
   const [embeddings, setEmbeddings] = useState(initial.embeddings_enabled);
@@ -58,9 +66,18 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCol
       include: lines(include), exclude: lines(exclude), chunk_size: chunkSize, chunk_overlap: chunkOverlap,
       auto_sync: autoSync, poll_interval_minutes: pollIntervalToSend(pollInterval, autoSync, initial.poll_interval_minutes) };
     try {
-      onSaved(collection
-        ? await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })
-        : await createCollection({ name, ...value }));
+      if (collection) { onSaved(await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })); return; }
+      const created = await createCollection({ name, ...value });
+      let step = "";
+      try {
+        for (const folder of folders) { step = `folder ${folder} could not be added`; await addFolder(created.id, folder); }
+        if (folders.length) { step = "its sync could not be queued"; await syncCollection(created.id); }
+      } catch (e) {
+        // The collection exists: keep it and open it, so the admin fixes its folders there.
+        onSaved(created, `Collection ${name} was created, but ${step}: ${e instanceof Error ? e.message : "request failed"}. Fix its folders here.`);
+        return;
+      }
+      onSaved(created);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the collection"); setBusy(false);
       if (e instanceof ApiError && e.status === 409) onFailed?.();
@@ -91,6 +108,17 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCol
         <Input id="collection-poll-interval" type="number" required min={1} max={1440} disabled={!autoSync} value={pollInterval} onChange={(e) => setPollInterval(Number(e.target.value))} />
         <FieldDescription>RAG checks the folders at this interval and syncs changes once they have been quiet for 2 minutes.</FieldDescription></Field>
     </FieldGroup>
+      {!collection && <FieldSet><FieldLegend>Folders</FieldLegend>
+        <FieldDescription>Optional. Each folder is connected to the new collection and a sync is queued at once. Folders must exist under DATA_ROOT.</FieldDescription>
+        {folders.length > 0 && <ul className="flex flex-col gap-1">{folders.map((folder) => <li key={folder} className="flex items-center gap-2 text-sm">
+          <code className="break-all">{folder}</code>
+          <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${folder}`} onClick={() => setFolders((current) => current.filter((f) => f !== folder))}>Remove</Button></li>)}</ul>}
+        {choosing ? <>
+          <FolderBrowser value={folderValue} onChange={setFolderValue} />
+          <Button type="button" variant="outline" className="self-start" disabled={normalizeFolder(folderValue) === "" || folders.includes(normalizeFolder(folderValue))}
+            onClick={() => { setFolders((current) => [...current, normalizeFolder(folderValue)]); setFolderValue(""); setChoosing(false); }}>Add to selection</Button>
+        </> : <Button type="button" variant="outline" className="self-start" onClick={() => setChoosing(true)}>Choose a folder</Button>}
+      </FieldSet>}
     <Button className="self-start" type="submit" disabled={busy || nameInvalid}>{collection ? "Save collection" : "Create collection"}</Button>
   </form>;
 }
