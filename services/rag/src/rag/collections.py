@@ -141,8 +141,18 @@ class DataRoot:
         """DATA_ROOT_DIR (container), DATA_ROOT (host, display only) and the Jira folder from JIRA_EXPORT_ROOT."""
         container = os.environ.get('DATA_ROOT_DIR')
         jira = os.environ.get('JIRA_EXPORT_ROOT')
-        folder = source_path(PurePosixPath(jira).relative_to(container).as_posix()) if container and jira else None
+        folder = cls._jira_folder(container, jira) if container and jira else None
         return cls(Path(container) if container else None, os.environ.get('DATA_ROOT') or None, folder)
+
+    @staticmethod
+    def _jira_folder(container: str, jira: str) -> str:
+        """JIRA_EXPORT_ROOT relative to DATA_ROOT_DIR; a value outside it stops startup with its name."""
+        path, root = PurePosixPath(jira), PurePosixPath(container)
+        relative = path.relative_to(root).as_posix() if path.is_absolute() and path.is_relative_to(root) else ''
+        if '..' in path.parts or relative in ('', '.') or not SOURCE_PATH.fullmatch(relative) or len(relative) > 500:
+            raise RuntimeError(f'JIRA_EXPORT_ROOT ({jira}) must be a visible folder inside DATA_ROOT_DIR ({container}), '
+                               'such as DATA_ROOT_DIR/jira')
+        return relative
 
     def _root(self) -> Path:
         if self.root is None:

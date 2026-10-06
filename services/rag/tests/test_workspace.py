@@ -141,6 +141,15 @@ def test_data_root_comes_from_deployment_environment(tmp_path, monkeypatch):
     assert Workspace.from_env().data_root.host_path("code/payments") is None
 
 
+@pytest.mark.parametrize("jira", ["/srv/jira", "{root}", "jira", "{root}/../jira", "{root}/exports/../jira", "{root}/.jira"])
+def test_a_misconfigured_jira_export_root_stops_startup_naming_the_variable(tmp_path, monkeypatch, jira):
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", base64.urlsafe_b64encode(b"k" * 32).decode())
+    monkeypatch.setenv("DATA_ROOT_DIR", str(tmp_path))
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", jira.format(root=tmp_path))
+    with pytest.raises(RuntimeError, match="JIRA_EXPORT_ROOT"):
+        Workspace.from_env()
+
+
 def test_settings_select_shared_model_and_reject_inline_connection(env):
     workspace, client, project, prefix = env[:4]
     cfg = client.get(prefix + '/settings').json()
