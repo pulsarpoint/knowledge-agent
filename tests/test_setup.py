@@ -256,12 +256,11 @@ class SetupTests(unittest.TestCase):
             initialize(root, str(data))
             first = (root / ".env").read_text(encoding="utf-8")
             values = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", first, re.MULTILINE))
-            self.assertEqual(len(base64.urlsafe_b64decode(values["OAUTH2_PROXY_COOKIE_SECRET"])), 32)
             self.assertEqual(len(base64.urlsafe_b64decode(values["ADMIN_OAUTH2_PROXY_COOKIE_SECRET"])), 32)
             self.assertEqual(len(base64.urlsafe_b64decode(values["CREDENTIAL_ENCRYPTION_KEY"])), 32)
             self.assertTrue((data / "code").is_dir())
-            self.assertNotEqual(values["OAUTH2_PROXY_COOKIE_SECRET"], values["ADMIN_OAUTH2_PROXY_COOKIE_SECRET"])
-            self.assertNotEqual(values["OAUTH2_PROXY_CLIENT_SECRET"], values["ADMIN_OAUTH2_PROXY_CLIENT_SECRET"])
+            self.assertNotEqual(values["ADMIN_OAUTH2_PROXY_COOKIE_SECRET"], values["ADMIN_OAUTH2_PROXY_CLIENT_SECRET"])
+            self.assertNotIn("READER_AGENT_KEY", values)
             self.assertTrue(values["POSTGRES_PASSWORD"])
             self.assertTrue(values["APP_ADMIN_PASSWORD"])
             self.assertEqual((root / ".env").stat().st_mode & 0o777, 0o600)
@@ -281,7 +280,7 @@ class SetupTests(unittest.TestCase):
             text = (root / ".env").read_text(encoding="utf-8")
             self.assertIn("POSTGRES_PASSWORD=keep-this\n", text)
             self.assertIn("POSTGRES_PORT=15438\n", text)
-            self.assertIn("WEB_PORT=8180\n", text)
+            self.assertIn("ADMIN_PORT=8183\n", text)
             self.assertRegex(text, r"APP_ADMIN_PASSWORD=\S+")
 
     def test_compose_mounts_the_data_root_read_only_and_writer_folders_writable(self) -> None:
@@ -310,9 +309,8 @@ class SetupTests(unittest.TestCase):
                 expected = sorted([(data, "/work/data", True)] + [
                     (f"{data}/{folders[key]}", f"/work/data/{folders[key]}", False) for key in writable])
                 self.assertEqual(mounts, expected, name)
-            docs = [(v["source"], v["target"], bool(v.get("read_only"))) for v in services["docs-wiki"]["volumes"]
-                    if v["target"].startswith("/work/data")]
-            self.assertEqual(docs, [(f"{data}/docs", "/work/data/docs", True)])  # only the docs folder
+            for retired in ("docs-wiki", "web", "oauth2-proxy"):
+                self.assertNotIn(retired, services)
             for name in ("rag", "admin-api"):
                 env = services[name]["environment"]
                 self.assertEqual(env["DATA_ROOT_DIR"], "/work/data")
@@ -323,14 +321,3 @@ class SetupTests(unittest.TestCase):
             for service in services.values():
                 for volume in service.get("volumes", []):
                     self.assertNotIn(".local", volume.get("source", ""))
-
-    def test_setup_generates_reader_agent_key(self) -> None:
-        source = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            shutil.copy(source / ".env.example", root / ".env.example")
-            shutil.copytree(source / "examples", root / "examples")
-            initialize(root, str(root / "data"))
-            values = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", (root / ".env").read_text(encoding="utf-8"), re.MULTILINE))
-            self.assertGreaterEqual(len(values["READER_AGENT_KEY"]), 32)
-            self.assertNotEqual(values["READER_AGENT_KEY"], values["RAG_BACKOFFICE_KEY"])

@@ -1,5 +1,0 @@
-# Declares this package as its own workspace root so pnpm never walks up
-# the directory tree and gets captured by an unrelated ancestor
-# pnpm-workspace.yaml (an empty one errors with "packages field missing").
-packages:
-  - "."
