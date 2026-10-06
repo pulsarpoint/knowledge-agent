@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.data_root import jira_folder
 from knowledge_admin.jira import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.jira_export import TicketExportInput, publish_ticket, ticket_markdown
@@ -145,7 +146,7 @@ def build_api(app: str, store: RepositoryStore | None,
             rows = [] if config is None else conn.execute("""SELECT id,issue_key,jira_project_key,issue_type,labels,summary,status_name,priority,
                 assignee_name,source_updated_at FROM ka.jira_tickets WHERE connection_id=%s AND project_id=%s
                 AND out_of_scope_at IS NULL ORDER BY source_updated_at DESC,issue_key DESC LIMIT 200""", (config["id"], project)).fetchall()
-        return {"connection": config, "tickets": rows}
+        return {"connection": config, "tickets": rows, "export_folder": jira_folder()}
 
     @router.post("/jira/tickets/fetch")
     def fetch_tickets(value: TicketFetchInput, request: Request) -> dict:

@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from knowledge_admin.data_root import jira_folder
 from test_api import _client
 from test_jira import SETTINGS, jira_response
 from test_repositories import HEADERS
@@ -17,6 +18,8 @@ MOCK = runpy.run_path(str(Path(__file__).resolve().parents[3] / "deploy/jira-moc
 
 @pytest.fixture
 def exporting(store, tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_ROOT_DIR", "/work/data")
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", "/work/data/jira")
     monkeypatch.setenv("RAG_BACKOFFICE_KEY", "rag-export-key")
     state = {"issues": copy.deepcopy(MOCK["ISSUES"][:3]), "comments": copy.deepcopy(MOCK["COMMENTS"]),
              "files": {}, "rag_error": None, "jira_calls": [], "rag_calls": [], "fail_page": None, "after_comments": None}
@@ -56,7 +59,7 @@ def exporting(store, tmp_path, monkeypatch):
             return httpx.Response(200, json=result) if result is not None else httpx.Response(404, json={"error": {"message": "Document not found"}})
         assert request.method == "PUT"
         body = json.loads(request.content)
-        assert set(body) == {"path", "content", "expected_hash"} and body["path"].startswith("rag-data/jira/")
+        assert set(body) == {"path", "content", "expected_hash"} and body["path"].startswith(jira_folder() + "/")
         previous = state["files"].get(body["path"])
         assert body["expected_hash"] == (previous["hash"] if previous is not None else None)
         result = {"path": body["path"], "content": body["content"], "hash": hashlib.sha256(body["content"].encode()).hexdigest()}
@@ -82,8 +85,8 @@ def test_export_full_issue_all_comment_pages_and_incremental_content(exporting, 
     response = export(client, snapshot)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "created" and response.json()["comments"] == 5
-    assert "collection" not in response.json() and response.json()["path"] == "rag-data/jira/DEMO-1.md"
-    document = state["files"]["rag-data/jira/DEMO-1.md"]
+    assert "collection" not in response.json() and response.json()["path"] == "jira/DEMO-1.md"
+    document = state["files"]["jira/DEMO-1.md"]
     assert "## Investigation" in document["content"] and "```bash" in document["content"]
     assert "**retry jitter resolved the payment timeout**" in document["content"]
     assert document["content"].count("### Comment ") == 5
@@ -95,16 +98,16 @@ def test_export_full_issue_all_comment_pages_and_incremental_content(exporting, 
     state["comments"]["10001"][-1]["body"] = "Updated final comment"
     updated = export(client, snapshot).json()
     assert updated["status"] == "updated" and updated["hash"] != document["hash"]
-    assert "Updated final comment" in state["files"]["rag-data/jira/DEMO-1.md"]["content"]
+    assert "Updated final comment" in state["files"]["jira/DEMO-1.md"]["content"]
     # Deleting a remote comment removes it on the next export.
     state["comments"]["10001"] = []
     assert export(client, snapshot).json()["comments"] == 0
-    assert "### Comment " not in state["files"]["rag-data/jira/DEMO-1.md"]["content"]
+    assert "### Comment " not in state["files"]["jira/DEMO-1.md"]["content"]
     with store.connect() as conn:
         events = conn.execute("SELECT details FROM ka.audit_events WHERE action='jira.ticket_exported'").fetchall()
-    assert len(events) == 4 and events[0]["details"]["path"] == "rag-data/jira/DEMO-1.md"
+    assert len(events) == 4 and events[0]["details"]["path"] == "jira/DEMO-1.md"
     puts = [json.loads(call.content) for call in state["rag_calls"] if call.method == "PUT" and call.url.path.endswith("/file")]
-    assert puts[0]["path"] == "rag-data/jira/DEMO-1.md" and "collection" not in puts[0]
+    assert puts[0]["path"] == "jira/DEMO-1.md" and "collection" not in puts[0]
     assert "private-jira-token" not in str(events) + document["content"] + response.text
 
 
@@ -141,9 +144,9 @@ def test_failed_refresh_preserves_existing_file_and_unrelated_files_are_protecte
     assert export(client, snapshot).status_code == 502
     assert state["files"] == original
     state["fail_page"] = None
-    state["files"]["rag-data/jira/DEMO-1.md"]["content"] = "User-uploaded documentation"
+    state["files"]["jira/DEMO-1.md"]["content"] = "User-uploaded documentation"
     assert export(client, snapshot).status_code == 409
-    assert state["files"]["rag-data/jira/DEMO-1.md"]["content"] == "User-uploaded documentation"
+    assert state["files"]["jira/DEMO-1.md"]["content"] == "User-uploaded documentation"
 
 
 def test_export_requires_admin_identity_current_connection_and_saved_ticket(exporting):
@@ -217,12 +220,25 @@ def test_export_writes_rag_data_jira_without_a_collection(exporting):
     response = export(client, snapshot)
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["path"] == "rag-data/jira/DEMO-1.md" and body["status"] == "created" and "collection" not in body
+    assert body["path"] == "jira/DEMO-1.md" and body["status"] == "created" and "collection" not in body
     assert [(call.method, call.url.path.rsplit("/", 1)[-1]) for call in state["rag_calls"]] == [("GET", "file"), ("PUT", "file")]
-    assert list(state["files"]) == ["rag-data/jira/DEMO-1.md"]
+    assert list(state["files"]) == ["jira/DEMO-1.md"]
 
 
 def test_export_refuses_a_collection_field(exporting):
     client, snapshot, state = exporting
     assert export(client, snapshot, collection="jira").status_code == 400
     assert state["jira_calls"] == [] and state["rag_calls"] == []
+
+
+def test_export_writes_into_the_configured_jira_folder_and_the_list_names_it(exporting, monkeypatch):
+    client, snapshot, state = exporting
+    assert client.get("/api/jira/tickets", headers=HEADERS).json()["export_folder"] == "jira"
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", "/work/data/exports/jira")
+    response = export(client, snapshot)
+    assert response.status_code == 200, response.text
+    assert response.json()["path"] == "exports/jira/DEMO-1.md" and list(state["files"]) == ["exports/jira/DEMO-1.md"]
+    listing = client.get("/api/jira/tickets", headers=HEADERS).json()
+    assert listing["export_folder"] == "exports/jira" and set(listing) == {"connection", "tickets", "export_folder"}
+    fetched = client.post("/api/jira/tickets/fetch", headers=HEADERS, json={"limit": 3}).json()
+    assert fetched["export_folder"] == "exports/jira"

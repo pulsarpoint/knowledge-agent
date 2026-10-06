@@ -1,4 +1,4 @@
-"""Read and write files under rag-data through the RAG backoffice API."""
+"""Read and write files in the Jira folder through the RAG backoffice API."""
 from uuid import UUID
 
 import httpx
@@ -25,7 +25,7 @@ class RagFiles:
         return result
 
     def get_file(self, path: str) -> dict | None:
-        """A file under rag-data by its full DATA_ROOT path, or None when it does not exist."""
+        """A file in the Jira folder by its full DATA_ROOT path, or None when it does not exist."""
         try:
             return self.request('GET', 'file', params={'path': path})
         except HTTPException as error:
@@ -34,7 +34,7 @@ class RagFiles:
             raise
 
     def write_markdown(self, path: str, content: str) -> dict:
-        """Create or replace `path` (full, under rag-data). A file whose first line differs belongs to
+        """Create or replace `path` (full, inside the Jira folder). A file whose first line differs belongs to
         another source and is kept."""
         previous = self.get_file(path)
         if previous is not None:

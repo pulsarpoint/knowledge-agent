@@ -8,9 +8,9 @@ import httpx
 from jira2markdown import convert
 from pydantic import BaseModel, ConfigDict, Field
 
+from knowledge_admin.data_root import jira_folder
 from knowledge_admin.rag_files import RagFiles
 
-JIRA_PATH = "rag-data/jira"
 
 
 class TicketExportInput(BaseModel):
@@ -50,5 +50,5 @@ def ticket_markdown(base_url: str, issue: dict, comments: list[dict]) -> str:
 
 
 def publish_ticket(client: httpx.Client, key: str, project: UUID, actor: UUID, issue_key: str, content: str) -> dict:
-    """Write the ticket to rag-data/jira/<KEY>.md; collections that hold rag-data/jira index it at their next sync."""
-    return RagFiles(client, key, project, actor).write_markdown(f"{JIRA_PATH}/{issue_key}.md", content)
+    """Write the ticket to <JIRA_FOLDER>/<KEY>.md; collections that hold that folder index it at their next sync."""
+    return RagFiles(client, key, project, actor).write_markdown(f"{jira_folder()}/{issue_key}.md", content)
