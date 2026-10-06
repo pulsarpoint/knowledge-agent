@@ -49,6 +49,7 @@ function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () =
         {browsing !== null && <Button type="button" variant="ghost" size="sm" onClick={() => browse(parent(browsing))}><CornerLeftUp data-icon="inline-start" />Up</Button>}
       </div>
       {browseError && <p className="text-sm text-destructive">{browseError}</p>}
+      {!listing && !browseError && <p className="text-sm text-muted-foreground">Loading…</p>}
       <ul className="flex flex-col rounded-md border">
         {listing?.folders.map((folder) => <li key={folder.path}>
           <Button type="button" variant="ghost" className="w-full justify-start" onClick={() => browse(folder.path)}>

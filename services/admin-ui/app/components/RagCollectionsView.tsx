@@ -11,9 +11,10 @@ import RagCollectionForm from "./RagCollectionForm";
 export const STATUS_LABEL: Record<CollectionState, string> = {
   up_to_date: "Up to date", needs_refresh: "Needs refresh", syncing: "Syncing", failed: "Failed", folder_missing: "Folder missing",
 };
-/** A capped status walk reads as needs_refresh; say why instead. */
-export const statusLabel = (c: Pick<RagCollection, "status" | "truncated">) =>
-  c.truncated && c.status === "needs_refresh" ? "Too large to sync" : STATUS_LABEL[c.status];
+/** A capped status walk reads as needs_refresh; say why instead, and do not offer a sync that would fail. */
+export const tooLarge = (c: Pick<RagCollection, "status" | "truncated">) => c.truncated && c.status === "needs_refresh";
+export const TOO_LARGE_HINT = "Over the sync limits — narrow the include patterns or folders";
+export const statusLabel = (c: Pick<RagCollection, "status" | "truncated">) => tooLarge(c) ? "Too large to sync" : STATUS_LABEL[c.status];
 export const statusVariant = (status: CollectionState) => status === "failed" || status === "folder_missing" ? "destructive" as const : status === "up_to_date" ? "secondary" as const : "outline" as const;
 export const when = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 
@@ -71,7 +72,7 @@ export default function RagCollectionsView() {
         <TableCell className="align-top">{c.embeddings_enabled ? `${c.embedded_chunks} / ${c.chunks}` : "Off"}</TableCell>
         <TableCell className="align-top text-xs">{when(c.last_synced_at)}</TableCell>
         <TableCell className="align-top"><Badge variant={statusVariant(c.status)}>{statusLabel(c)}</Badge>{c.status === "failed" && c.job?.error && <p className="mt-1 max-w-xs text-xs text-destructive">{c.job.error}</p>}{c.status === "folder_missing" && <p className="mt-1 text-xs text-destructive">Missing: {c.missing_paths.join(", ")}</p>}</TableCell>
-        <TableCell className="align-top">{(c.status === "needs_refresh" || c.status === "failed") && <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(c.id); })}>Refresh</Button>}</TableCell>
+        <TableCell className="align-top">{(c.status === "needs_refresh" || c.status === "failed") && <Button variant="outline" size="sm" disabled={busy || tooLarge(c)} title={tooLarge(c) ? TOO_LARGE_HINT : undefined} onClick={() => run(async () => { await syncCollection(c.id); })}>Refresh</Button>}</TableCell>
       </TableRow>)}
       {collections.length === 0 && <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">No collections yet. Choose New collection, then add folders to it.</TableCell></TableRow>}
     </TableBody></Table>

@@ -9,7 +9,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import RagCollectionForm from "./RagCollectionForm";
 import RagFolderPicker from "./RagFolderPicker";
-import { statusLabel, statusVariant, when } from "./RagCollectionsView";
+import { statusLabel, statusVariant, TOO_LARGE_HINT, tooLarge, when } from "./RagCollectionsView";
 
 type Chunk = { position: number; text: string; embedded: boolean };
 interface Files { files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }
@@ -23,6 +23,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [removing, setRemoving] = useState<CollectionPath | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -56,7 +57,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Edit</Button>
           <Button variant="outline" size="sm" onClick={() => setPicking(true)}>Add folder</Button>
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(id); setNotice("Refresh queued."); })}>Refresh</Button>
+          <Button variant="outline" size="sm" disabled={busy || tooLarge(c)} title={tooLarge(c) ? TOO_LARGE_HINT : undefined} onClick={() => run(async () => { await syncCollection(id); setNotice("Refresh queued."); })}>Refresh</Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await syncCollection(id, true); setNotice("Rebuild queued."); })}>Rebuild</Button>
           <Button variant="destructive" size="sm" disabled={busy} onClick={() => setConfirmDelete(true)}>Remove</Button>
         </div>
@@ -78,7 +79,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
           <TableCell><code className="break-all text-xs">{p.source_path}</code>{p.host_path && <p className="break-all text-xs text-muted-foreground">{p.host_path}</p>}</TableCell>
           <TableCell>{p.files}</TableCell>
           <TableCell>{p.present ? "Present" : <Badge variant="destructive">Missing</Badge>}</TableCell>
-          <TableCell><Button variant="outline" size="sm" disabled={busy} aria-label={`Remove folder ${p.source_path}`} onClick={() => void disconnect(p)}>Remove</Button></TableCell>
+          <TableCell><Button variant="outline" size="sm" disabled={busy} aria-label={`Remove folder ${p.source_path}`} onClick={() => setRemoving(p)}>Remove</Button></TableCell>
         </TableRow>)}
         {c.paths.length === 0 && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No folders yet. Choose Add folder to connect one.</TableCell></TableRow>}
       </TableBody></Table>
@@ -104,7 +105,15 @@ export default function RagCollectionDetail({ id }: { id: string }) {
     <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove collection?</AlertDialogTitle>
       <AlertDialogDescription>Remove {c.name} from search? Its index, folders, file log and agent grants are removed; files on disk are kept.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-        <AlertDialogAction onClick={() => run(async () => { await deleteCollection(id, c.revision); navigate("/rag/collections"); }, false)}>Remove collection</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        <AlertDialogAction onClick={() => run(async () => {
+          // A refused delete (e.g. a stale revision) reloads first, so the retry uses the current revision.
+          try { await deleteCollection(id, c.revision); } catch (e) { await load(); throw e; }
+          navigate("/rag/collections");
+        }, false)}>Remove collection</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={removing !== null} onOpenChange={(open) => { if (!open) setRemoving(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove folder?</AlertDialogTitle>
+      <AlertDialogDescription>Remove folder {removing?.source_path} from {c.name}? Its indexed files and log entries are removed from search. Files on disk are kept.</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={() => { if (removing) void disconnect(removing); setRemoving(null); }}>Remove folder</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <Link className="text-sm underline" to="/rag/collections">Back to collections</Link>
   </div>;
 }

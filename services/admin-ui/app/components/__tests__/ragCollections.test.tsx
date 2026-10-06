@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import RagCollectionsView from "../RagCollectionsView";
@@ -148,6 +148,38 @@ test("Remove collection is always available and asks for confirmation", async ()
   expect(await screen.findByText("collections page")).toBeInTheDocument();
 });
 
+test("a failed Remove collection shows the error and reloads so the retry uses the new revision", async () => {
+  let revision = 2;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "DELETE") return Response.json({ error: { message: "Collection changed; refresh before removing" } }, { status: 409 });
+    if (url.endsWith("/files")) return Response.json(noFiles);
+    const row = { ...base, revision }; revision = 5; return Response.json(row);
+  });
+  const user = userEvent.setup();
+  detail(fetchMock);
+  await user.click(await screen.findByRole("button", { name: "Remove" }));
+  await user.click(screen.getByRole("button", { name: "Remove collection" }));
+  expect(await screen.findByText("Collection changed; refresh before removing")).toBeInTheDocument();
+  expect(screen.queryByText("collections page")).toBeNull();
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([u, i]) => String(u) === "/api/rag/collections/c1" && !(i as RequestInit)?.method?.match(/DELETE/)).length).toBeGreaterThan(1));
+  await user.click(screen.getByRole("button", { name: "Remove" }));
+  await user.click(screen.getByRole("button", { name: "Remove collection" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1?revision=5&confirmed=true", expect.objectContaining({ method: "DELETE" })));
+});
+
+test("Refresh is disabled for a collection too large to sync", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/files") ? Response.json(noFiles) : Response.json({ collections: [{ ...base, truncated: true }] })));
+  render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
+  const button = await screen.findByRole("button", { name: "Refresh" });
+  expect(button).toBeDisabled();
+  expect(button).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
+  cleanup();
+  detail(vi.fn(async (url: string) => url.endsWith("/files") ? Response.json(noFiles) : Response.json({ ...base, truncated: true })));
+  const detailButton = await screen.findByRole("button", { name: "Refresh" });
+  expect(detailButton).toBeDisabled();
+  expect(detailButton).toHaveAttribute("title", "Over the sync limits — narrow the include patterns or folders");
+});
+
 test("Add folder connects a typed folder and Remove folder disconnects one", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/files")) return Response.json(noFiles);
@@ -163,6 +195,9 @@ test("Add folder connects a typed folder and Remove folder disconnects one", asy
     expect.objectContaining({ method: "POST", body: JSON.stringify({ source_path: "docs/runbooks" }) })));
   expect(await screen.findByText("Folder added. Refresh the collection to index it.")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Remove folder rag-data/notes" }));
+  expect(screen.getByText("Remove folder rag-data/notes from jira? Its indexed files and log entries are removed from search. Files on disk are kept.")).toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "DELETE")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Remove folder" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/paths/p3", expect.objectContaining({ method: "DELETE" })));
   expect(await screen.findByText("Folder removed. Its files left search; files on disk are kept.")).toBeInTheDocument();
 });

@@ -62,3 +62,11 @@ test("a refused folder shows the RAG message and nothing is added", async () => 
   expect(await screen.findByText("Folder overlaps code/payments in collection payments")).toBeInTheDocument();
   expect(onAdded).not.toHaveBeenCalled();
 });
+
+test("shows Loading… while a folder listing is in flight", async () => {
+  api();
+  picker();
+  expect(screen.getByText("Loading…")).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "code" })).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).toBeNull();
+});
