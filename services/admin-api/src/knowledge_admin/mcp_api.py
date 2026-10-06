@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 from knowledge_admin.access import request_actor
+from knowledge_admin.agents import CLAUDE_CODE_ONLY
 from knowledge_admin.mcp_settings import PUBLIC_COLUMNS, credential_aad, save_selection
 
 
@@ -197,9 +198,11 @@ def build_api(app_name, store):
 
     def code_config(conn, agent_id):
         try:
-            profile(conn, agent_id)
+            agent = profile(conn, agent_id)
         except ModelUnavailable:
             raise HTTPException(404, "Code agent not found") from None
+        if agent['runtime'] != 'openai':
+            raise HTTPException(409, CLAUDE_CODE_ONLY)
         project = store.project(conn, app_name)
         conn.execute("INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills) VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING", (project,agent_id))
         return conn.execute("SELECT id,project_id,revision FROM ka.agent_configs WHERE project_id=%s AND agent=%s AND server_id IS NULL FOR UPDATE", (project,agent_id)).fetchone()

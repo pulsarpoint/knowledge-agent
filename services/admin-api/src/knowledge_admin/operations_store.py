@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from knowledge_admin.agents import CLAUDE_CODE_ONLY
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_llm.profiles import profile
 from knowledge_llm import ModelUnavailable
@@ -107,9 +108,11 @@ class OperationsStore:
 
     def project(self, conn):
         try:
-            profile(conn, self.agent_id)
+            agent = profile(conn, self.agent_id)
         except ModelUnavailable:
             raise HTTPException(404, 'Agent not found') from None
+        if agent['runtime'] != 'openai':
+            raise HTTPException(409, CLAUDE_CODE_ONLY)
         return self.db.project(conn, self.app_name)
 
     def settings(self, conn, *, lock: bool = False):
