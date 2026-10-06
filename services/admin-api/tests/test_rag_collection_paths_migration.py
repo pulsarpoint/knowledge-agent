@@ -15,6 +15,7 @@ def run(conn, name: str):
 def at_0064(store):
     """A database rolled back to 0064 with five collections, two indexed files and their chunks."""
     with store.connect() as conn:
+        run(conn, '0066_rag_managed_collections.down.sql')
         run(conn, DOWN)
         project = conn.execute("SELECT id FROM ka.projects LIMIT 1").fetchone()
         if project is None:
