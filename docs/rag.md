@@ -1,15 +1,24 @@
 # RAG collections
 
-A **RAG collection** is a named search index with its own settings and one or more paths
-(folders in `DATA_ROOT`). It is the unit that is processed, searched and granted to agents.
-RAG indexes the files in those folders where they already are; nothing is copied. Sources
-(Docs → Documents, Jira, code projects) add and remove their own paths; see
-[Paths and sources](#paths-and-sources).
+A **RAG collection** is a named search index with its own settings and one or more folders
+under `DATA_ROOT`. It is the unit that is processed, searched and granted to agents. RAG
+indexes the files in those folders where they already are; nothing is copied.
+
+RAG owns the configuration: administrators (or external tools, through the API) create
+collections and connect folders. Sources only write files: Docs → Documents writes
+`generated-documents/…`, the Jira export writes `rag-data/jira/<KEY>.md`, and Git pulls
+update `code/…`. See [Folders](#folders).
 
 Open the standalone admin app and choose **RAG** in the sidebar:
 
-- **Collections**: shows each collection's paths and sources, files, embedded chunks, last synced and status. **Edit** changes search settings only. **Refresh** one or all stale collections. **Remove** is offered only when no source owns a path, and **Detach** removes an unowned path. Open a collection to see its indexed files (with full paths) and chunks. There is no New collection and no file upload or edit.
-- **Processing jobs**: a paged, searchable table of every sync run with status and collection filters, live counts, errors, cancellation, and reruns.
+- **Collections**: shows each collection's folders, files, embedded chunks, last synced, status and
+  **Sync** ("Auto · every N min" or "Manual"). **New collection** creates one; **Refresh** one
+  collection or **Refresh all stale**. Open a collection to see its settings, folders, status
+  counts and **file log**. **Edit** changes the settings, including Auto-sync and Check every.
+  **Add folder** takes a folder from the folder browser or a typed path, and **Remove** (per
+  folder) disconnects it. **Refresh**, **Rebuild** and **Remove** (the collection; always
+  available, with confirmation) are on the same page. There is no file upload or edit.
+- **Processing jobs**: a paged, searchable table of every sync run with status and collection filters, mode (Auto, Incremental or Force rebuild), live counts, errors, cancellation, and reruns.
 - **Settings**: the global maximum file size, the global embedding model (test it here) and the read-only area roots.
 - **Search**: exercise retrieval across selected collections, with a search-mode override. Use Agents for cited answers.
 
@@ -21,57 +30,59 @@ A collection has:
 | --- | --- |
 | Name | Lowercase letters, digits and single hyphens (`payments-code`), at most 60 characters, unique among collections |
 | Description | Up to 2,000 characters; shown to agents and Reader users |
-| Paths | One or more `source_path` values, relative to `DATA_ROOT`. The first segment is one of the five data areas (`code`, `code-index`, `rag-data`, `generated-documents`, `docs`); deeper segments use letters, digits, `.`, `_` and `-`. Added by sources or through the source API, not edited here |
+| Folders | One or more `source_path` values, relative to `DATA_ROOT`. The first segment is one of the five data areas (`code`, `code-index`, `rag-data`, `generated-documents`, `docs`); deeper segments use letters, digits, `.`, `_` and `-`. Added and removed on the collection detail page or through the API, not in the Edit form |
 | Search mode | `full_text` (default), `embedding` or `hybrid` |
 | Embeddings | On or off per collection; needs the global embedding model |
 | Include / exclude | Glob patterns. Default include: `**/*.md`, `**/*.markdown`, `**/*.txt`; default exclude: none |
 | Chunk size / overlap | 2000 / 200 by default (200-12000 and 0-2000, overlap smaller than size) |
+| Auto-sync | Off by default; when on, the worker refreshes the collection when its folders change (see [Automatic sync](#automatic-sync)) |
+| Check every | 1-1440 minutes, default 5; used only when Auto-sync is on |
 
 The name cannot be changed after creation.
 
-Path rules:
-
-- within one collection, paths may not overlap (one may not contain another), so a file
-  never appears twice;
-- different collections may share a path;
-- include and exclude patterns are matched relative to each path.
-
 Examples:
 
-| Collection | Paths (source) | Notes |
+| Collection | Folders | Notes |
 | --- | --- | --- |
-| `jira` | `rag-data/jira` (Jira) | One Markdown file per ticket |
-| `payments` | `code/payments` (Code project), `rag-data/jira` (Jira), `docs/runbooks` (unowned) | One collection searching code, tickets and runbooks |
-| `documents` | `generated-documents` (Documents) | Created by migration `0063` on upgrades, and by admin-api at startup on a fresh install (or whenever Documents owns no path); excludes `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` so old `<slug>/v<n>/` and `services/<svc>/<phase>/v<n>/` version folders are not indexed (a slug that itself starts with `v<digit>`, such as `v2-api-design`, is). It starts unsynced and shows **Refresh** |
+| `documents` | `generated-documents` | The Docs → Documents exports; add `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` to the exclude patterns so old `<slug>/v<n>/` version folders are not indexed |
+| `jira` | `rag-data/jira` | One Markdown file per ticket |
+| `payments` | `code/payments`, `rag-data/jira` and `docs/runbooks` | One collection searching code, tickets and runbooks |
 
 Migration `0063` converted every top-level folder of `rag-data` into a collection (folder
 `X` became collection `X` with folder `rag-data/X`) and rewrote indexed files and agent
 grants, so search keeps working until each collection is refreshed. Deleting a collection
-removes its index rows and agent grants and keeps the files on disk.
+removes its index rows, folders, file log and agent grants and keeps the files on disk.
 
-Folders are never created by RAG except `rag-data/jira`, which the Jira export creates when
-it writes the first ticket. A missing path shows **Folder missing**.
+Adding a folder that is missing under `rag-data` creates it. A missing folder anywhere else
+is refused with `Folder does not exist`. A collection whose folder later disappears shows
+**Folder missing**.
 
-## Paths and sources
+## Folders
 
-Sources own their files and decide which collection they go into:
+- Within one collection, folders may not overlap (one may not contain another), so a file
+  never appears twice: `Folder overlaps <other> in collection <name>`.
+- Different collections may share a folder.
+- Include and exclude patterns are matched relative to each folder.
+- Adding or removing a folder makes the collection show **Needs refresh**.
+- Removing a folder drops its indexed files and file log rows from the collection. The
+  files stay on disk.
+- Removing a collection drops its index, folders, file log and agent grants. The files stay
+  on disk.
+- The folder browser lists visible subfolders only: no hidden folders, `.git`,
+  `node_modules` or links.
 
-| Source | Path it adds | Collection |
-| --- | --- | --- |
-| Docs → Documents | `generated-documents` | `documents` |
-| Jira | `rag-data/jira` | Chosen in the Jira export dialog, default `jira`; created if missing |
-| Code project | each mapped folder, `code/<path>` | Chosen on the code project page when **Searchable** is on, default the project's slug; created if missing, including common code and docs files (`**/*.md`, `**/*.py`, `**/*.ts`, `**/*.java`, `**/*.go`, `**/*.yaml`, `**/*.json` and more) |
+Where sources write:
 
-- An owner (Documents, Jira, or one code project folder) has one path across all
-  collections; adding it again, to the same or another collection, moves (re-points) it.
-- A collection a source creates gets that source's include and exclude patterns; an
-  existing collection keeps its settings.
-- A searchable Git code project's paths follow each pull (the first clone, or a new
-  checkout); a failure shows on the project page with **Retry** and never fails the pull.
-- Removing a path removes its indexed files from the index. Files on disk stay.
-- **Remove** collection is refused with `Remove this collection's sources first: …` while a
-  source owns a path.
-- Unowned paths can be detached from the collection detail page.
+| Source | Writes to |
+| --- | --- |
+| Docs → Documents | `generated-documents` |
+| Jira export | `rag-data/jira/<KEY>.md` |
+| Code projects | `code/<folder>` (clone and pull only) |
+
+On a fresh install there are no collections. Create a `documents` collection and add
+`generated-documents` to search generated documents, and add `rag-data/jira` to a collection
+to search Jira tickets. To search code, add the project's folders (`code/<folder>`) to a
+collection.
 
 ### Upgrading to 0065
 
@@ -80,12 +91,23 @@ Sources own their files and decide which collection they go into:
   collection is owned by Jira; every other path is unowned.
 - Indexed files are rewritten to full paths with no reprocessing, so collections stay
   **Up to date**.
-- Rolling back refuses while any collection has more than one path; remove the extra paths
+- Rolling back refuses while any collection has more than one folder; remove the extra folders
   first.
 - Jira exports made before `0065` into another `rag-data` collection (for example
   `rag-data/tickets`) stay there as an unowned path, while new exports go to `rag-data/jira`.
-  Both are searched, so tickets can appear twice: detach the old path on the collection
-  detail page, or remove that collection or folder.
+  Both are searched, so tickets can appear twice: remove the old folder on the collection
+  detail page, or remove that collection.
+
+### Upgrading to 0066
+
+- Folder owners and the code-project **Searchable** settings are removed. Every existing
+  connection stays as an ordinary folder: `documents` keeps `generated-documents`, `jira`
+  keeps `rag-data/jira`, and code folders stay in their collections.
+- The Jira export no longer asks for a collection.
+- Each indexed file starts in the [file log](#file-log) as indexed. The first sync after the
+  upgrade reads and hashes each file once but does not re-parse or re-embed unchanged
+  content.
+- Rolling back re-adds the owner and search columns empty.
 
 ### Upgrading to collections
 
@@ -102,7 +124,7 @@ After upgrading:
 ## Data areas and mounts
 
 All five areas are mounted into `rag` and `rag-worker` at their existing container paths.
-`rag-data` is read-write only for Jira exports (RAG writes them through its internal file endpoint); the other four are read-only.
+`rag-data` is read-write (RAG creates folders added under it and writes Jira exports through its internal file endpoint); the other four are read-only.
 
 | Area | Container path | Setting |
 | --- | --- | --- |
@@ -116,7 +138,7 @@ The services also receive the host paths (`CODE_PATH`, `RG_DATA`, ...) so the UI
 collection lives. Host paths are metadata and are never resolved inside the container.
 Change `DATA_ROOT` (or an override) and recreate the RAG API and worker to use another host folder.
 
-Only the Jira export writes into `rag-data` (through the internal `PUT /file`). Each path of
+Only the Jira export writes files into `rag-data` (through the internal `PUT /file`). Each folder of
 a collection is walked with a descriptor-based, no-follow traversal that starts at that path.
 
 ## What is indexed
@@ -125,16 +147,17 @@ A sync keeps files that match the include patterns and no exclude pattern. Markd
 section parser and chunker, JSON is pretty-printed, and every other included text file is
 split as plain text.
 
-Skipped and counted in the job result (the sync does not fail):
+Skipped and counted in the job result (the sync does not fail). These files are listed in the [file log](#file-log):
 
 - symbolic links and special files;
 - unreadable files and file names that are not valid;
 - binary (not UTF-8) files and files larger than the global maximum file size;
+- files that fail to parse (logged `failed`; the other files still sync);
 - always: hidden files and folders (any path segment starting with `.`, which covers
   `.git`, `.env*` and scratch folders such as `.documentation-update-*`) and `node_modules`.
 
 Limits per sync are 20,000 matching files, 200,000 visited entries (files and folders) and
-200 MB. Exceeding them fails the job so you can narrow the include patterns or the folder.
+200 MB, counted as the sizes of the walked files (files over the per-file limit are excluded). Exceeding them fails the job so you can narrow the include patterns or the folder; such a collection shows **Too large to sync** with Refresh disabled.
 
 The file API (`GET /file?collection=&path=`, used by the Reader's document view and the agents'
 `read_document`) takes the full path under `DATA_ROOT` (for example `rag-data/jira/DEMO-1.md`).
@@ -158,17 +181,68 @@ Status meanings:
 
 | Status | Meaning |
 | --- | --- |
-| Up to date | Synced, folder unchanged since, settings unchanged |
-| Needs refresh | Never synced, or a folder changed after the last sync, or the collection's settings changed or a path was added or removed since the last sync (a collection migrated by `0063` has no synced revision, so it needs one refresh) |
+| Up to date | Synced, folders match the file log, settings unchanged |
+| Needs refresh | Never synced, or the settings changed or a folder was added or removed since the last sync (revision changed), or the folders differ from the file log: files added or removed, or a size or mtime changed. This is the rule the automatic poller uses (a collection migrated by `0063` has no synced revision, so it needs one refresh) |
 | Syncing | A sync job is queued or running |
 | Failed | The latest sync job failed; the previous index stays |
-| Folder missing | Any path does not exist; shown as an error naming the path instead of Refresh |
+| Folder missing | Any folder does not exist; shown as an error naming the folder instead of Refresh |
+| Too large to sync | The walked files exceed 20,000 files or 200 MB; Refresh is disabled until the include patterns or folders are narrowed |
 
-A collection **needs refresh** when it was never synced, `folder_changed_at > last_synced_at`,
-or its settings revision differs from the revision used by the last successful sync.
-Refresh is refused while a path is missing (`Path <p> is missing…`), and the existing index
-is kept, so an unmounted folder never empties it. **Refresh** queues a sync for one collection; **Refresh all stale** queues every collection
-that needs it. Nothing syncs automatically.
+Refresh is refused while a folder is missing (`Path <p> is missing…`), and the existing index
+is kept, so an unmounted folder never empties it. **Refresh** queues an incremental sync for
+one collection; **Refresh all stale** queues every collection that needs it; **Rebuild**
+re-reads and re-processes every file. With **Auto-sync** on, the worker does the same
+automatically; see [Automatic sync](#automatic-sync).
+
+## File log
+
+Each collection keeps a per-file log (`rag_file_log`) of what the last syncs did with every
+file in its folders. Statuses:
+
+| Status | Meaning |
+| --- | --- |
+| Indexed | The file is in the search index |
+| Skipped | Not indexed (binary, over the maximum file size, unreadable name, link or special file); removed from search |
+| Failed | The file could not be parsed (`Could not parse this file: …`); removed from search |
+| Removed | The file was deleted or no longer matches; removed from search |
+
+How a sync uses the log:
+
+- **Size and mtime shortcut.** A file whose size, mtime and fingerprint match its log row is
+  not opened at all.
+- **Content-hash shortcut.** A file that is opened and has the same SHA-256 and fingerprint is not
+  parsed, chunked or embedded again.
+- **Fingerprint.** The processing settings (parser, chunking), the embedding profile and the
+  maximum file size. Include and exclude patterns are not part of it: they decide which files
+  are in the sync, not how a file is processed.
+- **Always retried.** Unreadable and removed files are retried at every sync. A file that the
+  log says is indexed but that is missing from the index is re-indexed.
+- **Rebuild** re-reads and re-processes everything.
+- A parse failure logs the file `failed` and the sync still succeeds, with a failed count.
+- Any embedding error (for example an unavailable model) fails the sync and leaves the log
+  and the index unchanged.
+
+The collection detail page shows the log as a table: a status filter (Indexed, Skipped,
+Failed, Removed), a path search, paging, and the chunks of indexed files. API:
+`GET /collections/{id}/log`.
+
+## Automatic sync
+
+Turn on **Auto-sync** in the collection's settings and choose **Check every** (1-1440
+minutes, default 5; Auto-sync is off by default).
+
+- The worker checks due collections by comparing file sizes and mtimes with the file log, so
+  copies that keep old mtimes are noticed. This is the same rule as **Needs refresh**.
+- A change must be quiet for 2 minutes before a sync is queued; a collection that is still
+  changing is checked again about 2 minutes later.
+- No second job is queued while one is queued or running.
+- A collection with a missing folder, or one that is too large to sync, queues nothing.
+- A failed sync is retried at each interval.
+- Changing only the auto-sync settings does not change the collection's revision, so it stays
+  **Up to date**.
+- Automatic jobs show the mode **Auto** on the Processing jobs page.
+
+Not in this step: inotify, S3, and per-folder intervals.
 
 ## Search modes and fallback
 
@@ -214,17 +288,18 @@ Docker starts the API with `rag serve-workspace`; processing runs in the separat
 `rag-workspace-worker`. The admin landing page opens Collections. Startup and
 `make smoke` do not enqueue processing jobs or rebuild indexes.
 
-The worker hashes all selected files using SHA-256 before expensive processing. A successful file with the same content hash and the same processing fingerprint is skipped entirely: no parsing, chunking, full-text writes, or embedding call. The fingerprint covers the parser, the collection's include/exclude patterns, chunking and the embedding profile. A model/profile change reuses saved text chunks; a pattern or chunk setting change reparses sources. Identical chunk inputs reuse vectors across collections for the same embedding profile. Credential rotation does not invalidate text or embeddings. Increment the model version when changing the model behind an existing name.
+The worker uses the [file log](#file-log) to skip unchanged files without opening them, and hashes the rest using SHA-256 before expensive processing. A successful file with the same content hash and the same processing fingerprint is skipped entirely: no parsing, chunking, full-text writes, or embedding call. The fingerprint covers the parser, chunking, the embedding profile and the maximum file size. A model/profile change reuses saved text chunks; a chunk setting change reparses sources. One bad file no longer fails the sync: it is logged `failed` and the rest continue. Identical chunk inputs reuse vectors across collections for the same embedding profile. Credential rotation does not invalidate text or embeddings. Increment the model version when changing the model behind an existing name.
 
-Each sync is a durable PostgreSQL job (`rag_collection_sync`) with a renewable worker lease. One job may be active per collection, so several collections can be queued and the worker runs them one after another. Results are prepared before publication; a transaction rechecks the lease, the collection's revision and a second disk manifest, then publishes changed files, removes files that are gone or no longer match, and marks the job successful, setting `last_synced_at`. Editing another collection does not affect a running sync; editing this collection's settings fails it with "Settings changed; refresh again". Embedding errors, malformed vectors, cancellation, worker expiry or detected concurrent edits leave the previous index intact. Retry creates a new job. Force rebuild reparses and regenerates embeddings.
+Each sync is a durable PostgreSQL job (`rag_collection_sync`) with a renewable worker lease. One job may be active per collection, so several collections can be queued and the worker runs them one after another. Results are prepared before publication; a transaction rechecks the lease, the collection's revision and the disk (sizes and mtimes are compared again, and only the files that moved are re-hashed), then publishes changed files, removes files that are gone or no longer match, and marks the job successful, setting `last_synced_at`. Editing another collection does not affect a running sync; editing this collection's settings fails it with "Settings changed; refresh again". Any embedding error, malformed vectors, cancellation, worker expiry or detected concurrent edits leave the previous index intact. Retry creates a new job. Force rebuild reparses and regenerates embeddings.
 
 Direct bind-mount writers should publish completed files using an atomic rename and avoid edits during a sync. The two-manifest check detects changes during the run; it cannot lock an unrelated host process writing after the final check.
 
 ## Database
 
-Collections are stored in `ka.rag_collections` (name, description, search mode, embeddings flag, include/exclude, chunking, `revision`, `synced_revision`, `last_synced_at`, soft `deleted_at`). Supporting tables:
+Collections are stored in `ka.rag_collections` (name, description, search mode, embeddings flag, include/exclude, chunking, `revision`, `synced_revision`, `last_synced_at`, `auto_sync`, `poll_interval_minutes`, `last_polled_at`, soft `deleted_at`). Supporting tables:
 
-- `rag_collection_paths`: a collection's paths (`collection_id`, `source_path`, optional owner `owner_kind` / `owner_id` / `owner_key`).
+- `rag_collection_paths`: a collection's folders (`collection_id`, `source_path`); no owner columns.
+- `rag_file_log`: per-file status for each collection (see [File log](#file-log)).
 - `rag_workspaces`: global `max_file_bytes` and `embedding_model_id` referencing `llm_models`.
 - `llm_models`: named chat/embedding connections, encrypted credentials, dimensions, and embedding versions.
 - `rag_files`: per-collection files (`collection_id`, full `path` under `DATA_ROOT`, `path_id`), hashes and fingerprints, job provenance.
@@ -246,31 +321,30 @@ Browser/admin API prefix: `/api/rag`. All these routes require a Keycloak user i
 | GET / PUT | `/settings` | Read/save global settings (`max_file_bytes`, `embedding_model_id`) with `revision` |
 | POST | `/test/embedding` | Test the saved model endpoint (makes a small model request) |
 | GET | `/collections` | List collections with freshness, counts and `paths` |
-| GET / PUT | `/collections/{id}` | Read / update search settings only (with its `revision`); the name is not editable |
-| DELETE | `/collections/{id}?revision=...&confirmed=true` | Delete index rows and grants; files stay on disk. 409 while a source owns a path |
-| DELETE | `/collections/by-name/{name}/paths?source_path=` | Detach a path and its indexed files |
+| POST | `/collections` | Create a collection; 409 `Collection <name> already exists` |
+| GET / PUT | `/collections/{id}` | Read / update settings (with its `revision`), including `auto_sync` and `poll_interval_minutes`; saving only those does not bump the revision; the name is not editable |
+| DELETE | `/collections/{id}?revision=...&confirmed=true` | Delete index rows, folders, file log and grants; files stay on disk. Always allowed |
+| POST | `/collections/{id}/paths` | Add a folder with `{source_path}`; creates a missing `rag-data` folder, else 409 `Folder does not exist`; 409 on overlap |
+| DELETE | `/collections/{id}/paths/{path_id}` | Remove a folder and its indexed files and log rows |
+| GET | `/folders?path=` | List visible subfolders for the folder browser |
+| GET | `/collections/{id}/log?status=&q=&limit=&offset=` | File log; `status` is `indexed`, `skipped`, `failed` or `removed`, `q` searches the path |
 | POST | `/collections/{id}/sync` | Queue a sync (optionally forced) |
 | POST | `/collections/sync-stale` | Queue a sync for every collection that needs refresh |
 | GET | `/collections/{id}/files` | Indexed files with chunk and embedding counts |
 | GET | `/collections/{id}/chunks?path=...` | Chunks of one file |
-| GET | `/file?collection=&path=` | Read an indexable file by its full path under one of the collection's paths |
+| GET | `/file?collection=&path=` | Read an indexable file by its full path under one of the collection's folders |
 | GET | `/jobs` | Sync jobs, newest first: `{jobs, total}`; query `status`, `collection`, `q` (collection or error text), `limit` (1–100, default 25), `offset` |
 | POST | `/jobs/{id}/cancel` | Cancel queued/running work |
 | POST | `/search` | Retrieve evidence across collections |
 
-**Source API (service only, `X-Rag-Key`)**, used by admin-api for Docs, Jira and code projects:
+External tools use the same backoffice routes with `X-Rag-Key`.
+
+**Service-only file API (`X-Rag-Key`)**, used by the Jira export:
 
 | Call | Purpose |
 | --- | --- |
-| `PUT collections/by-name/{name}` with `{description?, include?, exclude?}` | Create the collection if missing (the given settings, defaults otherwise) and return it; idempotent, never changes an existing collection's settings |
-| `PUT collections/by-name/{name}/paths` with `{source_path, owner_kind?, owner_id?, owner_key?, description?, include?, exclude?}` | Add a path, creating the collection if missing (the optional settings apply only then); the same owner's path is replaced; 409 `Path overlaps <other> in collection <name>`, or 409 `The source path changed concurrently; retry` when a concurrent change of the same owner wins twice |
-| `DELETE collections/by-name/{name}/paths?source_path=` or `?owner_kind=&owner_id=&owner_key=` | Remove a path and its indexed files; idempotent |
-| `DELETE paths?owner_kind=&owner_id=&owner_key=` | Remove an owner's path from every collection |
-
-The admin RAG proxy forwards only `source_path` detaches; `owner_*` parameters are refused
-with 400 there, so administrators cannot remove a source's paths.
-| `GET file?collection=&path=<full path>` | Read an indexable file |
-| `PUT file {path, content, expected_hash}` | Write a file under `rag-data` only (Jira export) |
+| `GET file?path=<rag-data path>` | Read a file under `rag-data` (no collection) |
+| `PUT file {path, content, expected_hash}` | Write a file under `rag-data` only |
 
 The internal service exposes administration under `/backoffice/projects/{project_id}` and generic `/search` at its root. All service routes require `X-Rag-Key`. Generic service requests additionally require `project_id`; admin clients omit it because the gateway supplies the fixed workspace identity.
 

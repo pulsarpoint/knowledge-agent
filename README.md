@@ -201,9 +201,9 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-RAG indexes **collections**: each holds one or more paths in `DATA_ROOT` (`code`, `code-index`,
+RAG indexes **collections**: each holds one or more folders in `DATA_ROOT` (`code`, `code-index`,
 `rag-data`, `generated-documents` or `docs`) and is indexed where it is, with no copy step.
-Sources add their own paths: Docs → Documents, the Jira export and Searchable code projects.
+Administrators create collections and connect folders in RAG → Collections; sources only write files. Auto-sync checks folders at an interval.
 The RAG services mount all five areas, read-only except `rag-data` (override with an
 absolute `RG_DATA`). **Refresh** collections when files change, and review jobs through RAG
 administration. Unchanged files are identified by content hash so processing can be reused. Add and pull Git repositories

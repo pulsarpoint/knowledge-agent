@@ -66,8 +66,7 @@ What you can actually do today:
   **multi-agent board**.
 - **Import Jira tickets** into the knowledge base as Markdown.
 
-Generated documents are searchable by the Reader and agents through the `documents`
-collection (the `generated-documents` folder) after a **Refresh** in RAG → Collections
+Generated documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs), after a **Refresh** or with Auto-sync in RAG → Collections
 (see [5.3](#53-rag-collections-processing-settings-search)).
 
 ### Architecture at a glance
@@ -124,7 +123,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for vector search.
 2. **RAG → Settings** → select the embeddings model if you added one.
-3. Let a source add its path (Docs → Documents → `documents`; Jira export → its chosen collection; code project **Searchable** → its chosen collection), then **RAG → Collections** → **Refresh**.
+3. Create collections in **RAG → Collections** and add folders: `generated-documents` for documents, `rag-data/jira` for Jira, `code/<folder>` for code; then **Refresh**, or switch on **Auto-sync**.
 4. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
 5. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
@@ -255,45 +254,49 @@ no delete — disable a model instead.
 
 ### 5.3 RAG: collections, processing, settings, search
 
-A **collection** is a named search index with its own settings and one or more paths
-(folders under `DATA_ROOT`). RAG indexes the files where they already are — nothing is
-copied. Everything is by whole collection: agents are granted collections, not subfolders.
-Sources add and remove their own paths; collections are not created or filled by hand here.
+A **collection** is a named search index with its own settings and one or more folders
+(under `DATA_ROOT`). RAG indexes the files where they already are — nothing is copied.
+Everything is by whole collection: agents are granted collections, not subfolders.
+Administrators create collections and connect folders here; sources only write files.
 
 **Workflow**
 
-1. A source adds its path to a collection: **Docs → Documents** (`documents`), a **Jira
-   export** ([5.8](#58-jira), default `jira`) or a **Searchable** code project
-   ([5.4](#54-code-projects), default the project's slug).
-2. Admin → **RAG → Collections** → **Refresh** the collection.
-3. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
+1. **New collection** → name, description and settings.
+2. **Add folder** on the collection page: browse the folders or type a path
+   (`generated-documents`, `rag-data/jira`, `code/<folder>`).
+3. **Refresh**, or switch on **Auto-sync** in Edit.
+4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
 
 **Collections** (`/rag/collections`)
 
-- The table shows name and description, paths with their sources (Documents, Jira, Code
-  project linked to its page, or Unowned), files, embedded chunks, last synced, status and
-  a **Refresh** button.
-- **Status**: *Up to date*; *Needs refresh* (never synced, a folder changed after the last
-  sync, a path was added or removed, or the settings changed since); *Syncing*; *Failed*
-  (the previous index stays); *Folder missing* (any path is missing; Refresh is refused and
-  the index is kept).
-- **Refresh all stale** queues every collection that needs it. Nothing refreshes
-  automatically.
-- **Edit collection** shows search settings only: description, search mode (Full text /
+- The table shows name and description, folders, files, embedded chunks, last synced,
+  status, a **Sync** column (**Auto · every N min** or **Manual**) and a **Refresh** button.
+- **Status**: *Up to date*; *Needs refresh* (never synced, the settings changed, a folder was
+  added or removed, or files in the folders were added, removed or changed since the last
+  sync); *Syncing*; *Failed* (the previous index stays); *Folder missing* (any folder is
+  missing; Refresh is refused and the index is kept); *Too large to sync* (over 20,000
+  files or 200 MB; Refresh is disabled).
+- **Refresh all stale** queues every collection that needs it.
+- **Auto-sync** checks the folders every N minutes (1–1440, default 5; off by default) and
+  waits until a change has been quiet for 2 minutes before it syncs. Automatic jobs show
+  the mode *Auto* in Processing jobs.
+- **Edit collection** shows the settings: description, search mode (Full text /
   Embedding / Hybrid), embeddings on/off, include and exclude patterns (default include
-  `**/*.md`, `**/*.markdown`, `**/*.txt`; matched relative to each path), chunk size
-  (default 2000) and overlap (default 200). The name cannot be changed. Changing settings
-  makes the collection need refresh. There is no New collection.
-- **Collection detail**: indexed files with full paths, chunk count and embedding state,
-  and a file's chunks. There is no upload or edit. **Detach** removes an unowned path and
-  its indexed files (the files stay on disk).
-- **Remove** appears only when no source owns a path; it removes the index rows and agent
-  grants and keeps the files on disk. Otherwise remove the sources first (`Remove this
-  collection's sources first: …`).
-- Skipped and counted (never fatal): symbolic links, special and unreadable files, invalid
-  names, binary files and files over the maximum size; `.git`, `node_modules` and `.env*`
-  are always ignored. A sync fails if a collection has more than 20,000 files or 200 MB —
-  narrow the include patterns. Code is indexed as plain text.
+  `**/*.md`, `**/*.markdown`, `**/*.txt`; matched relative to each folder), chunk size
+  (default 2000), overlap (default 200), **Auto-sync** and **Check every**. The name
+  cannot be changed. Changing settings (not Auto-sync) makes the collection need refresh.
+- **Collection detail**: the folders, each with **Remove** (confirmed; the files stay on
+  disk), the status counts, and the **file log**: every file with its status, filtered by
+  Indexed, Skipped, Failed or Removed, with a path search, paging, and the chunks of
+  indexed files. There is no upload or edit.
+- **Remove** (the collection) is always available, with confirmation. It removes the
+  index rows, folders, file log and agent grants and keeps the files on disk.
+- Skipped files are listed in the file log and counted (never fatal): symbolic links,
+  special and unreadable files, invalid names, binary files and files over the maximum
+  size; `.git`, `node_modules` and `.env*` are always ignored. A file that cannot be
+  parsed is logged as failed, and one failing file no longer fails the sync. A collection
+  with more than 20,000 files or 200 MB cannot sync — narrow the include patterns. Code
+  is indexed as plain text.
 
 **Processing jobs** (`/rag/jobs`) — every sync job, newest first, in a paged table
 (10/25/50/100 rows). Search by collection name or error text, and filter by status and
@@ -354,22 +357,12 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 **View graph** opens an explorer (files → symbols, filter, paging). The graph is a
 prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
 
-**Searchable** — a switch plus a collection name. Turning it on adds all mapped folders
-(`code/<path>`) to the collection, creating it if missing; a collection created this way
-indexes common code and docs files (Markdown, text, Python, TypeScript/JavaScript, Java,
-Kotlin, Go, Rust, C#, Ruby, PHP, SQL, shell, YAML, TOML, JSON), and its include patterns
-can be tuned in RAG → Collections. The name defaults to the
-project's slug and an existing collection can be picked; changing it moves the project's
-paths (**Move to another collection**). Turning it off removes its paths from every
-collection. Editing the mapped folders, and each pull of a Git project, adds and removes
-paths to match. A folder whose name has characters other than letters, numbers, `.`, `_`
-and `-` cannot be indexed and is named in the error. If RAG is unavailable an error shows
-on the page with **Retry**; the project itself is never rolled back. **Refresh** the
-collection in RAG → Collections afterwards.
+Code projects only clone and pull into `code/…`. To search code, add the project's folders
+to a collection in RAG → Collections; archiving a project does not change RAG.
 
 Archiving a project is available through the API only (`POST /api/code-projects/{id}/archive`);
-it removes the project's paths from every collection first. If RAG is unavailable it fails
-with an error and can be retried (the project stays listed).
+it does not change RAG: remove its folders from collections there if you no longer want
+them searched.
 
 Projects cannot be edited while a job runs, and there is no delete action.
 
@@ -443,13 +436,11 @@ and search permission).
 1. Enter a **JQL** query (default `ORDER BY updated DESC, key DESC`) and the number of
    tickets (1–200), then **Fetch tickets**. Results are stored locally.
 2. Filter by text, project and status; tick tickets.
-3. **Export selected** into a **Target collection**: any valid name or an existing one,
-   default `jira`. The export adds `rag-data/jira` to that collection (moving it from a
-   previous one) and writes each ticket to `rag-data/jira/<KEY>.md` with metadata,
+3. **Export selected** writes each ticket to `rag-data/jira/<KEY>.md` with metadata,
    description and comments. Keep the page open until it finishes; failed tickets stay
    selected. A RAG error fails the export with its message.
-4. Follow the link in the notice to the collection and **Refresh** it to make the tickets
-   searchable.
+4. Make sure a collection holds `rag-data/jira` (RAG → Collections → Add folder), then
+   Refresh it or let Auto-sync pick it up.
 
 For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
@@ -627,9 +618,8 @@ draft**). Actions: **Save new version** (every save is a full immutable version)
 **Export to folder**, **Download document folder** (ZIP), **Delete**, and links back
 to the workflow that produced it.
 
-Documents are searchable through the automatically created `documents` collection
-(folder `generated-documents`, old `v<n>/` folders excluded): **Refresh** it in
-**RAG → Collections** to index what is on disk. The Reader's search and chat and the
+Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
+**RAG → Collections**, or turn on Auto-sync, to index what is on disk. The Reader's search and chat and the
 agents' document search then find them.
 
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
@@ -675,9 +665,10 @@ Records are kept until deleted; only administrators can see them.
 
 ### A. Make internal documentation searchable for everyone
 
-1. Write the pages in **Docs → Documents**; they land in the `documents` collection.
-   (Code is made searchable from the code project page with **Searchable**.)
-2. Admin → **RAG → Collections** → **Refresh** `documents`; watch **Processing jobs**
+1. Write the pages in **Docs → Documents**; they are exported to `generated-documents`.
+   (Code is made searchable by adding its `code/<folder>` to a collection.)
+2. Admin → **RAG → Collections**: make sure a collection holds `generated-documents`
+   (`documents` on upgraded installs), then **Refresh** it; watch **Processing jobs**
    until it succeeds.
 3. Check the collection's files under its detail page.
 4. Check results in **RAG → Search**.
@@ -693,7 +684,7 @@ Records are kept until deleted; only administrators can see them.
 5. Phase 1 **Generate graph** → inspect the graph.
 6. Run Phase 2 (overview), then Phase 3 (API), then Phase 4 (messaging) — one at a time.
 7. Review each document in **Docs → Documents**, edit, **Save new version**.
-8. **RAG → Collections** → **Refresh** the `documents` collection to make them searchable.
+8. Make them searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
 ### C. Document deployments and infrastructure
 
@@ -720,8 +711,8 @@ Records are kept until deleted; only administrators can see them.
 ### F. Bring Jira knowledge into RAG
 
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
-selected** into the target collection (default `jira`) → follow the notice's link →
-**Refresh** it.
+selected** → make sure a collection holds `rag-data/jira` (RAG → Collections → Add
+folder) → **Refresh** it or let Auto-sync pick it up.
 
 ---
 
@@ -786,9 +777,8 @@ before exposing it beyond localhost.
 ## 8. Current limitations
 
 - **Reader chat answers appear when complete** (no word-by-word streaming).
-- **Documents are searchable through the `documents` collection** (the
-  `generated-documents` folder) only after a **Refresh**.
-- **Collections are refreshed manually**: nothing syncs automatically, so use
+- **Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs)** only after a **Refresh** or an Auto-sync.
+- **Collections are refreshed manually unless Auto-sync is on** (it is off by default), so use
   **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
   text (no code-aware chunking or line-number citations), and a collection is limited to
   20,000 files and 200 MB per sync.

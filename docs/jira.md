@@ -7,7 +7,7 @@ The standalone admin has two pages:
 - [Jira Tickets](http://localhost:8183/jira/tickets): choose 1–200 tickets and
   select **Fetch tickets**. The default is 25, ordered by updated time descending.
   Add JQL to filter at Jira, then use text, project and status filters on the saved
-  list. Select tickets and **Export selected** to write Markdown into a RAG collection.
+  list. Select tickets and **Export selected** to write Markdown into `rag-data/jira`.
 
 This adapter targets Jira Data Center. PATs use `Authorization: Bearer`, rather
 than username/password Basic auth. The saved username is checked against
@@ -100,26 +100,23 @@ downloads and Cloud authentication remain future work.
 | `POST /api/jira/test` | Check token owner and issue-search access; save the test result |
 | `GET /api/jira/tickets` | Read the last successful local selection |
 | `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }` |
-| `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "collection": "jira", "connection_revision": 1 }`; returns collection, path, status, hash and comment count |
+| `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "connection_revision": 1 }`; returns path, status, hash, issue key and comment count |
 
 ## Markdown export and RAG processing
 
 1. Fetch a JQL query, optionally narrow the saved list, and select tickets. Changing
    a saved-list filter clears the selection; **Select all filtered tickets** selects
    only the currently displayed rows.
-2. Choose a **Target collection**: any valid name (lowercase letters, digits and single
-   hyphens) or an existing one, default `jira`. Tickets are written to
-   `rag-data/jira/<KEY>.md`. The export first adds `rag-data/jira` (owner Jira) to the
-   chosen collection, creating the collection if it is missing. A RAG error, such as an
-   overlap 409 or the RAG service being unavailable, fails the export with its message and
-   writes nothing. Choosing another collection on a later export moves the folder to it.
-   Select **Export selected** and keep the page open. Each ticket is an
-   independent export; successes remain saved if another ticket fails, and failed
-   tickets remain selected for retry. Leaving the page stops the remaining requests;
-   an in-flight server request may still finish.
-3. Open **RAG → Collections** and **Refresh** the collection. This uses the existing
-   incremental processing and embedding pipeline. Exports do not automatically
-   refresh the collection or configure an embedding provider.
+2. Select **Export selected** and keep the page open. Tickets are written to
+   `rag-data/jira/<KEY>.md`, with no collection choice. A RAG error, such as the service
+   being unavailable, fails that ticket's export with its message and writes nothing.
+   Each ticket is an independent export; successes remain saved if another ticket fails,
+   and failed tickets remain selected for retry. Leaving the page stops the remaining
+   requests; an in-flight server request may still finish.
+3. Add `rag-data/jira` to a collection once (**RAG → Collections** → **Add folder**), then
+   **Refresh** it or turn on **Auto-sync**. This uses the existing incremental processing
+   and embedding pipeline. Exports do not refresh the collection or configure an embedding
+   provider.
 
 The API refetches the issue by its stored remote ID and retrieves every page from
 `/rest/api/2/issue/{id}/comment`. Only comments visible to the configured Jira user
