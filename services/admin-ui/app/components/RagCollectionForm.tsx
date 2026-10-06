@@ -12,6 +12,16 @@ import { Textarea } from "~/components/ui/textarea";
 
 const lines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const validInterval = (minutes: number) => Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440;
+
+/** The check interval to send: never one the API rejects. While auto-sync is off the (disabled) field may hold
+ * anything, so an invalid value falls back to the saved interval, or 5; while on, it is clamped to 1..1440. */
+export function pollIntervalToSend(minutes: number, autoSync: boolean, saved: number): number {
+  if (validInterval(minutes)) return minutes;
+  const fallback = validInterval(saved) ? saved : 5;
+  if (!autoSync || !Number.isFinite(minutes)) return fallback;
+  return Math.min(1440, Math.max(1, Math.round(minutes)));
+}
 
 /** Creates a collection (no `collection`) or edits its settings. */
 export default function RagCollectionForm({ open, collection, onOpenChange, onSaved, onFailed }: {
@@ -46,7 +56,7 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCol
     setBusy(true); setError("");
     const value: CollectionSettings = { description, search_mode: searchMode, embeddings_enabled: embeddings,
       include: lines(include), exclude: lines(exclude), chunk_size: chunkSize, chunk_overlap: chunkOverlap,
-      auto_sync: autoSync, poll_interval_minutes: pollInterval };
+      auto_sync: autoSync, poll_interval_minutes: pollIntervalToSend(pollInterval, autoSync, initial.poll_interval_minutes) };
     try {
       onSaved(collection
         ? await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })

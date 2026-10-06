@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import RagCollectionsView from "../RagCollectionsView";
 import RagCollectionDetail from "../RagCollectionDetail";
+import { pollIntervalToSend } from "../RagCollectionForm";
 import type { CollectionPath, RagCollection } from "../../lib/rag";
 
 const jiraPath: CollectionPath = {
@@ -264,4 +265,30 @@ test("auto-sync settings are saved and the list shows Auto or Manual", async () 
   await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "PUT")).toBe(true));
   const put = fetchMock.mock.calls.find(([, i]) => (i as RequestInit)?.method === "PUT")!;
   expect(JSON.parse((put[1] as RequestInit).body as string)).toMatchObject({ auto_sync: true, poll_interval_minutes: 15, revision: 2 });
+});
+
+test("an invalid check interval is never sent: the saved value while auto-sync is off, clamped while on", async () => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes("/log?")) return Response.json(noLog);
+    return Response.json(init?.method === "PUT" ? { ...base, revision: 3 } : { ...base, poll_interval_minutes: 30 });
+  });
+  const user = userEvent.setup();
+  detail(fetchMock);
+  const puts = () => fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === "PUT").map(([, i]) => JSON.parse((i as RequestInit).body as string));
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("switch", { name: "Auto-sync" }));
+  await user.clear(screen.getByLabelText("Check every (minutes)"));
+  await user.click(screen.getByRole("switch", { name: "Auto-sync" }));
+  await user.click(screen.getByRole("button", { name: "Save collection" }));
+  await waitFor(() => expect(puts()).toHaveLength(1));
+  expect(puts()[0]).toMatchObject({ auto_sync: false, poll_interval_minutes: 30 });
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("switch", { name: "Auto-sync" }));
+  await user.clear(screen.getByLabelText("Check every (minutes)"));
+  await user.type(screen.getByLabelText("Check every (minutes)"), "5000");
+  await user.click(screen.getByRole("button", { name: "Save collection" }));  // the enabled field's min/max block it
+  expect(screen.getByLabelText("Check every (minutes)")).toBeInvalid();
+  expect(puts()).toHaveLength(1);
+  expect([pollIntervalToSend(5000, true, 30), pollIntervalToSend(0, true, 30), pollIntervalToSend(Number.NaN, true, 30)]).toEqual([1440, 1, 30]);
+  expect([pollIntervalToSend(0, false, 30), pollIntervalToSend(0, false, 0), pollIntervalToSend(7, false, 30)]).toEqual([30, 5, 7]);
 });
