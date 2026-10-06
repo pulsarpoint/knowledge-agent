@@ -98,10 +98,20 @@ def _create(data: Path, folders: list[Path]) -> None:
 
 
 def _move_jira(data: Path, jira: str) -> None:
-    """Move DATA_ROOT/rag-data/jira to the Jira folder once; never over an existing folder."""
+    """Move DATA_ROOT/rag-data/jira to the Jira folder once.
+
+    An empty Jira folder is replaced; anything else there stops setup, because migration 0067 points
+    the Jira collection at the Jira folder and the next sync would drop what stayed in rag-data/jira.
+    Files are never merged or deleted.
+    """
     old, new = data / OLD_JIRA, data / jira
-    if not old.is_dir() or old.is_symlink() or new.exists() or new.is_symlink():
+    if not old.is_dir() or old.is_symlink():
         return
+    if new.exists() or new.is_symlink():
+        if new.is_symlink() or not new.is_dir() or any(new.iterdir()):
+            raise SystemExit(f"Both {old} and {new} exist. Merge them by hand: move the files from {old} "
+                             f"into {new} and remove {old}, then run make setup again. Nothing was moved.")
+        new.rmdir()
     new.parent.mkdir(parents=True, exist_ok=True)
     old.rename(new)
     print(f"Moved {old} to {new}.")

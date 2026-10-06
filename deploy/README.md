@@ -73,7 +73,8 @@ path of each folder.
 which names the replacement variable. An override inside `DATA_ROOT` translates to the
 relative value (`CODE_PATH=$DATA_ROOT/sources/code` becomes `CODE_FOLDER=sources/code`);
 one outside must be moved into `DATA_ROOT` first. `make setup` moves
-`DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once, and migration `0067` rewrites the RAG
+`DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once (an empty `JIRA_FOLDER` is replaced; when
+both hold files, setup stops and asks you to merge them by hand), and migration `0067` rewrites the RAG
 paths (it assumes the default `JIRA_FOLDER`; with another value the collection shows
 **Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
 configured folders: move them out of `DATA_ROOT`, and a collection that used them shows

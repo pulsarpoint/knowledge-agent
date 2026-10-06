@@ -114,7 +114,9 @@ collection.
 
 - Collection paths `rag-data/jira` and `rag-data/jira/...` become `jira` and `jira/...`,
   and the indexed files and file log rows under them are rewritten without reprocessing.
-  `make setup` moves the files from `DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once; the
+  `make setup` moves the files from `DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once (an
+  empty `JIRA_FOLDER` is replaced; when both hold files, setup stops naming both folders so
+  you can merge them by hand, because the next sync would otherwise drop the old tickets); the
   migration assumes the default `JIRA_FOLDER` (with another value the collection shows
   **Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
   configured folders: move them out of `DATA_ROOT`; a collection that used them shows

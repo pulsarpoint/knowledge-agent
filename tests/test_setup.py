@@ -131,7 +131,7 @@ class SetupTests(unittest.TestCase):
                     self.assertEqual((root / ".env").read_text(encoding="utf-8"), line + "\n")
                     self.assertFalse(data.exists())
 
-    def test_setup_moves_rag_data_jira_once_and_never_over_an_existing_folder(self) -> None:
+    def test_setup_moves_rag_data_jira_once_and_stops_before_merging_into_a_filled_folder(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = project(directory)
             data = Path(directory) / "data"
@@ -154,10 +154,41 @@ class SetupTests(unittest.TestCase):
             (data / "rag-data" / "jira" / "OLD-1.md").write_text("old", encoding="utf-8")
             (data / "jira").mkdir()
             (data / "jira" / "NEW-1.md").write_text("new", encoding="utf-8")
-            output = run_setup(root, str(data))
-            self.assertNotIn("Moved", output)
+            with self.assertRaises(SystemExit) as stopped:
+                run_setup(root, str(data))
+            self.assertIn(str(data / "rag-data" / "jira"), str(stopped.exception))
+            self.assertIn(str(data / "jira"), str(stopped.exception))
+            self.assertIn("Merge them by hand", str(stopped.exception))
             self.assertEqual((data / "rag-data" / "jira" / "OLD-1.md").read_text(encoding="utf-8"), "old")
             self.assertEqual(sorted(p.name for p in (data / "jira").iterdir()), ["NEW-1.md"])
+            self.assertFalse((root / ".env").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(directory)
+            data = Path(directory) / "data"
+            (data / "rag-data" / "jira").mkdir(parents=True)
+            (data / "rag-data" / "jira" / "OLD-1.md").write_text("old", encoding="utf-8")
+            (data / "jira").mkdir()  # an empty Jira folder, for example from an earlier setup run
+            output = run_setup(root, str(data))
+            self.assertIn(f"Moved {data / 'rag-data' / 'jira'} to {data / 'jira'}.", output)
+            self.assertEqual((data / "jira" / "OLD-1.md").read_text(encoding="utf-8"), "old")
+            self.assertFalse((data / "rag-data").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(directory)
+            data = Path(directory) / "data"
+            data.mkdir()
+            (data / "jira").write_text("not a folder", encoding="utf-8")
+            (data / "rag-data" / "jira").mkdir(parents=True)
+            with self.assertRaises(SystemExit) as stopped:
+                run_setup(root, str(data))
+            self.assertIn("Merge them by hand", str(stopped.exception))
+            self.assertTrue((data / "rag-data" / "jira").is_dir())
+            self.assertEqual((data / "jira").read_text(encoding="utf-8"), "not a folder")
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(directory)
+            data = Path(directory) / "data"
+            output = run_setup(root, str(data))  # no rag-data/jira: nothing to move
+            self.assertNotIn("Moved", output)
+            self.assertTrue((data / "jira").is_dir())
         with tempfile.TemporaryDirectory() as directory:
             root = project(directory)
             data = Path(directory) / "data"
