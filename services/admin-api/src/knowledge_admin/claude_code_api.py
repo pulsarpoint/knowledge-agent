@@ -1,4 +1,6 @@
 """Claude Code agents (registrations: a name and a description) and their interactive documentation sessions."""
+import asyncio
+import json
 import os
 from pathlib import Path, PurePosixPath
 from uuid import UUID, uuid4
@@ -6,7 +8,9 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from knowledge_llm import claude_model
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -138,6 +142,22 @@ def session_context(conn, project: UUID, value: SessionInput) -> dict:
         raise HTTPException(400, 'Select available servers.')
     return jsonable_encoder({'folders': folders, 'code_project_ids': value.code_project_ids, 'servers': servers,
                              'notes': value.notes})
+
+
+STREAM_POLL_SECONDS = 1.0
+STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.draft,
+    s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
+    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
+    FROM ka.agent_sessions_cc s WHERE s.id=%s"""
+
+
+def stream_event(row: dict) -> dict:
+    """One run event for the page; a tool result keeps its preview, the full output stays in the run record."""
+    payload = dict(row['payload'])
+    if row['kind'] == 'tool_result':
+        payload.pop('output', None)
+    return {'id': row['id'], 'turn': int(row['run_key'].rsplit(':', 1)[1]), 'seq': row['seq'], 'kind': row['kind'],
+            'payload': payload, 'created_at': row['created_at']}
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -286,5 +306,49 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 discard(conn, session_id)
                 audit(conn, actor, 'claude_code.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
+
+    @router.get('/sessions/{session_id}/events')
+    async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):
+        db = database()
+        with db.connect() as conn:
+            if conn.execute('SELECT 1 FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
+                            (session_id, db.project(conn, app_name))).fetchone() is None:
+                raise HTTPException(404, 'Session not found.')
+        last = request.headers.get('last-event-id', '')
+        start_after = int(last) if last.isdigit() else after
+
+        async def stream():
+            # Poll by event id over this session's turn keys (cc:<session>:<turn>) and the session row; leaving the
+            # page closes only this subscriber.
+            position, state = start_after, None
+            try:
+                async with await psycopg.AsyncConnection.connect(db.conninfo, autocommit=True, row_factory=dict_row) as conn:
+                    while True:
+                        current = await (await conn.execute(STATE, (session_id,))).fetchone()
+                        keys = [f'cc:{session_id}:{turn}' for turn in range(1, current['turns'] + 1)]
+                        rows = await (await conn.execute('''SELECT id,run_key,seq,kind,payload,created_at
+                            FROM ka.agent_run_events WHERE run_key=ANY(%s) AND id>%s ORDER BY id LIMIT 500''',
+                            (keys, position))).fetchall()
+                        for row in rows:
+                            position = row['id']
+                            yield f'id: {position}\nevent: run_event\ndata: {json.dumps(jsonable_encoder(stream_event(row)))}\n\n'
+                        if len(rows) == 500:
+                            continue
+                        public = jsonable_encoder(current)
+                        if public != state:
+                            state = public
+                            yield f'event: session\ndata: {json.dumps(public)}\n\n'
+                        if current['status'] == 'closed':
+                            yield 'event: closed\ndata: {}\n\n'
+                            return
+                        if await request.is_disconnected():
+                            return
+                        yield ': keepalive\n\n'
+                        await asyncio.sleep(STREAM_POLL_SECONDS)
+            except psycopg.Error:
+                yield 'event: unavailable\ndata: {}\n\n'
+
+        return StreamingResponse(stream(), media_type='text/event-stream',
+                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     return router

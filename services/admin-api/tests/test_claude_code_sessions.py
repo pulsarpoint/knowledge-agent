@@ -1,10 +1,14 @@
 """Interactive Claude Code sessions: the context snapshot, queued messages, Stop, Close and idle closing."""
 import json
+import threading
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from psycopg.types.json import Jsonb
 
+from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
 from knowledge_admin.documentation_generation import PROMPT_CHANGED
 from test_api import _client
@@ -163,3 +167,64 @@ def test_idle_sessions_close_after_24_hours(sessions):
     assert (listed[ids[1]]['status'], listed[ids[2]]['status']) == ('working', 'starting')
     inputs = sessions.client.get(f'/api/claude-code/sessions/{ids[0]}', headers=HEADERS).json()['inputs']
     assert [i['status'] for i in inputs] == ['discarded']
+
+
+def parse(text: str) -> list[dict]:
+    events = []
+    for block in text.strip().split('\n\n'):
+        fields = dict(line.split(': ', 1) for line in block.split('\n') if line and not line.startswith(':'))
+        if 'event' in fields:
+            events.append({'event': fields['event'], 'id': int(fields['id']) if 'id' in fields else None,
+                           'data': json.loads(fields['data'])})
+    return events
+
+
+def record(conn, session_id, turn: int, seq: int, kind: str, payload: dict) -> None:
+    conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+        SELECT project_id,%s,%s,%s,agent_id,%s FROM ka.agent_sessions_cc WHERE id=%s''',
+        (f'cc:{session_id}:{turn}', seq, kind, Jsonb(payload), session_id))
+
+
+def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkeypatch):
+    monkeypatch.setattr(claude_code_api, 'STREAM_POLL_SECONDS', 0.02)
+    client, store = sessions.client, sessions.store
+    sid = start(sessions)['id']
+    other = start(sessions)['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=ANY(%s::uuid[])", ([sid, other],))
+        record(conn, sid, 1, 1, 'start', {'kind': 'claude_code', 'title': 'Payments'})
+        record(conn, other, 1, 1, 'start', {'kind': 'claude_code', 'title': 'Another session'})
+        record(conn, sid, 1, 2, 'tool_call', {'name': 'Read', 'summary': '/work/data/code/app/main.py'})
+        record(conn, sid, 1, 3, 'tool_result', {'name': 'Read', 'output': 'line\n' * 500, 'preview': 'line\nline'})
+
+    def worker():  # a fake worker finishes the turn, then the session is closed
+        time.sleep(0.3)
+        with store.connect() as conn:
+            record(conn, sid, 1, 4, 'message', {'text': '# Payments API'})
+            conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',draft='# Payments API',draft_turn=1 WHERE id=%s", (sid,))
+        time.sleep(0.3)
+        with store.connect() as conn:
+            conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    response = client.get(f'/api/claude-code/sessions/{sid}/events', headers=HEADERS)
+    thread.join()
+    assert response.status_code == 200 and response.headers['content-type'].startswith('text/event-stream')
+    assert response.headers['cache-control'] == 'no-store'
+    events = parse(response.text)
+    runs = [e for e in events if e['event'] == 'run_event']
+    assert [(e['data']['turn'], e['data']['seq'], e['data']['kind']) for e in runs] == [
+        (1, 1, 'start'), (1, 2, 'tool_call'), (1, 3, 'tool_result'), (1, 4, 'message')]
+    assert all(e['id'] == e['data']['id'] for e in runs)
+    assert runs[2]['data']['payload'] == {'name': 'Read', 'preview': 'line\nline'}  # the full output stays in the run record
+    states = [e['data'] for e in events if e['event'] == 'session']
+    assert states[0]['status'] == 'working' and states[-1]['status'] == 'closed'
+    assert any(s['status'] == 'waiting' and s['draft'] == '# Payments API' for s in states)
+    assert events[-1]['event'] == 'closed'
+    resumed = client.get(f'/api/claude-code/sessions/{sid}/events', headers={**HEADERS, 'Last-Event-ID': str(runs[1]['id'])})
+    assert [e['data']['kind'] for e in parse(resumed.text) if e['event'] == 'run_event'] == ['tool_result', 'message']
+    after = client.get(f"/api/claude-code/sessions/{sid}/events?after={runs[2]['id']}", headers=HEADERS)
+    assert [e['data']['kind'] for e in parse(after.text) if e['event'] == 'run_event'] == ['message']
+    assert client.get(f'/api/claude-code/sessions/{uuid4()}/events', headers=HEADERS).status_code == 404
+    assert client.get(f'/api/claude-code/sessions/{sid}/events').status_code == 403
