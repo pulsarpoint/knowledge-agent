@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { getFileLog, LOG_STATUS_LABEL, type LogFile, type LogFilter, type LogStatus } from "../lib/rag";
 import DataTable from "./DataTable";
@@ -17,10 +17,13 @@ const FILTERS: { value: LogFilter | typeof ALL; label: string }[] = [
 const bytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 const variant = (status: LogStatus) => status === "failed" ? "destructive" as const : status === "indexed" ? "secondary" as const : "outline" as const;
 
-/** The collection's file log: what the last sync decided for each file, paged and filtered on the server. */
-export default function RagFileLog({ collectionId, selected, onSelect, reload = 0 }: {
-  collectionId: string; selected: string; onSelect: (path: string) => void; reload?: number;
+/** The collection's file log: what the last sync decided for each file, paged and filtered on the server.
+ * `onClear` closes the selected file's chunks when the filters change or a loaded page no longer lists it. */
+export default function RagFileLog({ collectionId, selected, onSelect, onClear, reload = 0 }: {
+  collectionId: string; selected: string; onSelect: (path: string) => void; onClear?: () => void; reload?: number;
 }) {
+  const current = useRef({ selected, onClear });
+  current.current = { selected, onClear };
   const [status, setStatus] = useState<LogFilter | typeof ALL>(ALL);
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -33,7 +36,12 @@ export default function RagFileLog({ collectionId, selected, onSelect, reload = 
     const controller = new AbortController();
     setLoading(true);
     getFileLog(collectionId, { status: status === ALL ? undefined : status, q: q.trim() || undefined, limit: size, offset: (page - 1) * size }, controller.signal)
-      .then((result) => { if (!controller.signal.aborted) { setFiles(result.files); setTotal(result.total); setError(""); } })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setFiles(result.files); setTotal(result.total); setError("");
+        const { selected: open, onClear: clear } = current.current;
+        if (open && !result.files.some((file) => file.path === open && file.status === "indexed")) clear?.();
+      })
       .catch((e) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load the file log"); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -50,8 +58,8 @@ export default function RagFileLog({ collectionId, selected, onSelect, reload = 
   ];
   const toolbar = <div className="flex flex-wrap items-center gap-2">
     <Input type="search" aria-label="Search files" placeholder="Search by path…" className="h-9 w-64" value={q}
-      onChange={(e) => { setQ(e.target.value); setPage(1); }} />
-    <Select value={status} onValueChange={(value) => { setStatus(value as LogFilter | typeof ALL); setPage(1); }}>
+      onChange={(e) => { setQ(e.target.value); setPage(1); onClear?.(); }} />
+    <Select value={status} onValueChange={(value) => { setStatus(value as LogFilter | typeof ALL); setPage(1); onClear?.(); }}>
       <SelectTrigger className="h-9 w-40" aria-label="File status"><SelectValue /></SelectTrigger>
       <SelectContent><SelectGroup>{FILTERS.map((filter) => <SelectItem key={filter.value} value={filter.value}>{filter.label}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>

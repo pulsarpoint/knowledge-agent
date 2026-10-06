@@ -292,3 +292,26 @@ test("an invalid check interval is never sent: the saved value while auto-sync i
   expect([pollIntervalToSend(5000, true, 30), pollIntervalToSend(0, true, 30), pollIntervalToSend(Number.NaN, true, 30)]).toEqual([1440, 1, 30]);
   expect([pollIntervalToSend(0, false, 30), pollIntervalToSend(0, false, 0), pollIntervalToSend(7, false, 30)]).toEqual([30, 5, 7]);
 });
+
+test("the chunk panel closes when the selected file leaves the log page or the filters change", async () => {
+  const demo1 = { path: "rag-data/jira/DEMO-1.md", status: "indexed", size: 10, mtime: 1, error: null,
+    indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 1 };
+  const demo2 = { ...demo1, path: "rag-data/jira/DEMO-2.md" };
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.includes("/chunks")) return Response.json({ chunks: [{ position: 0, text: "First chunk text", embedded: true }] });
+    if (url.includes("/log?")) return Response.json(url.includes("q=DEMO-2") ? { total: 1, files: [demo2] }
+      : url.includes("offset=25") ? { total: 26, files: [demo2] } : { total: 26, files: [demo1, demo2] });
+    return Response.json(base);
+  });
+  const user = userEvent.setup();
+  detail(fetchMock);
+  await user.click(await screen.findByRole("button", { name: "rag-data/jira/DEMO-1.md" }));
+  expect(await screen.findByText("First chunk text")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Next page" }));  // DEMO-1 is not on page two
+  await waitFor(() => expect(screen.queryByText("First chunk text")).toBeNull());
+  expect(screen.queryByText(/Chunks of/)).toBeNull();
+  await user.click(await screen.findByRole("button", { name: "rag-data/jira/DEMO-2.md" }));
+  expect(await screen.findByText("Chunks of rag-data/jira/DEMO-2.md")).toBeInTheDocument();
+  await user.type(screen.getByRole("searchbox", { name: "Search files" }), "DEMO-2");  // still listed, but the search changed
+  await waitFor(() => expect(screen.queryByText(/Chunks of/)).toBeNull());
+});

@@ -43,6 +43,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
     setSelected(path); setChunks([]);
     await run(async () => { setChunks((await getChunks(id, path)).chunks); }, false);
   }
+  const clearSelection = useCallback(() => { setSelected(""); setChunks([]); }, []);
   const disconnect = (path: CollectionPath) => run(async () => {
     await removeFolder(id, path.id); setNotice("Folder removed. Its files left search; files on disk are kept.");
   });
@@ -89,7 +90,7 @@ export default function RagCollectionDetail({ id }: { id: string }) {
     <section className="flex flex-col gap-3">
       <h3 className="text-base font-semibold">File log</h3>
       <p className="text-xs text-muted-foreground">Not listed: {c.skipped.links} links, {c.skipped.special} special files, {c.skipped.unreadable} unreadable entries, {c.skipped.invalid_names} invalid names.</p>
-      <RagFileLog collectionId={id} selected={selected} onSelect={(path) => void select(path)} reload={logVersion} />
+      <RagFileLog collectionId={id} selected={selected} onSelect={(path) => void select(path)} onClear={clearSelection} reload={logVersion} />
     </section>
     {selected && <section className="flex flex-col gap-3"><h3 className="text-base font-semibold">Chunks of {selected}</h3>
       {chunks.map((chunk) => <article key={chunk.position} className="flex flex-col gap-2 rounded-lg border p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground">#{chunk.position}{!chunk.embedded && <Badge variant="outline">Not embedded</Badge>}</div><pre className="whitespace-pre-wrap text-sm">{chunk.text}</pre></article>)}
