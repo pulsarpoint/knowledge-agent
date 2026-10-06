@@ -1,5 +1,7 @@
 """One code project, a chosen prompt and comments, one document saved into a documentation folder."""
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -170,3 +172,121 @@ def test_code_project_document_names_need_letters_and_are_unique_per_folder(stor
     shadow = post(client, request, folder='reference/api')
     assert shadow.status_code == 409
     assert shadow.json()['error']['message'] == 'The folder reference holds the export of the document reference. Choose another folder.'
+
+
+def history(client):
+    return client.get('/api/documentation/generations', headers=HEADERS, params={'scope': 'code_project'}).json()['generations']
+
+
+def test_code_project_document_is_saved_linked_and_exported_into_its_folder(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    calls = []
+    async def run(config, task, **kwargs):
+        calls.append((config, json.loads(task), kwargs))
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='Model title', description='API reference',
+            markdown='# Payments API\n\n```d2\napi -> db\n```\n'))
+    monkeypatch.setattr(generation, 'agent', run)
+    assert post(client, request).status_code == 202
+    assert generation.run_once(store)
+    [(config, task, kwargs)] = calls
+    assert kwargs['output_type'] is generation.GeneratedDocument and kwargs['max_turns'] == 60
+    assert config['code']['enabled'] and not config['ssh']['enabled'] and not config['mcp']['enabled']
+    assert not config['documents']['enabled'] and config['system_prompt']['content'].endswith('Focus on the public API.')
+    assert task['document_kind'] == 'project' and task['existing_document'] is None
+    assert task['sources']['code_project']['id'] == request['code_project_id']
+    assert task['sources']['document_name'] == request['document_name'] and 'comments' not in task['sources']
+    [run_row] = history(client)
+    assert run_row['status'] == 'succeeded' and run_row['result']['export_error'] is None
+    folder = tmp_path / 'team' / 'payments' / 'payments-api-reference'
+    assert [Path(p) for p in run_row['result']['output_folders']] == [folder.resolve()]
+    assert (folder / 'README.md').read_text().startswith('# Payments API') and (folder / 'architecture-1.d2').is_file()
+    assert not (tmp_path / 'payments-api-reference').exists()
+    doc_id = run_row['result']['documents'][0]['id']
+    document = client.get('/api/documentation/documents/' + doc_id, headers=HEADERS).json()
+    assert (document['title'], document['slug'], document['folder'], document['purpose']) == (
+        'Payments – API reference', 'payments-api-reference', 'team/payments', 'code')
+    assert document['code_project_ids'] == [request['code_project_id']] and document['service_ids'] == []
+    assert document['environment_ids'] == [] and document['server_ids'] == []
+    assert document['current_version']['origin'] == 'generated'
+    with store.connect() as conn:
+        recorded = conn.execute('''SELECT g.agent_snapshot,g.prompt_snapshot FROM ka.documentation_generations g
+            JOIN ka.document_versions v ON v.generation_id=g.job_id WHERE v.document_id=%s''', (doc_id,)).fetchone()
+    assert recorded['agent_snapshot']['project']['model']['id'] == request['model_id']
+    assert recorded['prompt_snapshot'][0]['version_id'] == request['prompt_version_id']
+
+
+def test_same_name_in_the_same_folder_is_refused_or_saved_as_a_new_version(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    async def run(config, task, **kwargs):
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='T', description='',
+            markdown='# ' + json.loads(task)['sources']['document_name']))
+    monkeypatch.setattr(generation, 'agent', run)
+    def generate(**change):
+        response = post(client, request, **change)
+        if response.status_code == 202:
+            assert generation.run_once(store)
+        return response
+    assert generate().status_code == 202
+    refused = generate()
+    assert refused.status_code == 409 and refused.json()['error']['message'] == generation.SAME_DOCUMENT_NAME
+    assert generate(update_existing=True).status_code == 202
+    assert generate(folder='other').status_code == 202
+    docs = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
+    assert sorted((d['folder'], d['slug'], d['revision']) for d in docs) == [
+        ('other', 'payments-api-reference', 1), ('team/payments', 'payments-api-reference', 2)]
+    assert (tmp_path / 'other/payments-api-reference/README.md').is_file()
+    assert (tmp_path / 'team/payments/payments-api-reference/README.md').is_file()
+    assert [row['mode'] for row in history(client)] == ['create', 'update', 'create']
+
+
+def test_code_project_document_is_not_saved_when_the_graph_changes_during_the_run(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    assert post(client, request).status_code == 202
+    def changed(project, expected_hash=None):
+        raise CodeProcessingError('Source or graph selection changed. Generate and inspect the graph again before continuing.')
+    async def run(config, task, **kwargs):
+        monkeypatch.setattr(generation, 'load_code_graph', changed)
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='T', description='', markdown='# Doc'))
+    monkeypatch.setattr(generation, 'agent', run)
+    assert generation.run_once(store)
+    [run_row] = history(client)
+    assert run_row['status'] == 'failed' and 'Generate and inspect the graph again' in run_row['error']
+    assert client.get('/api/documentation/documents', headers=HEADERS).json()['total'] == 0
+    assert not (tmp_path / 'team').exists()
+
+
+def test_confirmed_document_deleted_before_the_run_is_created_again(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    async def run(config, task, **kwargs):
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='T', description='', markdown='# New'))
+    monkeypatch.setattr(generation, 'agent', run)
+    with store.connect() as conn:
+        old = save_document(conn, store.project(conn, 'shop'), None,
+                            DocumentInput(slug='payments-api-reference', title='Old', markdown='# Old'), folder='team/payments')
+    assert post(client, request, update_existing=True).status_code == 202
+    assert client.delete('/api/documentation/documents/' + str(old['id']), headers=HEADERS,
+                         params={'revision': 1, 'confirmed': True}).status_code == 200
+    assert generation.run_once(store)
+    [run_row] = history(client)
+    assert run_row['status'] == 'succeeded', run_row['error']
+    [doc] = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
+    assert (doc['folder'], doc['slug'], doc['revision']) == ('team/payments', 'payments-api-reference', 1)
+    assert doc['id'] != str(old['id'])
+    assert (tmp_path / 'team/payments/payments-api-reference/README.md').read_text().startswith('# New')
+
+
+def test_folder_clash_that_appears_after_queuing_fails_the_job_clearly(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    async def run(config, task, **kwargs):
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='T', description='', markdown='# Doc'))
+    monkeypatch.setattr(generation, 'agent', run)
+    assert post(client, request).status_code == 202
+    assert client.post('/api/documentation/documents', headers=HEADERS,
+                       json={'slug': 'team', 'title': 'Team', 'markdown': '# Team'}).status_code == 201
+    assert generation.run_once(store)
+    [run_row] = history(client)
+    assert run_row['status'] == 'failed'
+    assert run_row['error'] == 'The folder team holds the export of the document team. Choose another folder.'
+    docs = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
+    assert [d['slug'] for d in docs] == ['team']
+    assert not (tmp_path / 'team/payments').exists()

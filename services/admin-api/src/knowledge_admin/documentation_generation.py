@@ -678,7 +678,7 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
         with store.connect() as conn:
             conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'progress',%s)", (job['id'], f'Generating {kind} documentation'))
         config = copy.deepcopy(configs[kind])
-        if kind in ('overview','api','messaging','code','diagram'):
+        if kind in ('overview','api','messaging','code','diagram','project'):
             if graphs is None:
                 with store.connect() as conn:
                     conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'progress','Verifying the selected Phase 1 graph')", (job['id'],))
@@ -688,6 +688,8 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
                 if folder not in {str(PurePosixPath(os.environ['CODE_ROOT']) / missing) for g in graphs if g['id'] == p['id'] for missing in g['missing_folders']}]}
                 for p in config['code']['projects']]
             if not any(g['source_file_count'] for g in graphs):
+                if kind == 'project':
+                    raise CodeProcessingError('The code project has no readable source files. Synchronize its folders and generate the graph again.')
                 document = GeneratedDocument(title=sources['service']['name'] + (' ' + phase_name if phased_code else ' code analysis' if kind == 'code' else ' code component diagram'),
                     description='Code is not available for this service.',
                     markdown='# Code is not available\n\nNo readable source files are available in the code projects associated with this service. '
@@ -701,7 +703,13 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
             DocumentInput(slug=target['slug'], title=document.title, description=document.description, markdown=document.markdown)
             results.append((target, document))
             continue
-        unit_sources = {k: v for k, v in sources.items() if k not in ('targets','units','service','supporting_documents')}
+        if kind == 'project':
+            # One project and its graph; the chosen prompt and this run's comments are the system prompt.
+            project = sources['code_projects'][0]
+            unit_sources = {'code_project': {k: project[k] for k in ('id','name','description','remote_git_url','current_commit')},
+                'code_graph_hashes': sources['code_graph_hashes'], 'document_name': sources['document_name']}
+        else:
+            unit_sources = {k: v for k, v in sources.items() if k not in ('targets','units','service','supporting_documents')}
         if kind in ('overview','api','messaging','code','diagram'):
             service = copy.deepcopy(sources['service'])
             service['deployments'] = []
@@ -756,8 +764,8 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
         # Use complete responses: Bedrock streaming can drop long JSON fields.
         try:
             result = await agent(with_record(config, job, f'{kind}: ' + ('source inspection' if phased_code else 'generation')), task,
-                                 credentials=credentials, timeout_seconds=1200 if kind in ('code','messaging') else 600,
-                                 max_turns=20 if kind == 'overview' else 40 if kind == 'messaging' else 60 if kind == 'code' else 30,
+                                 credentials=credentials, timeout_seconds=1200 if kind in ('code','messaging','project') else 600,
+                                 max_turns=20 if kind == 'overview' else 40 if kind == 'messaging' else 60 if kind in ('code','project') else 30,
                                  max_output_tokens=16384, stream=False,
                                  on_usage=record_usage,
                                  output_type=None if phased_code else ComponentGraph if kind in ('diagram','deployment_diagram') else GeneratedDocument)
@@ -802,6 +810,11 @@ async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[di
             document = GeneratedDocument.model_validate(result.final_output)
             if kind == 'code':
                 code_analysis = document.markdown
+            elif kind == 'project':
+                document.title = sources['document_name']
+                # Do not publish documentation against a graph whose source changed during the run.
+                for project in sources['code_projects']:
+                    await asyncio.to_thread(load_code_graph, project, sources['code_graph_hashes'].get(str(project['id'])))
             elif kind == 'deployment':
                 deployment_findings = document.markdown
             elif kind == 'infrastructure':
@@ -848,18 +861,28 @@ def run_once(store: RepositoryStore) -> bool:
                 if infrastructure:
                     linked_services = [s for s in linked_services if any(d['server_id'] in sources['server_ids'] for d in s['deployments'])]
                 existing = target['existing']
-                value = DocumentInput(slug=target['slug'], title=document.title, description=document.description,
-                    markdown=document.markdown, purpose='diagram' if target['kind'] == 'deployment_diagram' else target['kind'],
-                    service_ids=[s['id'] for s in linked_services] if architecture or infrastructure else [sources['service_id']],
-                    code_project_ids=list({p['id'] for s in linked_services for p in s['repositories'] if not p['archived']}) if architecture or infrastructure else sources['code_project_ids'],
-                    source_commits=commits if shared else {},
-                    deployment_ids=[d['id'] for s in linked_services for d in s['deployments'] if d['server_id'] in sources['server_ids']] if target['kind'] in ('deployment','deployment_diagram','infrastructure') else [],
-                    environment_ids=[] if shared else [sources['environment_id']],
-                    server_ids=[s['id'] for s in sources['environment']['servers']] if architecture else sources['server_ids'] if target['kind'] in ('deployment','deployment_diagram','infrastructure') else [],
-                    revision=existing['revision'] if existing is not None else None)
+                if target['kind'] == 'project' and existing is not None and conn.execute(
+                        'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (existing['id'], job['project_id'])).fetchone() is None:
+                    # The confirmed document was deleted after queuing: save the run as a new document.
+                    existing = None
+                if target['kind'] == 'project':
+                    value = DocumentInput(slug=target['slug'], title=document.title, description=document.description,
+                        markdown=document.markdown, purpose='code', code_project_ids=sources['code_project_ids'],
+                        source_commits=commits, revision=existing['revision'] if existing is not None else None)
+                else:
+                    value = DocumentInput(slug=target['slug'], title=document.title, description=document.description,
+                        markdown=document.markdown, purpose='diagram' if target['kind'] == 'deployment_diagram' else target['kind'],
+                        service_ids=[s['id'] for s in linked_services] if architecture or infrastructure else [sources['service_id']],
+                        code_project_ids=list({p['id'] for s in linked_services for p in s['repositories'] if not p['archived']}) if architecture or infrastructure else sources['code_project_ids'],
+                        source_commits=commits if shared else {},
+                        deployment_ids=[d['id'] for s in linked_services for d in s['deployments'] if d['server_id'] in sources['server_ids']] if target['kind'] in ('deployment','deployment_diagram','infrastructure') else [],
+                        environment_ids=[] if shared else [sources['environment_id']],
+                        server_ids=[s['id'] for s in sources['environment']['servers']] if architecture else sources['server_ids'] if target['kind'] in ('deployment','deployment_diagram','infrastructure') else [],
+                        revision=existing['revision'] if existing is not None else None)
                 saved.append(save_document(conn, job['project_id'], job['requested_by'], value,
-                    UUID(existing['id']) if existing is not None else None, job['id']))
-                exports.append({'slug': value.slug, 'revision': saved[-1]['revision'], 'markdown': value.markdown,
+                    UUID(existing['id']) if existing is not None else None, job['id'], folder=target.get('folder')))
+                exports.append({'slug': value.slug, 'folder': target.get('folder'), 'revision': saved[-1]['revision'],
+                                'markdown': value.markdown,
                                 'source_commits': {str(key): commit for key, commit in (value.source_commits or {}).items()}})
             folders = []
             export_error = None
@@ -897,6 +920,8 @@ def run_once(store: RepositoryStore) -> bool:
             error = 'Documentation analysis timed out. Narrow the prompt or selected resources and retry.'
         elif isinstance(exc, (ValidationError, ModelBehaviorError)):
             error = 'The model returned an incomplete or invalid document. Review the prompt and retry.'
+        elif isinstance(exc, psycopg.errors.UniqueViolation):
+            error = 'Another document with the same name was saved meanwhile. Generate again and confirm a new version.'
         elif type(exc).__name__ in ('AuthenticationError', 'PermissionDeniedError'):
             error = 'The model provider rejected authentication or access. Check this model connection in LLM Settings.'
         elif type(exc).__name__ == 'RateLimitError':
