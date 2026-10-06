@@ -278,3 +278,16 @@ def test_removing_a_folder_waits_for_a_publishing_sync_instead_of_deadlocking(en
     thread.join(10)
     assert result["response"].status_code == 200, result["response"].text
     assert status(env, created)["paths"] == []
+
+
+def test_folders_rag_skips_are_refused_when_typed(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    (roots["code"] / "app" / "node_modules" / "lib").mkdir(parents=True)
+    created = create(env, "skipped")["id"]
+    for path in ("code/app/node_modules", "code/app/node_modules/lib", "rag-data/node_modules"):
+        added = add_folder(env, created, path)
+        assert added.status_code == 400 and added.json()["error"]["message"] == f"Folder {path} is skipped by RAG", path
+        browsed = client.get(prefix + "/folders", params={"path": path})
+        assert browsed.status_code == 400 and browsed.json()["error"]["message"] == f"Folder {path} is skipped by RAG", path
+    assert not (roots["rag-data"] / "node_modules").exists()
+    assert status(env, created)["paths"] == []

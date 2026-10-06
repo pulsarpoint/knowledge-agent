@@ -107,6 +107,14 @@ POLL_COLUMNS = ("auto_sync", "poll_interval_minutes")
 ACTIVE = ("queued", "running", "waiting_input")
 
 
+def folder_path(value: str) -> str:
+    """A typed folder: a valid source path that the walk does not skip (node_modules, .git, hidden)."""
+    path = source_path(value)
+    if not visible(path):
+        raise HTTPException(400, f"Folder {path} is skipped by RAG")
+    return path
+
+
 def contains(text: str) -> str:
     """A LIKE pattern matching `text` anywhere, with LIKE wildcards escaped so they match literally."""
     return "%" + text.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
@@ -258,7 +266,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
     @router.post(prefix + "/collections/{collection_id}/paths")
     def add_folder(project: UUID, collection_id: UUID, payload: FolderInput):
         """Connect a folder. A missing folder under rag-data is created; elsewhere it must exist."""
-        new = source_path(payload.source_path)
+        new = folder_path(payload.source_path)
         with workspace.connect() as conn:
             row = workspace.collection(conn, project, collection_id, lock=True)  # serializes with edits and syncs
             for path in workspace.paths(conn, collection_id):
@@ -292,7 +300,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
         if path is None:
             return {"path": None, "truncated": False,
                     "folders": [{"name": area, "path": area} for area in AREAS if area in workspace.areas.roots]}
-        names, truncated = workspace.areas.subfolders(source_path(path))
+        names, truncated = workspace.areas.subfolders(folder_path(path))
         return {"path": path, "truncated": truncated, "folders": [{"name": name, "path": f"{path}/{name}"} for name in names]}
 
     @router.get(prefix + "/collections/{collection_id}")
