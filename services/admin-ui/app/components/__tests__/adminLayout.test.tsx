@@ -26,6 +26,7 @@ test("administration has its own navigation without reader pages", async () => {
   expect(docs.getByRole("link", { name: "Documents" })).toHaveAttribute("href", "/documents");
   expect(docs.getByRole("link", { name: "Prompts" })).toHaveAttribute("href", "/documentation/prompts");
   expect(docs.getByRole("link", { name: "Generate documents" })).toHaveAttribute("href", "/documentation/generations");
+  expect(docs.getByRole("link", { name: "Folders" })).toHaveAttribute("href", "/documentation/folders");
   expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/skills");
   expect(screen.queryByText("Application")).toBeNull();
   expect(screen.queryByText("Administration / docs")).toBeNull();

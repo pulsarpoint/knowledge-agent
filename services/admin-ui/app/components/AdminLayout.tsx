@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { BookOpen, Bot, Activity, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LayoutDashboard, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
+import { BookOpen, FolderOpen, Bot, Activity, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LayoutDashboard, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
 import { ApiError, getAdminSession } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "~/lib/utils";
@@ -52,8 +52,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsPage = pathname.startsWith('/documents') || pathname.startsWith('/documentation/');
   const docsPrompts = pathname.startsWith('/documentation/prompts');
   const docsHistory = pathname.startsWith('/documentation/generations');
+  const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
-  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
+  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : docsFolders ? "Documentation folders" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
   const description = runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : boardPage ? "Coordinate one main task across your agents and review their shared results." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
@@ -99,6 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname.startsWith('/documents')}><Link to="/documents"><Files /><span>Documents</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={docsPrompts}><Link to="/documentation/prompts"><BookOpen /><span>Prompts</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={docsHistory}><Link to="/documentation/generations"><ListChecks /><span>Generate documents</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={docsFolders}><Link to="/documentation/folders"><FolderOpen /><span>Folders</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup><SidebarGroupLabel>RAG</SidebarGroupLabel><SidebarMenu>
           {ragPages.map((page) => <SidebarMenuItem key={page.path}><SidebarMenuButton asChild isActive={ragPage?.path === page.path}><Link to={`/rag/${page.path}`}><page.icon /><span>{page.label}</span></Link></SidebarMenuButton></SidebarMenuItem>)}
