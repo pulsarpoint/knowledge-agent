@@ -1,6 +1,7 @@
 """The file log: unchanged files are not opened, one bad file never fails a sync, every decision is visible."""
 import os
 import time
+from uuid import uuid4
 
 import pytest
 from test_workspace import chunks, collection, configure, search, sync, update, write
@@ -310,3 +311,36 @@ def test_index_times_are_kept_for_files_the_sync_did_not_reprocess(env):
     after = log(env, created)
     assert after["rag-data/docs/a.md"]["indexed_at"] == before["rag-data/docs/a.md"]["indexed_at"]
     assert after["rag-data/docs/b.md"]["indexed_at"] > before["rag-data/docs/b.md"]["indexed_at"]
+
+
+def test_log_api_filters_searches_and_pages(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    folder = roots["rag-data"] / "docs"
+    folder.mkdir()
+    created = collection(env)
+    for name in ("a", "b", "c", "d", "e"):
+        write(env, f"{name}.md", f"# {name.upper()}\n\nText {name}.")
+    (folder / "bin.md").write_bytes(b"\x00binary")
+    sync(env, created)
+    (folder / "e.md").unlink()
+    sync(env, created)
+    get = lambda **params: client.get(prefix + f"/collections/{created}/log", params=params)
+    default = get().json()
+    assert default["total"] == 5
+    assert [f["path"].rsplit("/", 1)[1] for f in default["files"]] == ["a.md", "b.md", "bin.md", "c.md", "d.md"]
+    first = default["files"][0]
+    assert first["status"] == "indexed" and first["chunks"] >= 1 and first["indexed_at"] and first["size"] == (folder / "a.md").stat().st_size
+    assert [f["path"] for f in get(status="skipped").json()["files"]] == ["rag-data/docs/bin.md"]
+    removed = get(status="removed").json()["files"]
+    assert [f["path"] for f in removed] == ["rag-data/docs/e.md"] and removed[0]["chunks"] == 0
+    assert get(status="failed").json() == {"files": [], "total": 0}
+    page = get(limit=2, offset=2).json()
+    assert page["total"] == 5 and [f["path"].rsplit("/", 1)[1] for f in page["files"]] == ["bin.md", "c.md"]
+    assert [f["path"] for f in get(q="B").json()["files"]] == ["rag-data/docs/b.md", "rag-data/docs/bin.md"]
+    assert get(q="%").json()["total"] == 0  # LIKE wildcards match literally
+    for bad in ({"status": "pending"}, {"limit": 0}, {"limit": 101}, {"offset": -1}, {"q": "x" * 201}):
+        assert get(**bad).status_code == 400, bad
+    assert client.get(prefix + f"/collections/{uuid4()}/log").status_code == 404
+    assert client.get(prefix + f"/collections/{created}").json()["log_counts"] == {"indexed": 4, "skipped": 1, "failed": 0}
+    summary = client.get(prefix + "/collections", params={"status": "false"}).json()["collections"][0]
+    assert summary["log_counts"] == {"indexed": 4, "skipped": 1, "failed": 0}

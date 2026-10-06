@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from rag import file_log
 from rag.collections import (AREAS, WRITABLE_AREA, FolderMissing, indexable, overlaps, refuse_hidden, relative_path,
                              source_path, visible)
 from rag.workspace import Settings, Workspace, digest
@@ -93,8 +94,17 @@ STATUS_SQL = """SELECT count(DISTINCT f.id) AS indexed_files, count(c.id) AS chu
 ORPHAN_VECTORS_SQL = """DELETE FROM ka.rag_vectors v WHERE v.project_id=%s AND NOT EXISTS (
     SELECT 1 FROM ka.rag_chunks c JOIN ka.rag_files f ON f.id=c.file_id
     WHERE c.project_id=v.project_id AND c.input_hash=v.input_hash AND f.embedding_profile=v.profile)"""
+LOG_COUNTS_SQL = """SELECT count(*) FILTER (WHERE status='indexed') AS indexed,
+    count(*) FILTER (WHERE status IN ('skipped_binary','skipped_too_large','skipped_unreadable')) AS skipped,
+    count(*) FILTER (WHERE status='failed') AS failed
+    FROM ka.rag_file_log WHERE collection_id=%s"""
 SETTINGS_COLUMNS = ("description", "search_mode", "embeddings_enabled", "include", "exclude", "chunk_size", "chunk_overlap")
 ACTIVE = ("queued", "running", "waiting_input")
+
+
+def contains(text: str) -> str:
+    """A LIKE pattern matching `text` anywhere, with LIKE wildcards escaped so they match literally."""
+    return "%" + text.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 def bump(conn, collection_ids: set) -> None:
@@ -118,7 +128,8 @@ def collection_summary(workspace: Workspace, conn, row: dict) -> dict:
     counts = conn.execute(STATUS_SQL, (row["id"],)).fetchone()
     paths = path_rows(workspace, conn, row["id"])
     missing = [p["source_path"] for p in paths if not p["present"]]
-    return {**row, **counts, "paths": paths, "folder_present": not missing, "missing_paths": missing}
+    return {**row, **counts, "paths": paths, "folder_present": not missing, "missing_paths": missing,
+            "log_counts": conn.execute(LOG_COUNTS_SQL, (row["id"],)).fetchone()}
 
 
 def collection_status(workspace: Workspace, conn, row: dict) -> dict:
@@ -141,6 +152,7 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     else:
         state = "needs_refresh" if needs else "up_to_date"
     return {**row, **counts, "job": job, "paths": paths, "folder_present": present, "missing_paths": missing,
+            "log_counts": conn.execute(LOG_COUNTS_SQL, (row["id"],)).fetchone(),
             "folder_changed_at": changed, "file_count": len(walk.files), "truncated": walk.truncated,
             "skipped": walk.skipped, "needs_refresh": bool(needs), "status": state}
 
@@ -371,6 +383,26 @@ def build_api(workspace: Workspace, key: str, transport=None):
                 LEFT JOIN ka.rag_vectors v ON v.project_id=f.project_id AND v.profile=f.embedding_profile AND v.input_hash=c.input_hash AND f.embedding_profile<>''
                 WHERE f.collection_id=%s AND f.path=%s ORDER BY c.position""", (collection_id, relative_path(path))).fetchall()}
 
+    @router.get(prefix + "/collections/{collection_id}/log")
+    def collection_log(project: UUID, collection_id: UUID, status: Literal["indexed", "skipped", "failed", "removed"] | None = None,
+                       q: str | None = Query(None, max_length=200), limit: int = Query(25, ge=1, le=100),
+                       offset: int = Query(0, ge=0)):
+        """The collection's file log by path; without `status`, every file except removed ones."""
+        where = ["l.collection_id=%s", "l.status = ANY(%s)"]
+        params: list = [collection_id, list(file_log.GROUPS[status] if status else file_log.PRESENT)]
+        if q and q.strip():
+            where.append("l.path ILIKE %s")
+            params.append(contains(q))
+        scope = "FROM ka.rag_file_log l WHERE " + " AND ".join(where)
+        with workspace.connect() as conn:
+            workspace.collection(conn, project, collection_id)
+            total = conn.execute("SELECT count(*) AS n " + scope, params).fetchone()["n"]
+            files = conn.execute("""SELECT l.path,l.status,l.size,l.mtime,l.error,l.indexed_at,l.last_seen_at,l.removed_at,
+                (SELECT count(*) FROM ka.rag_files f JOIN ka.rag_chunks c ON c.file_id=f.id
+                 WHERE f.collection_id=l.collection_id AND f.path=l.path) AS chunks """ + scope
+                + ' ORDER BY l.path COLLATE "C" LIMIT %s OFFSET %s', [*params, limit, offset]).fetchall()
+        return {"files": files, "total": total}
+
     @router.get(prefix + "/file")
     def get_file(project: UUID, path: str, collection: str | None = None):
         """An indexable file of `collection` by its full path. Without `collection`, a visible file under
@@ -433,8 +465,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
             where.append("coalesce(k.name, d.path)=%s")
             params.append(collection)
         if q and q.strip():
-            # Escape LIKE wildcards so the search text matches literally.
-            pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            pattern = contains(q)
             where.append("(coalesce(k.name, d.path) ILIKE %s OR coalesce(j.error,'') ILIKE %s)")
             params.extend([pattern, pattern])
         scope = """FROM ka.jobs j LEFT JOIN ka.rag_collections k ON k.id=j.rag_collection_id
