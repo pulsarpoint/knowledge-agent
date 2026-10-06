@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 vi.mock('../CodeGraphExplorer', () => ({ default: () => <div>Graph inspection</div> }));
 import { DocumentationWorkflowsView, NewDocumentationWorkflow } from '../DocumentationWorkflowView';
-import { FOLDER_RULE, SAME_DOCUMENT_NAME } from '~/lib/documents';
+import { FOLDER_RULE, PROMPT_CHANGED, SAME_DOCUMENT_NAME } from '~/lib/documents';
 
 const prompts = [
   { id: 'code-prompt', name: 'Code analysis and architecture', input_kind: 'code' },
@@ -12,7 +12,7 @@ const prompts = [
 ].map(p => ({ ...p, enabled: true, active_version_id: p.id + '-v1' }));
 afterEach(() => vi.unstubAllGlobals());
 
-function setup({ graphReady = false, sameName = false } = {}) {
+function setup({ graphReady = false, sameName = false, foldersFail = false, promptChanged = false } = {}) {
   const posts: Record<string, unknown>[] = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body });
@@ -20,8 +20,10 @@ function setup({ graphReady = false, sameName = false } = {}) {
     if (url === '/api/documentation/generations' && init?.method === 'POST') {
       const body = JSON.parse(init.body as string);
       posts.push(body);
+      if (promptChanged) return json(409, { error: { message: PROMPT_CHANGED } });
       return sameName && !body.update_existing ? json(409, { error: { message: SAME_DOCUMENT_NAME } }) : json(202, { job_id: 'job' });
     }
+    if (foldersFail && url === '/api/documentation/folders') return json(500, { error: { message: 'Folders are unavailable' } });
     const prompt = prompts.find(p => url === '/api/documentation/prompts/' + p.id);
     if (prompt) return json(200, { ...prompt, versions: [{ id: prompt.active_version_id, version: 3, content: 'Active ' + prompt.name }] });
     const bodies: Record<string, unknown> = {
@@ -121,4 +123,30 @@ test('the generate documents page lists code project runs with their document na
   expect(await screen.findByText('Payments – API reference · team/payments')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Code project documents' })).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url]) => String(url).includes('scope=code_project'))).toBe(true);
+});
+
+test('a failing folders list does not block the form; the folder is trimmed on submit only', async () => {
+  const { posts } = setup({ graphReady: true, foldersFail: true });
+  await select('Scope', 'Code project');
+  await select('Code project', 'Payments API');
+  await select('Prompt', 'Code analysis and architecture');
+  fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'API reference' } });
+  fireEvent.change(screen.getByLabelText('Documentation folder'), { target: { value: ' team/payments ' } });
+  expect(screen.getByLabelText('Documentation folder')).toHaveValue(' team/payments ');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+  expect(await screen.findByText('Generation history page')).toBeInTheDocument();
+  expect(posts[0]).toMatchObject({ folder: 'team/payments' });
+});
+
+test('a changed prompt offers to reload it', async () => {
+  setup({ graphReady: true, promptChanged: true });
+  await select('Scope', 'Code project');
+  await select('Code project', 'Payments API');
+  await select('Prompt', 'Code analysis and architecture');
+  fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'API reference' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+  expect(await screen.findByText(PROMPT_CHANGED)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Reload prompt' })).toBeInTheDocument();
 });

@@ -88,6 +88,8 @@ export const generateDocumentation = (value: GenerationInput | CodeProjectGenera
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });
 
+/** The server's message when the selected prompt version is no longer active (admin-api PROMPT_CHANGED). */
+export const PROMPT_CHANGED = 'The prompt changed. Reload the prompt before generating.';
 export const SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.';
 export const FOLDER_RULE = "A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.";
 // Lowercase-only, unlike RAG folders: on case-insensitive filesystems Payments and payments are one directory.

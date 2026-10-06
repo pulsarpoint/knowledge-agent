@@ -108,7 +108,8 @@ def test_code_project_generation_refuses_wrong_prompts_graphs_names_and_folders(
     assert refused.status_code == 400
     assert refused.json()['error']['message'] == 'Select an active documentation prompt for code (code or mixed input)'
     stale = post(client, request, prompt_version_id=str(uuid4()))
-    assert stale.status_code == 409 and stale.json()['error']['message'] == 'The prompt changed. Reload the prompt before generating.'
+    assert stale.status_code == 409 and stale.json()['error']['message'] == generation.PROMPT_CHANGED
+    assert generation.PROMPT_CHANGED == 'The prompt changed. Reload the prompt before generating.'  # admin-ui mirrors it
     bad = post(client, request, folder='../payments')
     assert bad.status_code == 400 and FOLDER_RULE in bad.json()['error']['message']
     assert post(client, request, code_project_id=str(uuid4())).status_code == 400

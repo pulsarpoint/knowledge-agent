@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '~/lib/api';
 import { getCodeProjects, type CodeProject } from '~/lib/codeProjects';
 import { defaultFolder, documentSlug, folderError, generateDocumentation, getDocumentationFolders, getDocumentationPrompt,
-  getDocumentationPrompts, SAME_DOCUMENT_NAME, type DocumentationPrompt } from '~/lib/documents';
+  getDocumentationPrompts, PROMPT_CHANGED, SAME_DOCUMENT_NAME, type DocumentationPrompt } from '~/lib/documents';
 import CodeGraphPhase from './CodeGraphPhase';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -33,7 +33,8 @@ export default function CodeProjectDocumentationForm({ modelId, onQueued }: { mo
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCodeProjects(), getDocumentationPrompts(), getDocumentationFolders()]).then(([projects, prompts, folders]) => {
+    // The folder list only feeds suggestions: a failing request must not block the form.
+    Promise.all([getCodeProjects(), getDocumentationPrompts(), getDocumentationFolders().catch(() => ({ folders: [] }))]).then(([projects, prompts, folders]) => {
       if (cancelled) return;
       setData({ projects: projects.projects, folders: folders.folders.map(f => f.folder),
         // The run has no server access: server-only prompts are not offered.
@@ -60,8 +61,9 @@ export default function CodeProjectDocumentationForm({ modelId, onQueued }: { mo
     const project = data?.projects.find(p => p.id === id);
     if (project && !folderTouched) setFolder(defaultFolder(project.name));
   }
-  const badFolder = folder ? folderError(folder) : '';
-  const ready = Boolean(modelId && projectId && graphHashes[projectId] && prompt?.versionId && documentSlug(name) && folder && !badFolder);
+  const target = folder.trim();  // trimmed on submit, not while typing
+  const badFolder = target ? folderError(target) : '';
+  const ready = Boolean(modelId && projectId && graphHashes[projectId] && prompt?.versionId && documentSlug(name) && target && !badFolder);
 
   async function submit(updateExisting: boolean) {
     if (!ready || pending || !prompt) return;
@@ -69,7 +71,7 @@ export default function CodeProjectDocumentationForm({ modelId, onQueued }: { mo
     try {
       await generateDocumentation({ scope: 'code_project', model_id: modelId, code_project_id: projectId, prompt_id: prompt.id,
         prompt_version_id: prompt.versionId, code_graph_hashes: { [projectId]: graphHashes[projectId] }, comments,
-        document_name: name.trim(), folder, update_existing: updateExisting });
+        document_name: name.trim(), folder: target, update_existing: updateExisting });
       setConfirming(false);
       onQueued();
     } catch (e) {
@@ -90,15 +92,15 @@ export default function CodeProjectDocumentationForm({ modelId, onQueued }: { mo
       {prompt?.error && <Alert variant="destructive"><AlertDescription>{prompt.error} <Button type="button" variant="link" onClick={() => void selectPrompt(prompt.id)}>Reload prompt</Button></AlertDescription></Alert>}
       <Field><FieldLabel htmlFor="project-doc-comments">Comments</FieldLabel><Textarea id="project-doc-comments" rows={4} maxLength={20000} value={comments} onChange={e => setComments(e.target.value)} placeholder="Extra instructions for this run, appended to the prompt" /></Field>
       <Field><FieldLabel htmlFor="project-doc-name">Document name</FieldLabel><Input id="project-doc-name" maxLength={240} value={name} onChange={e => setName(e.target.value)} placeholder="Payments – API reference" />{name && !documentSlug(name) && <FieldDescription className="text-destructive">Use letters or digits in the name.</FieldDescription>}</Field>
-      <Field><FieldLabel htmlFor="project-doc-folder">Documentation folder</FieldLabel><Input id="project-doc-folder" list="documentation-folders" maxLength={200} value={folder} onChange={e => { setFolderTouched(true); setFolder(e.target.value.trim()); }} placeholder="payments or team/payments" />
+      <Field><FieldLabel htmlFor="project-doc-folder">Documentation folder</FieldLabel><Input id="project-doc-folder" list="documentation-folders" maxLength={200} value={folder} onChange={e => { setFolderTouched(true); setFolder(e.target.value); }} placeholder="payments or team/payments" />
         <datalist id="documentation-folders">{data.folders.map(f => <option key={f} value={f} />)}</datalist>
-        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `Saved as ${folder || '<folder>'}/${documentSlug(name) || '<document>'}/README.md in the generated documents folder. The default is the project name plus -docs; pick an existing folder or type a new one. Make it searchable in RAG → Collections.`}</FieldDescription></Field>
+        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `Saved as ${target || '<folder>'}/${documentSlug(name) || '<document>'}/README.md in the generated documents folder. The default is the project name plus -docs; pick an existing folder or type a new one. Make it searchable in RAG → Collections.`}</FieldDescription></Field>
       {projectId && !graphHashes[projectId] && <FieldDescription>Generate the code graph before generating the document.</FieldDescription>}
     </fieldset>
-    {error && <Alert variant="destructive"><AlertDescription>{error}{error.includes('Reload the prompt') && prompt && <Button type="button" variant="link" onClick={() => void selectPrompt(prompt.id)}>Reload prompt</Button>}</AlertDescription></Alert>}
+    {error && <Alert variant="destructive"><AlertDescription>{error}{error === PROMPT_CHANGED && prompt && <Button type="button" variant="link" onClick={() => void selectPrompt(prompt.id)}>Reload prompt</Button>}</AlertDescription></Alert>}
     <Button type="submit" className="self-start" disabled={pending || !ready}>{pending ? 'Queuing…' : 'Generate'}</Button>
     <AlertDialog open={confirming} onOpenChange={setConfirming}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Save a new version?</AlertDialogTitle>
-      <AlertDialogDescription>{`${folder} already has a document named “${name.trim()}”. Generating saves a new version of it; earlier versions stay available.`}</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogDescription>{`${target} already has a document named “${name.trim()}”. Generating saves a new version of it; earlier versions stay available.`}</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel><AlertDialogAction disabled={pending} onClick={e => { e.preventDefault(); void submit(true); }}>Save new version</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </form>;
 }

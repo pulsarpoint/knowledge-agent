@@ -393,6 +393,7 @@ def environment_views(sources: dict) -> str:
 
 
 SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
+PROMPT_CHANGED = 'The prompt changed. Reload the prompt before generating.'  # admin-ui offers Reload prompt on it
 
 
 def queue_code_project(conn, project: UUID, actor: UUID, model: dict, value: GenerationInput) -> dict:
@@ -423,7 +424,7 @@ def queue_code_project(conn, project: UUID, actor: UUID, model: dict, value: Gen
     if prompt is None or prompt['input_kind'] not in ('code', 'mixed'):
         raise HTTPException(400, 'Select an active documentation prompt for code (code or mixed input)')
     if prompt['version_id'] != value.prompt_version_id:
-        raise HTTPException(409, 'The prompt changed. Reload the prompt before generating.')
+        raise HTTPException(409, PROMPT_CHANGED)
     slug = document_slug(value.document_name)
     conflict = export_conflict(conn, project, slug, value.folder)
     if conflict:
