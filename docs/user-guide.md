@@ -214,10 +214,11 @@ General conventions throughout the admin app:
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Environments · Services · Skills · MCP servers · Servers · Activity |
+| Administration | Storage · Skills · MCP servers · Activity · Agent runs |
 | Agents | All agents · Multi-agent board |
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
+| Environments | Environments · Services · Servers |
 | Code | Projects · Code graphs |
 | Docs | Documents · Prompts · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
