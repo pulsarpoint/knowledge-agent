@@ -275,7 +275,8 @@ Administrators create collections and connect folders here; sources only write f
   added or removed, or files in the folders were added, removed or changed since the last
   sync); *Syncing*; *Failed* (the previous index stays); *Folder missing* (any folder is
   missing; Refresh is refused and the index is kept); *Too large to sync* (over 20,000
-  files or 200 MB; Refresh is disabled).
+  files, over 200,000 entries walked or over 200 MB of text; Refresh is disabled and
+  Auto-sync queues nothing).
 - **Refresh all stale** queues every collection that needs it.
 - **Auto-sync** checks the folders every N minutes (1–1440, default 5; off by default) and
   waits until a change has been quiet for 2 minutes before it syncs. Automatic jobs show
@@ -291,12 +292,14 @@ Administrators create collections and connect folders here; sources only write f
   indexed files. There is no upload or edit.
 - **Remove** (the collection) is always available, with confirmation. It removes the
   index rows, folders, file log and agent grants and keeps the files on disk.
-- Skipped files are listed in the file log and counted (never fatal): symbolic links,
-  special and unreadable files, invalid names, binary files and files over the maximum
-  size; `.git`, `node_modules` and `.env*` are always ignored. A file that cannot be
-  parsed is logged as failed, and one failing file no longer fails the sync. A collection
-  with more than 20,000 files or 200 MB cannot sync — narrow the include patterns. Code
-  is indexed as plain text.
+- Skipped files never fail the sync. Binary files, files over the maximum size and files
+  that cannot be opened are listed in the file log as skipped; symbolic links, special
+  files, unreadable entries and invalid names are only counted ("Not listed: …" on the
+  detail page). `.git`, `node_modules` and `.env*` are always ignored. A file that cannot
+  be parsed is logged as failed, and one failing file no longer fails the sync. A
+  collection with more than 20,000 files, 200,000 entries walked or 200 MB of text is
+  *Too large to sync* — narrow the include patterns or folders. Code is indexed as plain
+  text.
 
 **Processing jobs** (`/rag/jobs`) — every sync job, newest first, in a paged table
 (10/25/50/100 rows). Search by collection name or error text, and filter by status and

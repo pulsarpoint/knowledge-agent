@@ -70,6 +70,8 @@ is refused with `Folder does not exist`. A collection whose folder later disappe
   on disk.
 - The folder browser lists visible subfolders only: no hidden folders, `.git`,
   `node_modules` or links.
+- A typed folder any of whose segments RAG skips (hidden, `.git`, `node_modules`) is refused
+  with "Folder <path> is skipped by RAG", both when adding it and when browsing it.
 
 Where sources write:
 
@@ -104,9 +106,9 @@ collection.
   connection stays as an ordinary folder: `documents` keeps `generated-documents`, `jira`
   keeps `rag-data/jira`, and code folders stay in their collections.
 - The Jira export no longer asks for a collection.
-- Each indexed file starts in the [file log](#file-log) as indexed. The first sync after the
-  upgrade reads and hashes each file once but does not re-parse or re-embed unchanged
-  content.
+- Each indexed file starts in the [file log](#file-log) as indexed. Every collection with
+  indexed files shows **Needs refresh** until it is refreshed once (**Refresh all stale**);
+  the first sync reads and hashes each file but does not re-embed unchanged content.
 - Rolling back re-adds the owner and search columns empty.
 
 ### Upgrading to collections
@@ -147,17 +149,23 @@ A sync keeps files that match the include patterns and no exclude pattern. Markd
 section parser and chunker, JSON is pretty-printed, and every other included text file is
 split as plain text.
 
-Skipped and counted in the job result (the sync does not fail). These files are listed in the [file log](#file-log):
+Skipped and counted in the job result (the sync does not fail):
 
-- symbolic links and special files;
-- unreadable files and file names that are not valid;
-- binary (not UTF-8) files and files larger than the global maximum file size;
+- symbolic links, special files, entries that cannot be read while walking and file names
+  that are not valid: counted only, not listed in the file log (the collection detail page
+  shows them as "Not listed: …");
+- binary (not UTF-8) files, files larger than the global maximum file size and files that
+  cannot be opened: listed in the [file log](#file-log) as skipped;
 - files that fail to parse (logged `failed`; the other files still sync);
 - always: hidden files and folders (any path segment starting with `.`, which covers
   `.git`, `.env*` and scratch folders such as `.documentation-update-*`) and `node_modules`.
 
 Limits per sync are 20,000 matching files, 200,000 visited entries (files and folders) and
-200 MB, counted as the sizes of the walked files (files over the per-file limit are excluded). Exceeding them fails the job so you can narrow the include patterns or the folder; such a collection shows **Too large to sync** with Refresh disabled.
+200 MB of text, counted as the sizes of the walked files (files over the per-file limit are
+excluded). Exceeding them fails the job so you can narrow the include patterns or the folder.
+The sync, the collection status and the automatic poller share this one rule, so such a
+collection shows **Too large to sync** with Refresh disabled, **Refresh all stale** skips it,
+and Auto-sync queues nothing for it.
 
 The file API (`GET /file?collection=&path=`, used by the Reader's document view and the agents'
 `read_document`) takes the full path under `DATA_ROOT` (for example `rag-data/jira/DEMO-1.md`).
@@ -170,8 +178,10 @@ patterns answers 404 "Document not found", exactly like a missing file.
 Each collection reports its file count, indexed files, chunks, embedded chunks (for example
 `0 / 975`), when it was last synced, and when its folders last changed (`folder_changed_at`, the newest
 change across all paths: the newest mtime among matching files and the directories walked,
-so deletions count). Each path shows its own presence. The walk stops after
-visiting 20,000 entries (files and folders, matching or not) and marks the result `truncated`.
+so deletions count). Each path shows its own presence. The status walk uses the sync limits:
+it stops after 20,000 matching files or 200,000 visited entries (files and folders, matching
+or not) and marks the result `truncated`. `too_large` is true when the walk was truncated or
+the walked text exceeds 200 MB; a collection that a sync can walk is never too large.
 
 `GET /collections?status=false` skips the walk: it returns the collection rows, the index
 counts (`indexed_files`, `chunks`, `embedded_chunks`) and `folder_present` only. The Reader's
@@ -186,7 +196,7 @@ Status meanings:
 | Syncing | A sync job is queued or running |
 | Failed | The latest sync job failed; the previous index stays |
 | Folder missing | Any folder does not exist; shown as an error naming the folder instead of Refresh |
-| Too large to sync | The walked files exceed 20,000 files or 200 MB; Refresh is disabled until the include patterns or folders are narrowed |
+| Too large to sync | Over 20,000 matching files, over 200,000 walked entries, or over 200 MB of text (`too_large`); Refresh is disabled and Auto-sync queues nothing until the include patterns or folders are narrowed |
 
 Refresh is refused while a folder is missing (`Path <p> is missing…`), and the existing index
 is kept, so an unmounted folder never empties it. **Refresh** queues an incremental sync for
@@ -202,7 +212,7 @@ file in its folders. Statuses:
 | Status | Meaning |
 | --- | --- |
 | Indexed | The file is in the search index |
-| Skipped | Not indexed (binary, over the maximum file size, unreadable name, link or special file); removed from search |
+| Skipped | Not indexed (binary, over the maximum file size, or could not be opened); removed from search. Links, special files and invalid names are counted, not listed |
 | Failed | The file could not be parsed (`Could not parse this file: …`); removed from search |
 | Removed | The file was deleted or no longer matches; removed from search |
 
@@ -236,7 +246,8 @@ minutes, default 5; Auto-sync is off by default).
 - A change must be quiet for 2 minutes before a sync is queued; a collection that is still
   changing is checked again about 2 minutes later.
 - No second job is queued while one is queued or running.
-- A collection with a missing folder, or one that is too large to sync, queues nothing.
+- A collection with a missing folder, or one that is too large to sync (over 20,000 files,
+  200,000 walked entries or 200 MB of text), queues nothing.
 - A failed sync is retried at each interval.
 - Changing only the auto-sync settings does not change the collection's revision, so it stays
   **Up to date**.
@@ -343,7 +354,7 @@ External tools use the same backoffice routes with `X-Rag-Key`.
 
 | Call | Purpose |
 | --- | --- |
-| `GET file?path=<rag-data path>` | Read a file under `rag-data` (no collection) |
+| `GET file?path=rag-data/<folder>/…` | Read a file under `rag-data` by its full path, without a collection (needs `X-Rag-Key`) |
 | `PUT file {path, content, expected_hash}` | Write a file under `rag-data` only |
 
 The internal service exposes administration under `/backoffice/projects/{project_id}` and generic `/search` at its root. All service routes require `X-Rag-Key`. Generic service requests additionally require `project_id`; admin clients omit it because the gateway supplies the fixed workspace identity.
