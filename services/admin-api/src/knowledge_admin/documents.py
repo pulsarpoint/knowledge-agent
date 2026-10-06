@@ -71,6 +71,12 @@ def document_files(markdown: str) -> dict[str, str]:
     return files
 
 
+def document_slug(name: str) -> str:
+    """A slug from a document name: lowercase ASCII letters and digits joined by '-', at most 120 characters
+    ('' when the name has none)."""
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:120].rstrip('-')
+
+
 def _output_root() -> Path:
     configured = os.environ.get('DOCUMENT_OUTPUT_ROOT', '')
     root = Path(configured)

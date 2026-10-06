@@ -1,5 +1,6 @@
 """DATA_ROOT inside the containers (DATA_ROOT_DIR) and on the host (DATA_ROOT, display only)."""
 import os
+import re
 from pathlib import PurePosixPath
 
 DEFAULT_DIR = '/work/data'
@@ -39,4 +40,28 @@ def jira_folder() -> str:
     relative = _relative(os.environ.get('JIRA_EXPORT_ROOT') or f'{data_dir()}/jira')
     if not relative:
         raise ValueError('JIRA_EXPORT_ROOT must be a folder inside DATA_ROOT_DIR')
+    return relative
+
+
+SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9._-]*'
+FOLDER = re.compile(rf'{SEGMENT}(/{SEGMENT})*')
+FOLDER_RULE = ("A documentation folder is a path such as payments or team/payments: each segment uses letters, digits, "
+               "'.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; "
+               "at most 200 characters.")
+
+
+def documentation_folder(value: str) -> str:
+    """A folder under GENERATED_DOCS_FOLDER, with RAG's folder segment rule. `services` is where the service phase
+    exports live, and RAG skips node_modules. Raises ValueError(FOLDER_RULE)."""
+    parts = value.split('/')
+    if len(value) > 200 or not FOLDER.fullmatch(value) or 'node_modules' in parts or parts[0] == 'services':
+        raise ValueError(FOLDER_RULE)
+    return value
+
+
+def generated_docs_folder() -> str:
+    """GENERATED_DOCS_FOLDER: where documents are exported, relative to DATA_ROOT (a RAG collection folder prefix)."""
+    relative = _relative(os.environ.get('DOCUMENT_OUTPUT_ROOT') or f'{data_dir()}/generated-documents')
+    if not relative:
+        raise ValueError('DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR')
     return relative

@@ -356,3 +356,11 @@ def test_app_starts_when_the_backfill_fails(store, tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, 'backfill_exports', broken)
     with _client(tmp_path, repository_store=store) as client:
         assert client.get('/health').status_code == 200
+
+
+def test_document_slug_comes_from_the_name():
+    from knowledge_admin.documents import document_slug
+    assert document_slug('Payments – API reference') == 'payments-api-reference'
+    assert document_slug('  Café v2.0 / Ops  ') == 'caf-v2-0-ops'
+    assert document_slug('– –') == ''
+    assert document_slug('a' * 119 + ' b') == 'a' * 119

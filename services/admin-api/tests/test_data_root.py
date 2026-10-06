@@ -1,6 +1,7 @@
 import pytest
 
-from knowledge_admin.data_root import data_dir, data_path, host_path, jira_folder
+from knowledge_admin.data_root import (FOLDER_RULE, data_dir, data_path, documentation_folder, generated_docs_folder,
+                                       host_path, jira_folder)
 
 
 def test_paths_follow_the_container_data_root(monkeypatch):
@@ -28,3 +29,26 @@ def test_defaults_and_misconfiguration(monkeypatch):
         monkeypatch.setenv('JIRA_EXPORT_ROOT', outside)
         with pytest.raises(ValueError, match='JIRA_EXPORT_ROOT'):
             jira_folder()
+
+
+def test_documentation_folders_follow_the_rag_segment_rule():
+    for good in ('payments', 'team/payments', 'v1.2_docs-x', 'A/b-c', 'team/services'):
+        assert documentation_folder(good) == good
+    for bad in ('', '/payments', 'payments/', 'a//b', '../payments', 'team/..', '.hidden', 'team/.git', 'my docs',
+                'team/node_modules', 'node_modules', 'services', 'services/payments', 'é', 'x' * 201):
+        with pytest.raises(ValueError) as error:
+            documentation_folder(bad)
+        assert str(error.value) == FOLDER_RULE
+    assert FOLDER_RULE.startswith('A documentation folder is a path such as payments or team/payments')
+
+
+def test_generated_documents_folder_is_relative_to_the_data_root(monkeypatch):
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/work/data/exports/docs')
+    assert generated_docs_folder() == 'exports/docs'
+    monkeypatch.delenv('DOCUMENT_OUTPUT_ROOT')
+    assert generated_docs_folder() == 'generated-documents'
+    for outside in ('/work/other/docs', '/work/data'):
+        monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', outside)
+        with pytest.raises(ValueError, match='DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR'):
+            generated_docs_folder()
