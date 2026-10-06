@@ -30,6 +30,7 @@ from knowledge_admin.documents import DocumentInput, GitCommit, export_document,
 from knowledge_admin.documentation_updates import collect_source_commits
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.code_processing import load_code_graph, CodeProcessingError
+from knowledge_admin.code_paths import rebase_code_path
 from knowledge_admin.api_evidence import api_batches, API_EVIDENCE_VERSION
 
 
@@ -523,7 +524,16 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     return router
 
 
+def rebase_saved_code_paths(job: dict) -> None:
+    """Point code folders saved by a job queued before DATA_ROOT (/work/code/...) at the current CODE_ROOT."""
+    projects = [*job['source_snapshot'].get('code_projects', []),
+        *(p for config in job['agent_snapshot'].values() for p in config.get('code', {}).get('projects', []))]
+    for project in projects:
+        project['folder_paths'] = [rebase_code_path(folder) for folder in project['folder_paths']]
+
+
 async def generate_documents(store: RepositoryStore, job: dict) -> list[tuple[dict, GeneratedDocument]]:
+    rebase_saved_code_paths(job)
     sources = job['source_snapshot']
     commits = sources.get('source_commits', {})
     current_commits = collect_source_commits(sources['code_projects']) if commits else {}

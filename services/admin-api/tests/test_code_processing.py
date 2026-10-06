@@ -199,3 +199,56 @@ def test_two_diagrams_keep_code_shared_and_deployment_scoped(store, tmp_path, mo
     deployment = next(doc for doc in diagrams if doc['environment_ids'])
     assert deployment['environment_ids'] == [value['environment_id']]
     assert deployment['server_ids'] == value['server_ids']
+
+
+def _saved_before_data_root(tmp_path, monkeypatch):
+    """A graph written while code lived at /work/code and graphs at /work/code-index."""
+    from knowledge_admin.code_processing import source_inventory
+    root = tmp_path / 'data' / 'code'
+    (root / 'app').mkdir(parents=True)
+    (root / 'app' / 'main.py').write_text('def handle():\n    return 1\n', encoding='utf-8')
+    indexes = tmp_path / 'data' / 'code-index'
+    monkeypatch.setenv('CODE_ROOT', str(root))
+    monkeypatch.setenv('CODE_INDEX_ROOT', str(indexes))
+    project = {'id': str(uuid4()), 'name': 'Upgraded', 'folder_paths': ['app']}
+    inventory = source_inventory(project)
+    directory = indexes / project['id']
+    snapshot = directory / inventory['source_hash']
+    snapshot.mkdir(parents=True)
+    (snapshot / 'graph.sqlite').write_bytes(b'')
+    old = {'id': project['id'], 'name': 'Upgraded', 'source_hash': inventory['source_hash'],
+        'folder_paths': ['/work/code/app'], 'missing_folders': [], 'relative_root': '.',
+        'graph_path': f"/work/code-index/{project['id']}/{inventory['source_hash']}/graph.sqlite", 'code_root': '/work/code/.'}
+    (snapshot / 'summary.json').write_text(json.dumps(old))
+    (directory / 'manifest.json').write_text(json.dumps({**old, 'files': inventory['files']}))
+    return project, root, snapshot, inventory['source_hash']
+
+
+def test_a_graph_saved_under_the_old_mounts_is_read_at_the_current_folders(tmp_path, monkeypatch):
+    project, root, snapshot, source_hash = _saved_before_data_root(tmp_path, monkeypatch)
+    for graph in (load_code_graph(project, source_hash), process_code(project)):
+        assert graph['folder_paths'] == [str(root / 'app')]
+        assert graph['code_root'] == str(root)
+        assert graph['graph_path'] == str(snapshot / 'graph.sqlite')
+
+
+def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder(tmp_path, monkeypatch):
+    from knowledge_admin.code_paths import rebase_code_path
+    project, root, _, source_hash = _saved_before_data_root(tmp_path, monkeypatch)
+    assert rebase_code_path('/work/code/app') == str(root / 'app')
+    assert rebase_code_path(str(root / 'app')) == str(root / 'app')
+    assert rebase_code_path('/work/code-index/x') == '/work/code-index/x'
+    graph = load_code_graph({**project, 'folder_paths': ['/work/code/app']}, source_hash)
+    assert graph['folder_paths'] == [str(root / 'app')]
+
+
+def test_a_queued_generation_snapshot_is_rebased_before_it_runs(monkeypatch, tmp_path):
+    from knowledge_admin.documentation_generation import rebase_saved_code_paths
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'data' / 'code'))
+    job = {'source_snapshot': {'code_projects': [{'id': 'p', 'folder_paths': ['/work/code/app', '/work/code/lib']}]},
+        'agent_snapshot': {'code': {'code': {'projects': [{'id': 'p', 'folder_paths': ['/work/code/app']}]}},
+                           'deployment': {'code': {'enabled': False, 'projects': []}}}}
+    rebase_saved_code_paths(job)
+    current = str(tmp_path / 'data' / 'code')
+    assert job['source_snapshot']['code_projects'][0]['folder_paths'] == [current + '/app', current + '/lib']
+    assert job['agent_snapshot']['code']['code']['projects'][0]['folder_paths'] == [current + '/app']

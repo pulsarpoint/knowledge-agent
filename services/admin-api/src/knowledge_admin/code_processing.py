@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from knowledge_admin.code_paths import code_path, code_root
+from knowledge_admin.code_paths import code_path, code_root, rebase_code_path
 
 ENGINE_VERSION = '1.6.0'
 PIPELINE_VERSION = 2
@@ -34,7 +34,7 @@ def source_inventory(project: dict) -> dict:
     root = code_root()
     hashes, missing, skipped = {}, [], {'symlinks': 0, 'large_or_binary': 0}
     folders = []
-    for value in sorted(set(project['folder_paths'])):
+    for value in sorted({rebase_code_path(folder) for folder in project['folder_paths']}):
         path = Path(value)
         relative = str(path.relative_to(root)) if path.is_absolute() and path.is_relative_to(root) else value
         selected = code_path(root, relative)
@@ -100,7 +100,9 @@ def process_code(project: dict) -> dict:
         analysis_root = source / relative_root
         snapshot = directory / fingerprint
         if previous.get('source_hash') == fingerprint and (snapshot / 'summary.json').is_file():
+            # Paths are rebuilt from the current mounts: a summary saved before DATA_ROOT holds /work/code paths.
             return {**json.loads((snapshot / 'summary.json').read_text()), 'reused': True, 'name': project['name'],
+                'folder_paths': [str(root / p) for p in folders],
                 'graph_path': str(snapshot / 'graph.sqlite'), 'code_root': str(root / relative_root)}
         for key, digest in hashes.items():
             target = source / key
@@ -175,5 +177,7 @@ def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
     graph_path = directory / saved['source_hash'] / 'graph.sqlite'
     if not graph_path.is_file():
         raise CodeProcessingError('The graph snapshot is unavailable. Generate the graph again.')
+    root = code_root()
     return {key: value for key, value in {**saved, 'name': project['name'],
-        'code_root': str(code_root() / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}
+        'folder_paths': [str(root / p) for p in current['folders']],
+        'code_root': str(root / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}

@@ -12,6 +12,18 @@ def relative_code_path(value: str) -> str:
     return value
 
 
+# Before DATA_ROOT the code folder was mounted here; jobs and graphs saved then still hold it.
+LEGACY_CODE_ROOT = PurePosixPath('/work/code')
+
+
+def rebase_code_path(value: str) -> str:
+    """Map a path saved under the old /work/code mount to the current CODE_ROOT; other paths stay."""
+    path, root = PurePosixPath(value), os.environ.get('CODE_ROOT')
+    if not root or not path.is_relative_to(LEGACY_CODE_ROOT) or path.is_relative_to(root):
+        return value
+    return str(PurePosixPath(root) / path.relative_to(LEGACY_CODE_ROOT))
+
+
 def code_root() -> Path:
     value = os.environ.get('CODE_ROOT')
     if not value:
