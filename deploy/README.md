@@ -79,7 +79,9 @@ both hold files, setup stops and asks you to merge them by hand), and migration 
 paths (it assumes the default `JIRA_FOLDER`; with another value the collection shows
 **Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
 configured folders: move them out of `DATA_ROOT`, and a collection that used them shows
-**Folder missing**.
+**Folder missing**. Migration `0067` also rewrites the container paths in saved agent
+versions for the default folder names; with custom `*_FOLDER` values, publish each agent
+version again.
 
 **Upgrading to RAG collections (migration `0063`):** after `make up`, admin-api
 re-exports every document whose current export is missing into `generated-documents`
@@ -88,8 +90,19 @@ refresh** in Admin → RAG → Collections; **Refresh** each one (or **Refresh a
 Expect a full re-parse and, with embeddings on, a full re-embed (for example about 975
 chunks for `jira`). Until a collection is refreshed its previous index keeps serving search.
 
-**Moving the data:** `make down`, copy the folders (for example
-`rsync -a .local/ /opt/knowledge-agent/`), set `DATA_ROOT` in `.env`, then `make up`.
+**Moving the data:** `make down`, then copy only the five configured folders into the new
+`DATA_ROOT`, not everything around them (backups, logs and user state stay outside). With
+the default names and an old `.local` layout:
+
+```bash
+mkdir -p /opt/knowledge-agent
+for folder in code code-index docs generated-documents; do
+  rsync -a ".local/$folder/" "/opt/knowledge-agent/$folder/"
+done
+rsync -a .local/rag-data/jira/ /opt/knowledge-agent/jira/   # rag-data/jira becomes jira
+```
+
+Set `DATA_ROOT` in `.env` (`make setup DATA_ROOT=/opt/knowledge-agent`), then `make up`.
 
 ## Data and lifecycle
 

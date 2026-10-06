@@ -123,7 +123,12 @@ collection.
   **Folder missing**.
 - The `source_path` check accepts any top-level folder instead of the five fixed areas.
 - Saved agent versions holding `/work/rag-data/jira`, `/work/code`, `/work/code-index`,
-  `/work/generated-documents` or `/work/docs` paths are rewritten to `/work/data/...`.
+  `/work/generated-documents` or `/work/docs` paths are rewritten to `/work/data/...`. The
+  rewrite assumes the default folder names; with custom `*_FOLDER` values, publish each agent
+  version again so it picks up the configured folders.
+- Code graphs and documentation requests queued before the upgrade keep working: their
+  `/work/code` folder paths are read at the current `CODE_ROOT`, so **Generate graph** is not
+  needed again.
 - Rolling back moves the Jira paths and agent paths back and restores the five-area check
   as `NOT VALID`: folders already added elsewhere stay, and only new ones are refused.
 
