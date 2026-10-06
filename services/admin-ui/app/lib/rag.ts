@@ -22,15 +22,18 @@ export function ragRequest<T>(resource: string, method = "GET", body?: unknown, 
 export type SearchMode = "full_text" | "embedding" | "hybrid";
 export type CollectionState = "folder_missing" | "syncing" | "failed" | "needs_refresh" | "up_to_date";
 export interface SkippedCounts { links: number; special: number; unreadable: number; invalid_names: number }
-export type OwnerKind = "documents" | "jira" | "code_project";
 export interface CollectionPath {
-  id: string; collection_id: string; source_path: string; owner_kind: OwnerKind | null; owner_id: string | null;
-  owner_key: string | null; created_at: string; files: number; host_path: string | null; container_path: string; present: boolean;
+  id: string; collection_id: string; source_path: string; created_at: string; files: number;
+  host_path: string | null; container_path: string; present: boolean;
 }
 export interface CollectionSettings {
   description: string; search_mode: SearchMode; embeddings_enabled: boolean;
   include: string[]; exclude: string[]; chunk_size: number; chunk_overlap: number;
 }
+export const DEFAULT_SETTINGS: CollectionSettings = {
+  description: "", search_mode: "full_text", embeddings_enabled: false,
+  include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200,
+};
 export interface CollectionSummary extends CollectionSettings {
   id: string; name: string; revision: number; synced_revision: number | null; last_synced_at: string | null;
   paths: CollectionPath[]; folder_present: boolean; missing_paths: string[];
@@ -45,15 +48,21 @@ export interface CollectionFile {
   path: string; source: string | null; size: number | null; mtime: number | null; indexed_at: string | null;
   content_hash: string | null; chunks: number; embedded_chunks: number; stale: boolean;
 }
-export const OWNER_LABEL: Record<OwnerKind, string> = { documents: "Documents", jira: "Jira", code_project: "Code project" };
-export const ownerLabel = (path: CollectionPath) => path.owner_kind ? OWNER_LABEL[path.owner_kind] : "Unowned";
+export interface FolderEntry { name: string; path: string }
+export interface FolderListing { path: string | null; folders: FolderEntry[]; truncated: boolean }
+
+/** A folder path as RAG expects it: relative to DATA_ROOT, no surrounding whitespace or slashes. */
+export const normalizeFolder = (value: string) => value.trim().replace(/^\/+|\/+$/g, "");
 export const getCollections = (signal?: AbortSignal) => ragRequest<{ collections: RagCollection[] }>("collections", "GET", undefined, signal);
 export const getCollectionNames = (signal?: AbortSignal) => ragRequest<{ collections: CollectionSummary[] }>("collections?status=false", "GET", undefined, signal);
 export const getCollection = (id: string, signal?: AbortSignal) => ragRequest<RagCollection>(`collections/${id}`, "GET", undefined, signal);
+export const createCollection = (value: CollectionSettings & { name: string }) => ragRequest<CollectionSummary>("collections", "POST", value);
 export const saveCollectionSettings = (id: string, value: CollectionSettings & { revision: number }) => ragRequest<RagCollection>(`collections/${id}`, "PUT", value);
 export const deleteCollection = (id: string, revision: number) => ragRequest<{ deleted_files: number }>(`collections/${id}?revision=${revision}&confirmed=true`, "DELETE");
-export const detachPath = (collection: string, sourcePath: string) =>
-  ragRequest<{ removed: number }>(`collections/by-name/${encodeURIComponent(collection)}/paths?source_path=${encodeURIComponent(sourcePath)}`, "DELETE");
+export const addFolder = (id: string, sourcePath: string) => ragRequest<CollectionSummary>(`collections/${id}/paths`, "POST", { source_path: sourcePath });
+export const removeFolder = (id: string, pathId: string) => ragRequest<CollectionSummary>(`collections/${id}/paths/${pathId}`, "DELETE");
+export const getFolders = (path: string | null, signal?: AbortSignal) =>
+  ragRequest<FolderListing>(path === null ? "folders" : `folders?path=${encodeURIComponent(path)}`, "GET", undefined, signal);
 export const syncCollection = (id: string, force = false) => ragRequest<{ id: string }>(`collections/${id}/sync`, "POST", { force });
 export const syncStale = () => ragRequest<{ queued: string[] }>("collections/sync-stale", "POST");
 export const getCollectionFiles = (id: string, signal?: AbortSignal) => ragRequest<{ files: CollectionFile[]; truncated: boolean; skipped: SkippedCounts; missing_paths: string[] }>(`collections/${id}/files`, "GET", undefined, signal);

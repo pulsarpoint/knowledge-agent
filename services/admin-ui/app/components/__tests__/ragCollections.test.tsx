@@ -6,12 +6,12 @@ import RagCollectionDetail from "../RagCollectionDetail";
 import type { CollectionPath, RagCollection } from "../../lib/rag";
 
 const jiraPath: CollectionPath = {
-  id: "p1", collection_id: "c1", source_path: "rag-data/jira", owner_kind: "jira", owner_id: null, owner_key: null,
-  created_at: "2026-10-05T09:00:00Z", files: 75, host_path: "/opt/ka/rag-data/jira", container_path: "/work/rag-data/jira", present: true,
+  id: "p1", collection_id: "c1", source_path: "rag-data/jira", created_at: "2026-10-05T09:00:00Z", files: 75,
+  host_path: "/opt/ka/rag-data/jira", container_path: "/work/rag-data/jira", present: true,
 };
-const codePath: CollectionPath = { ...jiraPath, id: "p2", source_path: "code/payments", owner_kind: "code_project", owner_id: "proj-1",
-  owner_key: "payments", files: 12, host_path: "/opt/ka/code/payments", container_path: "/work/code/payments" };
-const notesPath: CollectionPath = { ...jiraPath, id: "p3", source_path: "rag-data/notes", owner_kind: null, files: 3,
+const codePath: CollectionPath = { ...jiraPath, id: "p2", source_path: "code/payments", files: 12,
+  host_path: "/opt/ka/code/payments", container_path: "/work/code/payments" };
+const notesPath: CollectionPath = { ...jiraPath, id: "p3", source_path: "rag-data/notes", files: 3,
   host_path: "/opt/ka/rag-data/notes", container_path: "/work/rag-data/notes" };
 const base: RagCollection = {
   id: "c1", name: "jira", description: "Jira tickets", search_mode: "full_text", embeddings_enabled: true, include: ["**/*.md"],
@@ -20,74 +20,109 @@ const base: RagCollection = {
   file_count: 90, truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 },
   indexed_files: 90, chunks: 975, embedded_chunks: 0, needs_refresh: true, status: "needs_refresh", job: null,
 };
-const unowned: RagCollection = { ...base, id: "c2", name: "notes", paths: [notesPath] };
-const projects = { projects: [{ id: "proj-1", name: "Payments API" }] };
+const notes: RagCollection = { ...base, id: "c2", name: "notes", paths: [notesPath] };
 const noFiles = { files: [], truncated: false, skipped: { links: 0, special: 0, unreadable: 0, invalid_names: 0 }, missing_paths: [] };
 
-test("lists collections with their paths and sources, without New collection", async () => {
-  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/code-projects") return Response.json(projects);
+function detail(fetchMock: ReturnType<typeof vi.fn>) {
+  vi.stubGlobal("fetch", fetchMock);
+  return render(<MemoryRouter initialEntries={["/rag/collections/c1"]}><Routes>
+    <Route path="/rag/collections/:id" element={<RagCollectionDetail id="c1" />} />
+    <Route path="/rag/collections" element={<div>collections page</div>} /></Routes></MemoryRouter>);
+}
+
+test("lists collections with their folders and no source badges", async () => {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     if (init?.method === "POST") return Response.json({ id: "job" }, { status: 202 });
-    return Response.json({ collections: [base, { ...unowned, status: "up_to_date", needs_refresh: false }] });
+    return Response.json({ collections: [base, { ...notes, status: "up_to_date", needs_refresh: false }] });
   });
   vi.stubGlobal("fetch", fetchMock);
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   const row = (await screen.findByRole("link", { name: "jira" })).closest("tr")!;
   expect(within(row).getByText("/opt/ka/rag-data/jira")).toBeInTheDocument();
-  expect(within(row).getByText("Jira")).toBeInTheDocument();
-  expect(await within(row).findByRole("link", { name: "Code project Payments API" })).toHaveAttribute("href", "/code-projects");
-  expect(within(row).getAllByText("Unowned")).toHaveLength(1);
   expect(within(row).getByText("75 files")).toBeInTheDocument();
   expect(within(row).getByText("0 / 975")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "New collection" })).toBeNull();
-  const notes = screen.getByRole("link", { name: "notes" }).closest("tr")!;
-  expect(within(notes).queryByRole("button", { name: "Refresh" })).toBeNull();
+  expect(screen.queryByText("Unowned")).toBeNull();
+  expect(screen.queryByText(/Code project/)).toBeNull();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/code-projects"))).toBe(false);
+  const notesRow = screen.getByRole("link", { name: "notes" }).closest("tr")!;
+  expect(within(notesRow).queryByRole("button", { name: "Refresh" })).toBeNull();
   await userEvent.click(within(row).getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/sync", expect.objectContaining({ method: "POST" })));
 });
 
-test("missing paths are named and failed syncs show the error", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => url === "/api/code-projects" ? Response.json(projects) : Response.json({ collections: [
+test("New collection creates a collection and opens it", async () => {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST"
+    ? Response.json({ ...base, id: "c9", name: "payments", paths: [] }, { status: 201 })
+    : Response.json({ collections: [] }));
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  render(<MemoryRouter initialEntries={["/rag/collections"]}><Routes>
+    <Route path="/rag/collections" element={<RagCollectionsView />} />
+    <Route path="/rag/collections/:id" element={<div>detail page</div>} /></Routes></MemoryRouter>);
+  expect(await screen.findByText(/No collections yet/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "New collection" }));
+  await user.type(screen.getByLabelText("Name"), "payments");
+  await user.click(screen.getByRole("button", { name: "Create collection" }));
+  expect(await screen.findByText("detail page")).toBeInTheDocument();
+  const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "POST")!;
+  expect(post[0]).toBe("/api/rag/collections");
+  expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ name: "payments", description: "", search_mode: "full_text",
+    embeddings_enabled: false, include: ["**/*.md", "**/*.markdown", "**/*.txt"], exclude: [], chunk_size: 2000, chunk_overlap: 200 });
+});
+
+test("an invalid name disables Create collection", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [] })));
+  const user = userEvent.setup();
+  render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: "New collection" }));
+  await user.type(screen.getByLabelText("Name"), "Payments");
+  expect(screen.getByText("Use lowercase letters, digits and single hyphens, up to 60 characters.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create collection" })).toBeDisabled();
+});
+
+test("missing folders are named and failed syncs show the error", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [
     { ...base, status: "folder_missing", folder_present: false, missing_paths: ["rag-data/jira"], paths: [{ ...jiraPath, present: false }] },
-    { ...unowned, status: "failed", job: { id: "j", status: "failed", error: "Select an enabled embedding model", created_at: "", finished_at: "" } }] })));
+    { ...notes, status: "failed", job: { id: "j", status: "failed", error: "Select an enabled embedding model", created_at: "", finished_at: "" } }] })));
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   expect(await screen.findByText("Folder missing")).toBeInTheDocument();
   expect(screen.getByText("Missing: rag-data/jira")).toBeInTheDocument();
   expect(screen.getByText(/Select an enabled embedding model/)).toBeInTheDocument();
 });
 
+test("a collection too large to walk says so instead of Needs refresh", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [{ ...base, truncated: true }] })));
+  render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
+  expect(await screen.findByText("Too large to sync")).toBeInTheDocument();
+  expect(screen.queryByText("Needs refresh")).toBeNull();
+});
+
 test("detail lists full paths and chunks, with no upload or file editor", async () => {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === "/api/code-projects") return Response.json(projects);
     if (url.includes("/chunks")) return Response.json({ chunks: [{ position: 0, text: "First chunk text", embedded: false }] });
     if (url.endsWith("/files")) return Response.json({ ...noFiles, files: [{ path: "rag-data/jira/DEMO-1.md", source: "rag-data/jira", size: 10, mtime: 1,
       indexed_at: "2026-10-05T09:00:00Z", content_hash: "abc", chunks: 13, embedded_chunks: 0, stale: false }] });
     return Response.json(base);
   });
-  vi.stubGlobal("fetch", fetchMock);
   const user = userEvent.setup();
-  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
+  detail(fetchMock);
   const file = await screen.findByRole("button", { name: "rag-data/jira/DEMO-1.md" });
   expect(within(file.closest("tr")!).getByText("13")).toBeInTheDocument();
   await user.click(file);
   expect(await screen.findByText("First chunk text")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/rag/collections/c1/chunks?path=rag-data%2Fjira%2FDEMO-1.md"), expect.anything());
   expect(screen.queryByLabelText("Upload file")).toBeNull();
-  expect(screen.queryByLabelText("File path")).toBeNull();
 });
 
 test("Edit changes search settings only", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/code-projects") return Response.json(projects);
     if (url.endsWith("/files")) return Response.json(noFiles);
     return Response.json(init?.method === "PUT" ? { ...base, revision: 3 } : base);
   });
-  vi.stubGlobal("fetch", fetchMock);
   const user = userEvent.setup();
-  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
+  detail(fetchMock);
   await user.click(await screen.findByRole("button", { name: "Edit" }));
   expect(screen.queryByLabelText("Name")).toBeNull();
-  expect(screen.queryByLabelText("Folder")).toBeNull();
   await user.clear(screen.getByLabelText("Include patterns"));
   await user.type(screen.getByLabelText("Include patterns"), "**/*.py");
   await user.click(screen.getByRole("button", { name: "Save collection" }));
@@ -98,47 +133,38 @@ test("Edit changes search settings only", async () => {
     embeddings_enabled: true, include: ["**/*.py"], exclude: [], chunk_size: 2000, chunk_overlap: 200, revision: 2 });
 });
 
-test("Remove appears only when no source owns a path", async () => {
-  let current = base;
+test("Remove collection is always available and asks for confirmation", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/code-projects") return Response.json(projects);
     if (url.endsWith("/files")) return Response.json(noFiles);
     if (init?.method === "DELETE") return Response.json({ deleted_files: 3 });
-    return Response.json(current);
+    return Response.json(base);
   });
-  vi.stubGlobal("fetch", fetchMock);
   const user = userEvent.setup();
-  const view = render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
-  await screen.findByRole("button", { name: "Edit" });
-  expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-  expect(screen.getByText(/sources own paths in this collection/)).toBeInTheDocument();
-  view.unmount();
-  current = unowned;
-  render(<MemoryRouter initialEntries={["/rag/collections/c2"]}><Routes>
-    <Route path="/rag/collections/:id" element={<RagCollectionDetail id="c2" />} />
-    <Route path="/rag/collections" element={<div>collections page</div>} /></Routes></MemoryRouter>);
+  detail(fetchMock);
   await user.click(await screen.findByRole("button", { name: "Remove" }));
+  expect(screen.getByText(/files on disk are kept/)).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Remove collection" }));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c2?revision=2&confirmed=true", expect.objectContaining({ method: "DELETE" })));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1?revision=2&confirmed=true", expect.objectContaining({ method: "DELETE" })));
   expect(await screen.findByText("collections page")).toBeInTheDocument();
 });
 
-test("an unowned path can be detached; owned paths cannot", async () => {
+test("Add folder connects a typed folder and Remove folder disconnects one", async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/code-projects") return Response.json(projects);
     if (url.endsWith("/files")) return Response.json(noFiles);
-    if (init?.method === "DELETE") return Response.json({ removed: 1 });
+    if (url.startsWith("/api/rag/folders")) return Response.json({ path: null, truncated: false, folders: [] });
     return Response.json(base);
   });
-  vi.stubGlobal("fetch", fetchMock);
   const user = userEvent.setup();
-  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
-  await user.click(await screen.findByRole("button", { name: "Detach rag-data/notes" }));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/by-name/jira/paths?source_path=rag-data%2Fnotes",
-    expect.objectContaining({ method: "DELETE" })));
-  expect(await screen.findByText("Path detached. Its files were removed from search.")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Detach rag-data/jira" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Detach code/payments" })).toBeNull();
+  detail(fetchMock);
+  await user.click(await screen.findByRole("button", { name: "Add folder" }));
+  await user.type(await screen.findByLabelText("Folder path"), "docs/runbooks");
+  await user.click(screen.getByRole("button", { name: "Connect folder" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/paths",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ source_path: "docs/runbooks" }) })));
+  expect(await screen.findByText("Folder added. Refresh the collection to index it.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Remove folder rag-data/notes" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/paths/p3", expect.objectContaining({ method: "DELETE" })));
+  expect(await screen.findByText("Folder removed. Its files left search; files on disk are kept.")).toBeInTheDocument();
 });
 
 test("?name= opens the matching collection", async () => {
@@ -151,14 +177,12 @@ test("?name= opens the matching collection", async () => {
 test("a revision conflict reloads the collection so the next edit uses the new revision", async () => {
   let revision = 2;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/code-projects") return Response.json(projects);
     if (init?.method === "PUT") return Response.json({ error: { message: "Collection changed; refresh before saving" } }, { status: 409 });
     if (url.endsWith("/files")) return Response.json(noFiles);
     const row = { ...base, revision }; revision = 5; return Response.json(row);
   });
-  vi.stubGlobal("fetch", fetchMock);
   const user = userEvent.setup();
-  render(<MemoryRouter><RagCollectionDetail id="c1" /></MemoryRouter>);
+  detail(fetchMock);
   await user.click(await screen.findByRole("button", { name: "Edit" }));
   await user.click(screen.getByRole("button", { name: "Save collection" }));
   expect(await screen.findByText("Collection changed; refresh before saving")).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ApiError } from "../lib/api";
-import { saveCollectionSettings, type RagCollection, type SearchMode } from "../lib/rag";
+import { createCollection, DEFAULT_SETTINGS, saveCollectionSettings, type CollectionSettings, type RagCollection, type SearchMode } from "../lib/rag";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
@@ -11,35 +11,43 @@ import { Switch } from "~/components/ui/switch";
 import { Textarea } from "~/components/ui/textarea";
 
 const lines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
+const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/** Creates a collection (no `collection`) or edits its settings. */
 export default function RagCollectionForm({ open, collection, onOpenChange, onSaved, onFailed }: {
-  open: boolean; collection: RagCollection; onOpenChange: (open: boolean) => void; onSaved: () => void; onFailed?: () => void;
+  open: boolean; collection?: RagCollection; onOpenChange: (open: boolean) => void;
+  onSaved: (saved: { id: string }) => void; onFailed?: () => void;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
-    <SheetHeader><SheetTitle>Edit {collection.name}</SheetTitle>
-      <SheetDescription>Search settings for this collection. Its paths are added and removed by their sources.</SheetDescription></SheetHeader>
+    <SheetHeader><SheetTitle>{collection ? `Edit ${collection.name}` : "New collection"}</SheetTitle>
+      <SheetDescription>{collection
+        ? "Search settings for this collection. Add and remove folders on the collection page."
+        : "Name the collection and choose its search settings, then add folders to it."}</SheetDescription></SheetHeader>
     {open && <SettingsFields collection={collection} onSaved={onSaved} onFailed={onFailed} />}
   </SheetContent></Sheet>;
 }
 
-function SettingsFields({ collection, onSaved, onFailed }: { collection: RagCollection; onSaved: () => void; onFailed?: () => void }) {
-  const [description, setDescription] = useState(collection.description);
-  const [searchMode, setSearchMode] = useState<SearchMode>(collection.search_mode);
-  const [embeddings, setEmbeddings] = useState(collection.embeddings_enabled);
-  const [include, setInclude] = useState(collection.include.join("\n"));
-  const [exclude, setExclude] = useState(collection.exclude.join("\n"));
-  const [chunkSize, setChunkSize] = useState(collection.chunk_size);
-  const [chunkOverlap, setChunkOverlap] = useState(collection.chunk_overlap);
+function SettingsFields({ collection, onSaved, onFailed }: { collection?: RagCollection; onSaved: (saved: { id: string }) => void; onFailed?: () => void }) {
+  const initial: CollectionSettings = collection ?? DEFAULT_SETTINGS;
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState(initial.description);
+  const [searchMode, setSearchMode] = useState<SearchMode>(initial.search_mode);
+  const [embeddings, setEmbeddings] = useState(initial.embeddings_enabled);
+  const [include, setInclude] = useState(initial.include.join("\n"));
+  const [exclude, setExclude] = useState(initial.exclude.join("\n"));
+  const [chunkSize, setChunkSize] = useState(initial.chunk_size);
+  const [chunkOverlap, setChunkOverlap] = useState(initial.chunk_overlap);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const nameInvalid = !collection && (name.length > 60 || !NAME.test(name));
   async function submit() {
     setBusy(true); setError("");
+    const value: CollectionSettings = { description, search_mode: searchMode, embeddings_enabled: embeddings,
+      include: lines(include), exclude: lines(exclude), chunk_size: chunkSize, chunk_overlap: chunkOverlap };
     try {
-      await saveCollectionSettings(collection.id, {
-        description, search_mode: searchMode, embeddings_enabled: embeddings, include: lines(include), exclude: lines(exclude),
-        chunk_size: chunkSize, chunk_overlap: chunkOverlap, revision: collection.revision,
-      });
-      onSaved();
+      onSaved(collection
+        ? await saveCollectionSettings(collection.id, { ...value, revision: collection.revision })
+        : await createCollection({ name, ...value }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the collection"); setBusy(false);
       if (e instanceof ApiError && e.status === 409) onFailed?.();
@@ -48,6 +56,11 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection: RagColl
   return <form className="flex flex-col gap-5 p-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <FieldGroup>
+      {!collection && <Field><FieldLabel htmlFor="collection-name">Name</FieldLabel>
+        <Input id="collection-name" required maxLength={60} value={name} aria-invalid={name !== "" && nameInvalid} onChange={(e) => setName(e.target.value.trim())} />
+        {name !== "" && nameInvalid
+          ? <FieldDescription className="text-destructive">Use lowercase letters, digits and single hyphens, up to 60 characters.</FieldDescription>
+          : <FieldDescription>For example payments-code. The name cannot be changed later.</FieldDescription>}</Field>}
       <Field><FieldLabel htmlFor="collection-description">Description</FieldLabel><Textarea id="collection-description" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <Field><FieldLabel htmlFor="collection-mode">Search mode</FieldLabel>
         <Select value={searchMode} onValueChange={(v) => setSearchMode(v as SearchMode)}><SelectTrigger id="collection-mode"><SelectValue /></SelectTrigger>
@@ -61,6 +74,6 @@ function SettingsFields({ collection, onSaved, onFailed }: { collection: RagColl
         <Field><FieldLabel htmlFor="collection-chunk-overlap">Chunk overlap</FieldLabel><Input id="collection-chunk-overlap" type="number" required min={0} max={2000} value={chunkOverlap} onChange={(e) => setChunkOverlap(Number(e.target.value))} /></Field>
       </div>
     </FieldGroup>
-    <Button className="self-start" type="submit" disabled={busy}>Save collection</Button>
+    <Button className="self-start" type="submit" disabled={busy || nameInvalid}>{collection ? "Save collection" : "Create collection"}</Button>
   </form>;
 }
