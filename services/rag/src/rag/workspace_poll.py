@@ -11,7 +11,8 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
 from rag import file_log
-from rag.collections import MAX_FILES, MAX_SYNC_ENTRIES
+from rag.collections import too_large
+from rag.workspace import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +49,16 @@ def check(workspace, row: dict, now: float) -> str:
             return "active"
         sources = [path["source_path"] for path in workspace.paths(conn, row["id"])]
         log = file_log.load(conn, row["id"])
+        limit = Settings(**workspace.settings(conn, row["project_id"])["settings"]).max_file_bytes
     if not sources:
         return "empty"
     if not all(workspace.areas.present(source) for source in sources):
         return "missing"  # never synced while a folder is absent; the status shows Folder missing
-    walk = workspace.areas.walk_paths(sources, row["include"], row["exclude"], limit=MAX_FILES, truncate=True,
-                                      max_entries=MAX_SYNC_ENTRIES)
+    walk = workspace.areas.walk_paths(sources, row["include"], row["exclude"], truncate=True)  # stops at the sync caps
     if walk.missing:
         return "missing"  # a folder vanished between the presence check and the walk
-    if walk.truncated:
-        return "too_large"  # a sync would fail on the file limit; never queue one
+    if too_large(walk, limit):
+        return "too_large"  # a sync would fail on a limit; never queue one
     if not needs_sync(row, walk, log):
         return "fresh"
     if walk.newest_mtime is not None and walk.newest_mtime > now - QUIET_SECONDS:

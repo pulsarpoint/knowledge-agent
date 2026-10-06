@@ -242,9 +242,9 @@ def test_status_presence_is_per_path_even_when_the_walk_stops(env, monkeypatch):
     (roots["docs"] / "absent").mkdir()
     created = collection(env, "big", "code/big", "docs/absent")
     (roots["docs"] / "absent").rmdir()
-    monkeypatch.setattr(rag.collections, "MAX_STATUS_ENTRIES", 2)
+    monkeypatch.setattr(rag.collections, "MAX_SYNC_ENTRIES", 2)
     row = status(env, created)
-    assert row["truncated"] is True
+    assert row["truncated"] is True and row["too_large"] is True
     assert row["status"] == "folder_missing" and row["missing_paths"] == ["docs/absent"]
     assert {p["source_path"]: p["present"] for p in row["paths"]} == {"code/big": True, "docs/absent": False}
 

@@ -23,8 +23,7 @@ WRITABLE_AREA = 'rag-data'
 SOURCE_PATH = re.compile(r'(code|code-index|rag-data|generated-documents|docs)(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*')
 SKIPPED_DIRECTORIES = {'.git', 'node_modules'}
 MAX_FILES = 20_000
-MAX_STATUS_ENTRIES = 20_000  # status walks stop (truncated) after visiting this many entries
-MAX_SYNC_ENTRIES = 10 * MAX_FILES  # a sync fails rather than walk an unbounded tree
+MAX_SYNC_ENTRIES = 10 * MAX_FILES  # a sync fails rather than walk an unbounded tree; other walks stop there
 MAX_BYTES = 200_000_000
 MAX_FOLDERS = 1000  # the folder browser lists at most this many children
 FOLDER_NAME = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]*')  # a name that can be a source_path segment
@@ -117,6 +116,20 @@ class Walk:
     visited: int = 0  # entries visited, counted across every path of a collection
 
 
+def text_bytes(walk: Walk, max_file_bytes: int) -> int:
+    """The text a sync reads: the walked size of every file within the file size limit, opened or not."""
+    return sum(entry['size'] for entry in walk.files if entry['size'] <= max_file_bytes)
+
+
+def too_large(walk: Walk, max_file_bytes: int) -> bool:
+    """The one definition of too large to sync, shared by sync, the poller and the collection status.
+
+    A walk with the default caps stops (truncated) where a sync would fail: more than MAX_FILES files or
+    MAX_SYNC_ENTRIES entries. Past those, a sync also refuses more than MAX_BYTES of text.
+    """
+    return walk.truncated or text_bytes(walk, max_file_bytes) > MAX_BYTES
+
+
 class Areas:
     def __init__(self, roots: dict[str, Path], host_roots: dict[str, str | None]):
         self.roots = {area: Path(root) for area, root in roots.items()}
@@ -204,17 +217,17 @@ class Areas:
         except (FileNotFoundError, NotADirectoryError):
             raise HTTPException(404, 'Folder does not exist') from None
 
-    def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
+    def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int | None = None,
              truncate: bool = False, max_entries: int | None = None, into: Walk | None = None) -> Walk:
         """List indexable files of one folder; patterns match paths relative to it.
 
-        `limit` caps matching files; `max_entries` caps every entry visited. With `truncate` either cap
-        stops the walk and marks it truncated; otherwise it fails. With `into`, files are added to that
+        `limit` caps matching files (default MAX_FILES); `max_entries` caps every entry visited (default
+        MAX_SYNC_ENTRIES). With `truncate` either cap stops the walk and marks it truncated; otherwise it fails. With `into`, files are added to that
         walk under their full DATA_ROOT path and the caps count everything already in it.
         """
         result = Walk() if into is None else into
-        if max_entries is None:
-            max_entries = MAX_STATUS_ENTRIES if truncate else MAX_SYNC_ENTRIES
+        limit = MAX_FILES if limit is None else limit
+        max_entries = MAX_SYNC_ENTRIES if max_entries is None else max_entries
 
         def newer(value: float):
             result.newest_mtime = value if result.newest_mtime is None else max(result.newest_mtime, value)
@@ -291,7 +304,7 @@ class Areas:
             visit(fd, '')
         return result
 
-    def walk_paths(self, sources: list[str], include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
+    def walk_paths(self, sources: list[str], include: list[str], exclude: list[str], *, limit: int | None = None,
                    truncate: bool = False, max_entries: int | None = None) -> Walk:
         """Walk every path of a collection into one result with full DATA_ROOT-relative file paths.
 

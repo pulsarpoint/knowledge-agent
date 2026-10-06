@@ -152,12 +152,67 @@ def status(env, collection_id):
     return env[1].get(env[3] + f"/collections/{collection_id}").json()["status"]
 
 
+def detail(env, collection_id):
+    return env[1].get(env[3] + f"/collections/{collection_id}").json()
+
+
 def test_an_over_limit_collection_is_reported_and_never_queued(env, monkeypatch):
-    from rag import workspace_poll
+    import rag.collections
     created, folder = synced(env)
     change(folder)
-    monkeypatch.setattr(workspace_poll, "MAX_FILES", 1)
+    monkeypatch.setattr(rag.collections, "MAX_FILES", 1)
     assert poll(env[0]) == {"docs": "too_large"} and len(jobs(env, created)) == 1
+    row = detail(env, created)
+    assert row["too_large"] is True and row["status"] == "needs_refresh"
+
+
+def test_too_many_entries_is_too_large_for_status_and_poller(env, monkeypatch):
+    import rag.collections
+    created, folder = synced(env)
+    for index in range(5):
+        (folder / f"{index}.py").write_text("x")
+    age(folder, 600)
+    monkeypatch.setattr(rag.collections, "MAX_SYNC_ENTRIES", 3)
+    assert detail(env, created)["too_large"] is True
+    assert poll(env[0]) == {"docs": "too_large"} and len(jobs(env, created)) == 1
+
+
+def test_a_large_code_folder_that_syncs_is_not_too_large(env):
+    """More than 20,000 entries but one indexable file: sync, status and poller agree it fits."""
+    folder = env[6]["code"] / "big"
+    folder.mkdir()
+    for index in range(25_000):
+        (folder / f"m{index}.py").touch()
+    (folder / "readme.md").write_text("# Readme\n\nhello")
+    age(folder / "readme.md", 600)
+    created = collection(env, "big", "code/big")
+    stats, row = sync(env, created)
+    assert stats is not None and row["indexed_files"] == 1
+    assert (row["status"], row["too_large"], row["truncated"], row["file_count"]) == ("up_to_date", False, False, 1)
+    assert update(env, created, auto_sync=True).status_code == 200
+    assert poll(env[0]) == {"big": "fresh"}
+    (folder / "new.md").write_text("# New\n\nfresh")
+    age(folder / "new.md", 600)
+    age(folder, 600)
+    row = detail(env, created)
+    assert (row["status"], row["too_large"]) == ("needs_refresh", False)
+    with env[0].connect() as conn:
+        conn.execute("UPDATE ka.rag_collections SET last_polled_at=NULL WHERE id=%s", (created,))
+    assert poll(env[0]) == {"big": "queued"}
+
+
+def test_over_200_mb_of_text_is_too_large_for_status_poller_and_refresh_all(env):
+    folder = env[6]["rag-data"] / "huge"
+    folder.mkdir()
+    for index in range(107):
+        with open(folder / f"{index}.md", "wb") as handle:
+            handle.truncate(2_000_000)  # sparse: 2 MB each by size, within the default file size limit
+    created = collection(env, "huge", auto_sync=True)
+    row = detail(env, created)
+    assert (row["status"], row["too_large"], row["truncated"]) == ("needs_refresh", True, False)
+    assert poll(env[0]) == {"huge": "too_large"} and jobs(env, created) == []
+    assert env[1].post(env[3] + "/collections/sync-stale").json() == {"queued": []}
+    assert jobs(env, created) == []
 
 
 def test_a_folder_vanishing_during_the_walk_is_missing(env, monkeypatch):
@@ -206,3 +261,4 @@ def test_status_and_poller_agree_on_excluded_and_included_changes(env):
     change(folder)
     assert status(env, created) == "needs_refresh"
     assert poll(env[0]) == {"docs": "queued"}
+

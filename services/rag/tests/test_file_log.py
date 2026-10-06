@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from test_workspace import chunks, collection, configure, search, sync, update, write
 
+import rag.collections
 from rag import workspace_worker
 
 # env and workspace_postgres come from conftest.py
@@ -272,14 +273,14 @@ def test_the_sync_text_limit_counts_every_walked_file(env, monkeypatch):
     created = collection(env)
     write(env, "a.md", "# A\n\n" + "a" * 100)
     write(env, "b.md", "# B\n\n" + "b" * 100)
-    monkeypatch.setattr(workspace_worker, "MAX_BYTES", 1000)
+    monkeypatch.setattr(rag.collections, "MAX_BYTES", 1000)
     stats, row = sync(env, created)
     assert stats is not None and row["indexed_files"] == 2
     stats, _ = sync(env, created)
     assert stats["unopened_files"] == 2
     stats, row = sync(env, created, force=True)
     assert stats is not None and stats["parsed_files"] == 2
-    monkeypatch.setattr(workspace_worker, "MAX_BYTES", 150)  # every file would be unopened
+    monkeypatch.setattr(rag.collections, "MAX_BYTES", 150)  # every file would be unopened
     stats, row = sync(env, created)
     assert stats is None and "200 MB" in row["job"]["error"]
     assert row["indexed_files"] == 2

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rag import file_log
 from rag.collections import (AREAS, WRITABLE_AREA, FolderMissing, indexable, overlaps, refuse_hidden, relative_path,
-                             source_path, visible)
+                             source_path, too_large, visible)
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
 from rag.workspace_poll import needs_sync
@@ -144,11 +144,13 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     paths = path_rows(workspace, conn, row["id"])  # presence per path, never from the capped walk below
     missing = [p["source_path"] for p in paths if not p["present"]]
     present = not missing
+    # Stops at the sync caps, so a folder a sync can walk is never reported as too large.
     walk = workspace.areas.walk_paths([p["source_path"] for p in paths if p["present"]], row["include"], row["exclude"], truncate=True)
     changed = datetime.fromtimestamp(walk.newest_mtime, timezone.utc) if walk.newest_mtime is not None else None
     synced = row["last_synced_at"]
-    # The poller's definition of fresh; a capped (truncated) status walk cannot tell, so it needs refresh.
-    needs = present and (walk.truncated or needs_sync(row, walk, file_log.load(conn, row["id"])))
+    oversized = too_large(walk, Settings(**workspace.settings(conn, row["project_id"])["settings"]).max_file_bytes)
+    # The poller's definitions of fresh and too large; a too large collection cannot sync, so it needs refresh.
+    needs = present and (oversized or needs_sync(row, walk, file_log.load(conn, row["id"])))
     if not present:
         state = "folder_missing"
     elif job is not None and job["status"] in ACTIVE:
@@ -160,6 +162,7 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     return {**row, **counts, "job": job, "paths": paths, "folder_present": present, "missing_paths": missing,
             "log_counts": conn.execute(LOG_COUNTS_SQL, (row["id"],)).fetchone(),
             "folder_changed_at": changed, "file_count": len(walk.files), "truncated": walk.truncated,
+            "too_large": oversized,
             "skipped": walk.skipped, "needs_refresh": bool(needs), "status": state}
 
 
@@ -351,7 +354,8 @@ def build_api(workspace: Workspace, key: str, transport=None):
         queued = []
         with workspace.connect() as conn:
             for row in conn.execute("SELECT * FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name", (project,)).fetchall():
-                if collection_status(workspace, conn, row)["status"] in ("needs_refresh", "failed"):
+                status = collection_status(workspace, conn, row)
+                if status["status"] in ("needs_refresh", "failed") and not status["too_large"]:
                     try:
                         queue_sync(conn, project, row, request.headers.get("x-rag-actor"), False)
                         queued.append(row["name"])

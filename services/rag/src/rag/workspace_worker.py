@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from rag import file_log
 from rag.chunking import chunk_sections
-from rag.collections import MAX_BYTES, Walk
+from rag.collections import Walk, too_large
 from rag.structure import Section, parse_structure
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed, embedding_profile
@@ -110,7 +110,7 @@ def decide(workspace: Workspace, walk: Walk, log: dict, indexed: set[str], curre
     The text limit counts the walked size of every file within the file size limit, opened or not, so
     an incremental sync and a Rebuild of the same files agree.
     """
-    if sum(entry["size"] for entry in walk.files if entry["size"] <= limit) > MAX_BYTES:
+    if too_large(walk, limit):
         raise HTTPException(400, "A sync is limited to 200 MB of text; narrow the collection's include patterns")
     decisions, sources = {}, []
     for entry in walk.files:
