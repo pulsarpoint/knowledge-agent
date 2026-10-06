@@ -204,3 +204,48 @@ test('code projects have no Searchable switch or collection field and never call
   expect(screen.queryByLabelText(/Search collection/)).toBeNull();
   expect(fetch.mock.calls.some(([url]) => String(url).startsWith('/api/rag/'))).toBe(false);
 });
+
+test('Remove asks for confirmation, keeps files by default and drops the project from the list', async () => {
+  const user = userEvent.setup(); const fetch = api([project]); render(<CodeProjectsView />);
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  const dialog = await screen.findByRole('alertdialog');
+  expect(dialog).toHaveTextContent('code/payments');
+  const box = screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ });
+  expect(box).not.toBeChecked();
+  expect(fetch.mock.calls.some(([url]) => String(url).includes('/archive'))).toBe(false);
+  await user.click(screen.getByRole('button', { name: 'Remove project' }));
+  await screen.findByText('Payments removed. Files on disk were kept.');
+  const call = fetch.mock.calls.find(([url]) => String(url).endsWith('/api/code-projects/code-1/archive'))!;
+  expect(call[1]?.method).toBe('POST');
+  expect(JSON.parse(call[1]!.body as string)).toEqual({ delete_files: false });
+});
+
+test('Remove with the delete box sends delete_files and reports what was deleted or left behind', async () => {
+  const user = userEvent.setup(); const fetch = api([project]); const base = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (raw: string, init?: RequestInit) => {
+    if (new URL(raw, 'http://localhost').pathname.endsWith('/archive')) return new Response(JSON.stringify({ id: 'code-1', deleted: ['code/payments'], errors: ['code-index/code-1 could not be deleted: Permission denied'] }), { status: 200 });
+    return base(raw, init);
+  });
+  render(<CodeProjectsView />);
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  await user.click(screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ }));
+  await user.click(screen.getByRole('button', { name: 'Remove project' }));
+  await screen.findByText('Payments removed. Deleted code/payments.');
+  expect(screen.getByText(/code-index\/code-1 could not be deleted: Permission denied/)).toBeInTheDocument();
+  const call = fetch.mock.calls.find(([url]) => String(url).endsWith('/archive'))!;
+  expect(JSON.parse(call[1]!.body as string)).toEqual({ delete_files: true });
+});
+
+test('a refused Remove shows the reason and keeps the project', async () => {
+  const user = userEvent.setup(); const fetch = api([project]); const base = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (raw: string, init?: RequestInit) => {
+    if (new URL(raw, 'http://localhost').pathname.endsWith('/archive')) return new Response(JSON.stringify({ error: { message: 'RAG collection code-docs indexes code/payments. Nothing was removed; remove that folder in RAG → Collections first or keep the files.' } }), { status: 409 });
+    return base(raw, init);
+  });
+  render(<CodeProjectsView />);
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments' }));
+  await user.click(screen.getByRole('checkbox', { name: /Also delete these folders and the code graph/ }));
+  await user.click(screen.getByRole('button', { name: 'Remove project' }));
+  await screen.findByText(/RAG collection code-docs indexes code\/payments/);
+  expect(screen.getByRole('button', { name: 'Remove Payments' })).toBeInTheDocument();
+});

@@ -1,8 +1,9 @@
 import CodeGraphExplorer from './CodeGraphExplorer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Folder, Plus, RefreshCw, X } from 'lucide-react';
-import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
+import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, removeCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
 import { Alert, AlertDescription } from '~/components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';
@@ -18,6 +19,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~
 import { Textarea } from '~/components/ui/textarea';
 
 const syncing = (project: CodeProject) => ['queued', 'running', 'waiting_input'].includes(project.sync_status ?? '') || ['queued', 'running'].includes(project.processing?.status ?? '');
+/** Folders under code/ that removing the project with its files would delete. */
+const projectFolders = (project: CodeProject) => [...new Set([...project.folder_paths, ...(project.clone_path ? [project.clone_path] : [])])].sort().map(folder => `code/${folder}`);
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : 'Could not reach administration.';
 
 export default function CodeProjectsView() {
@@ -99,6 +102,22 @@ export default function CodeProjectsView() {
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }
+  const [removing, setRemoving] = useState<CodeProject | null>(null);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+
+  async function remove(project: CodeProject, withFiles: boolean) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await removeCodeProject(project.id, withFiles);
+      if (graphProject === project.id) setGraphProject(null);
+      setNotice(!withFiles ? `${project.name} removed. Files on disk were kept.`
+        : result.deleted.length ? `${project.name} removed. Deleted ${result.deleted.join(', ')}.` : `${project.name} removed. No files were found to delete.`);
+      if (result.errors.length) setError(result.errors.join(' '));
+      setRefresh(n => n+1);
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
+
   async function pull(project: CodeProject) {
     setBusy(true); setError(''); setNotice('');
     try { await pullCodeProject(project.id); setNotice('Git pull queued.'); setRefresh(n => n+1); }
@@ -164,9 +183,15 @@ export default function CodeProjectsView() {
           {project.code_index && <><span className="text-xs">{project.code_index.stats.fileCount} indexed files · {project.code_index.stats.nodeCount} symbols · {project.code_index.stats.edgeCount} relationships</span><span className="text-xs">{Object.keys(project.code_index.stats.filesByLanguage).join(', ')}</span><span className="text-xs text-muted-foreground">{project.code_index.unresolved_references} unresolved references · {project.code_index.parse_error_files.length} files with parse errors</span><span className="text-xs text-muted-foreground">Last processed: {new Date(project.code_index.processed_at).toLocaleString()}</span></>}
           {project.processing?.error && <span className="text-sm text-destructive">{project.processing.error}</span>}
         </div></TableCell>
-        <TableCell><div className="flex flex-wrap gap-2">{project.code_index && <Button type="button" variant="outline" size="sm" onClick={() => setGraphProject(project.id)}>View graph</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Generate graph for ${project.name}`} onClick={async () => { setBusy(true); setError(''); try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } }}>Generate graph</Button><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}</div></TableCell>
+        <TableCell><div className="flex flex-wrap gap-2">{project.code_index && <Button type="button" variant="outline" size="sm" onClick={() => setGraphProject(project.id)}>View graph</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Generate graph for ${project.name}`} onClick={async () => { setBusy(true); setError(''); try { await processCodeProject(project.id); setNotice('Code processing queued. Unchanged files reuse their index.'); setRefresh(r => r + 1); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } }}>Generate graph</Button><Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Edit ${project.name}`} onClick={() => open(project)}>Edit</Button>{project.remote_url && <Button size="sm" disabled={busy || syncing(project)} aria-label={`${project.current_commit ? 'Pull' : 'Clone'} ${project.name}`} onClick={() => void pull(project)}>{project.current_commit ? 'Pull' : 'Clone'}</Button>}<Button variant="outline" size="sm" disabled={busy || syncing(project)} aria-label={`Remove ${project.name}`} onClick={() => { setDeleteFiles(false); setRemoving(project); }}>Remove</Button></div></TableCell>
       </TableRow>)}</TableBody></Table>}
     </CardContent></Card>
+    <AlertDialog open={removing !== null} onOpenChange={open => { if (!open) setRemoving(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove code project?</AlertDialogTitle>
+      <AlertDialogDescription>Remove {removing?.name}? It disappears from Code projects, services, agents and documentation workflows, and its folders can be used by another project. Folders connected to a RAG collection stay connected until you remove them in RAG → Collections.</AlertDialogDescription></AlertDialogHeader>
+      {removing && <div className="flex flex-col gap-3 text-sm"><ul className="list-disc pl-5 break-all">{projectFolders(removing).map(folder => <li key={folder}>{folder}</li>)}{projectFolders(removing).length === 0 && <li className="text-muted-foreground">No folders</li>}</ul>
+        <Field orientation="horizontal" className="items-start"><Checkbox id="remove-delete-files" checked={deleteFiles} onCheckedChange={checked => setDeleteFiles(checked === true)} /><div><FieldLabel htmlFor="remove-delete-files">Also delete these folders and the code graph from disk</FieldLabel><FieldDescription className="mt-1">This cannot be undone. Refused when another code project uses a folder or a RAG collection indexes it.</FieldDescription></div></Field></div>}
+      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={() => { if (removing) void remove(removing, deleteFiles); setRemoving(null); }}>Remove project</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     {graphProject && projects.find(p => p.id === graphProject)?.code_index && <Card><CardHeader><CardTitle>{projects.find(p => p.id === graphProject)?.name} · Code graph</CardTitle><Button type="button" variant="outline" className="self-start" onClick={() => setGraphProject(null)}>Close graph</Button></CardHeader><CardContent><CodeGraphExplorer projectId={graphProject} sourceHash={projects.find(p => p.id === graphProject)!.code_index!.source_hash} /></CardContent></Card>}
   </div>;
 }

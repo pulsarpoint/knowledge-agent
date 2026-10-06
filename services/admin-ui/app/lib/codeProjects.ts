@@ -24,6 +24,9 @@ export const saveCodeProject = (value: CodeProjectInput, id?: string) => request
   `/api/code-projects${id ? `/${encodeURIComponent(id)}` : ''}`,
   { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 export const pullCodeProject = (id: string) => request<{ job_id: string }>(`/api/code-projects/${encodeURIComponent(id)}/pull`, { method: 'POST' });
+export const removeCodeProject = (id: string, deleteFiles: boolean) => request<{ id: string; deleted: string[]; errors: string[] }>(
+  `/api/code-projects/${encodeURIComponent(id)}/archive`,
+  { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ delete_files: deleteFiles }) });
 export const processCodeProject = (id: string, workflowId?: string) => request<{ job_id: string }>(`/api/code-projects/${encodeURIComponent(id)}/process${workflowId ? `?workflow_id=${workflowId}` : ''}`, { method: 'POST' });
 export const getCodeDirectory = (path: string, offset = 0, signal?: AbortSignal) => request<CodeDirectory>(`/api/code/files?path=${encodeURIComponent(path)}&offset=${offset}`, { signal });
 export const getCodeFolders = (path: string, offset: number, signal?: AbortSignal) => request<CodeDirectory>(`/api/code/files?path=${encodeURIComponent(path)}&offset=${offset}&folders_only=true`, { signal });

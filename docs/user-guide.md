@@ -361,13 +361,20 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
 
 Code projects only clone and pull into `code/…`. To search code, add the project's folders
-to a collection in RAG → Collections; archiving a project does not change RAG.
+to a collection in RAG → Collections; removing a project does not change RAG.
 
-Archiving a project is available through the API only (`POST /api/code-projects/{id}/archive`);
-it does not change RAG: remove its folders from collections there if you no longer want
-them searched.
+**Remove** (in the project's row) asks for confirmation and lists the project's folders. The
+project disappears from Code projects, services, agents and documentation workflows, its
+scheduled pulls stop, and its folders and Git URL can be used by a new project. Files on disk
+are kept unless you tick **Also delete these folders and the code graph from disk** (off by
+default; it cannot be undone). Deleting is refused, and nothing is removed, when another code
+project maps one of the folders (the same folder, a parent or a subfolder) or a RAG collection
+indexes it; remove the folder in RAG → Collections first. RAG must be reachable to check this.
+If a folder cannot be deleted afterwards (for example, permissions), the project is still
+removed and the page names the folder left behind. The API is
+`POST /api/code-projects/{id}/archive` with an optional body `{"delete_files": true}`.
 
-Projects cannot be edited while a job runs, and there is no delete action.
+Projects cannot be edited or removed while a job runs.
 
 ### 5.5 Servers
 

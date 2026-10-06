@@ -92,7 +92,7 @@ def test_startup_and_code_projects_never_call_rag(store, tmp_path, monkeypatch):
             assert client.put(f"/api/code-projects/{project_id}/search", headers=HEADERS,
                               json={"enabled": True}).status_code in (404, 405)
             archived = client.post(f"/api/code-projects/{project_id}/archive", headers=HEADERS)
-            assert archived.status_code == 200 and archived.json() == {"id": project_id}
+            assert archived.status_code == 200 and archived.json() == {"id": project_id, "deleted": [], "errors": []}
             assert all(p["id"] != project_id for p in client.get("/api/code-projects", headers=HEADERS).json()["projects"])
             assert client.post(f"/api/code-projects/{project_id}/archive", headers=HEADERS).status_code == 404
             time.sleep(0.2)  # startup background tasks have had time to run

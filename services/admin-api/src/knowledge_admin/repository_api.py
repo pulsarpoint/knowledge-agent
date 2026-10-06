@@ -2,19 +2,33 @@
 
 import json
 import os
+import shutil
 import sqlite3
 from uuid import UUID, uuid4
 
+import httpx
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict
 
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
 from knowledge_admin.code_paths import code_path, code_root
 from knowledge_admin.code_processing import index_directory, CodeProcessingError
+from knowledge_admin.rag_files import RagFiles
 
 
-def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
+class RemoveInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    delete_files: bool = False
+
+
+def overlaps(a: str, b: str) -> bool:
+    """One path is the other, or contains it."""
+    return a == b or a.startswith(b + '/') or b.startswith(a + '/')
+
+
+def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: httpx.Client | None = None) -> APIRouter:
     router = APIRouter()
 
     def repository_store() -> RepositoryStore:
@@ -74,19 +88,76 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute('UPDATE ka.documentation_workflows SET updated_at=now() WHERE id=%s', (workflow_id,))
             return {'job_id': job}
 
+    def rag_paths(project: UUID) -> list[tuple[str, str]]:
+        """(collection, source_path) for every folder connected in RAG."""
+        key = os.environ.get('RAG_BACKOFFICE_KEY')
+        if backoffice_client is None or not key:
+            raise HTTPException(503, 'RAG is not configured, so connected folders cannot be checked. Keep the files instead.')
+        listing = RagFiles(backoffice_client, key, project, None).request('GET', 'collections', params={'status': 'false'})
+        return [(c['name'], p['source_path']) for c in listing.get('collections', []) for p in c.get('paths', [])]
+
     @router.post('/code-projects/{repository_id}/archive')
-    def archive_project(repository_id: UUID):
-        """Hide the project everywhere. Its folders stay connected to any RAG collection until an admin removes them."""
+    def archive_project(repository_id: UUID, value: RemoveInput | None = None):
+        """Remove the project everywhere and release its folders. With delete_files, also delete its folders
+        under code/ and its code graph, unless another project maps them or a RAG collection indexes them."""
+        value = value or RemoveInput()
         selected = repository_store()
+        connected: list[tuple[str, str]] = []
+        if value.delete_files:
+            root = code_root()
+            with selected.connect() as conn:
+                project = selected.project(conn, app_name)
+            connected = rag_paths(project)
         with selected.connect() as conn:
             project = selected.project(conn, app_name)
-            repo = conn.execute('''SELECT id FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
+            repo = conn.execute('''SELECT id,clone_path FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
                 FOR UPDATE''', (repository_id, project)).fetchone()
             if repo is None:
                 raise HTTPException(404, 'Code project not found')
             selected.require_idle(conn, repository_id)
+            folders = {row['path'] for row in conn.execute(
+                'SELECT path FROM ka.code_project_folders WHERE code_project_id=%s', (repository_id,))}
+            if repo['clone_path']:
+                folders.add(repo['clone_path'])
+            folders = sorted(folders)
+            if value.delete_files:
+                others = conn.execute('''SELECT r.name,f.path FROM ka.code_project_folders f
+                    JOIN ka.repositories r ON r.id=f.code_project_id
+                    WHERE f.project_id=%s AND f.code_project_id<>%s AND r.archived_at IS NULL ORDER BY r.name,f.path''',
+                    (project, repository_id)).fetchall()
+                for folder in folders:
+                    for other in others:
+                        if overlaps(folder, other['path']):
+                            raise HTTPException(409, f"code/{folder} is also used by code project {other['name']} "
+                                                     f"(code/{other['path']}). Nothing was removed; keep the files or unmap it there first.")
+                    for collection, source in connected:
+                        if overlaps(f'code/{folder}', source):
+                            raise HTTPException(409, f'RAG collection {collection} indexes {source}. Nothing was removed; '
+                                                     'remove that folder in RAG → Collections first or keep the files.')
             conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repository_id,))
-        return {'id': repository_id}
+            conn.execute('DELETE FROM ka.code_project_folders WHERE code_project_id=%s', (repository_id,))
+        deleted: list[str] = []
+        errors: list[str] = []
+        if value.delete_files:
+            targets = []
+            for folder in folders:
+                try:
+                    targets.append((f'code/{folder}', code_path(root, folder)))
+                except HTTPException as error:
+                    errors.append(f'code/{folder} could not be deleted: {error.detail}')
+            try:
+                targets.append((f'code-index/{repository_id}', index_directory(repository_id)))
+            except CodeProcessingError as error:
+                errors.append(f'code-index/{repository_id} could not be deleted: {error}')
+            for label, target in targets:
+                if not target.is_dir() or target.is_symlink():
+                    continue
+                try:
+                    shutil.rmtree(target)
+                    deleted.append(label)
+                except OSError as error:
+                    errors.append(f'{label} could not be deleted: {error.strerror or error}')
+        return {'id': repository_id, 'deleted': deleted, 'errors': errors}
 
     @router.get('/code-projects/{repository_id}/graph')
     def view_code_graph(repository_id: UUID, file: str = Query(default='', max_length=1000),
