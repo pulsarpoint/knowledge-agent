@@ -1,0 +1,165 @@
+"""Interactive Claude Code sessions: the context snapshot, queued messages, Stop, Close and idle closing."""
+import json
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
+from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
+from knowledge_admin.documentation_generation import PROMPT_CHANGED
+from test_api import _client
+from test_repositories import HEADERS
+
+
+@pytest.fixture
+def sessions(store, tmp_path, monkeypatch):
+    """A Claude Code agent, a Claude and an OpenAI model, a code project with one folder, a server and DATA_ROOT folders."""
+    data = tmp_path / 'data'
+    for folder in ('code/app', 'jira', 'generated-documents'):
+        (data / folder).mkdir(parents=True)
+    monkeypatch.setenv('DATA_ROOT_DIR', str(data))
+    monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
+    client = _client(tmp_path, repository_store=store)
+    agent = client.post('/api/claude-code/agents', headers=HEADERS, json={'name': 'Technical writer'}).json()['id']
+    claude = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Claude', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-secret-token'}).json()['id']
+    gpt = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
+        'base_url': 'http://model.test/v1'}).json()['id']
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        repo = uuid4()
+        conn.execute("INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'payments-api','Payments API')", (repo, project))
+        conn.execute("INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'app')", (repo, project))
+    server = client.post('/api/servers', headers=HEADERS, json={
+        'name': 'prod-1', 'hostname': '10.0.0.5', 'description': 'Payments host'}).json()
+    prompt = next(p for p in client.get('/api/documentation/prompts', headers=HEADERS).json()['prompts']
+                  if p['name'] == 'Code analysis and architecture')
+    body = {'agent_id': agent, 'model_id': claude, 'prompt_id': prompt['id'], 'prompt_version_id': prompt['active_version_id'],
+            'comments': 'Focus on the public API.', 'code_project_ids': [str(repo)], 'folders': ['jira'],
+            'server_ids': [server['id']], 'notes': 'Deployed with Helm.',
+            'document_name': 'Payments – API reference', 'folder': 'payments-api-docs'}
+    return SimpleNamespace(client=client, store=store, body=body, agent=agent, claude=claude, gpt=gpt, repo=str(repo),
+                           server=server, data=data, prompt=prompt)
+
+
+def start(sessions, **change) -> dict:
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_session_context_snapshot_folders_servers_and_notes(sessions):
+    session = start(sessions)
+    data = sessions.data
+    assert (session['status'], session['turns'], session['title'], session['folder'], session['agent_name'], session['model_name']) == (
+        'starting', 0, 'Payments – API reference', 'payments-api-docs', 'Technical writer', 'Claude')
+    assert session['context_snapshot'] == {
+        'folders': [{'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo},
+                    {'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'}],
+        'code_project_ids': [sessions.repo],
+        'servers': [{'id': sessions.server['id'], 'name': 'prod-1', 'hostname': '10.0.0.5', 'description': 'Payments host'}],
+        'notes': 'Deployed with Helm.'}
+    snapshot = session['prompt_snapshot']
+    assert (snapshot['system_prompt'], snapshot['version_id'], snapshot['comments']) == (
+        SYSTEM_PROMPT, sessions.prompt['active_version_id'], 'Focus on the public API.')
+    [first] = session['inputs']
+    assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
+    assert first['text'].startswith(snapshot['content'].strip())
+    for part in ('## Comments for this run\n\nFocus on the public API.', '## Context',
+                 f'- {data}/code/app (code project Payments API)', f'- {data}/jira\n', '- prod-1 (10.0.0.5): Payments host',
+                 'Notes:\n\nDeployed with Helm.', FINAL_ANSWER):
+        assert part in first['text'], part
+    assert 'bedrock-secret-token' not in json.dumps(session)
+    # A DATA_ROOT folder alone is enough context; without servers, notes and comments those sections are left out.
+    folder_only = start(sessions, code_project_ids=[], server_ids=[], notes='', comments='')
+    text = folder_only['inputs'][0]['text']
+    assert folder_only['context_snapshot']['folders'] == [{'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'}]
+    assert 'Servers' not in text and 'Notes:' not in text and 'Comments for this run' not in text
+
+
+@pytest.mark.parametrize('change, status', [
+    ({'model_id': 'gpt'}, 400), ({'agent_id': 'search'}, 400), ({'agent_id': 'missing'}, 400),
+    ({'folders': ['../etc']}, 400), ({'folders': ['/etc']}, 400), ({'folders': ['.git']}, 400), ({'folders': ['missing']}, 400),
+    ({'code_project_ids': [], 'folders': []}, 400), ({'code_project_ids': [str(uuid4())]}, 400),
+    ({'folder': 'Payments'}, 400), ({'folder': 'services/x'}, 400), ({'folder': '../docs'}, 400),
+    ({'document_name': '– –'}, 400), ({'notes': 'a\x00b'}, 400), ({'comments': 'x' * 20001}, 400),
+    ({'server_ids': [str(uuid4())]}, 400), ({'prompt_version_id': str(uuid4())}, 409), ({'prompt_id': str(uuid4())}, 400)])
+def test_session_input_is_validated(sessions, change, status):
+    if change.get('model_id') == 'gpt':
+        change = {'model_id': sessions.gpt}
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
+    assert response.status_code == status, response.text
+    if status == 409:
+        assert response.json()['error']['message'] == PROMPT_CHANGED
+    with sessions.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+
+
+def test_a_removed_folder_or_disabled_agent_refuses_the_session(sessions):
+    (sessions.data / 'code/app').rmdir()
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json=sessions.body)
+    assert response.status_code == 400 and 'does not exist' in response.json()['error']['message']
+    with sessions.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (sessions.agent,))
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'code_project_ids': []})
+    assert response.status_code == 400 and response.json()['error']['message'] == 'Select an enabled Claude Code agent.'
+    with sessions.store.connect() as conn:  # an enabled agent with a disabled Claude model is refused as well
+        conn.execute('UPDATE ka.agents SET enabled=true WHERE id=%s', (sessions.agent,))
+        conn.execute('UPDATE ka.llm_models SET enabled=false WHERE id=%s', (sessions.claude,))
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'code_project_ids': []})
+    assert response.status_code == 400 and response.json()['error']['message'].startswith('Select an enabled Claude model')
+    with sessions.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+
+
+def test_messages_stop_and_close(sessions):
+    client, store = sessions.client, sessions.store
+    session = start(sessions)
+    url = f"/api/claude-code/sessions/{session['id']}"
+    assert client.post(url + '/messages', headers=HEADERS, json={'text': ' Also cover retries. '}).json() == {
+        'seq': 2, 'status': 'queued', 'working': False}
+    assert client.post(url + '/messages', headers=HEADERS, json={'text': '   '}).status_code == 400
+    assert client.post(url + '/stop', headers=HEADERS).status_code == 409  # starting: nothing runs yet
+    with store.connect() as conn:  # a worker delivered both messages as turn 1
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=%s", (session['id'],))
+        conn.execute("UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now() WHERE session_id=%s", (session['id'],))
+    assert client.post(url + '/messages', headers=HEADERS, json={'text': 'Shorten it.'}).json()['working'] is True
+    stopped = client.post(url + '/stop', headers=HEADERS)
+    assert stopped.status_code == 202 and stopped.json()['discarded'] == 1
+    detail = client.get(url, headers=HEADERS).json()
+    assert [(i['seq'], i['text'], i['status'], i['turn']) for i in detail['inputs'][1:]] == [
+        (2, 'Also cover retries.', 'delivered', 1), (3, 'Shorten it.', 'discarded', None)]
+    with store.connect() as conn:
+        assert conn.execute('SELECT stop_requested_at FROM ka.agent_sessions_cc WHERE id=%s', (session['id'],)).fetchone()['stop_requested_at']
+    assert client.post(url + '/close', headers=HEADERS).status_code == 200
+    detail = client.get(url, headers=HEADERS).json()
+    assert (detail['status'], detail['status_message'], bool(detail['closed_at'])) == ('closed', 'Closed.', True)
+    closed = client.post(url + '/messages', headers=HEADERS, json={'text': 'Hello?'})
+    assert closed.status_code == 409 and closed.json()['error']['message'] == 'This session is closed. Start a new session.'
+    assert client.post(url + '/close', headers=HEADERS).status_code == 200  # idempotent
+    listed = client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
+    assert [(s['id'], s['status'], s['agent_name'], s['model_name'], s['queued']) for s in listed] == [
+        (session['id'], 'closed', 'Technical writer', 'Claude', 0)]
+    assert 'draft' not in listed[0] and 'prompt_snapshot' not in listed[0]
+    assert client.get(f'/api/claude-code/sessions/{uuid4()}', headers=HEADERS).status_code == 404
+    for path in (url + '/messages', url + '/stop', url + '/close'):
+        assert client.post(path, json={'text': 'x'}).status_code == 403
+    assert client.get('/api/claude-code/sessions').status_code == 403
+    revision = client.get(f'/api/agents/{sessions.agent}', headers=HEADERS).json()['revision']
+    assert client.request('DELETE', f'/api/agents/{sessions.agent}', headers=HEADERS,
+                          json={'revision': revision, 'confirmed': True}).status_code == 409  # retained session history
+
+
+def test_idle_sessions_close_after_24_hours(sessions):
+    ids = [start(sessions)['id'] for _ in range(3)]
+    with sessions.store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=ANY(%s::uuid[])", (ids[:2],))
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='working' WHERE id=%s", (ids[1],))  # a running turn is never idle
+    listed = {s['id']: s for s in sessions.client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']}
+    assert (listed[ids[0]]['status'], listed[ids[0]]['status_message']) == ('closed', IDLE_CLOSED)
+    assert (listed[ids[1]]['status'], listed[ids[2]]['status']) == ('working', 'starting')
+    inputs = sessions.client.get(f'/api/claude-code/sessions/{ids[0]}', headers=HEADERS).json()['inputs']
+    assert [i['status'] for i in inputs] == ['discarded']

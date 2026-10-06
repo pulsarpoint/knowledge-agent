@@ -1,7 +1,7 @@
 import pytest
 
-from knowledge_admin.data_root import (FOLDER_RULE, data_dir, data_path, documentation_folder, generated_docs_folder,
-                                       host_path, jira_folder)
+from knowledge_admin.data_root import (DATA_FOLDER_RULE, FOLDER_RULE, data_dir, data_folder, data_path, documentation_folder,
+                                       generated_docs_folder, host_path, jira_folder)
 
 
 def test_paths_follow_the_container_data_root(monkeypatch):
@@ -54,3 +54,12 @@ def test_generated_documents_folder_is_relative_to_the_data_root(monkeypatch):
         monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', outside)
         with pytest.raises(ValueError, match='DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR'):
             generated_docs_folder()
+
+
+def test_data_folders_follow_the_rag_rule():
+    for good in ('jira', 'code/payments', 'Team/V1.2_x-y'):
+        assert data_folder(good) == good
+    for bad in ('', '/etc', '../etc', 'code/../etc', '.git', 'code/.hidden', 'a//b', 'my folder', 'x' * 501):
+        with pytest.raises(ValueError) as error:
+            data_folder(bad)
+        assert str(error.value) == DATA_FOLDER_RULE

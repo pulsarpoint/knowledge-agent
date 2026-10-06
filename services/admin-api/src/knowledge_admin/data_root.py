@@ -66,3 +66,16 @@ def generated_docs_folder() -> str:
     if not relative:
         raise ValueError('DOCUMENT_OUTPUT_ROOT must be a folder inside DATA_ROOT_DIR')
     return relative
+
+
+DATA_SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9._-]*'
+DATA_FOLDER = re.compile(rf'{DATA_SEGMENT}(/{DATA_SEGMENT})*')
+DATA_FOLDER_RULE = ("A folder is a path under DATA_ROOT such as code/payments or jira: names of letters, digits, '.', '_' "
+                    "and '-' separated by '/', none starting with '.'; at most 500 characters.")
+
+
+def data_folder(value: str) -> str:
+    """A folder under DATA_ROOT as RAG names it (relative, no '..', no hidden segment). Raises ValueError(DATA_FOLDER_RULE)."""
+    if len(value) > 500 or not DATA_FOLDER.fullmatch(value):
+        raise ValueError(DATA_FOLDER_RULE)
+    return value
