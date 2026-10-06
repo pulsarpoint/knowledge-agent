@@ -364,3 +364,55 @@ def test_document_slug_comes_from_the_name():
     assert document_slug('  Café v2.0 / Ops  ') == 'caf-v2-0-ops'
     assert document_slug('– –') == ''
     assert document_slug('a' * 119 + ' b') == 'a' * 119
+
+
+def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tmp_path, monkeypatch):
+    from knowledge_admin.documents import DocumentInput, export_args, export_document, export_input, save_document
+    client = _client(tmp_path, repository_store=store)
+    out = tmp_path / 'generated'
+    out.mkdir()
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        saved = save_document(conn, project, None, DocumentInput(slug='api-reference', title='API reference',
+            markdown='# API\n\n```d2\na -> b\n```\n'), folder='team/payments')
+        export_document(**export_args(export_input(conn, saved['id'])))
+    folder = out / 'team' / 'payments' / 'api-reference'
+    assert (folder / 'README.md').read_text().startswith('# API') and (folder / 'architecture-1.d2').is_file()
+    assert not (out / 'api-reference').exists()
+    endpoint = '/api/documentation/documents/' + str(saved['id'])
+    assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
+    # The editor sends no folder: the document stays in its folder and a rename moves only its own export.
+    edited = client.put(endpoint, headers=HEADERS, json={'slug': 'api-guide', 'title': 'API guide', 'markdown': '# Guide', 'revision': 1})
+    assert edited.status_code == 200, edited.text
+    assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
+    assert (out / 'team/payments/api-guide/README.md').read_text() == '# Guide'
+    assert not (out / 'team/payments/api-reference').exists()
+    # The same slug may exist once per folder and once without a folder.
+    with store.connect() as conn:
+        for other in ('other', None):
+            save_document(conn, project, None, DocumentInput(slug='api-guide', title='Elsewhere', markdown='# E'), folder=other)
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with store.connect() as conn:
+            save_document(conn, project, None, DocumentInput(slug='api-guide', title='Twice', markdown='# T'), folder='team/payments')
+    assert client.delete(endpoint, headers=HEADERS, params={'revision': 2, 'confirmed': True}).status_code == 200
+    assert not (out / 'team/payments/api-guide').exists()
+
+
+def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from knowledge_admin.documents import DocumentInput, save_document
+    client = _client(tmp_path, repository_store=store)
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
+    assert client.post('/api/documentation/documents', headers=HEADERS,
+                       json={'slug': 'payments', 'title': 'P', 'markdown': '# P'}).status_code == 201
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        with pytest.raises(HTTPException) as error:
+            save_document(conn, project, None, DocumentInput(slug='api', title='A', markdown='# A'), folder='payments/api')
+        assert error.value.status_code == 409
+        assert error.value.detail == 'The folder payments holds the export of the document payments. Choose another folder.'
+        save_document(conn, project, None, DocumentInput(slug='api', title='A', markdown='# A'), folder='team/payments')
+    refused = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'team', 'title': 'T', 'markdown': '# T'})
+    assert refused.status_code == 409
+    assert refused.json()['error']['message'] == 'The slug team is used by a documentation folder. Choose another slug.'

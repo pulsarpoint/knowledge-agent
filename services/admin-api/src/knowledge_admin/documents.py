@@ -85,11 +85,11 @@ def _output_root() -> Path:
     return root.resolve(strict=True)
 
 
-def export_location(slug: str, phase_metadata: dict | None = None) -> tuple[Path, str]:
-    """Folder and main file of a document's current export: <slug>/README.md or services/<svc>/<phase>/<phase>.md."""
+def export_location(slug: str, phase_metadata: dict | None = None, folder: str | None = None) -> tuple[Path, str]:
+    """Folder and main file of a document's current export: [<folder>/]<slug>/README.md or services/<svc>/<phase>/<phase>.md."""
     root = _output_root()
     if phase_metadata is None:
-        return root / slug, 'README.md'
+        return (root / folder / slug if folder else root / slug), 'README.md'
     service_folder = re.sub(r'[^a-z0-9]+', '-', phase_metadata['service_name'].lower()).strip('-')[:40] or 'service'
     service_folder += '-' + str(UUID(phase_metadata['service_id']))[:8]
     phase = phase_metadata['phase']
@@ -101,7 +101,7 @@ def export_location(slug: str, phase_metadata: dict | None = None) -> tuple[Path
 def export_document(document: dict, *, phase_metadata: dict | None = None) -> str:
     """Materialize a saved version. PostgreSQL remains the source of truth."""
     root = _output_root()
-    folder, main = export_location(document['slug'], phase_metadata)
+    folder, main = export_location(document['slug'], phase_metadata, document.get('folder'))
     files = document_files(document['markdown'])
     files[main] = files.pop('README.md')
     if document.get('source_commits'):
@@ -131,7 +131,7 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
 
 def export_input(conn, document_id: UUID) -> dict | None:
     """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata."""
-    row = conn.execute('''SELECT d.slug, d.revision, d.project_id, v.markdown, v.source_snapshot, v.generation_id
+    row = conn.execute('''SELECT d.slug, d.folder, d.revision, d.project_id, v.markdown, v.source_snapshot, v.generation_id
         FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s''', (document_id,)).fetchone()
     if row is None:
         return None
@@ -147,7 +147,7 @@ def export_input(conn, document_id: UUID) -> dict | None:
     commits = {item['id']: item['git_commit'] for item in row['source_snapshot']['code_projects'] if item.get('git_commit')}
     if phase_metadata is not None:
         phase_metadata = {**phase_metadata, 'source_commits': commits}
-    return {'slug': row['slug'], 'markdown': row['markdown'], 'revision': row['revision'],
+    return {'slug': row['slug'], 'folder': row['folder'], 'markdown': row['markdown'], 'revision': row['revision'],
             'source_commits': commits, 'phase_metadata': phase_metadata}
 
 
@@ -170,19 +170,20 @@ def _remove_files(folder: Path, keep=lambda name: False) -> None:
         folder.rmdir()
 
 
-def remove_exported_folder(slug: str) -> None:
-    """Remove the regular files of a document's <slug>/ folder; subdirectories stay, and the folder goes only if empty."""
+def remove_exported_folder(slug: str, folder: str | None = None) -> None:
+    """Remove the regular files of a document's [<folder>/]<slug>/ folder; subdirectories stay, and the folder goes only if empty."""
     root = _output_root()
-    folder = root / slug
-    if folder.parent == root and _real_folder(root, folder):
-        _remove_files(folder)
+    parent = root / folder if folder else root
+    target = parent / slug
+    if target.parent == parent and _real_folder(root, target):
+        _remove_files(target)
 
 
 def remove_export(current: dict) -> None:
     """Remove a document's current export (see export_input); phase folders lose only the exporter's files."""
     phase_metadata = current['phase_metadata']
     if phase_metadata is None:
-        remove_exported_folder(current['slug'])
+        remove_exported_folder(current['slug'], current.get('folder'))
         return
     root = _output_root()
     folder, main = export_location(current['slug'], phase_metadata)
@@ -210,7 +211,7 @@ def backfill_exports(store: RepositoryStore) -> int:
                 current = export_input(conn, document_id)
             if current is None:
                 continue
-            folder, main = export_location(current['slug'], current['phase_metadata'])
+            folder, main = export_location(current['slug'], current['phase_metadata'], current['folder'])
             if (folder / main).is_file():
                 continue
             export_document(**export_args(current))
@@ -222,21 +223,42 @@ def backfill_exports(store: RepositoryStore) -> int:
     return written
 
 
+def export_conflict(conn, project: UUID, slug: str, folder: str | None, document_id: UUID | None = None) -> str | None:
+    """Why this document's export would share a top-level folder of GENERATED_DOCS_FOLDER with another export, or None.
+    A folderless document exports to <slug>/, a folder document to <folder>/<slug>/."""
+    if folder is None:
+        if conn.execute("SELECT 1 FROM ka.documents WHERE project_id=%s AND split_part(folder,'/',1)=%s LIMIT 1",
+                        (project, slug)).fetchone():
+            return f'The slug {slug} is used by a documentation folder. Choose another slug.'
+        return None
+    first = folder.split('/')[0]
+    if conn.execute('''SELECT 1 FROM ka.documents WHERE project_id=%s AND folder IS NULL AND slug=%s
+        AND id IS DISTINCT FROM %s LIMIT 1''', (project, first, document_id)).fetchone():
+        return f'The folder {first} holds the export of the document {first}. Choose another folder.'
+    return None
+
+
 def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
-                  document_id: UUID | None = None, generation_id: UUID | None = None) -> dict:
-    """Save a complete immutable version within the caller's transaction."""
+                  document_id: UUID | None = None, generation_id: UUID | None = None, folder: str | None = None) -> dict:
+    """Save a complete immutable version within the caller's transaction.
+
+    `folder` places a new document in a documentation folder; an existing document keeps its own folder."""
     if document_id is None:
         if value.revision is not None:
             raise HTTPException(400, 'New documents cannot reuse a revision')
         document_id = uuid4()
         revision,base = 1,None
     else:
-        previous = conn.execute('SELECT revision,current_version_id FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id,project)).fetchone()
+        previous = conn.execute('SELECT revision,current_version_id,folder FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id,project)).fetchone()
         if previous is None:
             raise HTTPException(404, 'Document not found')
         if previous['revision'] != value.revision:
             raise HTTPException(409, 'This document changed. Reload it before saving; your text has not been overwritten.')
         revision,base = previous['revision']+1,previous['current_version_id']
+        folder = previous['folder']
+    conflict = export_conflict(conn, project, value.slug, folder, document_id)
+    if conflict:
+        raise HTTPException(409, conflict)
     # Select only public inventory columns; credentials never enter document history.
     sources = {
         'environments': conn.execute('SELECT id,name FROM ka.environments WHERE project_id=%s AND id=ANY(%s) ORDER BY id FOR SHARE', (project,value.environment_ids)).fetchall(),
@@ -269,9 +291,9 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
         if row['id'] in source_commits:
             row['git_commit'] = source_commits[row['id']]
     version_id = uuid4()
-    conn.execute('''INSERT INTO ka.documents(id,project_id,slug,current_version_id,revision) VALUES (%s,%s,%s,%s,%s)
+    conn.execute('''INSERT INTO ka.documents(id,project_id,slug,folder,current_version_id,revision) VALUES (%s,%s,%s,%s,%s,%s)
         ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug,current_version_id=EXCLUDED.current_version_id,revision=EXCLUDED.revision''',
-        (document_id,project,value.slug,version_id,revision))
+        (document_id,project,value.slug,folder,version_id,revision))
     conn.execute('''INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
         tags,markdown,content_hash,source_snapshot,base_version_id,origin,created_by,generation_id)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
@@ -393,10 +415,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             with db.connect() as conn:
                 project = db.project(conn, app_name)
                 actor = db.actor(conn,subject,email)
-                old_slug = None
+                old_slug = old_folder = None
                 if document_id is not None:
-                    old = conn.execute('SELECT slug FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone()
-                    old_slug = old['slug'] if old else None
+                    old = conn.execute('SELECT slug,folder FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone()
+                    if old:
+                        old_slug, old_folder = old['slug'], old['folder']
                 saved = save_document(conn,project,actor,value,document_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A document with this slug already exists') from None
@@ -407,7 +430,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 phase = current['phase_metadata'] is not None
                 export_document(**export_args(current))
                 if old_slug is not None and old_slug != current['slug'] and not phase:
-                    remove_exported_folder(old_slug)
+                    remove_exported_folder(old_slug, old_folder)
         except (OSError, ValueError):
             saved = {**saved, 'export_error': 'Saved. Writing the document file failed; use Export to folder to retry.'}
         return saved
