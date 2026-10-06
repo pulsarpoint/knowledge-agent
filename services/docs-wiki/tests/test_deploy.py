@@ -16,7 +16,7 @@ ROOT = "${DATA_ROOT:?Run make setup DATA_ROOT=/path}"
 DATA = {"type": "bind", "source": ROOT, "target": "/work/data", "read_only": True}
 FOLDERS = {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDER": "docs",
            "GENERATED_DOCS_FOLDER": "generated-documents", "JIRA_FOLDER": "jira"}
-WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "docs-wiki": [], "shell-worker": [],
+WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "shell-worker": [],
            "admin-api": ["CODE_FOLDER", "CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"],
            "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"],
            "documentation-worker": ["CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"]}
@@ -149,8 +149,11 @@ def test_data_root_is_mounted_once_read_only_with_writable_folders_only_for_writ
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
     for name, variables in WRITERS.items():
         assert data_mounts(services[name]) == [DATA, *(writable(v) for v in variables)], name
+    # docs-wiki serves only the docs folder, so it sees nothing else in DATA_ROOT.
+    assert data_mounts(services["docs-wiki"]) == [{"type": "bind", "source": ROOT + "/" + folder("DOCS_FOLDER"),
+                                                    "target": "/work/data/" + folder("DOCS_FOLDER"), "read_only": True}]
     for name, service in services.items():
-        if name not in WRITERS:
+        if name not in WRITERS and name != "docs-wiki":
             assert not data_mounts(service), name
         for volume in service.get("volumes", []):
             target = volume["target"] if isinstance(volume, dict) else volume.split(":")[1]

@@ -47,7 +47,8 @@ make setup DATA_ROOT=/opt/knowledge-agent
 Compose refuses to start without it (`Run make setup DATA_ROOT=/path`); nothing is
 created inside the checkout. `DATA_ROOT` must be an absolute path. `make setup` creates
 the folders below inside it. `DATA_ROOT` is mounted once, read-only, at `/work/data`;
-each folder is writable only in the services listed.
+each folder is writable only in the services listed. `docs-wiki` mounts only
+`DOCS_FOLDER` (read-only), not the rest of `DATA_ROOT`.
 
 | Variable | Default | Container path | Contents | Writable in |
 | --- | --- | --- | --- | --- |

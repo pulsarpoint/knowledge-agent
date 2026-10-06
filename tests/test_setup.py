@@ -301,7 +301,7 @@ class SetupTests(unittest.TestCase):
             # Compose escapes dollars when serializing config for safe reloading.
             data = str(root / "data").replace("$", "$$")
             folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
-            writers = {"rag": ["jira"], "rag-worker": [], "docs-wiki": [], "shell-worker": [],
+            writers = {"rag": ["jira"], "rag-worker": [], "shell-worker": [],
                        "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
                        "documentation-worker": ["index", "documents"]}
             for name, writable in writers.items():
@@ -310,6 +310,9 @@ class SetupTests(unittest.TestCase):
                 expected = sorted([(data, "/work/data", True)] + [
                     (f"{data}/{folders[key]}", f"/work/data/{folders[key]}", False) for key in writable])
                 self.assertEqual(mounts, expected, name)
+            docs = [(v["source"], v["target"], bool(v.get("read_only"))) for v in services["docs-wiki"]["volumes"]
+                    if v["target"].startswith("/work/data")]
+            self.assertEqual(docs, [(f"{data}/docs", "/work/data/docs", True)])  # only the docs folder
             for name in ("rag", "admin-api"):
                 env = services[name]["environment"]
                 self.assertEqual(env["DATA_ROOT_DIR"], "/work/data")

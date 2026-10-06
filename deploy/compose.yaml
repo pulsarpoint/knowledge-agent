@@ -1,5 +1,6 @@
 name: knowledge-agent-v3
-# DATA_ROOT is mounted once, read-only, at /work/data. A service that writes gets that
+# DATA_ROOT is mounted once, read-only, at /work/data (docs-wiki gets only DOCS_FOLDER there).
+# A service that writes gets that
 # folder as a writable bind on top, at the same relative path. make setup validates the
 # folder variables (relative, no overlap) and creates the folders, which must exist as the
 # nested mount points; Compose does neither.
@@ -110,7 +111,11 @@ services:
     restart: unless-stopped
     command: [serve, "/work/data/${DOCS_FOLDER:-docs}", --host, "0.0.0.0"]
     volumes:
-      - *data-root
+      # Only the docs folder: the reader serves it and reaches everything else through RAG.
+      - type: bind
+        source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${DOCS_FOLDER:-docs}
+        target: /work/data/${DOCS_FOLDER:-docs}
+        read_only: true
       - wiki-data:/data
     environment:
       LLM_SETTINGS_SOURCE: database
