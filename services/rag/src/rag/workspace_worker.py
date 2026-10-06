@@ -1,4 +1,11 @@
-"""Durable incremental sync of one collection, published in one transaction."""
+"""Durable incremental sync of one collection, published in one transaction.
+
+Every file the walk finds gets a decision in the collection's file log. A file whose size, mtime and
+processing fingerprint equal its log row is not opened; one whose content hash and fingerprint match
+is not parsed. A file that cannot be read or parsed is logged and the sync continues. Collection-level
+problems (a missing folder, limits, a settings change, an unavailable embedding model) fail the sync,
+publish nothing and leave the log unchanged.
+"""
 
 import json
 import logging
@@ -11,8 +18,9 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
-from rag.collections import MAX_BYTES
+from rag import file_log
 from rag.chunking import chunk_sections
+from rag.collections import MAX_BYTES, Walk
 from rag.structure import Section, parse_structure
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed, embedding_profile
@@ -51,8 +59,10 @@ class CollectionSettings(BaseModel):
     chunk_overlap: int
 
 
-STATS = ("hashed_files", "skipped_files", "parsed_files", "embedded_chunks", "reused_vectors", "removed_entries",
-         "skipped_binary", "skipped_large", "skipped_links", "skipped_special", "skipped_unreadable", "skipped_invalid_names")
+STATS = ("hashed_files", "skipped_files", "unopened_files", "parsed_files", "failed_files", "embedded_chunks",
+         "reused_vectors", "removed_entries", "skipped_binary", "skipped_large", "skipped_links", "skipped_special",
+         "skipped_unreadable", "skipped_invalid_names")
+CHANGED = "Files changed while syncing; refresh the collection again"
 
 
 def decode(data: bytes) -> str | None:
@@ -84,30 +94,82 @@ def parse_source(path: str, text: str, settings: CollectionSettings) -> list[str
             if section.text.strip()]
 
 
-def snapshot(workspace: Workspace, collection: dict, sources: list[str], limit: int, stats: dict) -> list[dict]:
-    """Read every indexable file under the collection's paths; a missing path raises FolderMissing."""
-    walk = workspace.areas.walk_paths(sources, collection["include"], collection["exclude"])
-    stats["skipped_links"], stats["skipped_special"] = walk.skipped["links"], walk.skipped["special"]
-    stats["skipped_unreadable"], stats["skipped_invalid_names"] = walk.skipped["unreadable"], walk.skipped["invalid_names"]
-    files, total = [], 0
+def read(workspace: Workspace, path: str, limit: int) -> bytes:
+    area, _, rest = path.partition("/")
+    return workspace.areas.read(area, rest, limit)
+
+
+def decide(workspace: Workspace, walk: Walk, log: dict, current: str, limit: int, force: bool,
+           stats: dict) -> tuple[dict[str, dict], list[dict]]:
+    """The log decision for every walked file, and the text files that need processing.
+
+    A file matching its log row (size, mtime, fingerprint) is not opened; a file whose content hash and
+    fingerprint match its row is not parsed. Rebuild (`force`) reads and processes every file.
+    """
+    decisions, sources, total = {}, [], 0
     for entry in walk.files:
+        path, old = entry["path"], log.get(entry["path"])
+        decision = {"source": entry["source"], "size": entry["size"], "mtime": entry["mtime"],
+                    "content_hash": None, "status": "indexed", "error": None}
+        if not force and file_log.unchanged(entry, old, current):
+            decision.update(content_hash=old["content_hash"], status=old["status"], error=old["error"])
+            decisions[path] = decision
+            stats["skipped_files"] += 1
+            stats["unopened_files"] += 1
+            continue
         if entry["size"] > limit:
+            decisions[path] = {**decision, "status": "skipped_too_large"}
             stats["skipped_large"] += 1
             continue
-        area, _, rest = entry["path"].partition("/")
         try:
-            data = workspace.areas.read(area, rest, limit)
+            data = read(workspace, path, limit)
         except FileNotFoundError:
-            continue  # removed between walk and read; the manifest check catches real races
+            continue  # deleted after the walk; the publish re-check fails the sync
+        except (OSError, HTTPException) as error:
+            message = error.detail if isinstance(error, HTTPException) else f"Cannot read this file: {error.strerror or error}"
+            decisions[path] = {**decision, "status": "skipped_unreadable", "error": str(message)[:2000]}
+            stats["skipped_unreadable"] += 1
+            continue
         total += len(data)
         if total > MAX_BYTES:
             raise HTTPException(400, "A sync is limited to 200 MB of text; narrow the collection's include patterns")
+        decision["content_hash"] = digest(data)
+        decisions[path] = decision
+        stats["hashed_files"] += 1
         text = decode(data)
         if text is None:
+            decision["status"] = "skipped_binary"
             stats["skipped_binary"] += 1
+        elif (not force and old is not None and old["status"] != "removed"
+              and old["content_hash"] == decision["content_hash"] and old["fingerprint"] == current):
+            decision.update(status=old["status"], error=old["error"])  # touched, same content: not parsed
+            stats["skipped_files"] += 1
+        else:
+            sources.append({"path": path, "source": entry["source"], "text": text, "content_hash": decision["content_hash"]})
+    return decisions, sources
+
+
+def recheck(workspace: Workspace, collection: dict, sources: list[str], walk: Walk, decisions: dict, limit: int) -> None:
+    """Refuse to publish when a file changed after the first walk.
+
+    Sizes and mtimes are compared with the first walk; only files whose size or mtime moved are read
+    again and hashed against the hash this sync used (the logged hash for files it did not open).
+    """
+    again = workspace.areas.walk_paths(sources, collection["include"], collection["exclude"])
+    before = {entry["path"]: (entry["size"], entry["mtime"]) for entry in walk.files}
+    after = {entry["path"]: (entry["size"], entry["mtime"]) for entry in again.files}
+    if before.keys() != after.keys():
+        raise HTTPException(409, CHANGED)
+    for path, stat in after.items():
+        if stat == before[path]:
             continue
-        files.append({"path": entry["path"], "source": entry["source"], "text": text, "content_hash": digest(data)})
-    return files
+        used = decisions.get(path, {}).get("content_hash")
+        try:
+            now = digest(read(workspace, path, limit))
+        except (OSError, HTTPException):
+            now = None
+        if used is None or now != used:
+            raise HTTPException(409, CHANGED)
 
 
 def process(workspace: Workspace, job: dict, transport=None):
@@ -128,18 +190,22 @@ def process(workspace: Workspace, job: dict, transport=None):
             path_ids = {row["source_path"]: row["id"] for row in workspace.paths(conn, collection["id"])}
             model = workspace.embedding_model(conn, config["embedding_model_id"]) if collection["embeddings_enabled"] else None
             existing = conn.execute("SELECT * FROM ka.rag_files WHERE collection_id=%s", (collection["id"],)).fetchall()
-        sources = snapshot(workspace, collection, list(path_ids), limit, stats)
-        stats["hashed_files"] = len(sources)
-        previous = {row["path"]: row for row in existing}
+            log = file_log.load(conn, collection["id"])
         settings = CollectionSettings(chunk_size=collection["chunk_size"], chunk_overlap=collection["chunk_overlap"])
-        fingerprint = digest({"parser": "markdown-text-json-v3", "chunker": "sections-v1",
-                              "size": settings.chunk_size, "overlap": settings.chunk_overlap})
+        processing = digest({"parser": "markdown-text-json-v3", "chunker": "sections-v1",
+                             "size": settings.chunk_size, "overlap": settings.chunk_overlap})
         profile = embedding_profile(model)
+        log_fingerprint = file_log.fingerprint(processing, profile, collection["include"], collection["exclude"], limit)
+        walk = workspace.areas.walk_paths(list(path_ids), collection["include"], collection["exclude"])  # FolderMissing, limits
+        for key in ("links", "special", "unreadable", "invalid_names"):
+            stats["skipped_" + key] = walk.skipped[key]
+        decisions, sources = decide(workspace, walk, log, log_fingerprint, limit, force, stats)
+        previous = {row["path"]: row for row in existing}
         updates, vectors, reused = [], {}, set()
         for source in sources:
             old = previous.get(source["path"])
             same = (old is not None and old["content_hash"] == source["content_hash"]
-                    and old["processing_hash"] == fingerprint and not force)
+                    and old["processing_hash"] == processing and not force)
             if same and old["embedding_profile"] == profile:
                 stats["skipped_files"] += 1
                 continue
@@ -147,7 +213,12 @@ def process(workspace: Workspace, job: dict, transport=None):
                 with workspace.connect() as conn:
                     texts = [row["text"] for row in conn.execute("SELECT text FROM ka.rag_chunks WHERE file_id=%s ORDER BY position", (old["id"],)).fetchall()]
             else:
-                texts = parse_source(source["path"], source["text"], settings)
+                try:
+                    texts = parse_source(source["path"], source["text"], settings)
+                except Exception as error:  # noqa: BLE001 - one file that cannot be parsed never fails the collection
+                    decisions[source["path"]].update(status="failed", error=f"Could not parse this file: {error}"[:2000])
+                    stats["failed_files"] += 1
+                    continue
                 stats["parsed_files"] += 1
             chunks = [{"text": text, "input_hash": digest(text)} for text in texts]
             heartbeat(workspace, job, stats)
@@ -168,13 +239,13 @@ def process(workspace: Workspace, job: dict, transport=None):
                 batch_size = 1 if model.provider == 'bedrock' else 32
                 for offset in range(0, len(pending), batch_size):
                     batch = pending[offset:offset + batch_size]
-                    values = embed(model, [text for _, text in batch], transport)
+                    values = embed(model, [text for _, text in batch], transport)  # a model failure fails the sync
                     vectors.update(zip([value for value, _ in batch], values, strict=True))
                     stats["embedded_chunks"] += len(values)
                     heartbeat(workspace, job, stats)
             updates.append((source, chunks))
         # The collection row lock serializes publication with collection edits and
-        # deletion. A second disk manifest catches edits made directly on the host.
+        # deletion. A second walk catches edits made directly on the host.
         with workspace.connect() as conn:
             current = conn.execute("SELECT revision FROM ka.rag_collections WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (collection["id"],)).fetchone()
             running = conn.execute("SELECT id FROM ka.jobs WHERE id=%s AND status='running' AND lease_token=%s AND lease_expires_at>now() FOR UPDATE", (job["id"], job["lease_token"])).fetchone()
@@ -191,10 +262,7 @@ def process(workspace: Workspace, job: dict, transport=None):
                                        (project, profile, list(reused))).fetchone()["n"]
                 if present != len(reused):
                     raise HTTPException(409, "Embeddings changed while syncing; refresh the collection again")
-            check = snapshot(workspace, collection, list(path_ids), limit, dict.fromkeys(STATS, 0))
-            manifest = lambda rows: sorted((s["path"], s["content_hash"]) for s in rows)
-            if manifest(check) != manifest(sources):
-                raise HTTPException(409, "Files changed while syncing; refresh the collection again")
+            recheck(workspace, collection, list(path_ids), walk, decisions, limit)
             for value, vector in vectors.items():
                 conn.execute("INSERT INTO ka.rag_vectors(project_id,profile,input_hash,embedding) VALUES (%s,%s,%s,%s::public.vector) ON CONFLICT (project_id,profile,input_hash) DO UPDATE SET embedding=EXCLUDED.embedding", (project, profile, value, json.dumps(vector)))
             for source, chunks in updates:
@@ -203,15 +271,17 @@ def process(workspace: Workspace, job: dict, transport=None):
                                     SET path_id=EXCLUDED.path_id,content_hash=EXCLUDED.content_hash,processing_hash=EXCLUDED.processing_hash,
                                     embedding_profile=EXCLUDED.embedding_profile,job_id=EXCLUDED.job_id,indexed_at=now() RETURNING id""",
                                    (project, collection["id"], path_ids[source["source"]], source["path"], source["content_hash"],
-                                    fingerprint, profile, job["id"])).fetchone()
+                                    processing, profile, job["id"])).fetchone()
                 conn.execute("DELETE FROM ka.rag_chunks WHERE file_id=%s", (row["id"],))
                 for position, chunk in enumerate(chunks):
                     conn.execute("INSERT INTO ka.rag_chunks(project_id,file_id,position,text,input_hash) VALUES (%s,%s,%s,%s,%s)", (project, row["id"], position, chunk["text"], chunk["input_hash"]))
-            retained = {s["path"] for s in sources}
+            # Only files whose decision is indexed stay searchable; skipped and failed files leave the index.
+            indexed = {path for path, decision in decisions.items() if decision["status"] == "indexed"}
             for old in existing:
-                if old["path"] not in retained:
+                if old["path"] not in indexed:
                     conn.execute("DELETE FROM ka.rag_files WHERE id=%s", (old["id"],))
                     stats["removed_entries"] += 1
+            file_log.record(conn, collection["id"], path_ids, decisions, log_fingerprint)
             conn.execute("""DELETE FROM ka.rag_vectors v WHERE v.project_id=%s AND NOT EXISTS (
                             SELECT 1 FROM ka.rag_chunks c JOIN ka.rag_files f ON f.id=c.file_id
                             WHERE c.project_id=v.project_id AND c.input_hash=v.input_hash AND f.embedding_profile=v.profile)""", (project,))
