@@ -12,7 +12,6 @@ import * as profiles from '../../lib/profiles';
 
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn() }));
 vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })), getCodeMCP: vi.fn(async () => ({ revision: 1, mcp_server_ids: [] })), saveCodeMCP: vi.fn() }));
-vi.mock('../SearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Search test {agentId}</div> }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
 vi.mock('../OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
   const [task, setTask] = useState('');
@@ -255,35 +254,4 @@ test('agent removal requires confirmation and preserves the record on conflicts'
   expect(screen.getByRole('alertdialog')).toBeVisible();
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
   expect(screen.queryByRole('button', { name: 'Remove Payments code' })).not.toBeInTheDocument();
-});
-
-test('the agent list marks published Reader agents and flags ones that cannot answer', async () => {
-  agents[0] = { ...agents[0], reader_enabled: true, reader_violations: [] };
-  agents[2] = { ...agents[2], reader_enabled: true, reader_violations: ['no enabled model'] };
-  render(app('/agents'));
-  const search = (await screen.findByRole('link', { name: 'Search agent' })).closest('tr')!;
-  expect(within(search).getByText('Reader')).toBeVisible();
-  const code = screen.getByRole('link', { name: 'Code search agent' }).closest('tr')!;
-  expect(within(code).getByText("Reader can't answer")).toHaveAttribute('title', "Reader can't answer: no enabled model");
-  expect(screen.queryByText('Reader assistant')).not.toBeInTheDocument();
-});
-
-test('Available in Reader explains which rules block publishing', async () => {
-  agents[0] = { ...agents[0], mcp_enabled: true, documents_grounded: false, reader_enabled: false };
-  render(app('/agents/search'));
-  const publish = await screen.findByRole('switch', { name: 'Available in Reader' });
-  expect(publish).toBeDisabled();
-  expect(screen.getByText(/Answer only from documents is off, uses MCP tools/)).toBeVisible();
-});
-
-test('a ready agent can be published to the Reader', async () => {
-  const user = userEvent.setup();
-  agents[0] = { ...agents[0], mcp_enabled: false, repositories_enabled: false, documents_grounded: true, reader_enabled: false };
-  vi.mocked(profiles.saveAgent).mockImplementation(async value => ({ ...value, revision: value.revision + 1 }));
-  render(app('/agents/search'));
-  const publish = await screen.findByRole('switch', { name: 'Available in Reader' });
-  expect(publish).toBeEnabled();
-  await user.click(publish);
-  await user.click(screen.getByRole('button', { name: 'Save details' }));
-  expect(vi.mocked(profiles.saveAgent).mock.calls[0][0]).toMatchObject({ id: 'search', reader_enabled: true });
 });

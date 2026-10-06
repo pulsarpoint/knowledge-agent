@@ -1,20 +1,11 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { startOperationsRun, cancelOperationsRun, getAgentSessions } from '../operations';
-import { streamChat } from '../agents';
 import { deleteAgent } from '../profiles';
 afterEach(() => vi.unstubAllGlobals());
-
-test('legacy execution clients still read TODO', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('TODO')));
-  const chat = [];
-  for await (const event of streamChat('app', 'Explain', undefined, undefined, undefined, 'custom')) chat.push(event);
-  expect(chat).toEqual([{ type: 'todo', text: 'TODO' }]);
-});
 
 test('execution clients preserve structured access errors', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Agent disabled' } }, { status: 409 })));
   await expect(startOperationsRun('Inspect', 'custom', new AbortController().signal, vi.fn())).rejects.toMatchObject({ status: 409, message: 'Agent disabled' });
-  await expect(streamChat('app', 'Explain').next()).rejects.toThrow('Agent disabled');
 });
 
 test('direct runs send the selected agent and task once and consume live events', async () => {

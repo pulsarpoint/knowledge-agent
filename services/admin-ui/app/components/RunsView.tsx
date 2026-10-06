@@ -9,7 +9,7 @@ import { Input } from '~/components/ui/input';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-const KINDS = ['test', 'reader', 'board', 'documentation'];
+const KINDS = ['test', 'board', 'documentation'];
 
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
