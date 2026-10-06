@@ -291,3 +291,42 @@ def test_folders_rag_skips_are_refused_when_typed(env):
         assert browsed.status_code == 400 and browsed.json()["error"]["message"] == f"Folder {path} is skipped by RAG", path
     assert not (roots["rag-data"] / "node_modules").exists()
     assert status(env, created)["paths"] == []
+
+
+def test_deleting_a_collection_removes_its_agent_grants(env):
+    client, prefix, roots = env[1], env[3], env[6]
+    (roots["rag-data"] / "docs").mkdir()
+    created = collection(env)
+    kept = collection(env, "kept")
+    with env[0].connect() as conn:
+        agent = conn.execute("SELECT id FROM ka.agents ORDER BY id LIMIT 1").fetchone()["id"]  # a seeded agent
+        conn.execute("INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES (%s,%s),(%s,%s)", (agent, created, agent, kept))
+    revision = status(env, created)["revision"]
+    assert client.delete(prefix + f"/collections/{created}", params={"revision": revision, "confirmed": True}).status_code == 200
+    with env[0].connect() as conn:
+        grants = conn.execute("SELECT collection_id FROM ka.agent_collections WHERE agent_id=%s", (agent,)).fetchall()
+    assert [str(g["collection_id"]) for g in grants] == [kept]
+
+
+def test_removing_a_folder_drops_vectors_no_chunk_uses(env):
+    from test_workspace import configure
+    client, prefix, roots = env[1], env[3], env[6]
+    configure(env)
+    for name, text in (("a", "alpha only here"), ("b", "beta only here")):
+        (roots["rag-data"] / name).mkdir()
+        (roots["rag-data"] / name / f"{name}.md").write_text(f"# {name}\n\n{text}")
+    created = collection(env, "both", "rag-data/a", "rag-data/b", embeddings_enabled=True, search_mode="hybrid")
+    _, row = sync(env, created)
+    assert row["embedded_chunks"] == row["chunks"] == 2
+
+    def vectors():
+        with env[0].connect() as conn:
+            return {r["input_hash"] for r in conn.execute("SELECT input_hash FROM ka.rag_vectors").fetchall()}
+
+    def chunk_hashes():
+        with env[0].connect() as conn:
+            return {r["input_hash"] for r in conn.execute("SELECT input_hash FROM ka.rag_chunks").fetchall()}
+    assert len(vectors()) == 2
+    path_id = next(p["id"] for p in row["paths"] if p["source_path"] == "rag-data/b")
+    assert client.delete(prefix + f"/collections/{created}/paths/{path_id}").status_code == 200
+    assert len(vectors()) == 1 and vectors() == chunk_hashes()
