@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { createDocumentationWorkflow, getDocumentationWorkflow, getDocumentationWorkflows, type DocumentationWorkflow } from '~/lib/documents';
 import { getServices, getEnvironments } from '~/lib/api';
 import { getLlmSettings, codeCompatible } from '~/lib/llm';
+import CodeProjectDocumentationForm from './CodeProjectDocumentationForm';
 import DocumentationGenerationForm from './DocumentationGenerationForm';
 import DocumentationGenerationsView from './DocumentationGenerationsView';
 import { Alert, AlertDescription } from '~/components/ui/alert';
@@ -36,13 +37,14 @@ export function DocumentationWorkflowsView() {
     {rows === null ? <Skeleton className="h-40" /> : <Table><TableHeader><TableRow><TableHead>Documentation</TableHead><TableHead>Phases</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{rows.map(row => <TableRow key={row.id}><TableCell><Link className="underline" to={`/documentation/generations/${row.id}`}>{row.name}</Link></TableCell><TableCell><div className="flex flex-wrap gap-2">{row.graph_runs.length > 0 && <Badge variant="secondary">Code graph · {graphStatus(row.graph_runs)}</Badge>}{row.phases.length ? row.phases.map(phase => <Badge key={phase.kind} variant={phase.status === 'failed' ? 'destructive':'secondary'}>{titles[phase.kind]} · {phase.status}</Badge>) : row.graph_runs.length ? null : 'Not started'}</div></TableCell><TableCell>{new Date(row.updated_at).toLocaleString()}</TableCell></TableRow>)}</TableBody></Table>}
     {rows?.length === 0 && <p>No saved documentation workflows.</p>}
     {(offset > 0 || rows?.length === 50) && <div className="flex gap-2"><Button variant="outline" disabled={!offset} onClick={() => setOffset(n => n-50)}>Previous</Button><Button variant="outline" disabled={(rows?.length ?? 0)<50} onClick={() => setOffset(n => n+50)}>Next</Button></div>}
+    <DocumentationGenerationsView scope="code_project" title="Code project documents" />
   </div>;
 }
 
 export function NewDocumentationWorkflow() {
   const navigate=useNavigate();
   const [data,setData]=useState<{services:{id:string;name:string}[];environments:{id:string;name:string}[];models:{id:string;name:string}[]} | null>(null);
-  const [scope,setScope]=useState<'service'|'environment'>('service');
+  const [scope,setScope]=useState<'service'|'environment'|'code_project'>('service');
   const [subject,setSubject]=useState('');
   const [model,setModel]=useState('');
   const [busy,setBusy]=useState(false);
@@ -55,17 +57,19 @@ export function NewDocumentationWorkflow() {
   function choose(label:string,value:string,items:{id:string;name:string}[],change:(value:string)=>void) {
     return <Field><FieldLabel htmlFor={`workflow-${label}`}>{label}</FieldLabel><Select value={value} onValueChange={change}><SelectTrigger id={`workflow-${label}`}><SelectValue placeholder="Select…" /></SelectTrigger><SelectContent><SelectGroup>{items.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>;
   }
-  return <form className="flex max-w-2xl flex-col gap-5" onSubmit={async e => {e.preventDefault();setBusy(true);setError('');try {
-    const row=await createDocumentationWorkflow({scope,model_id:model,service_id:scope==='service'?subject:null,environment_id:scope==='environment'?subject:null});
+  return <div className="flex max-w-2xl flex-col gap-5"><form className="flex flex-col gap-5" onSubmit={async e => {e.preventDefault();if (scope === 'code_project') return;setBusy(true);setError('');try {
+    const row=await createDocumentationWorkflow({scope:scope as 'service' | 'environment',model_id:model,service_id:scope==='service'?subject:null,environment_id:scope==='environment'?subject:null});
     navigate(`/documentation/generations/${row.id}`);
   } catch(e) {setError(e instanceof Error?e.message:'Could not create workflow');} finally {setBusy(false);} }}>
     <Link className="underline" to="/documentation/generations">Documentation workflows</Link><h1 className="text-2xl font-semibold">New documentation</h1>
-    <p>First create a saved workflow. Source selection, prompts and each generation attempt will belong to its permanent URL.</p>
-    {data ? <fieldset disabled={busy}><FieldGroup>{choose('Scope',scope,[{id:'service',name:'Service'},{id:'environment',name:'Whole environment'}],v=>{setScope(v as typeof scope);setSubject('');})}
-      {choose(scope==='service'?'Service':'Environment',subject,scope==='service'?data.services:data.environments,setSubject)}{choose('Model',model,data.models,setModel)}</FieldGroup></fieldset> : <Skeleton className="h-40" />}
+    <p>{scope==='code_project'?'Generate one document for a code project with a prompt you choose and save it into a documentation folder.':'First create a saved workflow. Source selection, prompts and each generation attempt will belong to its permanent URL.'}</p>
+    {data ? <fieldset disabled={busy}><FieldGroup>{choose('Scope',scope,[{id:'service',name:'Service'},{id:'environment',name:'Whole environment'},{id:'code_project',name:'Code project'}],v=>{setScope(v as typeof scope);setSubject('');})}
+      {scope!=='code_project'&&choose(scope==='service'?'Service':'Environment',subject,scope==='service'?data.services:data.environments,setSubject)}{choose('Model',model,data.models,setModel)}</FieldGroup></fieldset> : <Skeleton className="h-40" />}
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    <Button type="submit" className="self-start" disabled={busy||!subject||!model}>{busy?'Creating…':'Create workflow'}</Button>
-  </form>;
+    {scope!=='code_project'&&<Button type="submit" className="self-start" disabled={busy||!subject||!model}>{busy?'Creating…':'Create workflow'}</Button>}
+  </form>
+  {scope==='code_project' && data && <CodeProjectDocumentationForm modelId={model} onQueued={() => navigate('/documentation/generations')} />}
+  </div>;
 }
 
 export default function DocumentationWorkflowView() {

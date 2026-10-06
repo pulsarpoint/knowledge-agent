@@ -3,7 +3,7 @@ import { Button } from '~/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '~/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-const names: Record<string, string> = { overview: 'Application overview', api: 'API documentation', messaging: 'Messaging documentation', code: 'Code analysis', diagram: 'Code diagram',
+const names: Record<string, string> = { project: 'Code project document', overview: 'Application overview', api: 'API documentation', messaging: 'Messaging documentation', code: 'Code analysis', diagram: 'Code diagram',
   deployment: 'Deployment', deployment_diagram: 'Deployment diagram', architecture: 'Environment architecture', infrastructure: 'Server infrastructure' };
 
 export default function DocumentationTokenUsage({ run, compact = false }: { run: DocumentationGeneration; compact?: boolean }) {

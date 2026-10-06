@@ -10,6 +10,7 @@ export interface DocumentInput {
 export interface DocumentSummary extends Omit<DocumentInput, 'markdown' | 'revision'> {
   id: string; current_version_id: string; published_version_id: string | null; revision: number;
   version: number; content_hash: string; created_at: string; updated_at: string;
+  folder?: string | null;
 }
 export interface DocumentVersion {
   id: string; version: number; title: string; description: string; purpose: string; audience: DocumentInput['audience'];
@@ -30,7 +31,7 @@ export interface DocumentationPhaseUsage {
   output_tokens_details?: { reasoning_tokens?: number };
 }
 export interface DocumentationGeneration {
-  workflow_id?: string;
+  workflow_id?: string; scope?: string; document_name?: string | null; folder?: string | null;
   job_id: string; mode: string; instructions: string; status: string; error: string | null; created_at: string; document_count: number; progress?: string;
   service_id?: string; code_graph_hashes?: Record<string, string>;
   token_usage?: DocumentationPhaseUsage[];
@@ -65,11 +66,12 @@ export const activateDocumentationPrompt = (id: string, versionId: string, revis
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision }),
 });
 export const deleteDocumentationPrompt = (id: string, revision: number, versionId?: string) => request(`/api/documentation/prompts/${id}${versionId ? `/versions/${versionId}` : ''}?revision=${revision}&confirmed=true`, { method: 'DELETE' });
-export const getDocumentationGenerations = (offset: number, signal?: AbortSignal, filter?: { serviceId?: string; kind?: string; workflowId?: string }) => {
+export const getDocumentationGenerations = (offset: number, signal?: AbortSignal, filter?: { serviceId?: string; kind?: string; workflowId?: string; scope?: string }) => {
   const params = new URLSearchParams({ offset: String(offset) });
   if (filter?.serviceId) params.set('service_id', filter.serviceId);
   if (filter?.kind) params.set('kind', filter.kind);
   if (filter?.workflowId) params.set('workflow_id', filter.workflowId);
+  if (filter?.scope) params.set('scope', filter.scope);
   return request<{ generations: DocumentationGeneration[] }>(`/api/documentation/generations?${params}`, { signal });
 };
 
@@ -82,9 +84,35 @@ export interface GenerationInput {
   units: { kind: 'overview' | 'api' | 'messaging' | 'code' | 'diagram' | 'deployment' | 'deployment_diagram' | 'architecture' | 'infrastructure'; prompt_id: string; prompt_version_id: string; prompt_override?: string }[];
   instructions: string; update_existing: boolean;
 }
-export const generateDocumentation = (value: GenerationInput) => request<{ job_id: string }>('/api/documentation/generations', {
+export const generateDocumentation = (value: GenerationInput | CodeProjectGenerationInput) => request<{ job_id: string }>('/api/documentation/generations', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });
+
+export const SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.';
+export const FOLDER_RULE = "A documentation folder is a path such as payments or team/payments: each segment uses letters, digits, '.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; at most 200 characters.";
+const FOLDER_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+/** The server's documentation folder rule: '' when valid, else the rule text. */
+export function folderError(folder: string) {
+  const parts = folder.split('/');
+  return folder.length > 200 || parts.some(part => !FOLDER_SEGMENT.test(part) || part === 'node_modules') || parts[0] === 'services' ? FOLDER_RULE : '';
+}
+export const documentSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120).replace(/-+$/, '');
+/** The default documentation folder for a code project: its name as a slug plus -docs ("Payments API" → "payments-api-docs"). */
+export function defaultFolder(name: string) {
+  const base = name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 195).replace(/-+$/, '');
+  return base ? `${base}-docs` : 'docs';
+}
+
+export interface CodeProjectGenerationInput {
+  scope: 'code_project'; model_id: string; code_project_id: string; prompt_id: string; prompt_version_id: string;
+  code_graph_hashes: Record<string, string>; comments: string; document_name: string; folder: string; update_existing: boolean;
+}
+export interface DocumentationFolder { folder: string; document_count: number; updated_at: string; last_generated_at: string | null; code_projects: string[]; source_path: string | null }
+export interface DocumentationFolders { generated_folder: string | null; folders: DocumentationFolder[] }
+export interface FolderDocument { id: string; slug: string; title: string; version: number; updated_at: string; last_generated_at: string | null; code_projects: string[] }
+const folderUrl = (folder: string) => `/api/documentation/folders/${folder.split('/').map(encodeURIComponent).join('/')}`;
+export const getDocumentationFolders = (signal?: AbortSignal) => request<DocumentationFolders>('/api/documentation/folders', { signal });
+export const getDocumentationFolder = (folder: string, signal?: AbortSignal) => request<{ folder: string; documents: FolderDocument[] }>(folderUrl(folder), { signal });
 
 export const exportDocument = (id: string) => request<{ folder: string }>(`/api/documentation/documents/${id}/export`, { method: "POST" });
 export type GenerationKind = GenerationInput['units'][number]['kind'];
