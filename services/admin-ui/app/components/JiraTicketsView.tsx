@@ -18,6 +18,7 @@ const DEFAULT_JQL = "ORDER BY updated DESC, key DESC";
 
 export default function JiraTicketsView() {
   const [data, setData] = useState<JiraTickets | null>(null);
+  const folder = data?.export_folder ?? "the configured Jira folder";
   const [limit, setLimit] = useState("25");
   const [jql, setJql] = useState(DEFAULT_JQL);
   const [loading, setLoading] = useState(true);
@@ -106,15 +107,15 @@ export default function JiraTicketsView() {
           <Button disabled={busy || selectedTickets.length === 0}><FolderOutput data-icon="inline-start" />Export selected ({selectedTickets.length})</Button>
           <Button asChild variant="outline"><Link to="/rag/collections">Open RAG collections</Link></Button>
         </div>
-        <FieldDescription>Each selected ticket becomes rag-data/jira/&lt;KEY&gt;.md, a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Collections that hold rag-data/jira index the tickets at their next sync.</FieldDescription>
+        <FieldDescription>Each selected ticket becomes {folder}/&lt;KEY&gt;.md, a Markdown file with its description and all comments visible to the Jira user. Re-exporting refreshes that ticket’s file. Collections that hold {folder} index the tickets at their next sync.</FieldDescription>
       </form>
       {exportProgress && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Exporting {exportProgress.done} of {exportProgress.total} tickets. Keep this page open.</p>}
       {exportSummary && <Alert variant={exportSummary.failures.length > 0 ? "destructive" : "default"}>
         <AlertTitle>{exportSummary.failures.length > 0 ? "Export finished with errors" : "Export complete"}</AlertTitle>
         <AlertDescription>
-          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in rag-data/jira. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
+          <p>{exportSummary.results.filter((result) => result.status !== "unchanged").length} files saved, {exportSummary.results.filter((result) => result.status === "unchanged").length} unchanged in {folder}. {exportSummary.results.reduce((count, result) => count + result.comments, 0)} comments included.</p>
           {exportSummary.failures.length > 0 && <><p>Failed tickets remain selected for retry.</p><ul className="list-disc pl-5">{exportSummary.failures.map((failure) => <li key={failure}>{failure}</li>)}</ul></>}
-          {exportSummary.results.length > 0 && <p>Add rag-data/jira to a collection in <Link className="underline underline-offset-4" to="/rag/collections">RAG → Collections</Link> if it is not in one yet, then refresh that collection to update search.</p>}
+          {exportSummary.results.length > 0 && <p>Add {folder} to a collection in <Link className="underline underline-offset-4" to="/rag/collections">RAG → Collections</Link> if it is not in one yet, then refresh that collection to update search.</p>}
         </AlertDescription>
       </Alert>}
       {filtered.length === 0 ? <Empty className="border"><EmptyHeader><EmptyTitle>No matching tickets</EmptyTitle><EmptyDescription>Adjust the saved-list filters or fetch a different Jira query.</EmptyDescription></EmptyHeader></Empty> :

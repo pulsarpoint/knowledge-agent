@@ -7,7 +7,7 @@ import type { JiraConnection, JiraTickets } from "../../lib/api";
 const connection: JiraConnection = { id: "jira-1", base_url: "https://jira.internal/jira", username: "integration-user", has_token: true,
   revision: 2, jql: "ORDER BY updated DESC, key DESC", last_tested_at: null, last_test_error: null, last_successful_sync_at: null, last_fetch_limit: null, last_fetch_total: null };
 const snapshot: JiraTickets = { connection: { ...connection, last_successful_sync_at: "2026-09-09T00:00:00Z", last_fetch_limit: 10, last_fetch_total: 1 },
-  tickets: [{ id: "ticket-1", issue_key: "DEMO-1", jira_project_key: "DEMO", issue_type: "Task", labels: ["payments"], summary: "Check payment latency", priority: "High", status_name: "Open", assignee_name: null, source_updated_at: "2026-09-08T20:00:00Z" }] };
+  tickets: [{ id: "ticket-1", issue_key: "DEMO-1", jira_project_key: "DEMO", issue_type: "Task", labels: ["payments"], summary: "Check payment latency", priority: "High", status_name: "Open", assignee_name: null, source_updated_at: "2026-09-08T20:00:00Z" }], export_folder: "exports/jira" };
 
 test("save connection with token, clear password input, and test saved settings", async () => {
   let saved: JiraConnection | null = null;
@@ -126,7 +126,8 @@ test("export sends only the selected ticket and links to RAG collections", async
   await waitFor(() => expect(screen.getByRole("button", { name: "Export selected (1)" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Export selected (1)" }));
   expect(await screen.findByText("Export complete")).toBeInTheDocument();
-  expect(screen.getByText("0 files saved, 1 unchanged in rag-data/jira. 5 comments included.")).toBeInTheDocument();
+  expect(screen.getByText("0 files saved, 1 unchanged in exports/jira. 5 comments included.")).toBeInTheDocument();
+  expect(screen.getByText(/Add exports\/jira to a collection in/)).toBeInTheDocument();
   const call = fetch.mock.calls.find(([url]) => url.endsWith("/export")) as unknown as [string, RequestInit];
   expect(call[0]).toBe("/api/jira/tickets/ticket-1/export");
   expect(JSON.parse(call[1].body as string)).toEqual({ connection_revision: 2 });
@@ -181,5 +182,7 @@ test("the export has no collection field", async () => {
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   await screen.findByText("Worker retries");
   expect(screen.queryByLabelText("Target collection")).toBeNull();
-  expect(screen.getByText(/Each selected ticket becomes rag-data\/jira\/<KEY>\.md/)).toBeInTheDocument();
+  expect(screen.getByText(/Each selected ticket becomes exports\/jira\/<KEY>\.md/)).toBeInTheDocument();
+  expect(screen.getByText(/Collections that hold exports\/jira index the tickets/)).toBeInTheDocument();
+  expect(screen.queryByText(/rag-data/)).toBeNull();
 });

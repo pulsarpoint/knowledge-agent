@@ -141,6 +141,7 @@ export interface JiraTicket {
 }
 export interface JiraTickets {
   connection: JiraConnection | null; tickets: JiraTicket[];
+  export_folder: string | null;
 }
 export const getJiraSettings = (signal?: AbortSignal) =>
   request<{ connection: JiraConnection | null }>(`/api/jira/settings`, { signal });

@@ -162,7 +162,7 @@ export default function CodeProjectsView() {
         </FieldSet>
       </FieldGroup></CardContent><CardFooter className="flex flex-wrap gap-3"><Button disabled={busy || !git && draft.folder_paths.length === 0}>{busy && <Spinner />}{git && draft.clone_now ? 'Save and clone' : 'Save project'}</Button><Button type="button" variant="outline" disabled={busy} onClick={() => { setDraft(null); setToken(''); setUsername(''); }}>Cancel</Button></CardFooter></form>
     </Card>}
-    <Card id="code-browser" className="min-w-0"><CardHeader><CardTitle>Code folder</CardTitle><CardDescription>{directory ? <><span className="break-all">{directory.host_path ?? 'CODE_PATH'} → {directory.root}</span><br />All project folders live inside this mount.</> : 'Browse the code folder mounted into Docker.'}</CardDescription></CardHeader>
+    <Card id="code-browser" className="min-w-0"><CardHeader><CardTitle>Code folder</CardTitle><CardDescription>{directory ? <><span className="break-all">{directory.host_path ?? 'CODE_FOLDER'} → {directory.root}</span><br />All project folders live inside this mount.</> : 'Browse the code folder mounted into Docker.'}</CardDescription></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <nav aria-label="Code folder path" className="flex flex-wrap items-center gap-1"><Button variant="link" onClick={() => browse('')}>Code root</Button>{path.split('/').filter(Boolean).map((part, index) => <span key={index} className="flex items-center gap-1">/<Button variant="link" onClick={() => browse(path.split('/').slice(0,index+1).join('/'))}>{part}</Button></span>)}</nav>
 
