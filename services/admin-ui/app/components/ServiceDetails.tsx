@@ -1,13 +1,30 @@
 import { FileJson, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { type ServiceAsset } from "../lib/api";
+import { getStorage } from "../lib/storage";
 import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
 
+/** The configured code folder as mounted in the containers, or null while unknown. */
+function useCodeFolder(needed: boolean) {
+  const [folder, setFolder] = useState<string | null>(null);
+  useEffect(() => {
+    if (!needed) return;
+    const controller = new AbortController();
+    getStorage(controller.signal)
+      .then(({ locations }) => setFolder(locations?.find(location => location.id === "code")?.container_path ?? null))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [needed]);
+  return folder;
+}
+
 export default function ServiceDetails({ service, onClose }: { service: ServiceAsset; onClose: () => void }) {
+  const codeFolder = useCodeFolder(service.repositories.some(repo => repo.checkout_path));
   return <Card>
     <CardHeader><div className="flex items-center justify-between gap-3"><CardTitle>{service.name}</CardTitle><Button variant="ghost" size="icon" aria-label="Close service details" onClick={onClose}><X /></Button></div>
       <CardDescription>Saved application context · Updated {new Date(service.updated_at).toLocaleString()}</CardDescription>
@@ -33,7 +50,7 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
         {service.repositories.map((repo) => <div key={repo.id} className="flex flex-col gap-1 text-sm">
           <div className="flex flex-wrap items-center gap-2"><Link className="font-medium underline underline-offset-4" to="/code-projects">{repo.name}</Link>{repo.archived && <Badge variant="outline">Archived</Badge>}</div>
           {repo.remote_url ? <p className="text-muted-foreground">Downloaded commit: <span className="font-mono">{repo.current_commit?.slice(0, 12) || "Not pulled"}</span> · Ref: {repo.requested_ref || "Default branch"}</p> : <p className="text-muted-foreground">Local folders</p>}
-          {repo.checkout_path && <p className="break-all font-mono text-xs text-muted-foreground">/work/data/code/{repo.checkout_path}</p>}
+          {repo.checkout_path && <p className="break-all font-mono text-xs text-muted-foreground">{codeFolder ? `${codeFolder}/${repo.checkout_path}` : `${repo.checkout_path} (in the code folder)`}</p>}
         </div>)}
       </section>
       <Separator />

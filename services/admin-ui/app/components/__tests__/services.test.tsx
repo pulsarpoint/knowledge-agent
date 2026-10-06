@@ -30,6 +30,7 @@ function setup(services: ServiceAsset[] = [], options: { saveStatus?: number; no
       return new Response(JSON.stringify(options.saveStatus ? { error: { message: "This service changed. Refresh and reopen the form." } } : { id: "service-1", revision: 4 }), { status: options.saveStatus ?? 201 });
     }
     return new Response(JSON.stringify(url.endsWith("/repositories") ? { repositories: options.noRepositories ? [] : repos }
+      : url.endsWith("/storage") ? { locations: [{ id: "code", container_path: "/work/data/sources/code", host_path: "/opt/ka/sources/code", variable: "CODE_FOLDER", status: "available" }] }
       : url.endsWith("/servers") ? { servers: [server] } : url.endsWith("/environments") ? { environments: options.noEnvironments ? [] : environments } : { services }));
   });
   vi.stubGlobal("fetch", fetch);
@@ -191,6 +192,13 @@ test("service details support code projects without a Git remote", async () => {
   expect(screen.getByText("Local folders")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "API" })).toHaveAttribute("href", "/code-projects");
   expect(screen.queryByText("Not pulled")).not.toBeInTheDocument();
+});
+
+test("service details show a checkout inside the configured code folder", async () => {
+  setup([{ ...service, repositories: [{ ...service.repositories[0], checkout_path: "payments/api" }] }]);
+  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  expect(await screen.findByText("/work/data/sources/code/payments/api")).toBeInTheDocument();
+  expect(screen.queryByText(/\/work\/data\/code\//)).not.toBeInTheDocument();
 });
 
 const postgres: ServiceAsset = { ...service, id: "postgres", name: "PostgreSQL", service_type: "builtin", service_role: "database", description: "Stores application data", repositories: [], deployments: [], dependencies: [], dependents: [] };
