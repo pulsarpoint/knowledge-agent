@@ -10,7 +10,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
-from knowledge_admin.documentation_generation import PROMPT_CHANGED
+from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -228,3 +228,45 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkey
     assert [e['data']['kind'] for e in parse(after.text) if e['event'] == 'run_event'] == ['message']
     assert client.get(f'/api/claude-code/sessions/{uuid4()}/events', headers=HEADERS).status_code == 404
     assert client.get(f'/api/claude-code/sessions/{sid}/events').status_code == 403
+
+
+def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the_folder(sessions):
+    client, store = sessions.client, sessions.store
+    sid = start(sessions)['id']
+    url = f'/api/claude-code/sessions/{sid}'
+    empty = client.post(url + '/document', headers=HEADERS, json={})
+    assert empty.status_code == 409 and empty.json()['error']['message'] == 'There is no draft yet. Wait for the agent to finish a turn.'
+    with store.connect() as conn:
+        conn.execute("""UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft=%s,draft_turn=1 WHERE id=%s""",
+                     ('# Payments API\n\nRetries back off.', sid))
+    first = client.post(url + '/document', headers=HEADERS, json={})
+    assert first.status_code == 201, first.text
+    saved = first.json()
+    assert (saved['revision'], saved['folder'], saved['export_error']) == (1, 'payments-api-docs', None)
+    document = client.get(f"/api/documentation/documents/{saved['id']}", headers=HEADERS).json()
+    assert (document['title'], document['slug'], document['folder'], document['code_project_ids'], document['purpose']) == (
+        'Payments – API reference', 'payments-api-reference', 'payments-api-docs', [sessions.repo], 'code')
+    readme = sessions.data / 'generated-documents/payments-api-docs/payments-api-reference/README.md'
+    assert readme.read_text() == '# Payments API\n\nRetries back off.'
+    assert saved['output_folder'] == str(readme.parent)
+    detail = client.get(url, headers=HEADERS).json()
+    assert (detail['document_id'], detail['document_title']) == (saved['id'], 'Payments – API reference')
+    again = client.post(url + '/document', headers=HEADERS, json={})
+    assert again.status_code == 409 and again.json()['error']['message'] == SAME_DOCUMENT_NAME
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET draft='# Payments API\n\nShorter.' WHERE id=%s", (sid,))
+    second = client.post(url + '/document', headers=HEADERS, json={'update_existing': True})
+    assert second.status_code == 201 and (second.json()['id'], second.json()['revision']) == (saved['id'], 2)
+    assert readme.read_text() == '# Payments API\n\nShorter.'
+    # Another session with the same name and folder needs the confirmation too; a folder-only session is 'explanation'.
+    other = start(sessions, code_project_ids=[])['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft='# Other' WHERE id=%s", (other,))
+    assert client.post(f'/api/claude-code/sessions/{other}/document', headers=HEADERS, json={}).status_code == 409
+    renamed = start(sessions, code_project_ids=[], document_name='Jira overview')['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft='# Jira' WHERE id=%s", (renamed,))
+    created = client.post(f'/api/claude-code/sessions/{renamed}/document', headers=HEADERS, json={}).json()
+    overview = client.get(f"/api/documentation/documents/{created['id']}", headers=HEADERS).json()
+    assert (overview['purpose'], overview['code_project_ids']) == ('explanation', [])
+    assert client.post(url + '/document', json={}).status_code == 403

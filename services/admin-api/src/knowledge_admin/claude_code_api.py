@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.claude_code import SYSTEM_PROMPT, close_idle, first_message
 from knowledge_admin.data_root import data_folder, data_path, documentation_folder
-from knowledge_admin.documentation_generation import PROMPT_CHANGED
-from knowledge_admin.documents import document_slug
+from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
+from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.repositories import RepositoryStore
 
 AGENT_FIELDS = 'id,name,description,runtime,enabled,revision'
@@ -71,6 +71,11 @@ class SessionInput(BaseModel):
         if not self.code_project_ids and not self.folders:
             raise ValueError('Add at least one code project or folder as context')
         return self
+
+
+class SaveInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    update_existing: bool = Field(default=False, strict=True)
 
 
 class MessageInput(BaseModel):
@@ -293,6 +298,44 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             discarded = discard(conn, session_id)
             audit(conn, actor, 'claude_code.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
             return {'id': session_id, 'discarded': discarded}
+
+    @router.post('/sessions/{session_id}/document', status_code=201)
+    def save(session_id: UUID, value: SaveInput, request: Request) -> dict:
+        """Save the current draft as a version of the session's document in its folder, then export it."""
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            session = conn.execute('SELECT * FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s FOR UPDATE',
+                                   (session_id, project)).fetchone()
+            if session is None:
+                raise HTTPException(404, 'Session not found.')
+            if not (session['draft'] or '').strip():
+                raise HTTPException(409, 'There is no draft yet. Wait for the agent to finish a turn.')
+            actor = db.actor(conn, *request_actor(request))
+            slug = document_slug(session['document_name'])
+            existing = conn.execute('SELECT id,revision FROM ka.documents WHERE project_id=%s AND folder=%s AND slug=%s',
+                                    (project, session['folder'], slug)).fetchone()
+            if existing is not None and not value.update_existing:
+                raise HTTPException(409, SAME_DOCUMENT_NAME)
+            chosen = [UUID(item) for item in session['context_snapshot']['code_project_ids']]
+            available = {row['id'] for row in conn.execute('''SELECT id FROM ka.repositories
+                WHERE project_id=%s AND id=ANY(%s) AND archived_at IS NULL''', (project, chosen)).fetchall()}
+            linked = [item for item in chosen if item in available]  # an archived project is no longer linked
+            saved = save_document(conn, project, actor, DocumentInput(
+                slug=slug, title=session['document_name'], purpose='code' if chosen else 'explanation',
+                markdown=session['draft'], code_project_ids=linked,
+                revision=existing['revision'] if existing is not None else None),
+                existing['id'] if existing is not None else None, folder=session['folder'])
+            conn.execute('UPDATE ka.agent_sessions_cc SET document_id=%s,last_activity_at=now() WHERE id=%s',
+                         (saved['id'], session_id))
+            audit(conn, actor, 'claude_code.session.document_saved', 'agent_session',
+                  {'document_id': str(saved['id']), 'revision': saved['revision']}, session_id)
+            try:
+                output, export_error = export_document(**export_args(export_input(conn, saved['id']))), None
+            except (OSError, ValueError):
+                output = None
+                export_error = 'The document was saved. File export failed; retry Export to folder from the document page.'
+        return jsonable_encoder({**saved, 'folder': session['folder'], 'output_folder': output, 'export_error': export_error})
 
     @router.post('/sessions/{session_id}/close')
     def close(session_id: UUID, request: Request) -> dict:
