@@ -1,4 +1,4 @@
-"""Collection folders under DATA_ROOT: confined paths, glob selection and walks."""
+"""Collection folders under DATA_ROOT: one confined root, glob selection and walks."""
 
 import errno
 import os
@@ -7,26 +7,19 @@ import stat
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from fastapi import HTTPException
 
-AREAS = {
-    'code': ('CODE_ROOT', 'CODE_PATH'),
-    'code-index': ('CODE_INDEX_ROOT', 'CODE_INDEX_PATH'),
-    'rag-data': ('RAG_SOURCE_ROOT', 'RG_DATA'),
-    'generated-documents': ('DOCUMENT_OUTPUT_ROOT', 'GENERATED_DOCS_PATH'),
-    'docs': ('BOOTSTRAP_DOCS_ROOT', 'DOCS_PATH'),
-}
-WRITABLE_AREA = 'rag-data'
-SOURCE_PATH = re.compile(r'(code|code-index|rag-data|generated-documents|docs)(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*')
+SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9._-]*'  # a visible folder name: no leading '.', so no hidden folders or '..'
+SOURCE_PATH = re.compile(rf'{SEGMENT}(/{SEGMENT})*')
+FOLDER_NAME = re.compile(SEGMENT)  # a name that can be a source_path segment
 SKIPPED_DIRECTORIES = {'.git', 'node_modules'}
 MAX_FILES = 20_000
 MAX_SYNC_ENTRIES = 10 * MAX_FILES  # a sync fails rather than walk an unbounded tree; other walks stop there
 MAX_BYTES = 200_000_000
 MAX_FOLDERS = 1000  # the folder browser lists at most this many children
-FOLDER_NAME = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]*')  # a name that can be a source_path segment
 
 
 class FolderMissing(HTTPException):
@@ -38,7 +31,8 @@ class FolderMissing(HTTPException):
 
 def source_path(value: str) -> str:
     if len(value) > 500 or not SOURCE_PATH.fullmatch(value):
-        raise HTTPException(400, 'Choose a folder inside code, code-index, rag-data, generated-documents or docs')
+        raise HTTPException(400, 'Choose a folder inside DATA_ROOT: names of letters, digits, ".", "_" and "-" '
+                                 'separated by "/", none starting with "."')
     return value
 
 
@@ -130,44 +124,54 @@ def too_large(walk: Walk, max_file_bytes: int) -> bool:
     return walk.truncated or text_bytes(walk, max_file_bytes) > MAX_BYTES
 
 
-class Areas:
-    def __init__(self, roots: dict[str, Path], host_roots: dict[str, str | None]):
-        self.roots = {area: Path(root) for area, root in roots.items()}
-        self.host_roots = host_roots
+class DataRoot:
+    """DATA_ROOT inside the container: every collection folder lives under this one root.
+
+    Every access opens the root and walks down one segment at a time with O_NOFOLLOW, so no link is
+    followed and nothing outside the root is reached. RAG writes only inside `jira_folder`.
+    """
+
+    def __init__(self, root: Path | None, host_root: str | None = None, jira_folder: str | None = None):
+        self.root = Path(root) if root else None
+        self.host_root = host_root
+        self.jira_folder = jira_folder
 
     @classmethod
     def from_env(cls):
-        roots = {area: Path(os.environ[env]) for area, (env, _) in AREAS.items() if os.environ.get(env)}
-        hosts = {area: os.environ.get(host) for area, (_, host) in AREAS.items()}
-        return cls(roots, hosts)
+        """DATA_ROOT_DIR (container), DATA_ROOT (host, display only) and the Jira folder from JIRA_EXPORT_ROOT."""
+        container = os.environ.get('DATA_ROOT_DIR')
+        jira = os.environ.get('JIRA_EXPORT_ROOT')
+        folder = source_path(PurePosixPath(jira).relative_to(container).as_posix()) if container and jira else None
+        return cls(Path(container) if container else None, os.environ.get('DATA_ROOT') or None, folder)
 
-    def _split(self, source: str) -> tuple[Path, list[str]]:
-        area, *rest = source_path(source).split('/')
-        root = self.roots.get(area)
-        if root is None:
-            raise HTTPException(503, f'The {area} folder is not mounted in the RAG service')
-        return root, rest
+    def _root(self) -> Path:
+        if self.root is None:
+            raise HTTPException(503, 'DATA_ROOT is not mounted in the RAG service')
+        return self.root
 
     def container_path(self, source: str) -> Path:
-        root, rest = self._split(source)
-        return root.joinpath(*rest)
+        return self._root().joinpath(*source_path(source).split('/'))
 
     def host_path(self, source: str) -> str | None:
-        area, _, rest = source.partition('/')
-        host = self.host_roots.get(area)
-        return None if not host else host.rstrip('/') + ('/' + rest if rest else '')
+        return None if not self.host_root else self.host_root.rstrip('/') + '/' + source
 
-    @staticmethod
-    def writable(source: str) -> bool:
-        return source.split('/')[0] == WRITABLE_AREA
+    def writable(self, source: str) -> bool:
+        """Whether `source` is the Jira folder or inside it: the only place RAG writes."""
+        folder = self.jira_folder
+        return folder is not None and (source == folder or source.startswith(folder + '/'))
 
     @contextmanager
-    def _directory(self, source: str, parts: list[str], *, create: bool = False):
-        root, rest = self._split(source)
+    def _directory(self, source: str | None, parts: list[str], *, create: bool = False):
+        """A descriptor of DATA_ROOT/<source>/<parts>; `source` None is DATA_ROOT itself.
+
+        With `create`, missing `parts` are made (0o750); `source` itself must already exist.
+        """
+        root = self._root()
+        segments = [] if source is None else source_path(source).split('/')
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            for index, part in enumerate([*rest, *parts]):
-                if create:
+            for index, part in enumerate([*segments, *parts]):
+                if create and index >= len(segments):
                     try:
                         os.mkdir(part, mode=0o750, dir_fd=fd)
                     except FileExistsError:
@@ -180,24 +184,19 @@ class Areas:
             os.close(fd)
 
     def present(self, source: str) -> bool:
-        """Whether the collection folder exists as a real directory (no walk)."""
+        """Whether the collection folder exists as a real directory (no walk, never created)."""
         try:
             with self._directory(source, []):
                 return True
         except OSError:
             return False
 
-    def ensure_folder(self, source: str) -> None:
-        """Create a writable-area collection folder (0o750, no links followed); other areas are left alone."""
-        if self.writable(source):
-            with self._directory(source, [], create=True):
-                pass
-
-    def subfolders(self, source: str, limit: int = MAX_FOLDERS) -> tuple[list[str], bool]:
+    def subfolders(self, source: str | None, limit: int = MAX_FOLDERS) -> tuple[list[str], bool]:
         """Child folders that could be connected to a collection, sorted, and whether more exist.
 
         Links are never followed or listed; hidden folders, .git, node_modules and names that are not
-        valid source_path segments are left out.
+        valid source_path segments are left out. `source` None lists the top level of DATA_ROOT. A link
+        is not a folder: 404 like a missing one.
         """
         try:
             with self._directory(source, []) as fd:
@@ -216,6 +215,10 @@ class Areas:
                 return found, False
         except (FileNotFoundError, NotADirectoryError):
             raise HTTPException(404, 'Folder does not exist') from None
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise HTTPException(404, 'Folder does not exist') from None
+            raise
 
     def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int | None = None,
              truncate: bool = False, max_entries: int | None = None, into: Walk | None = None) -> Walk:
@@ -337,21 +340,26 @@ class Areas:
         return data
 
     def write(self, source: str, path: str, data: bytes) -> None:
+        """Create or replace `path` inside `source`, which must be the Jira folder or inside it."""
         if not self.writable(source):
-            raise HTTPException(400, 'This collection folder is read-only; only rag-data collections accept files')
+            raise HTTPException(403, f'Only files inside {self.jira_folder or "the Jira folder"} can be written; '
+                                     'other folders are read-only')
         *parents, name = relative_path(path).split('/')
         refuse_hidden(path)
-        with self._directory(source, parents, create=True) as fd:
-            temporary = f'.upload-{uuid4().hex}'
-            try:
-                leaf = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=fd)
-                with os.fdopen(leaf, 'wb') as stream:
-                    stream.write(data)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
-            finally:
+        try:
+            with self._directory(source, parents, create=True) as fd:
+                temporary = f'.upload-{uuid4().hex}'
                 try:
-                    os.unlink(temporary, dir_fd=fd)
-                except FileNotFoundError:
-                    pass
+                    leaf = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=fd)
+                    with os.fdopen(leaf, 'wb') as stream:
+                        stream.write(data)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
+                finally:
+                    try:
+                        os.unlink(temporary, dir_fd=fd)
+                    except FileNotFoundError:
+                        pass
+        except FileNotFoundError:
+            raise HTTPException(409, f'Folder {source} does not exist; run make setup to create it') from None

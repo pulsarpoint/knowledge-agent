@@ -12,9 +12,11 @@ from fastapi.testclient import TestClient
 from psycopg import sql
 
 from rag.api import create_app
-from rag.collections import AREAS, Areas
+from rag.collections import DataRoot
 from rag.workspace import Workspace
 from rag.workspace_api import build_api
+
+FOLDERS = ("code", "code-index", "docs", "generated-documents", "jira")
 
 # --- PostgreSQL/pgvector workspace fixtures (collections API, sync worker) ---
 
@@ -41,14 +43,16 @@ def workspace_postgres():
 
 @pytest.fixture
 def env(workspace_postgres, tmp_path):
-    """(workspace, client, project, prefix, model_state, transport, area_roots)."""
+    """(workspace, client, project, prefix, model_state, transport, roots); roots maps each default folder and "data" (DATA_ROOT) to its path."""
     database = "test_" + uuid4().hex
     with psycopg.connect(workspace_postgres, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    roots = {area: tmp_path / area for area in AREAS}
+    data = tmp_path / "data"
+    roots = {name: data / name for name in FOLDERS}
     for root in roots.values():
-        root.mkdir()
-    workspace = Workspace(Areas(roots, {area: f"/srv/{area}" for area in AREAS}), workspace_postgres + f" dbname={database}", b"k" * 32)
+        root.mkdir(parents=True)
+    roots["data"] = data
+    workspace = Workspace(DataRoot(data, "/srv/data", "jira"), workspace_postgres + f" dbname={database}", b"k" * 32)
     with workspace.connect() as conn:
         for path in sorted((Path(__file__).resolve().parents[3] / "db/migrations").glob("*.up.sql")):
             conn.execute(path.read_text(), prepare=False)

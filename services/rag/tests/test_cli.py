@@ -39,8 +39,9 @@ def test_workspace_startup_has_no_legacy_indexes_or_initialization(tmp_path, mon
     (source / "documentation").mkdir()
     document = source / "documentation" / "guide.md"
     document.write_text("# Guide\n\nExisting content.\n")
-    monkeypatch.setenv("RAG_SOURCE_ROOT", str(source))
-    monkeypatch.setenv("RG_DATA", str(source))
+    monkeypatch.setenv("DATA_ROOT_DIR", str(source))
+    monkeypatch.setenv("DATA_ROOT", str(source))
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", str(source / "jira"))
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", base64.urlsafe_b64encode(b"k" * 32).decode())
     monkeypatch.setenv("RAG_BACKOFFICE_KEY", "workspace-test-key")
     captured = {}

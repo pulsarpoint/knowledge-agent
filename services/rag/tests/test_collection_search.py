@@ -4,8 +4,8 @@ from test_workspace import collection, configure, search, sync, write
 def two_collections(env):
     roots = env[6]
     for name, text in (("docs", "# Payments\n\nRetries use exponential backoff."), ("jira", "# DEMO-1\n\nRetries fail on timeout.")):
-        (roots["rag-data"] / name).mkdir()
-        created = collection(env, name, f"rag-data/{name}")
+        (roots["jira"] / name).mkdir()
+        created = collection(env, name, f"jira/{name}")
         write(env, "a.md", text, name=name)
         sync(env, created)
 
@@ -23,7 +23,7 @@ def test_search_one_collection_or_all(env):
 
 def test_semantic_collection_without_model_falls_back(env):
     client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env, search_mode="hybrid")
     write(env)
     sync(env, created)
@@ -35,7 +35,7 @@ def test_semantic_collection_without_model_falls_back(env):
 
 def test_hybrid_uses_vectors_when_embedded(env):
     roots, state = env[6], env[4]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     configure(env)
     created = collection(env, embeddings_enabled=True, search_mode="hybrid")
     write(env)
@@ -60,4 +60,4 @@ def test_ignore_unknown_drops_missing_collections(env):
 def test_hits_carry_collection_and_full_path(env):
     two_collections(env)
     hits = search(env, "retries").json()["results"]
-    assert {(hit["collection"], hit["path"]) for hit in hits} == {("docs", "rag-data/docs/a.md"), ("jira", "rag-data/jira/a.md")}
+    assert {(hit["collection"], hit["path"]) for hit in hits} == {("docs", "jira/docs/a.md"), ("jira", "jira/jira/a.md")}

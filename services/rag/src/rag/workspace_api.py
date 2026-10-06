@@ -1,4 +1,4 @@
-"""Authenticated backoffice API; area roots come from the deployment, never from input.
+"""Authenticated backoffice API; DATA_ROOT comes from the deployment, never from input.
 
 RAG owns the configuration: administrators and external tools create collections and connect
 folders under DATA_ROOT to them. Sources only write files into their folders.
@@ -15,8 +15,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rag import file_log
-from rag.collections import (AREAS, WRITABLE_AREA, FolderMissing, indexable, overlaps, refuse_hidden, relative_path,
-                             source_path, too_large, visible)
+from rag.collections import (FolderMissing, indexable, overlaps, refuse_hidden, relative_path, source_path, too_large,
+                             visible)
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
 from rag.workspace_poll import needs_sync
@@ -81,7 +81,7 @@ class SyncInput(BaseModel):
 
 
 class FileInput(BaseModel):
-    """A file under rag-data, addressed by its full DATA_ROOT path (the Jira export writes here)."""
+    """A file inside the Jira folder, addressed by its full DATA_ROOT path (the Jira export writes here)."""
     model_config = ConfigDict(extra="forbid")
     path: str
     content: str = Field(max_length=10_000_000)
@@ -131,9 +131,9 @@ def path_rows(workspace: Workspace, conn, collection_id: UUID) -> list[dict]:
     rows = conn.execute("""SELECT p.*, count(f.id) AS files FROM ka.rag_collection_paths p
         LEFT JOIN ka.rag_files f ON f.path_id=p.id WHERE p.collection_id=%s
         GROUP BY p.id ORDER BY p.source_path""", (collection_id,)).fetchall()
-    return [{**row, "host_path": workspace.areas.host_path(row["source_path"]),
-             "container_path": str(workspace.areas.container_path(row["source_path"])),
-             "present": workspace.areas.present(row["source_path"])} for row in rows]
+    return [{**row, "host_path": workspace.data_root.host_path(row["source_path"]),
+             "container_path": str(workspace.data_root.container_path(row["source_path"])),
+             "present": workspace.data_root.present(row["source_path"])} for row in rows]
 
 
 def collection_summary(workspace: Workspace, conn, row: dict) -> dict:
@@ -153,7 +153,7 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     missing = [p["source_path"] for p in paths if not p["present"]]
     present = not missing
     # Stops at the sync caps, so a folder a sync can walk is never reported as too large.
-    walk = workspace.areas.walk_paths([p["source_path"] for p in paths if p["present"]], row["include"], row["exclude"], truncate=True)
+    walk = workspace.data_root.walk_paths([p["source_path"] for p in paths if p["present"]], row["include"], row["exclude"], truncate=True)
     changed = datetime.fromtimestamp(walk.newest_mtime, timezone.utc) if walk.newest_mtime is not None else None
     synced = row["last_synced_at"]
     oversized = too_large(walk, Settings(**workspace.settings(conn, row["project_id"])["settings"]).max_file_bytes)
@@ -207,10 +207,11 @@ def build_api(workspace: Workspace, key: str, transport=None):
                 WHERE f.project_id=%s ORDER BY k.name, f.path""", (project,)).fetchall()
 
     def config_response(row):
+        data_root = workspace.data_root
         return {"revision": row["revision"], "settings": row["settings"],
                 "embedding_model_id": row["embedding_model_id"],
-                "areas": [{"area": area, "container_root": str(workspace.areas.roots.get(area, "")),
-                           "host_root": workspace.areas.host_roots.get(area)} for area in AREAS]}
+                "data_root": {"container_root": str(data_root.root) if data_root.root else None,
+                              "host_root": data_root.host_root, "jira_folder": data_root.jira_folder}}
 
     @router.get(prefix + "/settings")
     def get_settings(project: UUID):
@@ -265,17 +266,15 @@ def build_api(workspace: Workspace, key: str, transport=None):
 
     @router.post(prefix + "/collections/{collection_id}/paths")
     def add_folder(project: UUID, collection_id: UUID, payload: FolderInput):
-        """Connect a folder. A missing folder under rag-data is created; elsewhere it must exist."""
+        """Connect an existing folder under DATA_ROOT; RAG never creates folders."""
         new = folder_path(payload.source_path)
         with workspace.connect() as conn:
             row = workspace.collection(conn, project, collection_id, lock=True)  # serializes with edits and syncs
             for path in workspace.paths(conn, collection_id):
                 if overlaps(path["source_path"], new):
                     raise HTTPException(409, f"Folder overlaps {path['source_path']} in collection {row['name']}")
-            if not workspace.areas.present(new):
-                if not workspace.areas.writable(new):
-                    raise HTTPException(409, "Folder does not exist")
-                workspace.areas.ensure_folder(new)
+            if not workspace.data_root.present(new):
+                raise HTTPException(409, "Folder does not exist")
             conn.execute("INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)", (collection_id, new))
             bump(conn, {collection_id})
             return collection_summary(workspace, conn, workspace.collection(conn, project, collection_id))
@@ -296,12 +295,10 @@ def build_api(workspace: Workspace, key: str, transport=None):
 
     @router.get(prefix + "/folders")
     def folders(project: UUID, path: str | None = Query(None, max_length=500)):
-        """Subfolders of a DATA_ROOT folder for the folder browser; without `path`, the mounted areas."""
-        if path is None:
-            return {"path": None, "truncated": False,
-                    "folders": [{"name": area, "path": area} for area in AREAS if area in workspace.areas.roots]}
-        names, truncated = workspace.areas.subfolders(folder_path(path))
-        return {"path": path, "truncated": truncated, "folders": [{"name": name, "path": f"{path}/{name}"} for name in names]}
+        """Subfolders of a DATA_ROOT folder for the folder browser; without `path`, the top level of DATA_ROOT."""
+        names, truncated = workspace.data_root.subfolders(None if path is None else folder_path(path))
+        return {"path": path, "truncated": truncated,
+                "folders": [{"name": name, "path": f"{path}/{name}" if path else name} for name in names]}
 
     @router.get(prefix + "/collections/{collection_id}")
     def get_collection(project: UUID, collection_id: UUID):
@@ -341,7 +338,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
         return {"deleted_files": removed}
 
     def queue_sync(conn, project: UUID, row: dict, actor: str | None, force: bool):
-        missing = [p["source_path"] for p in workspace.paths(conn, row["id"]) if not workspace.areas.present(p["source_path"])]
+        missing = [p["source_path"] for p in workspace.paths(conn, row["id"]) if not workspace.data_root.present(p["source_path"])]
         if missing:
             raise FolderMissing(missing[0])  # 409 before anything is queued; no walk
         try:
@@ -380,7 +377,7 @@ def build_api(workspace: Workspace, key: str, transport=None):
                 count(v.input_hash) AS embedded_chunks FROM ka.rag_files f LEFT JOIN ka.rag_chunks c ON c.file_id=f.id
                 LEFT JOIN ka.rag_vectors v ON v.project_id=f.project_id AND v.profile=f.embedding_profile AND v.input_hash=c.input_hash AND f.embedding_profile<>''
                 WHERE f.collection_id=%s GROUP BY f.id""", (collection_id,)).fetchall()}
-        walk = workspace.areas.walk_paths(sources, row["include"], row["exclude"], truncate=True)
+        walk = workspace.data_root.walk_paths(sources, row["include"], row["exclude"], truncate=True)
         files = []
         for entry in walk.files:
             known = indexed.pop(entry["path"], None)
@@ -425,14 +422,14 @@ def build_api(workspace: Workspace, key: str, transport=None):
 
     @router.get(prefix + "/file")
     def get_file(project: UUID, path: str, collection: str | None = None):
-        """An indexable file of `collection` by its full path. Without `collection`, a visible file under
-        rag-data/<folder>/ (the Jira export reads its previous ticket file this way)."""
+        """An indexable file of `collection` by its full path. Without `collection`, a visible file inside the
+        Jira folder (the Jira export reads its previous ticket file this way)."""
         path = relative_path(path)
-        area, _, rest = path.partition("/")
+        jira = workspace.data_root.jira_folder
         with workspace.connect() as conn:
             limit = Settings(**workspace.settings(conn, project)["settings"]).max_file_bytes
             if collection is None:
-                allowed = area == WRITABLE_AREA and "/" in rest and visible(rest)
+                allowed = jira is not None and path.startswith(jira + "/") and visible(path[len(jira) + 1:])
             else:
                 row = workspace.collection_by_name(conn, project, collection)
                 roots = [p["source_path"] for p in workspace.paths(conn, row["id"])]
@@ -442,8 +439,9 @@ def build_api(workspace: Workspace, key: str, transport=None):
                 allowed = root is not None and indexable(path[len(root) + 1:], row["include"], row["exclude"])
         if not allowed:
             raise HTTPException(404, "Document not found")
+        first, _, rest = path.partition("/")
         try:
-            data = workspace.areas.read(area, rest, limit)
+            data = workspace.data_root.read(first, rest, limit)
         except FileNotFoundError:
             raise HTTPException(404, "Document not found") from None
         try:
@@ -454,10 +452,12 @@ def build_api(workspace: Workspace, key: str, transport=None):
 
     @router.put(prefix + "/file")
     def put_file(project: UUID, payload: FileInput):
+        """Create or replace a file inside the Jira folder, the one folder RAG writes."""
         path = relative_path(payload.path)
-        area, _, rest = path.partition("/")
-        if area != WRITABLE_AREA or "/" not in rest:
-            raise HTTPException(400, "Only files inside a rag-data folder can be written; other folders are read-only")
+        jira = workspace.data_root.jira_folder
+        if jira is None or not path.startswith(jira + "/"):
+            raise HTTPException(403, f"Only files inside {jira or 'the Jira folder'} can be written; other folders are read-only")
+        rest = path[len(jira) + 1:]
         refuse_hidden(rest)
         with workspace.connect() as conn:
             limit = Settings(**workspace.settings(conn, project)["settings"]).max_file_bytes
@@ -465,12 +465,12 @@ def build_api(workspace: Workspace, key: str, transport=None):
         if len(data) > limit:
             raise HTTPException(400, "File exceeds the configured size limit")
         try:
-            previous = digest(workspace.areas.read(area, rest, limit))
+            previous = digest(workspace.data_root.read(jira, rest, limit))
         except FileNotFoundError:
             previous = None
         if previous != payload.expected_hash:
             raise HTTPException(409, "File already exists or has changed; open it before replacing it")
-        workspace.areas.write(area, rest, data)
+        workspace.data_root.write(jira, rest, data)
         return {"path": path, "hash": digest(data)}
 
     @router.get(prefix + "/jobs")

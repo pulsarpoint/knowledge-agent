@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.collections import Areas
+from rag.collections import DataRoot
 
 
 class Settings(BaseModel):
@@ -31,14 +31,14 @@ def digest(value: bytes | str | dict) -> str:
 
 
 class Workspace:
-    def __init__(self, areas: Areas, conninfo: str, encryption_key: bytes):
-        self.areas = areas
+    def __init__(self, data_root: DataRoot, conninfo: str, encryption_key: bytes):
+        self.data_root = data_root
         self.conninfo = conninfo
         self.cipher = AESGCM(encryption_key)
 
     @classmethod
     def from_env(cls):
-        return cls(Areas.from_env(), "", base64.urlsafe_b64decode(os.environ["CREDENTIAL_ENCRYPTION_KEY"]))
+        return cls(DataRoot.from_env(), "", base64.urlsafe_b64decode(os.environ["CREDENTIAL_ENCRYPTION_KEY"]))
 
     def connect(self):
         return psycopg.connect(self.conninfo, row_factory=dict_row, connect_timeout=5)

@@ -52,9 +52,9 @@ def check(workspace, row: dict, now: float) -> str:
         limit = Settings(**workspace.settings(conn, row["project_id"])["settings"]).max_file_bytes
     if not sources:
         return "empty"
-    if not all(workspace.areas.present(source) for source in sources):
+    if not all(workspace.data_root.present(source) for source in sources):
         return "missing"  # never synced while a folder is absent; the status shows Folder missing
-    walk = workspace.areas.walk_paths(sources, row["include"], row["exclude"], truncate=True)  # stops at the sync caps
+    walk = workspace.data_root.walk_paths(sources, row["include"], row["exclude"], truncate=True)  # stops at the sync caps
     if walk.missing:
         return "missing"  # a folder vanished between the presence check and the walk
     if too_large(walk, limit):

@@ -25,12 +25,12 @@ def jobs(env, collection_id):
 
 def synced(env, name="docs"):
     """A collection with auto-sync on, synced once, whose folder and files are older than the quiet period."""
-    folder = env[6]["rag-data"] / name
+    folder = env[6]["jira"] / name
     folder.mkdir()
     (folder / "a.md").write_text("# A\n\nalpha")
     for path in (folder / "a.md", folder):
         age(path, 600)  # before the sync, so the log holds these mtimes
-    created = collection(env, name, f"rag-data/{name}")
+    created = collection(env, name, f"jira/{name}")
     sync(env, created)
     saved = update(env, created, auto_sync=True, poll_interval_minutes=5)
     assert saved.status_code == 200, saved.text
@@ -83,7 +83,7 @@ def test_a_collection_that_is_not_due_is_not_checked(env, monkeypatch):
     change(folder)
     with env[0].connect() as conn:
         conn.execute("UPDATE ka.rag_collections SET last_polled_at=now() - interval '4 minutes' WHERE id=%s", (created,))
-    monkeypatch.setattr(env[0].areas, "walk_paths", lambda *a, **k: pytest.fail("A collection that is not due must not be walked"))
+    monkeypatch.setattr(env[0].data_root, "walk_paths", lambda *a, **k: pytest.fail("A collection that is not due must not be walked"))
     assert poll(env[0]) == {}
     monkeypatch.undo()
     with env[0].connect() as conn:
@@ -112,9 +112,9 @@ def test_two_pollers_queue_one_sync(env):
 
 
 def test_auto_sync_off_is_never_polled(env, monkeypatch):
-    (env[6]["rag-data"] / "docs").mkdir()
+    (env[6]["jira"] / "docs").mkdir()
     created = collection(env)
-    monkeypatch.setattr(env[0].areas, "walk_paths", lambda *a, **k: pytest.fail("Manual collections are never walked"))
+    monkeypatch.setattr(env[0].data_root, "walk_paths", lambda *a, **k: pytest.fail("Manual collections are never walked"))
     assert poll(env[0]) == {}
     with env[0].connect() as conn:
         assert conn.execute("SELECT last_polled_at FROM ka.rag_collections WHERE id=%s", (created,)).fetchone()["last_polled_at"] is None
@@ -202,7 +202,7 @@ def test_a_large_code_folder_that_syncs_is_not_too_large(env):
 
 
 def test_over_200_mb_of_text_is_too_large_for_status_poller_and_refresh_all(env):
-    folder = env[6]["rag-data"] / "huge"
+    folder = env[6]["jira"] / "huge"
     folder.mkdir()
     for index in range(107):
         with open(folder / f"{index}.md", "wb") as handle:
@@ -220,7 +220,7 @@ def test_a_folder_vanishing_during_the_walk_is_missing(env, monkeypatch):
     for path in folder.iterdir():
         path.unlink()
     folder.rmdir()
-    monkeypatch.setattr(env[0].areas, "present", lambda source: True)  # gone between the check and the walk
+    monkeypatch.setattr(env[0].data_root, "present", lambda source: True)  # gone between the check and the walk
     assert poll(env[0]) == {"docs": "missing"} and len(jobs(env, created)) == 1
 
 

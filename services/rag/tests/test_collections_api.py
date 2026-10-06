@@ -12,7 +12,7 @@ def status(env, collection_id):
 
 def test_missing_folder_is_reported(env):
     absent = env[6]["docs"] / "absent"
-    absent.mkdir()  # only existing folders outside rag-data can be added
+    absent.mkdir()  # Add folder never creates folders
     created = collection(env, "absent", "docs/absent")
     absent.rmdir()
     row = status(env, created)
@@ -24,7 +24,7 @@ def test_missing_folder_is_reported(env):
 
 def test_sync_marks_up_to_date_and_file_edit_marks_stale(env):
     roots = env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env)
     write(env)
     _, row = sync(env, created)
@@ -36,7 +36,7 @@ def test_sync_marks_up_to_date_and_file_edit_marks_stale(env):
 
 def test_deleting_a_file_marks_collection_stale(env):
     roots = env[6]
-    folder = roots["rag-data"] / "docs"
+    folder = roots["jira"] / "docs"
     folder.mkdir()
     created = collection(env)
     write(env, "a.md", "# A")
@@ -49,7 +49,7 @@ def test_deleting_a_file_marks_collection_stale(env):
 
 def test_settings_change_marks_collection_stale(env):
     client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env)
     write(env)
     _, row = sync(env, created)
@@ -63,8 +63,8 @@ def test_settings_change_marks_collection_stale(env):
 def test_one_active_sync_per_collection_and_sync_stale(env):
     client, prefix, roots = env[1], env[3], env[6]
     for name in ("a", "b"):
-        (roots["rag-data"] / name).mkdir()
-        collection(env, name, f"rag-data/{name}")
+        (roots["jira"] / name).mkdir()
+        collection(env, name, f"jira/{name}")
     (roots["docs"] / "c").mkdir()
     first = collection(env, "c", "docs/c")
     (roots["docs"] / "c").rmdir()
@@ -79,21 +79,21 @@ def test_one_active_sync_per_collection_and_sync_stale(env):
 
 def test_delete_keeps_files_and_removes_index(env):
     client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env)
     write(env)
     _, row = sync(env, created)
     assert client.delete(prefix + f"/collections/{created}", params={"revision": row["revision"]}).status_code == 400
     result = client.delete(prefix + f"/collections/{created}", params={"revision": row["revision"], "confirmed": True})
     assert result.status_code == 200 and result.json()["deleted_files"] == 1
-    assert (roots["rag-data"] / "docs" / "readme.md").exists()
+    assert (roots["jira"] / "docs" / "readme.md").exists()
     assert client.get(prefix + "/collections").json()["collections"] == []
     assert collection(env) != created  # the name can be reused
 
 
 def test_stale_or_cross_project_deletion_cannot_remove_data(env):
     workspace, client, prefix, roots = env[0], env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env)
     write(env)
     _, row = sync(env, created)
@@ -109,7 +109,7 @@ def test_stale_or_cross_project_deletion_cannot_remove_data(env):
 
 def test_files_listing_shows_stale_and_removed_files(env):
     client, prefix, roots = env[1], env[3], env[6]
-    folder = roots["rag-data"] / "docs"
+    folder = roots["jira"] / "docs"
     folder.mkdir()
     created = collection(env)
     write(env, "a.md", "# A\n\nalpha")
@@ -119,18 +119,18 @@ def test_files_listing_shows_stale_and_removed_files(env):
     write(env, "c.md", "# C")
     listing = client.get(prefix + f"/collections/{created}/files").json()
     files = {f["path"]: f for f in listing["files"]}
-    assert set(files) == {"rag-data/docs/a.md", "rag-data/docs/b.md", "rag-data/docs/c.md"} and listing["truncated"] is False
-    assert files["rag-data/docs/a.md"]["stale"] is False and files["rag-data/docs/a.md"]["chunks"] >= 1
-    assert files["rag-data/docs/b.md"]["stale"] is True and files["rag-data/docs/b.md"]["size"] is None
-    assert files["rag-data/docs/b.md"]["source"] is None  # gone from disk
-    assert files["rag-data/docs/c.md"]["stale"] is True and files["rag-data/docs/c.md"]["indexed_at"] is None
-    texts = client.get(prefix + f"/collections/{created}/chunks", params={"path": "rag-data/docs/a.md"}).json()["chunks"]
+    assert set(files) == {"jira/docs/a.md", "jira/docs/b.md", "jira/docs/c.md"} and listing["truncated"] is False
+    assert files["jira/docs/a.md"]["stale"] is False and files["jira/docs/a.md"]["chunks"] >= 1
+    assert files["jira/docs/b.md"]["stale"] is True and files["jira/docs/b.md"]["size"] is None
+    assert files["jira/docs/b.md"]["source"] is None  # gone from disk
+    assert files["jira/docs/c.md"]["stale"] is True and files["jira/docs/c.md"]["indexed_at"] is None
+    texts = client.get(prefix + f"/collections/{created}/chunks", params={"path": "jira/docs/a.md"}).json()["chunks"]
     assert texts and texts[0]["position"] == 0 and "alpha" in texts[0]["text"] and texts[0]["embedded"] is False
 
 
 def test_jobs_list_and_cancel(env):
     client, prefix, roots = env[1], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env)
     queued = client.post(prefix + f"/collections/{created}/sync", json={"force": True}).json()
     jobs = client.get(prefix + "/jobs").json()["jobs"]
@@ -147,16 +147,16 @@ def test_list_without_status_skips_the_walk(env, monkeypatch):
     created = collection(env)
     write(env)
     sync(env, created)
-    (roots["docs"] / "absent").mkdir()  # only existing folders outside rag-data can be added
+    (roots["docs"] / "absent").mkdir()  # Add folder never creates folders
     collection(env, "absent", "docs/absent")
     (roots["docs"] / "absent").rmdir()
 
     def no_walk(*args, **kwargs):
         raise AssertionError("status=false must not walk folders")
-    monkeypatch.setattr(workspace.areas, "walk", no_walk)
+    monkeypatch.setattr(workspace.data_root, "walk", no_walk)
     rows = {r["name"]: r for r in client.get(prefix + "/collections", params={"status": "false"}).json()["collections"]}
     assert rows["docs"]["folder_present"] is True and rows["docs"]["indexed_files"] == 1 and rows["docs"]["chunks"] >= 1
-    assert rows["docs"]["embedded_chunks"] == 0 and [p["source_path"] for p in rows["docs"]["paths"]] == ["rag-data/docs"]
+    assert rows["docs"]["embedded_chunks"] == 0 and [p["source_path"] for p in rows["docs"]["paths"]] == ["jira/docs"]
     assert rows["absent"]["folder_present"] is False and "status" not in rows["docs"]
     assert rows["absent"]["missing_paths"] == ["docs/absent"]
 
@@ -176,7 +176,7 @@ def test_collection_with_unsynced_revision_needs_refresh(env):
 def seed_jobs(env):
     """Twelve finished jobs across two collections, newest last, plus one queued."""
     workspace, project = env[0], env[2]
-    ids = {name: collection(env, name, f"rag-data/{name}") for name in ("jira", "docs")}
+    ids = {name: collection(env, name, f"jira/{name}") for name in ("jira", "docs")}
     with workspace.connect() as conn:
         for i in range(12):
             name = "jira" if i % 2 else "docs"

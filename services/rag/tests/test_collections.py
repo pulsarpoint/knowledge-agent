@@ -6,24 +6,30 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from rag.collections import (AREAS, Areas, FolderMissing, glob_regex, indexable, matches, overlaps, relative_path,
-                             source_path, visible)
+from rag.collections import (DataRoot, FolderMissing, glob_regex, indexable, matches, overlaps, relative_path, source_path,
+                             visible)
+
+FOLDERS = ('code', 'code-index', 'docs', 'generated-documents', 'jira')
 
 
 @pytest.fixture
-def areas(tmp_path):
-    roots = {area: tmp_path / area for area in AREAS}
+def data_root(tmp_path):
+    base = tmp_path / 'data'
+    roots = {name: base / name for name in FOLDERS}
     for root in roots.values():
-        root.mkdir()
-    return Areas(roots, {area: f'/srv/{area}' for area in AREAS}), roots
+        root.mkdir(parents=True)
+    roots['data'] = base
+    return DataRoot(base, '/srv/data', 'jira'), roots
 
 
-@pytest.mark.parametrize('value', ['rag-data/jira', 'code/payments/src', 'generated-documents', 'docs'])
+@pytest.mark.parametrize('value', ['jira', 'code/payments/src', 'generated-documents', 'docs', 'exports/tools',
+                                   'any-folder/v1.2', 'rag-data/demo'])
 def test_valid_source_paths(value):
     assert source_path(value) == value
 
 
-@pytest.mark.parametrize('value', ['', 'other/x', 'rag-data/../code', 'rag-data/.hidden', '/rag-data', 'rag-data//x', 'code/a b'])
+@pytest.mark.parametrize('value', ['', 'jira/../code', 'jira/.hidden', '/jira', 'jira//x', 'code/a b', '.hidden',
+                                   '..', 'code/', 'a' * 501])
 def test_invalid_source_paths(value):
     with pytest.raises(HTTPException):
         source_path(value)
@@ -46,8 +52,8 @@ def test_glob_matching():
     assert matches('a.txt', ['*.txt'], []) and not matches('d/a.txt', ['*.txt'], [])
 
 
-def test_walk_filters_skips_and_reports_newest_change(areas):
-    areas, roots = areas
+def test_walk_filters_skips_and_reports_newest_change(data_root):
+    data_root, roots = data_root
     repo = roots['code'] / 'payments'
     (repo / 'src').mkdir(parents=True)
     (repo / '.git').mkdir()
@@ -61,56 +67,57 @@ def test_walk_filters_skips_and_reports_newest_change(areas):
     os.mkfifo(repo / 'pipe.md')
     old = time.time() - 3600
     os.utime(repo / 'README.md', (old, old))
-    walk = areas.walk('code/payments', ['**/*.md', '**/*.py'], [])
+    walk = data_root.walk('code/payments', ['**/*.md', '**/*.py'], [])
     assert [f['path'] for f in walk.files] == ['README.md', 'src/app.py']
     assert walk.skipped == {'links': 1, 'special': 1, 'unreadable': 0, 'invalid_names': 0}
     assert walk.newest_mtime >= (repo / 'src' / 'app.py').stat().st_mtime
-    assert areas.container_path('code/payments') == roots['code'] / 'payments'
-    assert areas.host_path('code/payments') == '/srv/code/payments'
-    assert not areas.writable('code/payments') and areas.writable('rag-data/jira')
+    assert data_root.container_path('code/payments') == roots['code'] / 'payments'
+    assert data_root.host_path('code/payments') == '/srv/data/code/payments'
+    assert not data_root.writable('code/payments') and data_root.writable('jira') and not data_root.writable('jira2')
 
 
-def test_deleting_a_file_moves_folder_change_time_forward(areas):
-    areas, roots = areas
-    folder = roots['rag-data'] / 'jira'
+def test_deleting_a_file_moves_folder_change_time_forward(data_root):
+    data_root, roots = data_root
+    folder = roots['jira'] / 'jira'
     folder.mkdir()
     (folder / 'A.md').write_text('a')
     (folder / 'B.md').write_text('b')
     old = time.time() - 3600
     for path in (folder, folder / 'A.md', folder / 'B.md'):
         os.utime(path, (old, old))
-    before = areas.walk('rag-data/jira', ['**/*.md'], []).newest_mtime
+    before = data_root.walk('jira/jira', ['**/*.md'], []).newest_mtime
     (folder / 'B.md').unlink()
-    assert areas.walk('rag-data/jira', ['**/*.md'], []).newest_mtime > before
+    assert data_root.walk('jira/jira', ['**/*.md'], []).newest_mtime > before
 
 
-def test_walk_limit_and_missing_folder(areas):
-    areas, roots = areas
-    folder = roots['rag-data'] / 'big'
+def test_walk_limit_and_missing_folder(data_root):
+    data_root, roots = data_root
+    folder = roots['jira'] / 'big'
     folder.mkdir()
     for i in range(5):
         (folder / f'{i}.md').write_text('x')
     with pytest.raises(HTTPException, match='more than 3 files'):
-        areas.walk('rag-data/big', ['**/*.md'], [], limit=3)
-    walk = areas.walk('rag-data/big', ['**/*.md'], [], limit=3, truncate=True)
+        data_root.walk('jira/big', ['**/*.md'], [], limit=3)
+    walk = data_root.walk('jira/big', ['**/*.md'], [], limit=3, truncate=True)
     assert walk.truncated and len(walk.files) == 3
     with pytest.raises(FolderMissing):
-        areas.walk('rag-data/absent', ['**/*.md'], [])
+        data_root.walk('jira/absent', ['**/*.md'], [])
 
 
-def test_read_write_confined_to_rag_data(areas):
-    areas, roots = areas
-    (roots['rag-data'] / 'notes').mkdir()
-    areas.write('rag-data/notes', 'sub/a.md', b'# A')
-    assert areas.read('rag-data/notes', 'sub/a.md', 100) == b'# A'
+def test_read_write_confined_to_the_jira_folder(data_root):
+    data_root, roots = data_root
+    (roots['jira'] / 'notes').mkdir()
+    data_root.write('jira/notes', 'sub/a.md', b'# A')
+    assert data_root.read('jira/notes', 'sub/a.md', 100) == b'# A'
     with pytest.raises(HTTPException, match='size limit'):
-        areas.read('rag-data/notes', 'sub/a.md', 1)
+        data_root.read('jira/notes', 'sub/a.md', 1)
     (roots['code'] / 'repo').mkdir()
-    with pytest.raises(HTTPException, match='read-only'):
-        areas.write('code/repo', 'a.md', b'x')
-    os.symlink(roots['code'], roots['rag-data'] / 'notes' / 'escape')
+    with pytest.raises(HTTPException, match='read-only') as error:
+        data_root.write('code/repo', 'a.md', b'x')
+    assert error.value.status_code == 403
+    os.symlink(roots['code'], roots['jira'] / 'notes' / 'escape')
     with pytest.raises(OSError):
-        areas.read('rag-data/notes', 'escape/repo', 100)
+        data_root.read('jira/notes', 'escape/repo', 100)
 
 
 def test_glob_classes_and_specials():
@@ -128,24 +135,24 @@ def test_glob_classes_and_specials():
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason='root ignores permissions')
-def test_walk_counts_unreadable_directories(areas):
-    areas, roots = areas
-    folder = roots['rag-data'] / 'p'
+def test_walk_counts_unreadable_directories(data_root):
+    data_root, roots = data_root
+    folder = roots['jira'] / 'p'
     (folder / 'locked').mkdir(parents=True)
     (folder / 'a.md').write_text('a')
     (folder / 'locked' / 'b.md').write_text('b')
     (folder / 'locked').chmod(0)
     try:
-        walk = areas.walk('rag-data/p', ['**/*.md'], [])
+        walk = data_root.walk('jira/p', ['**/*.md'], [])
     finally:
         (folder / 'locked').chmod(0o755)
     assert [f['path'] for f in walk.files] == ['a.md']
     assert walk.skipped['unreadable'] == 1
 
 
-def test_walk_skips_non_utf8_names(areas):
-    areas, roots = areas
-    folder = roots['rag-data'] / 'p'
+def test_walk_skips_non_utf8_names(data_root):
+    data_root, roots = data_root
+    folder = roots['jira'] / 'p'
     folder.mkdir()
     (folder / 'a.md').write_text('a')
     try:
@@ -153,27 +160,27 @@ def test_walk_skips_non_utf8_names(areas):
             stream.write('x')
     except OSError:
         pytest.skip('filesystem rejects non-UTF-8 names')
-    walk = areas.walk('rag-data/p', ['**/*.md'], [])
+    walk = data_root.walk('jira/p', ['**/*.md'], [])
     assert [f['path'] for f in walk.files] == ['a.md']
     assert walk.skipped['invalid_names'] == 1
 
 
-def test_walk_rejects_symlinked_collection_folder(areas):
-    areas, roots = areas
-    os.symlink(roots['code'], roots['rag-data'] / 'link')
+def test_walk_rejects_symlinked_collection_folder(data_root):
+    data_root, roots = data_root
+    os.symlink(roots['code'], roots['jira'] / 'link')
     with pytest.raises(HTTPException) as error:
-        areas.walk('rag-data/link', ['**/*.md'], [])
+        data_root.walk('jira/link', ['**/*.md'], [])
     assert error.value.status_code == 409
 
 
-def test_walk_skips_surrogate_names_from_listing(areas, monkeypatch):
-    areas, roots = areas
-    folder = roots['rag-data'] / 'p'
+def test_walk_skips_surrogate_names_from_listing(data_root, monkeypatch):
+    data_root, roots = data_root
+    folder = roots['jira'] / 'p'
     folder.mkdir()
     (folder / 'a.md').write_text('a')
     real = os.listdir
     monkeypatch.setattr(os, 'listdir', lambda fd: [*real(fd), 'bad\udcff.md'])
-    walk = areas.walk('rag-data/p', ['**/*.md'], [])
+    walk = data_root.walk('jira/p', ['**/*.md'], [])
     assert [f['path'] for f in walk.files] == ['a.md']
     assert walk.skipped['invalid_names'] == 1
 
@@ -202,137 +209,156 @@ def test_indexable_refuses_hidden_env_and_skipped_segments():
     assert not indexable('v1/a.md', ['**/*.md'], ['v1/**'])
 
 
-def test_walk_skips_hidden_directories_and_files(areas):
-    areas, roots = areas
+def test_walk_skips_hidden_directories_and_files(data_root):
+    data_root, roots = data_root
     folder = roots['generated-documents']
     (folder / '.documentation-update-abc' / 'payments').mkdir(parents=True)
     (folder / '.documentation-update-abc' / 'payments' / 'README.md').write_text('# scratch')
     (folder / 'payments').mkdir()
     (folder / 'payments' / 'README.md').write_text('# Payments')
     (folder / 'payments' / '.draft.md').write_text('# hidden')
-    walk = areas.walk('generated-documents', ['**/*.md'], [])
+    walk = data_root.walk('generated-documents', ['**/*.md'], [])
     assert [f['path'] for f in walk.files] == ['payments/README.md']
 
 
-def test_walk_caps_visited_entries(areas):
-    areas, roots = areas
+def test_walk_caps_visited_entries(data_root):
+    data_root, roots = data_root
     folder = roots['code'] / 'repo'
     (folder / 'src').mkdir(parents=True)
     for i in range(10):
         (folder / 'src' / f'{i}.py').write_text('x')
     (folder / 'README.md').write_text('# R')
     # No file matches the include patterns, yet every entry counts towards the cap.
-    walk = areas.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=5)
+    walk = data_root.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=5)
     assert walk.truncated and walk.files == []
     with pytest.raises(HTTPException, match='more than 5 entries'):
-        areas.walk('code/repo', ['**/*.rst'], [], max_entries=5)
-    assert not areas.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=100).truncated
+        data_root.walk('code/repo', ['**/*.rst'], [], max_entries=5)
+    assert not data_root.walk('code/repo', ['**/*.rst'], [], truncate=True, max_entries=100).truncated
 
 
-def test_present_and_ensure_folder(areas):
-    areas, roots = areas
-    assert not areas.present('rag-data/new')
-    areas.ensure_folder('rag-data/new/nested')
-    assert (roots['rag-data'] / 'new' / 'nested').is_dir() and areas.present('rag-data/new/nested')
-    assert (roots['rag-data'] / 'new' / 'nested').stat().st_mode & 0o777 == 0o750 & ~_umask()
-    areas.ensure_folder('rag-data/new/nested')  # idempotent
-    areas.ensure_folder('code/absent')  # read-only areas are never created
-    assert not (roots['code'] / 'absent').exists() and not areas.present('code/absent')
-    os.symlink(roots['code'], roots['rag-data'] / 'link')
+def test_present_never_creates_folders(data_root):
+    data_root, roots = data_root
+    assert not data_root.present('jira/new') and not (roots['jira'] / 'new').exists()
+    (roots['jira'] / 'new').mkdir()
+    assert data_root.present('jira/new')
+    os.symlink(roots['code'], roots['jira'] / 'link')
+    assert not data_root.present('jira/link')
+
+
+def test_first_write_creates_subfolders_only_below_the_jira_folder(data_root):
+    data_root, roots = data_root
+    data_root.write('jira', '2026/DEMO-1.md', b'# DEMO-1')
+    assert (roots['jira'] / '2026' / 'DEMO-1.md').read_bytes() == b'# DEMO-1'
+    with pytest.raises(HTTPException) as error:
+        data_root.write('jira/absent', 'a.md', b'x')
+    assert error.value.status_code == 409 and not (roots['jira'] / 'absent').exists()
+
+
+def test_top_level_listing_shows_visible_folders_of_the_data_root(data_root):
+    data_root, roots = data_root
+    (roots['data'] / 'exports').mkdir()
+    (roots['data'] / '.local-archive').mkdir()
+    (roots['data'] / 'notes.md').write_text('x')
+    os.symlink(roots['code'], roots['data'] / 'linked')
+    assert data_root.subfolders(None) == (['code', 'code-index', 'docs', 'exports', 'generated-documents', 'jira'], False)
+
+
+def test_reads_go_through_the_one_data_root_and_never_follow_links(data_root, tmp_path):
+    data_root, roots = data_root
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    (elsewhere / 'a.md').write_text('outside-secret')
+    os.symlink(elsewhere, roots['data'] / 'outside')
+    assert not data_root.present('outside')
+    with pytest.raises(HTTPException) as error:
+        data_root.walk('outside', ['**/*.md'], [])
+    assert error.value.status_code == 409
     with pytest.raises(OSError):
-        areas.ensure_folder('rag-data/link/x')
-    assert not (roots['code'] / 'x').exists()
-    assert not areas.present('rag-data/link')
-
-
-def test_first_write_creates_the_collection_folder(areas):
-    areas, roots = areas
-    areas.write('rag-data/jira', 'DEMO-1.md', b'# DEMO-1')
-    assert (roots['rag-data'] / 'jira' / 'DEMO-1.md').read_bytes() == b'# DEMO-1'
+        data_root.read('outside', 'a.md', 100)
+    for bad in ('../elsewhere', '.local-archive', 'code/.git'):
+        with pytest.raises(HTTPException):
+            data_root.container_path(bad)
+    with pytest.raises(HTTPException) as unmounted:
+        DataRoot(None).read('code', 'a.md', 100)
+    assert unmounted.value.status_code == 503
 
 
 @pytest.mark.parametrize('path', ['.env', 'sub/.env.local', '.git/config', 'node_modules/a.md', '.hidden/a.md'])
-def test_write_refuses_hidden_and_skipped_paths(areas, path):
-    areas, roots = areas
+def test_write_refuses_hidden_and_skipped_paths(data_root, path):
+    data_root, roots = data_root
     with pytest.raises(HTTPException) as error:
-        areas.write('rag-data/notes', path, b'x')
+        data_root.write('jira/notes', path, b'x')
     assert error.value.status_code == 400
 
 
-def _umask():
-    mask = os.umask(0)
-    os.umask(mask)
-    return mask
-
-
-def test_walk_paths_merges_full_paths_and_reports_missing(areas):
-    areas, roots = areas
+def test_walk_paths_merges_full_paths_and_reports_missing(data_root):
+    data_root, roots = data_root
     repo = roots['code'] / 'payments'
     (repo / 'src').mkdir(parents=True)
     (repo / 'tests').mkdir()
     (repo / 'src' / 'retry.py').write_text('x')
     (repo / 'tests' / 'test_retry.py').write_text('x')
-    (roots['rag-data'] / 'jira').mkdir()
-    (roots['rag-data'] / 'jira' / 'DEMO-1.md').write_text('# D')
-    walk = areas.walk_paths(['code/payments', 'rag-data/jira', 'docs/absent'], ['**/*.py', '**/*.md'], ['tests/**'], truncate=True)
+    (roots['jira'] / 'jira').mkdir()
+    (roots['jira'] / 'jira' / 'DEMO-1.md').write_text('# D')
+    walk = data_root.walk_paths(['code/payments', 'jira/jira', 'docs/absent'], ['**/*.py', '**/*.md'], ['tests/**'], truncate=True)
     assert [(f['path'], f['source']) for f in walk.files] == [
-        ('code/payments/src/retry.py', 'code/payments'), ('rag-data/jira/DEMO-1.md', 'rag-data/jira')]
+        ('code/payments/src/retry.py', 'code/payments'), ('jira/jira/DEMO-1.md', 'jira/jira')]
     assert walk.missing == ['docs/absent'] and not walk.truncated
     with pytest.raises(FolderMissing, match='Path docs/absent is missing') as error:
-        areas.walk_paths(['code/payments', 'docs/absent'], ['**/*.py'], [])
+        data_root.walk_paths(['code/payments', 'docs/absent'], ['**/*.py'], [])
     assert error.value.status_code == 409 and error.value.source == 'docs/absent'
 
 
-def test_walk_paths_limits_count_the_whole_collection(areas):
-    areas, roots = areas
+def test_walk_paths_limits_count_the_whole_collection(data_root):
+    data_root, roots = data_root
     for name in ('a', 'b'):
-        folder = roots['rag-data'] / name
+        folder = roots['jira'] / name
         folder.mkdir()
         for i in range(3):
             (folder / f'{i}.md').write_text('x')
     with pytest.raises(HTTPException, match='more than 4 files'):
-        areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], limit=4)
-    walk = areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], limit=4, truncate=True)
+        data_root.walk_paths(['jira/a', 'jira/b'], ['**/*.md'], [], limit=4)
+    walk = data_root.walk_paths(['jira/a', 'jira/b'], ['**/*.md'], [], limit=4, truncate=True)
     assert walk.truncated and len(walk.files) == 4
     with pytest.raises(HTTPException, match='more than 5 entries'):
-        areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [], max_entries=5)
+        data_root.walk_paths(['jira/a', 'jira/b'], ['**/*.md'], [], max_entries=5)
 
 
-def test_walk_paths_newest_change_spans_paths(areas):
-    areas, roots = areas
+def test_walk_paths_newest_change_spans_paths(data_root):
+    data_root, roots = data_root
     old, new = time.time() - 7200, time.time() - 60
     for name, stamp in (('a', old), ('b', new)):
-        folder = roots['rag-data'] / name
+        folder = roots['jira'] / name
         folder.mkdir()
         (folder / 'x.md').write_text('x')
         for path in (folder / 'x.md', folder):
             os.utime(path, (stamp, stamp))
-    walk = areas.walk_paths(['rag-data/a', 'rag-data/b'], ['**/*.md'], [])
+    walk = data_root.walk_paths(['jira/a', 'jira/b'], ['**/*.md'], [])
     assert walk.newest_mtime == pytest.approx(new)
-    assert areas.walk_paths([], ['**/*.md'], []).files == []
+    assert data_root.walk_paths([], ['**/*.md'], []).files == []
 
 
 def test_overlapping_paths():
     assert overlaps('code/a', 'code/a') and overlaps('code/a', 'code/a/b') and overlaps('code', 'code/a')
-    assert not overlaps('code/a', 'code/ab') and not overlaps('code/a', 'rag-data/a') and not overlaps('code/a/b', 'code/a/c')
+    assert not overlaps('code/a', 'code/ab') and not overlaps('code/a', 'jira/a') and not overlaps('code/a/b', 'code/a/c')
 
 
-def test_single_walk_keeps_relative_paths_and_names_its_source(areas):
-    areas, roots = areas
-    (roots['rag-data'] / 'notes').mkdir()
-    (roots['rag-data'] / 'notes' / 'a.md').write_text('# A')
-    assert areas.walk('rag-data/notes', ['**/*.md'], []).files[0] | {'size': 0, 'mtime': 0} == {
-        'path': 'a.md', 'source': 'rag-data/notes', 'size': 0, 'mtime': 0}
+def test_single_walk_keeps_relative_paths_and_names_its_source(data_root):
+    data_root, roots = data_root
+    (roots['jira'] / 'notes').mkdir()
+    (roots['jira'] / 'notes' / 'a.md').write_text('# A')
+    assert data_root.walk('jira/notes', ['**/*.md'], []).files[0] | {'size': 0, 'mtime': 0} == {
+        'path': 'a.md', 'source': 'jira/notes', 'size': 0, 'mtime': 0}
 
 
-def test_subfolders_hide_hidden_skipped_links_and_unaddable_names(areas):
-    areas, roots = areas
+def test_subfolders_hide_hidden_skipped_links_and_unaddable_names(data_root):
+    data_root, roots = data_root
     for name in ('b', 'a', '.git', '.env.d', 'node_modules', 'two words'):
         (roots['code'] / name).mkdir()
     (roots['code'] / 'file.md').write_text('x')
     os.symlink(roots['code'] / 'a', roots['code'] / 'link')
-    assert areas.subfolders('code') == (['a', 'b'], False)
-    assert areas.subfolders('code', limit=1) == (['a'], True)
+    assert data_root.subfolders('code') == (['a', 'b'], False)
+    assert data_root.subfolders('code', limit=1) == (['a'], True)
     with pytest.raises(HTTPException) as missing:
-        areas.subfolders('code/absent')
+        data_root.subfolders('code/absent')
     assert missing.value.status_code == 404 and missing.value.detail == 'Folder does not exist'

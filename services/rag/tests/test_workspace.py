@@ -10,7 +10,6 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from rag.collections import AREAS
 from rag.workspace import Workspace
 from rag.workspace_worker import claim, process
 
@@ -39,18 +38,20 @@ def add_folder(env, collection_id, source):
 
 
 def collection(env, name="docs", *sources, **settings):
-    """Create collection `name` with `settings` and connect `sources` (default rag-data/<name>); returns its id."""
+    """Create collection `name` with `settings` and connect `sources` (default jira/<name>), creating the
+    folders first since Add folder never does; returns its id."""
     collection_id = create(env, name, **settings)["id"]
-    for source in sources or (f"rag-data/{name}",):
+    for source in sources or (f"jira/{name}",):
+        (env[6]["data"] / source).mkdir(parents=True, exist_ok=True)
         added = add_folder(env, collection_id, source)
         assert added.status_code == 200, added.text
     return collection_id
 
 
 def write(env, path="readme.md", content="# Payments\n\nRetries use exponential backoff.", name="docs"):
-    """Create or replace rag-data/<name>/<path> through the rag-data writer."""
+    """Create or replace jira/<name>/<path> through the Jira writer."""
     client, prefix = env[1], env[3]
-    full = f"rag-data/{name}/{path}"
+    full = f"jira/{name}/{path}"
     previous = client.get(prefix + "/file", params={"collection": name, "path": full})
     result = client.put(prefix + "/file", json={"path": full, "content": content,
                                                 "expected_hash": previous.json()["hash"] if previous.status_code == 200 else None})
@@ -92,7 +93,7 @@ def configure(env, **model):
     assert result.status_code == 200, result.text
 
 
-def chunks(env, collection_id, path="rag-data/docs/readme.md"):
+def chunks(env, collection_id, path="jira/docs/readme.md"):
     client, prefix = env[1], env[3]
     return [row["text"] for row in client.get(prefix + f"/collections/{collection_id}/chunks", params={"path": path}).json()["chunks"]]
 
@@ -110,35 +111,34 @@ def test_single_workspace_and_cross_project_isolation(env):
             conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (other,))
 
 
-def test_settings_report_areas_and_keep_only_the_file_limit(env):
+def test_settings_report_the_data_root_and_keep_only_the_file_limit(env):
     client, prefix = env[1], env[3]
     config = client.get(prefix + "/settings").json()
     assert config["settings"] == {"max_file_bytes": 2_000_000}
-    assert "source_location" not in config and "source_root" not in config
-    assert [a["area"] for a in config["areas"]] == list(AREAS)
-    rag_data = next(a for a in config["areas"] if a["area"] == "rag-data")
-    assert rag_data["host_root"] == "/srv/rag-data" and rag_data["container_root"] == str(env[6]["rag-data"])
+    assert "source_location" not in config and "source_root" not in config and "areas" not in config
+    assert config["data_root"] == {"container_root": str(env[6]["data"]), "host_root": "/srv/data", "jira_folder": "jira"}
     payload = {"revision": config["revision"], "settings": {"max_file_bytes": 5000}}
     assert client.put(prefix + "/settings", json={**payload, "areas": []}).status_code == 400
     for legacy in ({"chunk_size": 1000}, {"extensions": [".md"]}, {"embedding_enabled": True}):
         assert client.put(prefix + "/settings", json={**payload, "settings": {"max_file_bytes": 5000, **legacy}}).status_code == 400
     saved = client.put(prefix + "/settings", json=payload)
     assert saved.status_code == 200 and saved.json()["settings"] == {"max_file_bytes": 5000}
-    assert saved.json()["revision"] > config["revision"]
+    assert saved.json()["revision"] > config["revision"] and saved.json()["data_root"] == config["data_root"]
 
 
-def test_areas_come_from_deployment_environment(tmp_path, monkeypatch):
+def test_data_root_comes_from_deployment_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", base64.urlsafe_b64encode(b"k" * 32).decode())
-    for root_env, host_env in AREAS.values():
-        monkeypatch.delenv(root_env, raising=False)
-        monkeypatch.delenv(host_env, raising=False)
-    monkeypatch.setenv("RAG_SOURCE_ROOT", str(tmp_path / "rag"))
-    monkeypatch.setenv("RG_DATA", "/srv/knowledge sources")
-    monkeypatch.setenv("CODE_ROOT", str(tmp_path / "code"))
-    workspace = Workspace.from_env()
-    assert workspace.areas.roots == {"rag-data": tmp_path / "rag", "code": tmp_path / "code"}
-    assert workspace.areas.host_path("rag-data/jira") == "/srv/knowledge sources/jira"
-    assert workspace.areas.host_path("code/payments") is None
+    monkeypatch.setenv("DATA_ROOT_DIR", str(tmp_path))
+    monkeypatch.setenv("DATA_ROOT", "/srv/knowledge data/")
+    monkeypatch.setenv("JIRA_EXPORT_ROOT", str(tmp_path / "exports" / "jira"))
+    data_root = Workspace.from_env().data_root
+    assert (data_root.root, data_root.jira_folder) == (tmp_path, "exports/jira")
+    assert data_root.container_path("code/payments") == tmp_path / "code" / "payments"
+    assert data_root.host_path("code/payments") == "/srv/knowledge data/code/payments"
+    assert data_root.writable("exports/jira") and data_root.writable("exports/jira/2026")
+    assert not data_root.writable("exports") and not data_root.writable("exports/jira2")
+    monkeypatch.delenv("DATA_ROOT")
+    assert Workspace.from_env().data_root.host_path("code/payments") is None
 
 
 def test_settings_select_shared_model_and_reject_inline_connection(env):
@@ -175,12 +175,12 @@ def test_authentication_is_required(env):
 
 def test_documents_catalog_and_workspace_lookup(env):
     client, project, prefix, roots = env[1], env[2], env[3], env[6]
-    (roots["rag-data"] / "docs").mkdir()
+    (roots["jira"] / "docs").mkdir()
     created = collection(env, description="Operations documentation")
     write(env)
     sync(env, created)
     assert client.post('/rag', json={'project_id': str(project), 'query': 'retries'}).status_code == 404
     documents = client.get(prefix + '/documents').json()
-    assert [(d['collection'], d['path'], d['collection_description']) for d in documents] == [("docs", "rag-data/docs/readme.md", "Operations documentation")]
+    assert [(d['collection'], d['path'], d['collection_description']) for d in documents] == [("docs", "jira/docs/readme.md", "Operations documentation")]
     assert 0 < len(documents[0]['description']) <= 280
     assert client.get('/backoffice/workspace').json()['project_id'] == str(project)

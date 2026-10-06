@@ -96,8 +96,8 @@ def parse_source(path: str, text: str, settings: CollectionSettings) -> list[str
 
 
 def read(workspace: Workspace, path: str, limit: int) -> bytes:
-    area, _, rest = path.partition("/")
-    return workspace.areas.read(area, rest, limit)
+    first, _, rest = path.partition("/")
+    return workspace.data_root.read(first, rest, limit)
 
 
 def decide(workspace: Workspace, walk: Walk, log: dict, indexed: set[str], current: str, limit: int, force: bool,
@@ -160,7 +160,7 @@ def recheck(workspace: Workspace, collection: dict, sources: list[str], walk: Wa
     Sizes and mtimes are compared with the first walk; only files whose size or mtime moved are read
     again and hashed against the hash this sync used (the logged hash for files it did not open).
     """
-    again = workspace.areas.walk_paths(sources, collection["include"], collection["exclude"])
+    again = workspace.data_root.walk_paths(sources, collection["include"], collection["exclude"])
     before = {entry["path"]: (entry["size"], entry["mtime"]) for entry in walk.files}
     after = {entry["path"]: (entry["size"], entry["mtime"]) for entry in again.files}
     if before.keys() != after.keys():
@@ -201,7 +201,7 @@ def process(workspace: Workspace, job: dict, transport=None):
                              "size": settings.chunk_size, "overlap": settings.chunk_overlap})
         profile = embedding_profile(model)
         log_fingerprint = file_log.fingerprint(processing, profile, limit)
-        walk = workspace.areas.walk_paths(list(path_ids), collection["include"], collection["exclude"])  # FolderMissing, limits
+        walk = workspace.data_root.walk_paths(list(path_ids), collection["include"], collection["exclude"])  # FolderMissing, limits
         for key in ("links", "special", "unreadable", "invalid_names"):
             stats["skipped_" + key] = walk.skipped[key]
         previous = {row["path"]: row for row in existing}
