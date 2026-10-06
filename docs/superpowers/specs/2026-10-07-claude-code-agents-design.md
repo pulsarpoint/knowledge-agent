@@ -19,15 +19,17 @@ Documentation generation with a Claude Code agent is **interactive**:
 
 - **All agents** lists them with a **Claude Code SDK** badge. The existing agents are
   OpenAI SDK agents and are unchanged.
-- **New agent → Claude Code agent** asks for:
-
-  | Field | Notes |
-  | --- | --- |
-  | Name | Required |
-  | Description | Optional |
-  | Model | Claude models only: Bedrock (`eu.anthropic.claude-…` inference profiles) or Anthropic API connections from LLM Settings |
-  | Instructions | Always-on system instructions, appended to Claude Code's own |
-
+- **The agent entry is only a registration:** a name, a description and the runtime. It
+  is what you select later; it holds no model, instructions, folders or prompt.
+- **New agent → Claude Code agent** asks for a name (required) and a description
+  (optional).
+- **Everything task-specific is supplied when a session starts:**
+  - the selected model;
+  - the working folders and other context;
+  - the selected prompt and comments;
+  - a built-in system prompt for documentation work: "You are an expert technical writer.
+    You explore the provided folders and context to write accurate documentation;
+    everything you state must be grounded in what you read."
 - **Tools:** read-only file tools (Read, Grep, Glob, LS) plus **Bash**. They are fixed for
   this runtime.
   - Claude Code runs in its own container, where `DATA_ROOT` is mounted **read-only**. It
@@ -39,8 +41,8 @@ Documentation generation with a Claude Code agent is **interactive**:
   or the user presses **Stop**.
 - **Storage:**
   - `ka.agents` gains `runtime` (`openai` | `claude_code`, default `openai`).
-  - Claude Code agents use `model_id` and their instructions, kept in the existing
-    versioned config.
+  - Claude Code agents store only name, description and runtime. `model_id` stays empty
+    and they have no versioned config.
   - The OpenAI-only capability switches (documents, repositories, SSH, skills, MCP,
     services, coordinator) are always off for them.
   - They never appear in places that run OpenAI agents: the Reader, the multi-agent board
@@ -54,7 +56,7 @@ environment** and **Code project**:
 | Field | Notes |
 | --- | --- |
 | Agent | A Claude Code agent |
-| Model | The agent's model by default; any Claude connection can be chosen for this run |
+| Model | Required: any enabled Claude connection (Bedrock or Anthropic) |
 | Prompt | Any active documentation prompt |
 | Context | Any mix of: **code projects** (their folders become working folders), **folders** under `DATA_ROOT` (picked with the folder browser), **servers** (name, address and description passed as text) and **notes** (free text) |
 | Comments | Extra instructions for this run |
