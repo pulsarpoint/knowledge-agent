@@ -374,8 +374,10 @@ def test_removing_a_path_drops_its_files_from_search(env):
         (roots["rag-data"] / name / "x.md").write_text(f"# {name}\n\nretries {name}")
     created = collection(env, "both", "rag-data/a", "rag-data/b")
     sync(env, created)
-    removed = client.delete(prefix + "/collections/by-name/both/paths", params={"source_path": "rag-data/b"})
-    assert removed.json() == {"removed": 1}
+    path_id = next(p["id"] for p in client.get(prefix + f"/collections/{created}").json()["paths"]
+                   if p["source_path"] == "rag-data/b")
+    removed = client.delete(prefix + f"/collections/{created}/paths/{path_id}")
+    assert removed.status_code == 200 and [p["source_path"] for p in removed.json()["paths"]] == ["rag-data/a"]
     assert {hit["path"] for hit in search(env, "retries", ["both"]).json()["results"]} == {"rag-data/a/x.md"}
     row = client.get(prefix + f"/collections/{created}").json()
     assert row["indexed_files"] == 1 and row["status"] == "needs_refresh"

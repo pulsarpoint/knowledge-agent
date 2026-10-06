@@ -84,21 +84,3 @@ class Workspace:
     def paths(self, conn, collection_id: UUID) -> list[dict]:
         return conn.execute("SELECT * FROM ka.rag_collection_paths WHERE collection_id=%s ORDER BY source_path",
                             (collection_id,)).fetchall()
-
-    def create_collection(self, conn, project: UUID, name: str, create: dict | None = None) -> None:
-        """Insert the named collection unless it exists. `create` (description, include, exclude) applies
-        only to the new row; omitted or None values keep the column defaults. Nothing is locked."""
-        values = {key: value for key, value in (create or {}).items() if value is not None}
-        assert set(values) <= {"description", "include", "exclude"}, values  # column names are never input
-        columns = ["project_id", "name", *values]
-        conn.execute(f"""INSERT INTO ka.rag_collections({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})
-            ON CONFLICT (project_id,name) WHERE deleted_at IS NULL DO NOTHING""", [project, name, *values.values()])
-
-    def ensure_collection(self, conn, project: UUID, name: str, create: dict | None = None) -> dict:
-        """The named collection, created with `create` settings when missing; never changes an existing one.
-
-        The row is locked, so path changes to one collection are serialized with its edits and syncs.
-        """
-        self.create_collection(conn, project, name, create)
-        return conn.execute("""SELECT * FROM ka.rag_collections WHERE project_id=%s AND name=%s AND deleted_at IS NULL
-            FOR UPDATE""", (project, name)).fetchone()

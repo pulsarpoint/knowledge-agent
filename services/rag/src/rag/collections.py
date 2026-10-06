@@ -26,6 +26,8 @@ MAX_FILES = 20_000
 MAX_STATUS_ENTRIES = 20_000  # status walks stop (truncated) after visiting this many entries
 MAX_SYNC_ENTRIES = 10 * MAX_FILES  # a sync fails rather than walk an unbounded tree
 MAX_BYTES = 200_000_000
+MAX_FOLDERS = 1000  # the folder browser lists at most this many children
+FOLDER_NAME = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9._-]*')  # a name that can be a source_path segment
 
 
 class FolderMissing(HTTPException):
@@ -177,6 +179,30 @@ class Areas:
         if self.writable(source):
             with self._directory(source, [], create=True):
                 pass
+
+    def subfolders(self, source: str, limit: int = MAX_FOLDERS) -> tuple[list[str], bool]:
+        """Child folders that could be connected to a collection, sorted, and whether more exist.
+
+        Links are never followed or listed; hidden folders, .git, node_modules and names that are not
+        valid source_path segments are left out.
+        """
+        try:
+            with self._directory(source, []) as fd:
+                found = []
+                for name in sorted(os.listdir(fd)):
+                    if not visible(name) or not FOLDER_NAME.fullmatch(name):
+                        continue
+                    try:
+                        entry = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if stat.S_ISDIR(entry.st_mode):
+                        if len(found) == limit:
+                            return found, True
+                        found.append(name)
+                return found, False
+        except (FileNotFoundError, NotADirectoryError):
+            raise HTTPException(404, 'Folder does not exist') from None
 
     def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int = MAX_FILES,
              truncate: bool = False, max_entries: int | None = None, into: Walk | None = None) -> Walk:

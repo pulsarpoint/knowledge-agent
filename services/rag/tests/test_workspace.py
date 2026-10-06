@@ -26,16 +26,23 @@ def update(env, collection_id, **changes):
                       json={**{key: row[key] for key in SETTINGS}, **changes, "revision": row["revision"]})
 
 
+def create(env, name, **settings):
+    """POST a new collection with `settings`; returns its summary."""
+    response = env[1].post(env[3] + "/collections", json={"name": name, **settings})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_folder(env, collection_id, source):
+    return env[1].post(env[3] + f"/collections/{collection_id}/paths", json={"source_path": source})
+
+
 def collection(env, name="docs", *sources, **settings):
-    """Ensure collection `name` holding `sources` as unowned paths (default rag-data/<name>), then apply settings."""
-    client, prefix = env[1], env[3]
+    """Create collection `name` with `settings` and connect `sources` (default rag-data/<name>); returns its id."""
+    collection_id = create(env, name, **settings)["id"]
     for source in sources or (f"rag-data/{name}",):
-        added = client.put(prefix + f"/collections/by-name/{name}/paths", json={"source_path": source})
+        added = add_folder(env, collection_id, source)
         assert added.status_code == 200, added.text
-    collection_id = added.json()["id"]
-    if settings:
-        saved = update(env, collection_id, **settings)
-        assert saved.status_code == 200, saved.text
     return collection_id
 
 
@@ -95,7 +102,7 @@ def test_single_workspace_and_cross_project_isolation(env):
         other = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('other','Other') RETURNING id").fetchone()["id"]
     assert client.get(f"/backoffice/projects/{other}/settings").status_code == 404
     assert client.get(f"/backoffice/projects/{other}/collections").status_code == 404
-    assert client.put(f"/backoffice/projects/{other}/collections/by-name/x", json={}).status_code == 404
+    assert client.post(f"/backoffice/projects/{other}/collections", json={"name": "x"}).status_code == 404
     with workspace.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM ka.rag_workspaces").fetchone()["n"] == 1
         with pytest.raises(psycopg.errors.UniqueViolation):

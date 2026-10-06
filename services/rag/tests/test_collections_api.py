@@ -12,7 +12,10 @@ def status(env, collection_id):
 
 
 def test_missing_folder_is_reported(env):
+    absent = env[6]["docs"] / "absent"
+    absent.mkdir()  # only existing folders outside rag-data can be added
     created = collection(env, "absent", "docs/absent")
+    absent.rmdir()
     row = status(env, created)
     assert row["status"] == "folder_missing" and row["folder_present"] is False
     assert row["missing_paths"] == ["docs/absent"]
@@ -68,7 +71,9 @@ def test_one_active_sync_per_collection_and_sync_stale(env):
     for name in ("a", "b"):
         (roots["rag-data"] / name).mkdir()
         collection(env, name, f"rag-data/{name}")
+    (roots["docs"] / "c").mkdir()
     first = collection(env, "c", "docs/c")
+    (roots["docs"] / "c").rmdir()
     ids = {r["name"]: r["id"] for r in client.get(prefix + "/collections").json()["collections"]}
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 202
     assert client.post(prefix + f"/collections/{ids['a']}/sync", json={}).status_code == 409
@@ -148,7 +153,9 @@ def test_list_without_status_skips_the_walk(env, monkeypatch):
     created = collection(env)
     write(env)
     sync(env, created)
+    (roots["docs"] / "absent").mkdir()  # only existing folders outside rag-data can be added
     collection(env, "absent", "docs/absent")
+    (roots["docs"] / "absent").rmdir()
 
     def no_walk(*args, **kwargs):
         raise AssertionError("status=false must not walk folders")

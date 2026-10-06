@@ -323,3 +323,16 @@ def test_single_walk_keeps_relative_paths_and_names_its_source(areas):
     (roots['rag-data'] / 'notes' / 'a.md').write_text('# A')
     assert areas.walk('rag-data/notes', ['**/*.md'], []).files[0] | {'size': 0, 'mtime': 0} == {
         'path': 'a.md', 'source': 'rag-data/notes', 'size': 0, 'mtime': 0}
+
+
+def test_subfolders_hide_hidden_skipped_links_and_unaddable_names(areas):
+    areas, roots = areas
+    for name in ('b', 'a', '.git', '.env.d', 'node_modules', 'two words'):
+        (roots['code'] / name).mkdir()
+    (roots['code'] / 'file.md').write_text('x')
+    os.symlink(roots['code'] / 'a', roots['code'] / 'link')
+    assert areas.subfolders('code') == (['a', 'b'], False)
+    assert areas.subfolders('code', limit=1) == (['a'], True)
+    with pytest.raises(HTTPException) as missing:
+        areas.subfolders('code/absent')
+    assert missing.value.status_code == 404 and missing.value.detail == 'Folder does not exist'
