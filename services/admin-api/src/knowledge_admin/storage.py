@@ -1,4 +1,4 @@
-"""Read-only overview of the deployment's configured content folders."""
+"""Read-only overview of DATA_ROOT and its configured folders."""
 
 import os
 from datetime import datetime, timezone
@@ -7,13 +7,17 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-StorageArea = Literal['code', 'code_index', 'rag', 'documents', 'bootstrap']
+from knowledge_admin.data_root import host_path
+
+StorageArea = Literal['data', 'code', 'code_index', 'jira', 'documents', 'bootstrap']
+# The in-container variable Compose computes, and the .env variable that names the folder.
 ROOTS = {
-    'code': ('CODE_ROOT', 'CODE_PATH'),
-    'code_index': ('CODE_INDEX_ROOT', 'CODE_INDEX_PATH'),
-    'rag': ('RAG_SOURCE_ROOT', 'RG_DATA'),
-    'documents': ('DOCUMENT_OUTPUT_ROOT', 'GENERATED_DOCS_PATH'),
-    'bootstrap': ('BOOTSTRAP_DOCS_ROOT', 'DOCS_PATH'),
+    'data': ('DATA_ROOT_DIR', 'DATA_ROOT'),
+    'code': ('CODE_ROOT', 'CODE_FOLDER'),
+    'code_index': ('CODE_INDEX_ROOT', 'CODE_INDEX_FOLDER'),
+    'jira': ('JIRA_EXPORT_ROOT', 'JIRA_FOLDER'),
+    'documents': ('DOCUMENT_OUTPUT_ROOT', 'GENERATED_DOCS_FOLDER'),
+    'bootstrap': ('BOOTSTRAP_DOCS_ROOT', 'DOCS_FOLDER'),
 }
 
 
@@ -41,12 +45,11 @@ def build_api() -> APIRouter:
     @router.get('')
     def overview():
         locations = []
-        for area, (container_variable, host_variable) in ROOTS.items():
+        for area, (container_variable, variable) in ROOTS.items():
             configured = os.environ.get(container_variable) or None
-            host = os.environ.get(host_variable) or None
             available = bool(configured and Path(configured).is_absolute() and Path(configured).is_dir())
-            locations.append({'id': area, 'container_path': configured, 'host_path': host,
-                              'host_variable': host_variable, 'host_path_relative': bool(host and not Path(host).is_absolute()),
+            locations.append({'id': area, 'container_path': configured, 'host_path': host_path(configured),
+                              'variable': variable,
                               'status': 'available' if available else 'unavailable' if configured else 'unconfigured'})
         return {'locations': locations}
 

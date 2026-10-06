@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
+from knowledge_admin.data_root import host_path
 from knowledge_admin.code_paths import code_path, code_root
 from knowledge_admin.code_processing import index_directory, CodeProcessingError
 from knowledge_admin.rag_files import RagFiles
@@ -217,7 +218,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
                 'size': e.stat(follow_symlinks=False).st_size} for e in entries[offset:offset+200]]
         except OSError:
             raise HTTPException(503, 'Could not read this code folder. Check mount permissions and refresh.') from None
-        return {'root': str(root), 'host_path': os.environ.get('CODE_PATH'), 'path': path, 'entries': files,
+        return {'root': str(root), 'host_path': host_path(str(root)), 'path': path, 'entries': files,
             'total': len(entries), 'next_offset': offset+200 if offset+200<len(entries) else None}
 
     @router.get('/code/file')

@@ -16,8 +16,8 @@ def workspace(store, tmp_path, monkeypatch):
     (root/'api'/'app.py').write_text('print("project code")\n')
     (root/'.notes').write_text('Host notes')
     monkeypatch.setenv('CODE_ROOT', str(root))
-    monkeypatch.setenv('CODE_PATH', str(root))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path))
+    monkeypatch.setenv('DATA_ROOT', '/opt/knowledge-agent')
     return _client(tmp_path, repository_store=store), root
 
 
@@ -91,7 +91,7 @@ def test_code_browser_lists_hidden_entries_reads_files_and_stays_inside_mount(wo
     outside = tmp_path/'outside'; outside.mkdir(); (outside/'secret').write_text('outside-content')
     (root/'escape').symlink_to(outside, target_is_directory=True)
     listing = client.get('/api/code/files', headers=HEADERS).json()
-    assert listing['root'] == listing['host_path'] == str(root)
+    assert listing['root'] == str(root) and listing['host_path'] == '/opt/knowledge-agent/code'
     assert {f['name'] for f in listing['entries']} == {'api','shared','other','.notes','escape'}
     assert next(f for f in listing['entries'] if f['name']=='escape')['kind'] == 'symlink'
     nested = client.get('/api/code/files', headers=HEADERS, params={'path':'api'}).json()
