@@ -26,7 +26,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_llm import code_compatible
-from knowledge_admin.documents import DocumentInput, GitCommit, export_document, save_document
+from knowledge_admin.data_root import documentation_folder
+from knowledge_admin.documents import DocumentInput, GitCommit, document_slug, export_conflict, export_document, save_document
 from knowledge_admin.documentation_updates import collect_source_commits
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.code_processing import load_code_graph, CodeProcessingError
@@ -51,20 +52,34 @@ class GenerationUnit(BaseModel):
 class GenerationInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     workflow_id: UUID | None = None
-    scope: Literal['environment', 'service']
+    scope: Literal['environment', 'service', 'code_project']
     model_id: UUID
     service_id: UUID | None = None
     environment_id: UUID | None = None
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=100)
     server_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    units: list[GenerationUnit] = Field(min_length=1, max_length=4)
+    units: list[GenerationUnit] = Field(default_factory=list, max_length=4)
     code_graph_hashes: dict[str, str] = Field(default_factory=dict, max_length=100)
     source_commits: dict[UUID, GitCommit] = Field(default_factory=dict, max_length=100)
     instructions: str = Field(default='', max_length=20000)
     update_existing: bool = False
+    # scope='code_project': one project, one chosen prompt plus this run's comments, one named document in a folder.
+    code_project_id: UUID | None = None
+    prompt_id: UUID | None = None
+    prompt_version_id: UUID | None = None
+    comments: str = Field(default='', max_length=20000)
+    document_name: str | None = Field(default=None, max_length=240)
+    folder: str | None = None
 
     @model_validator(mode='after')
     def validate_scope(self):
+        if self.scope == 'code_project':
+            return self.validate_code_project()
+        if not self.units:
+            raise ValueError('Select at least one documentation step')
+        if (self.code_project_id or self.prompt_id or self.prompt_version_id or self.comments
+                or self.document_name is not None or self.folder is not None):
+            raise ValueError('A prompt, comments, a document name and a folder are only used by code project documentation')
         kinds = [unit.kind for unit in self.units]
         if len(kinds) != len(set(kinds)):
             raise ValueError('Choose each document type once')
@@ -87,6 +102,20 @@ class GenerationInput(BaseModel):
             raise ValueError('Instructions cannot contain null characters')
         self.code_project_ids = list(dict.fromkeys(self.code_project_ids))
         self.server_ids = list(dict.fromkeys(self.server_ids))
+        return self
+
+    def validate_code_project(self):
+        if (self.code_project_id is None or self.prompt_id is None or self.prompt_version_id is None or self.units
+                or self.workflow_id or self.service_id or self.environment_id or self.code_project_ids
+                or self.server_ids or self.instructions):
+            raise ValueError('Code project documentation takes one code project and one prompt; put extra instructions in the comments')
+        name = (self.document_name or '').strip()
+        if '\x00' in self.comments or '\x00' in name:
+            raise ValueError('Comments and the document name cannot contain null characters')
+        if not document_slug(name):
+            raise ValueError('Use letters or digits in the document name')
+        self.document_name = name
+        self.folder = documentation_folder(self.folder or '')
         return self
 
 
@@ -363,6 +392,78 @@ def environment_views(sources: dict) -> str:
                           for title, description, lines in views if len(lines) > 1) + '\n'
 
 
+SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
+
+
+def queue_code_project(conn, project: UUID, actor: UUID, model: dict, value: GenerationInput) -> dict:
+    """Queue one code project's document: the chosen prompt plus comments, code and graph tools only, saved in a folder."""
+    code_projects = conn.execute("""SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,r.current_commit,
+        ARRAY(SELECT path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY path) AS folder_paths
+        FROM ka.repositories r WHERE project_id=%s AND id=%s AND archived_at IS NULL""", (project, value.code_project_id)).fetchall()
+    if not code_projects:
+        raise HTTPException(400, 'Select an available code project')
+    code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
+    if not code_root.is_absolute() or '..' in code_root.parts:
+        raise HTTPException(503, 'CODE_ROOT must be an absolute mounted path')
+    for code_project in code_projects:
+        code_project['folder_paths'] = [str(code_root / path) for path in code_project['folder_paths']]
+    commits = collect_source_commits(code_projects)
+    for code_project in code_projects:
+        code_project['current_commit'] = commits.get(str(code_project['id']))
+    if any(commits.get(str(key)) != commit for key, commit in value.source_commits.items()):
+        raise HTTPException(409, 'A requested source commit does not match a clean selected checkout')
+    value.source_commits = {UUID(key): commit for key, commit in commits.items()}
+    try:
+        graphs = [load_code_graph(p, value.code_graph_hashes.get(str(p['id']))) for p in code_projects]
+    except CodeProcessingError as exc:
+        raise HTTPException(409, str(exc)) from None
+    prompt = conn.execute("""SELECT p.id,p.name,p.input_kind,v.id AS version_id,v.version,v.content
+        FROM ka.documentation_prompts p JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
+        WHERE p.id=%s AND p.project_id=%s AND p.enabled""", (value.prompt_id, project)).fetchone()
+    if prompt is None or prompt['input_kind'] not in ('code', 'mixed'):
+        raise HTTPException(400, 'Select an active documentation prompt for code (code or mixed input)')
+    if prompt['version_id'] != value.prompt_version_id:
+        raise HTTPException(409, 'The prompt changed. Reload the prompt before generating.')
+    slug = document_slug(value.document_name)
+    conflict = export_conflict(conn, project, slug, value.folder)
+    if conflict:
+        raise HTTPException(409, conflict)
+    existing = conn.execute("""SELECT d.id,d.revision,v.markdown FROM ka.documents d
+        JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.project_id=%s AND d.folder=%s AND d.slug=%s""",
+        (project, value.folder, slug)).fetchone()
+    if existing is not None and not value.update_existing:
+        raise HTTPException(409, SAME_DOCUMENT_NAME)
+    if conn.execute("""SELECT 1 FROM ka.documentation_generations g JOIN ka.jobs j ON j.id=g.job_id
+        WHERE g.project_id=%s AND j.status IN ('queued','running') AND g.source_snapshot->>'scope'='code_project'
+        AND (g.source_snapshot->>'code_project_id'=%s OR
+             (g.source_snapshot->>'folder'=%s AND g.source_snapshot->'targets'->0->>'slug'=%s))""",
+        (project, str(value.code_project_id), value.folder, slug)).fetchone():
+        raise HTTPException(409, 'Documentation for this code project or document is already queued or running')
+    system_prompt = prompt['content'] + (f'\n\n## Comments for this run\n\n{value.comments}' if value.comments.strip() else '')
+    configs = {'project': jsonable_encoder({
+        'id': 'documentation-project', 'name': 'Documentation: code project',
+        'description': 'Built-in documentation step', 'enabled': True, 'model': model,
+        'system_prompt': {'content': system_prompt}, 'instructions': '',
+        'code': {'enabled': True, 'projects': code_projects, 'graphs': graphs},
+        'ssh': {'enabled': False, 'servers': []},
+        'documents': {'enabled': False, 'all_collections': False, 'collections': []}, 'mcp': {'enabled': False, 'servers': []},
+        'skills': {'enabled': False, 'items': []}, 'services': {'enabled': False, 'items': []},
+    })}
+    prompts = [{**prompt, 'active_content': prompt['content'], 'overridden': False, 'kind': 'project', 'comments': value.comments}]
+    sources = jsonable_encoder({**value.model_dump(), 'workflow_version': 2, 'code_project_ids': [value.code_project_id],
+        'service': None, 'services': [], 'environment': None, 'code_projects': code_projects,
+        'targets': [{'kind': 'project', 'slug': slug, 'folder': value.folder, 'existing': existing}]})
+    job_id = uuid4()
+    conn.execute("""INSERT INTO ka.jobs(id,project_id,kind,requested_by,idempotency_key)
+        VALUES (%s,%s,'documentation_generate',%s,%s)""", (job_id, project, actor, str(job_id)))
+    conn.execute("""INSERT INTO ka.documentation_generations(job_id,project_id,mode,instructions,agent_snapshot,prompt_snapshot,source_snapshot)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)""", (job_id, project, 'update' if value.update_existing else 'create', value.comments,
+        Jsonb(configs), Jsonb(jsonable_encoder(prompts)), Jsonb(sources)))
+    conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id)
+        VALUES (%s,%s,'documentation.generation_requested','job',%s)""", (project, actor, job_id))
+    return {'job_id': job_id}
+
+
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation')
 
@@ -380,6 +481,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if model is None or not model['enabled'] or not code_compatible(model['provider'],model['api_format'],model['model']):
                 raise HTTPException(400, 'Select an enabled model that supports documentation generation')
             model['api_key_ref'] = {'table': 'ka.llm_models', 'id': model['id'], 'aad': f"llm:{model['id']}:v1"} if model.pop('has_key') else None
+            if value.scope == 'code_project':
+                return queue_code_project(conn, project, actor, model, value)
             service = None
             if value.service_id is not None:
                 service = conn.execute('SELECT * FROM ka.service_assets WHERE id=%s AND project_id=%s', (value.service_id, project)).fetchone()
@@ -497,7 +600,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 elif unit.kind == 'infrastructure':
                     slug += '-' + str(value.server_ids[0])[:8]
                 existing = conn.execute("""SELECT d.id,d.revision,v.markdown FROM ka.documents d
-                    JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.project_id=%s AND d.slug=%s""", (project,slug)).fetchone()
+                    JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.project_id=%s AND d.folder IS NULL AND d.slug=%s""", (project,slug)).fetchone()
                 if existing is not None and not value.update_existing:
                     raise HTTPException(409, 'These documents already exist. Enable "Create new versions of existing documents" to update them.')
                 targets.append({'kind': unit.kind, 'slug': slug, 'existing': existing})

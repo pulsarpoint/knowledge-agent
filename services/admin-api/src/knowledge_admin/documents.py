@@ -484,12 +484,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.get('/generations')
     def generations(offset: int = Query(default=0, ge=0), service_id: UUID | None = None,
-                    kind: str | None = Query(default=None, max_length=80), workflow_id: UUID | None = None) -> dict:
+                    kind: str | None = Query(default=None, max_length=80), workflow_id: UUID | None = None,
+                    scope: Literal['service', 'environment', 'code_project'] | None = None) -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
             rows = conn.execute('''SELECT g.job_id,g.mode,g.instructions,g.created_at,j.status,j.error,j.result,
                 g.source_snapshot->'service_id' AS service_id, g.source_snapshot->'code_graph_hashes' AS code_graph_hashes,
+                g.source_snapshot->>'scope' AS scope, g.source_snapshot->>'document_name' AS document_name,
+                g.source_snapshot->>'folder' AS folder,
                 g.prompt_snapshot,
                 (SELECT workflow_id FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id LIMIT 1) AS workflow_id,
                 COALESCE((SELECT jsonb_agg(u.data ORDER BY u.id) FROM (
@@ -503,7 +506,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 WHERE g.project_id=%s AND (%s::uuid IS NULL OR g.source_snapshot->>'service_id'=%s)
                 AND (%s::uuid IS NULL OR EXISTS(SELECT 1 FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id AND workflow_id=%s))
                 AND (%s::text IS NULL OR g.prompt_snapshot @> jsonb_build_array(jsonb_build_object('kind',%s::text)))
-                ORDER BY g.created_at DESC,g.job_id LIMIT 50 OFFSET %s''', (project,service_id,str(service_id),workflow_id,workflow_id,kind,kind,offset)).fetchall()
+                AND (%s::text IS NULL OR g.source_snapshot->>'scope'=%s)
+                ORDER BY g.created_at DESC,g.job_id LIMIT 50 OFFSET %s''', (project,service_id,str(service_id),workflow_id,workflow_id,kind,kind,scope,scope,offset)).fetchall()
             return {'generations':rows}
 
     return router
