@@ -41,19 +41,24 @@ def test_options_allow_only_read_tools_and_bash_in_the_chosen_folders(monkeypatc
 def test_credentials_reach_only_the_cli_environment():
     assert worker.build_options(SESSION, BEDROCK)['env'] == {
         **worker.BASE_ENV, 'CLAUDE_CODE_USE_BEDROCK': '1', 'AWS_REGION': 'eu-central-1',
-        'AWS_BEARER_TOKEN_BEDROCK': 'bedrock-secret-token', 'ANTHROPIC_MODEL': BEDROCK.model}
+        'AWS_BEARER_TOKEN_BEDROCK': 'bedrock-secret-token', 'ANTHROPIC_MODEL': BEDROCK.model,
+        'ANTHROPIC_DEFAULT_HAIKU_MODEL': BEDROCK.model, 'ANTHROPIC_SMALL_FAST_MODEL': BEDROCK.model}
     env = worker.build_options(SESSION, ANTHROPIC)['env']
-    assert (env['ANTHROPIC_API_KEY'], env['ANTHROPIC_BASE_URL'], env['ANTHROPIC_MODEL']) == (
-        'sk-ant-secret', 'https://api.anthropic.com', 'claude-sonnet-4-5')
+    assert (env['ANTHROPIC_API_KEY'], env['ANTHROPIC_BASE_URL'], env['ANTHROPIC_MODEL'], env['ANTHROPIC_DEFAULT_HAIKU_MODEL'],
+            env['ANTHROPIC_SMALL_FAST_MODEL']) == (
+        'sk-ant-secret', 'https://api.anthropic.com', 'claude-sonnet-4-5', 'claude-sonnet-4-5', 'claude-sonnet-4-5')
     assert 'CLAUDE_CODE_USE_BEDROCK' not in env and 'AWS_BEARER_TOKEN_BEDROCK' not in env
     assert worker.BASE_ENV == {'HOME': '/home/claude', 'TMPDIR': '/home/claude/tmp', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-                               'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1'}
+                               'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
+                               'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1'}
     options = worker.build_options(SESSION, BEDROCK)
     assert 'bedrock-secret-token' not in repr({key: value for key, value in options.items() if key != 'env'})
     for model in (replace(BEDROCK, model='amazon.nova-pro-v1:0'), replace(ANTHROPIC, api_key=None),
                   replace(BEDROCK, provider='openai', api_format='responses')):
         with pytest.raises(ValueError):
             worker.credential_env(model)
+    with pytest.raises(ValueError, match='Set the AWS region of this connection in LLM Settings'):
+        worker.credential_env(replace(BEDROCK, aws_region=None))
 
 
 def test_provider_errors_are_made_safe_with_a_hint():
@@ -72,7 +77,7 @@ def test_provider_errors_are_made_safe_with_a_hint():
 
 def test_turn_messages_become_run_events_and_the_final_answer_is_the_draft():
     recorder = Recorder()
-    turn = worker.Turn(recorder)
+    turn = worker.Turn(recorder, secrets=[])
     bash_output = '\n'.join(f'line {n}' for n in range(30))
     for message in (
             SystemMessage('init', {'session_id': 'cli-session'}),
@@ -104,12 +109,12 @@ def test_turn_messages_become_run_events_and_the_final_answer_is_the_draft():
     assert recorder.events[-1] == ('usage', {'input_tokens': 1050, 'output_tokens': 40, 'cached_tokens': 900,
                                              'total_tokens': 1090, 'cost_usd': 0.12})
     assert (turn.draft, turn.session_id, turn.usage['output_tokens']) == ('# Payments API\n\nRetries back off.', 'cli-session', 40)
-    fallback = worker.Turn(Recorder())
+    fallback = worker.Turn(Recorder(), secrets=[])
     fallback.add(AssistantMessage([TextBlock('Only text')]))
     fallback.add(ResultMessage('success', False, 's', result=''))
     assert fallback.draft == 'Only text'
     failed = Recorder()
-    worker.Turn(failed).add(AssistantMessage([], error='rate_limit'))
+    worker.Turn(failed, secrets=[]).add(AssistantMessage([], error='rate_limit'))
     assert failed.events == [('error', {'message': 'The model reported an error: rate_limit'})]
     assert worker.result_error(None) == 'Claude Code ended the turn without a result.'
     assert worker.result_error(ResultMessage('error_during_execution', True, 's', result='Overloaded', errors=['retry later'])) == 'Overloaded retry later'
@@ -119,7 +124,7 @@ def test_no_credential_reaches_events_logs_or_errors(caplog):
     caplog.set_level('DEBUG')
     secrets = ['bedrock-secret-token', 'sk-ant-secret', 'encryption-key-material']
     recorder = Recorder()
-    turn = worker.Turn(recorder, secrets)
+    turn = worker.Turn(recorder, secrets=secrets)
     for message in (
             SystemMessage('init', {'session_id': 'cli-session'}),
             AssistantMessage([ToolUseBlock('t1', 'Bash', {'command': 'echo sk-ant-secret; env | grep AWS'})]),
@@ -141,3 +146,20 @@ def test_no_credential_reaches_events_logs_or_errors(caplog):
     assert result['output'] == result['preview'] == 'AWS_BEARER_TOKEN_BEDROCK=[redacted]'
     assert turn.tools == {'t1': 'Bash'}
     assert errors[0].count('[redacted]') == 1 and errors[1].count('[redacted]') == 2
+
+
+def test_tool_output_and_preview_are_capped():
+    recorder = Recorder()
+    turn = worker.Turn(recorder, secrets=[])
+    turn.add(AssistantMessage([ToolUseBlock('t1', 'Bash', {'command': 'cat big.log'})]))
+    turn.add(UserMessage([ToolResultBlock('t1', 'x' * 100_000)]))
+    [(_, result)] = [event for event in recorder.events if event[0] == 'tool_result']
+    assert result['output'] == 'x' * worker.MAX_TOOL_OUTPUT + worker.TOOL_TRUNCATED
+    assert result['preview'] == 'x' * worker.MAX_PREVIEW_CHARS + worker.TOOL_TRUNCATED
+    assert (worker.MAX_TOOL_OUTPUT, worker.MAX_PREVIEW_CHARS) == (64 * 1024, 2000)
+    secret = 'bedrock-secret-token'
+    split = Recorder()
+    worker.Turn(split, secrets=[secret]).add(UserMessage([ToolResultBlock('t2', 'y' * (worker.MAX_TOOL_OUTPUT - 8) + secret)]))
+    assert 'bedrock' not in repr(split.events)  # redacted before the cap, so no partial key survives the cut
+    with pytest.raises(TypeError):
+        worker.Turn(recorder)  # secrets are required: a caller cannot forget the key
