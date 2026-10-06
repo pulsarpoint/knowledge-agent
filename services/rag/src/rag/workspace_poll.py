@@ -33,9 +33,11 @@ def due(workspace) -> list[dict]:
 
 
 def needs_sync(row: dict, walk, log: dict) -> bool:
+    """The one definition of fresh, shared with the collection status: never synced, settings changed
+    since the last sync, or the walk differs from the file log (a new, changed or deleted file)."""
     if row["last_synced_at"] is None or row["synced_revision"] != row["revision"]:
         return True
-    return walk.truncated or file_log.differs(walk, log)
+    return file_log.differs(walk, log)
 
 
 def check(workspace, row: dict, now: float) -> str:
@@ -52,9 +54,17 @@ def check(workspace, row: dict, now: float) -> str:
         return "missing"  # never synced while a folder is absent; the status shows Folder missing
     walk = workspace.areas.walk_paths(sources, row["include"], row["exclude"], limit=MAX_FILES, truncate=True,
                                       max_entries=MAX_SYNC_ENTRIES)
+    if walk.missing:
+        return "missing"  # a folder vanished between the presence check and the walk
+    if walk.truncated:
+        return "too_large"  # a sync would fail on the file limit; never queue one
     if not needs_sync(row, walk, log):
         return "fresh"
     if walk.newest_mtime is not None and walk.newest_mtime > now - QUIET_SECONDS:
+        with workspace.connect() as conn:  # check again once the quiet period has passed, not a full interval later
+            conn.execute("""UPDATE ka.rag_collections SET last_polled_at=now()
+                - make_interval(mins => poll_interval_minutes) + make_interval(secs => %s) WHERE id=%s""",
+                         (QUIET_SECONDS, row["id"]))
         return "changing"
     with workspace.connect() as conn:
         # The partial unique index rag_collection_one_active_job lets a concurrent manual Refresh win.
@@ -73,5 +83,8 @@ def poll(workspace, now: float | None = None) -> dict[str, str]:
             outcomes[row["name"]] = check(workspace, row, now)
         except (HTTPException, OSError) as error:
             logger.warning("Could not poll collection %s: %s", row["name"], getattr(error, "detail", error))
+            outcomes[row["name"]] = "error"
+        except Exception:  # one collection never stops the others or the worker
+            logger.exception("Could not poll collection %s", row["name"])
             outcomes[row["name"]] = "error"
     return outcomes

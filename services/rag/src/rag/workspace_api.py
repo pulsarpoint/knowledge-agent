@@ -19,6 +19,7 @@ from rag.collections import (AREAS, WRITABLE_AREA, FolderMissing, indexable, ove
                              source_path, visible)
 from rag.workspace import Settings, Workspace, digest
 from rag.workspace_models import embed
+from rag.workspace_poll import needs_sync
 from rag.workspace_search import SearchInput, search
 
 
@@ -146,7 +147,8 @@ def collection_status(workspace: Workspace, conn, row: dict) -> dict:
     walk = workspace.areas.walk_paths([p["source_path"] for p in paths if p["present"]], row["include"], row["exclude"], truncate=True)
     changed = datetime.fromtimestamp(walk.newest_mtime, timezone.utc) if walk.newest_mtime is not None else None
     synced = row["last_synced_at"]
-    needs = present and (synced is None or row["synced_revision"] != row["revision"] or (changed is not None and changed > synced))
+    # The poller's definition of fresh; a capped (truncated) status walk cannot tell, so it needs refresh.
+    needs = present and (walk.truncated or needs_sync(row, walk, file_log.load(conn, row["id"])))
     if not present:
         state = "folder_missing"
     elif job is not None and job["status"] in ACTIVE:

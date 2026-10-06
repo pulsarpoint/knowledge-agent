@@ -1,5 +1,4 @@
 """Collections API: validation, freshness, sync queue, read-only areas and deletion."""
-import os
 import time
 
 from test_workspace import collection, sync, update, write
@@ -43,11 +42,6 @@ def test_deleting_a_file_marks_collection_stale(env):
     write(env, "a.md", "# A")
     write(env, "b.md", "# B")
     sync(env, created)
-    old = time.time() - 3600
-    for path in (folder, folder / "a.md", folder / "b.md"):
-        os.utime(path, (old, old))
-    with env[0].connect() as conn:
-        conn.execute("UPDATE ka.rag_collections SET last_synced_at=now() - interval '30 minutes' WHERE id=%s", (created,))
     assert status(env, created)["status"] == "up_to_date"
     (folder / "b.md").unlink()
     assert status(env, created)["status"] == "needs_refresh"

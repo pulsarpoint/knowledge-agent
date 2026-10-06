@@ -146,3 +146,63 @@ def test_the_worker_polls_when_no_sync_is_queued(env):
     assert step(env[0], env[5]) is True  # the automatic sync runs
     row = env[1].get(env[3] + f"/collections/{created}").json()
     assert row["indexed_files"] == 2 and row["job"]["status"] == "succeeded"
+
+
+def status(env, collection_id):
+    return env[1].get(env[3] + f"/collections/{collection_id}").json()["status"]
+
+
+def test_an_over_limit_collection_is_reported_and_never_queued(env, monkeypatch):
+    from rag import workspace_poll
+    created, folder = synced(env)
+    change(folder)
+    monkeypatch.setattr(workspace_poll, "MAX_FILES", 1)
+    assert poll(env[0]) == {"docs": "too_large"} and len(jobs(env, created)) == 1
+
+
+def test_a_folder_vanishing_during_the_walk_is_missing(env, monkeypatch):
+    created, folder = synced(env)
+    for path in folder.iterdir():
+        path.unlink()
+    folder.rmdir()
+    monkeypatch.setattr(env[0].areas, "present", lambda source: True)  # gone between the check and the walk
+    assert poll(env[0]) == {"docs": "missing"} and len(jobs(env, created)) == 1
+
+
+def test_a_changing_collection_is_checked_again_after_the_quiet_period(env):
+    created, folder = synced(env)
+    (folder / "b.md").write_text("# B\n\nstill being written")
+    assert poll(env[0]) == {"docs": "changing"}
+    with env[0].connect() as conn:
+        early = conn.execute("""SELECT extract(epoch FROM last_polled_at - (now() - make_interval(mins => poll_interval_minutes)))
+            AS early FROM ka.rag_collections WHERE id=%s""", (created,)).fetchone()["early"]
+    assert float(early) == pytest.approx(QUIET_SECONDS, abs=5)  # due QUIET_SECONDS from now, not a full interval
+
+
+def test_one_failing_collection_does_not_stop_the_others(env, monkeypatch):
+    from rag import workspace_poll
+    _, folder = synced(env)
+    _, other_folder = synced(env, "other")
+    change(folder)
+    change(other_folder)
+    real = workspace_poll.check
+
+    def check(workspace, row, now):
+        if row["name"] == "docs":
+            raise RuntimeError("boom")
+        return real(workspace, row, now)
+    monkeypatch.setattr(workspace_poll, "check", check)
+    assert poll(env[0]) == {"docs": "error", "other": "queued"}
+
+
+def test_status_and_poller_agree_on_excluded_and_included_changes(env):
+    created, folder = synced(env)
+    time.sleep(0.01)
+    (folder / "notes.bin").write_bytes(b"\x00ignored")  # not included; its and the folder's mtime are after the sync
+    assert status(env, created) == "up_to_date"
+    assert poll(env[0]) == {"docs": "fresh"}
+    with env[0].connect() as conn:
+        conn.execute("UPDATE ka.rag_collections SET last_polled_at=NULL WHERE id=%s", (created,))
+    change(folder)
+    assert status(env, created) == "needs_refresh"
+    assert poll(env[0]) == {"docs": "queued"}

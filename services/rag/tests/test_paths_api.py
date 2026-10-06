@@ -164,8 +164,7 @@ def test_folder_changed_is_newest_across_paths_and_path_changes_need_refresh(env
     row = status(env, created)
     assert datetime.fromisoformat(row["folder_changed_at"]).timestamp() == pytest.approx(new, abs=1)
     assert row["file_count"] == 2
-    with env[0].connect() as conn:  # as if a sync had just finished
-        conn.execute("UPDATE ka.rag_collections SET last_synced_at=now(),synced_revision=revision WHERE id=%s", (created,))
+    sync(env, created)
     assert status(env, created)["status"] == "up_to_date"
     (roots["docs"] / "c").mkdir()
     add_folder(env, created, "docs/c")
