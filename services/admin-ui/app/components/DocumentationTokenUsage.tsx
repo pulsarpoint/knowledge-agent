@@ -19,7 +19,7 @@ export default function DocumentationTokenUsage({ run, compact = false }: { run:
   const partial = totals.reported < totals.calls;
   const pending = ['queued', 'running'].includes(run.status);
   const number = (value: number) => value.toLocaleString();
-  const summary = available ? `${number(totals.total)} tokens${partial ? ' · partial' : ''}${pending ? ' so far' : ''}` : pending ? 'Usage pending' : 'Usage not recorded';
+  const summary = available ? `${number(totals.input)} in · ${number(totals.output)} out · ${number(totals.total)} total${partial ? ' · partial' : ''}${pending ? ' so far' : ''}` : pending ? 'Usage pending' : 'Usage not recorded';
   const details = <section aria-label="Phase token usage" className="flex min-w-0 flex-col gap-2">
     <Table><TableHeader><TableRow><TableHead>Phase / step</TableHead><TableHead className="text-right">Input</TableHead><TableHead className="text-right">Output</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Model calls</TableHead></TableRow></TableHeader>
       <TableBody>{phases.map(phase => {

@@ -216,7 +216,7 @@ test('API phase has its own prompt, action, version preview and token usage', as
   fireEvent.click(await screen.findByRole('button', { name: 'Preview API documentation' }));
   expect(await screen.findByText('# Saved API documentation')).toBeInTheDocument();
   expect(screen.queryByText('# Saved application overview')).not.toBeInTheDocument();
-  expect(screen.getByText('Token usage · 2,300 tokens')).toBeInTheDocument();
+  expect(screen.getByText('Token usage · 1,800 in · 500 out · 2,300 total')).toBeInTheDocument();
   expect(screen.getByRole('button', { name:'Generate overview' })).toBeEnabled();
   const posts = fetch.mock.calls.filter(([url, init]) => url === '/api/documentation/generations' && init?.method === 'POST');
   expect(posts).toHaveLength(1);
@@ -295,7 +295,7 @@ test('messaging is an independent fourth phase with saved draft, scoped run and 
   expect(saved!.drafts.messaging?.instructions).toBe('Check redelivery and deduplication.');
   fireEvent.click(await screen.findByRole('button',{name:'Preview messaging documentation'}));
   expect(await screen.findByText('# Saved messaging documentation')).toBeInTheDocument();
-  expect(screen.getByText('Token usage · 2,300 tokens')).toBeInTheDocument();
+  expect(screen.getByText('Token usage · 1,800 in · 500 out · 2,300 total')).toBeInTheDocument();
   expect(screen.getByText('Messaging documentation · Source inspection')).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Generate API documentation'})).toBeEnabled();
   expect(screen.getByRole('button',{name:'Generate overview'})).toBeEnabled();

@@ -622,7 +622,8 @@ architecture** (inspects one SSH-enabled server).
 - To retry a failure, click the same Generate button. A failed API run reuses
   sections that already completed when inputs are unchanged.
 - Token usage (input, output, model calls; cached/reasoning listed separately) is
-  recorded even for failed runs.
+  recorded even for failed runs. The summary reads "<input> in · <output> out · <total> total";
+  expand it for the per-phase table.
 - Results are exported as files to the generated-documents folder (`GENERATED_DOCS_FOLDER`) (Markdown, `metadata.json`,
   and `.d2` files per diagram).
 
