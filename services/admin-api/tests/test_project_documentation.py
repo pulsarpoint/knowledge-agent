@@ -117,6 +117,17 @@ def test_code_project_generation_refuses_wrong_prompts_graphs_names_and_folders(
     shadow = post(client, request)
     assert shadow.status_code == 409
     assert shadow.json()['error']['message'] == 'The folder team holds the export of the document team. Choose another folder.'
+    # Nested levels, both directions: document api in folder ops/x vs folder ops/x/api, and the reverse.
+    with store.connect() as conn:
+        from knowledge_admin.documents import DocumentInput, save_document
+        project = conn.execute('SELECT id FROM ka.projects LIMIT 1').fetchone()['id']
+        save_document(conn, project, None, DocumentInput(slug='api', title='A', markdown='# A'), folder='ops/x')
+    nested = post(client, request, folder='ops/x/api')
+    assert nested.status_code == 409 and nested.json()['error']['message'] == (
+        'The folder ops/x/api holds the export of the document api in the folder ops/x. Choose another folder.')
+    reverse = post(client, request, folder='ops', document_name='X')
+    assert reverse.status_code == 409 and reverse.json()['error']['message'] == (
+        'The slug x is used by the documentation folder ops/x. Choose another slug.')
     def missing(project, expected_hash=None):
         raise CodeProcessingError('Generate and inspect the code graph in Phase 1 before generating documentation.')
     monkeypatch.setattr(generation, 'load_code_graph', missing)

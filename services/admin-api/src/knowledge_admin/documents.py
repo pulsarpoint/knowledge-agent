@@ -224,17 +224,29 @@ def backfill_exports(store: RepositoryStore) -> int:
 
 
 def export_conflict(conn, project: UUID, slug: str, folder: str | None, document_id: UUID | None = None) -> str | None:
-    """Why this document's export would share a top-level folder of GENERATED_DOCS_FOLDER with another export, or None.
-    A folderless document exports to <slug>/, a folder document to <folder>/<slug>/."""
-    if folder is None:
-        if conn.execute("SELECT 1 FROM ka.documents WHERE project_id=%s AND split_part(folder,'/',1)=%s LIMIT 1",
-                        (project, slug)).fetchone():
+    """Why this document's export folder would overlap another export of GENERATED_DOCS_FOLDER, or None.
+
+    A folderless document exports to <slug>/, a folder document to <folder>/<slug>/. At every level a document's
+    export folder is never also a documentation folder or a parent of one, in either direction. Folders and slugs are
+    lowercase-only, so these exact comparisons also hold on case-insensitive filesystems."""
+    target = f'{folder}/{slug}' if folder else slug
+    # starts_with, not LIKE: '_' is a valid folder character and must match literally.
+    if conn.execute('''SELECT 1 FROM ka.documents WHERE project_id=%s AND id IS DISTINCT FROM %s
+        AND (folder=%s OR starts_with(folder, %s)) LIMIT 1''', (project, document_id, target, target + '/')).fetchone():
+        if folder is None:
             return f'The slug {slug} is used by a documentation folder. Choose another slug.'
+        return f'The slug {slug} is used by the documentation folder {target}. Choose another slug.'
+    if folder is None:
         return None
-    first = folder.split('/')[0]
-    if conn.execute('''SELECT 1 FROM ka.documents WHERE project_id=%s AND folder IS NULL AND slug=%s
-        AND id IS DISTINCT FROM %s LIMIT 1''', (project, first, document_id)).fetchone():
-        return f'The folder {first} holds the export of the document {first}. Choose another folder.'
+    parts = folder.split('/')
+    for depth in range(1, len(parts) + 1):
+        parent, name = '/'.join(parts[:depth - 1]) or None, parts[depth - 1]
+        if conn.execute('''SELECT 1 FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s AND slug=%s
+            AND id IS DISTINCT FROM %s LIMIT 1''', (project, parent, name, document_id)).fetchone():
+            if parent is None:
+                return f'The folder {name} holds the export of the document {name}. Choose another folder.'
+            return (f'The folder {parent}/{name} holds the export of the document {name} in the folder {parent}. '
+                    'Choose another folder.')
     return None
 
 

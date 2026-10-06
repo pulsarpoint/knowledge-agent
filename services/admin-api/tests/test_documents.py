@@ -483,3 +483,38 @@ def test_renames_respect_folder_collisions_and_never_conflict_with_themselves(st
         assert error.value.status_code == 409
         again = save_document(conn, project, None, DocumentInput(slug='notes', title='N2', markdown='# N2', revision=1), document_id=plain['id'])
         assert again['revision'] == 2
+
+
+def test_nested_exports_never_share_a_folder_in_either_direction(store, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from knowledge_admin.documents import DocumentInput, export_conflict, save_document
+    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
+
+    def refused(conn, project, slug, folder, message):
+        with pytest.raises(HTTPException) as error:
+            with conn.transaction():
+                save_document(conn, project, None, DocumentInput(slug=slug, title='T', markdown='# T'), folder=folder)
+        assert error.value.status_code == 409 and error.value.detail == message
+        assert export_conflict(conn, project, slug, folder) == message
+
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        # Document b in folder a exports to a/b/: the folders a/b and a/b/c (at any depth) are refused.
+        save_document(conn, project, None, DocumentInput(slug='b', title='B', markdown='# B'), folder='a')
+        message = 'The folder a/b holds the export of the document b in the folder a. Choose another folder.'
+        refused(conn, project, 'x', 'a/b', message)
+        refused(conn, project, 'x', 'a/b/c', message)
+        save_document(conn, project, None, DocumentInput(slug='x', title='X', markdown='# X'), folder='a/bc')
+        # The other direction: folder p/q/r exists, so documents q in p and r in p/q are refused.
+        save_document(conn, project, None, DocumentInput(slug='y', title='Y', markdown='# Y'), folder='p/q/r')
+        refused(conn, project, 'q', 'p', 'The slug q is used by the documentation folder p/q. Choose another slug.')
+        refused(conn, project, 'r', 'p/q', 'The slug r is used by the documentation folder p/q/r. Choose another slug.')
+        save_document(conn, project, None, DocumentInput(slug='q', title='Q', markdown='# Q'), folder='p/q/r')
+        # '_' in a folder is matched literally, not as a LIKE wildcard: m_n/c/ is unrelated to mxn/c/d.
+        save_document(conn, project, None, DocumentInput(slug='y', title='Y', markdown='# Y'), folder='mxn/c/d')
+        save_document(conn, project, None, DocumentInput(slug='c', title='C', markdown='# C'), folder='m_n')
+        # Renaming a nested document onto a folder is refused too.
+        doc = save_document(conn, project, None, DocumentInput(slug='z', title='Z', markdown='# Z'), folder='p')
+        with pytest.raises(HTTPException) as error:
+            save_document(conn, project, None, DocumentInput(slug='q', title='Z', markdown='# Z', revision=1), document_id=doc['id'])
+        assert error.value.status_code == 409
