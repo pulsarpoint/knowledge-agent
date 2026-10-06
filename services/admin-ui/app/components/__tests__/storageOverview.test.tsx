@@ -40,6 +40,9 @@ test('lists DATA_ROOT and its folders with host paths and .env variables', async
   expect(screen.queryByText(/rag-data|Relative to the Compose file directory/)).toBeNull();
   expect(screen.getByText(/PostgreSQL stores managed documents and versions/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Manage documents' })).toHaveAttribute('href', '/documents');
+  expect(screen.getByText(/Connect folders of the data folder to a collection in RAG → Collections/)).toBeInTheDocument();
+  expect(screen.getByText(/Documents seeded on a fresh install/)).toBeInTheDocument();
+  expect(screen.queryByText(/Upload selected files|Legacy startup files|original startup directory/)).toBeNull();
 });
 
 test('opens nested folders and previews text, then switches storage roots without keeping stale entries', async () => {
