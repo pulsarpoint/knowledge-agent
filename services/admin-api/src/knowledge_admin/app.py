@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager, suppress
 
 import httpx
@@ -16,7 +15,6 @@ from docs_wiki.config import Config, ServerConfig
 from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
 from knowledge_admin.documents import backfill_exports
-from knowledge_admin.rag_collections import RagCollections, ensure_documents
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -30,25 +28,6 @@ async def backfill_document_exports(store: RepositoryStore | None) -> None:
         await asyncio.to_thread(backfill_exports, store)
     except Exception:  # noqa: BLE001 - a startup convenience must never take the service down
         logger.exception('Document export backfill failed')
-
-
-def ensure_documents_source(store: RepositoryStore | None, client: httpx.Client | None, app_name: str) -> None:
-    """Give Docs → Documents its RAG path (fresh installs have no documents collection); idempotent."""
-    key = os.environ.get('RAG_BACKOFFICE_KEY')
-    if store is None or client is None or not key:
-        return
-    with store.connect() as conn:
-        project = store.project(conn, app_name)
-    if ensure_documents(RagCollections(client, key, project, None)):
-        logger.info('Added generated-documents to the documents RAG collection')
-
-
-async def ensure_documents_collection(store: RepositoryStore | None, client: httpx.Client | None, app_name: str) -> None:
-    """Runs in the background at startup; a failure is logged and never blocks startup."""
-    try:
-        await asyncio.to_thread(ensure_documents_source, store, client, app_name)
-    except Exception:  # noqa: BLE001 - a startup convenience must never take the service down
-        logger.exception('Could not add the Documents source to RAG; it is retried at the next start')
 
 
 def create_app(cfg: Config, *, server: ServerConfig,
@@ -65,17 +44,15 @@ def create_app(cfg: Config, *, server: ServerConfig,
                 await asyncio.sleep(60)
         expiry = asyncio.create_task(expire_idle_sessions())
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
-        documents = asyncio.create_task(ensure_documents_collection(repository_store, backoffice_client, cfg.apps[0].name))
         try:
             yield
         finally:
             expiry.cancel()
             backfill.cancel()
-            documents.cancel()
             tasks = list(app.state.agent_runs)
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(expiry,backfill,documents,*tasks,return_exceptions=True)
+            await asyncio.gather(expiry, backfill, *tasks, return_exceptions=True)
 
     app = FastAPI(title="Knowledge Agent Administration", docs_url=None,
                   redoc_url=None, openapi_url=None, lifespan=lifespan)

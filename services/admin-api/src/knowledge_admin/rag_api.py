@@ -13,15 +13,12 @@ from knowledge_admin.access import request_actor
 
 
 ALLOWED = {
-    "GET": r"settings|collections|collections/[0-9a-f-]{36}(/files|/chunks)?|file|jobs",
+    "GET": r"settings|collections|collections/[0-9a-f-]{36}(/files|/chunks|/log)?|file|jobs|folders",
     "PUT": r"settings|collections/[0-9a-f-]{36}",
-    "POST": r"collections/sync-stale|collections/[0-9a-f-]{36}/sync|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
-    # Admins detach unowned paths; sources add and remove their own paths server-side.
-    "DELETE": r"collections/[0-9a-f-]{36}|collections/by-name/[a-z0-9]+(-[a-z0-9]+)*/paths",
+    "POST": r"collections|collections/sync-stale|collections/[0-9a-f-]{36}/(sync|paths)|jobs/[0-9a-f-]{36}/cancel|test/embedding|search",
+    # Admins create collections and connect or disconnect folders; sources only write files.
+    "DELETE": r"collections/[0-9a-f-]{36}(/paths/[0-9a-f-]{36})?",
 }
-
-
-OWNER_PARAMS = {"owner_kind", "owner_id", "owner_key"}
 
 
 def build_api(app_name: str, store, client):
@@ -32,8 +29,6 @@ def build_api(app_name: str, store, client):
         actor = request_actor(request)
         if re.fullmatch(ALLOWED[request.method], resource) is None:
             raise HTTPException(404, "Unknown RAG resource")
-        if request.method == "DELETE" and resource.endswith("/paths") and OWNER_PARAMS & request.query_params.keys():
-            raise HTTPException(400, "Detach unowned paths by source_path; a source removes its own paths")
         key = os.environ.get("RAG_BACKOFFICE_KEY")
         if store is None or client is None or not key:
             raise HTTPException(503, "RAG administration is not configured")

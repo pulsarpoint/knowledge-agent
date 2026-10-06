@@ -218,9 +218,6 @@ services:
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
       AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
       CODE_ROOT: /work/code
-      # After a pull, a searchable code project's folders become its RAG collection paths.
-      DOCS_WIKI_RAG_URL: http://rag:8790
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
     depends_on:
       migrate: {condition: service_completed_successfully}
 

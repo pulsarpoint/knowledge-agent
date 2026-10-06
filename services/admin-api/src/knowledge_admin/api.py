@@ -35,7 +35,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(board.build_api(app_name, repository_store))
     router.include_router(agent_versions.build_api(app_name, repository_store))
     router.include_router(agent_sessions.build_api(app_name, repository_store))
-    router.include_router(repository_api.build_api(app_name, repository_store, backoffice_client))
+    router.include_router(repository_api.build_api(app_name, repository_store))
     from knowledge_admin import operations_api
     router.include_router(operations_api.build_api(app_name, repository_store))
     router.include_router(service_api.build_api(app_name, repository_store))

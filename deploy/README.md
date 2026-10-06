@@ -23,9 +23,8 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   Repository settings, encrypted
   tokens and pull jobs use PostgreSQL; SQLite remains the reader's current store.
 - `repository-worker` has no host port and owns the writable `/work/code` bind
-  mount. It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders. After a
-  pull it adds a searchable code project's folders to its RAG collection, so it needs `DOCS_WIKI_RAG_URL`
-  and `RAG_BACKOFFICE_KEY`. The admin API and source browser mount the same folder read-only.
+  mount. It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders. The admin API
+  and source browser mount the same folder read-only.
 - `jira-mock` is an optional local test profile. `make jira-mock-up` starts 75
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the

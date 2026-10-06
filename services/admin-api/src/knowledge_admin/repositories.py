@@ -124,7 +124,6 @@ class RepositoryInput(BaseModel):
 # Explicit public projection: encrypted credentials never enter API responses.
 REPOSITORY_FIELDS = """r.id, r.name, r.remote_url, r.requested_ref,
     r.current_commit, r.synced_at, r.checkout_path,r.description,r.clone_path,r.sync_interval_minutes,r.next_sync_at,r.revision,
-    (r.search_collection IS NOT NULL) AS searchable, r.search_collection AS collection, r.search_error,
     ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths,
     (r.credential_id IS NOT NULL) AS has_token,
     j.id AS job_id, j.status AS sync_status, j.error AS sync_error,

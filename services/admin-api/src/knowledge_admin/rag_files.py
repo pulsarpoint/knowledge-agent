@@ -24,25 +24,24 @@ class RagFiles:
             raise HTTPException(response.status_code, result.get('error', {}).get('message') or 'RAG request failed')
         return result
 
-    def get_file(self, collection: str, path: str) -> dict | None:
+    def get_file(self, path: str) -> dict | None:
+        """A file under rag-data by its full DATA_ROOT path, or None when it does not exist."""
         try:
-            return self.request('GET', 'file', params={'collection': collection, 'path': path})
+            return self.request('GET', 'file', params={'path': path})
         except HTTPException as error:
             if error.status_code == 404:
                 return None
             raise
 
-    def write_markdown(self, collection: str, path: str, content: str) -> dict:
-        """Create or replace `path` (full, under rag-data) indexed by `collection`.
-
-        A file whose first line differs belongs to another source and is kept.
-        """
-        previous = self.get_file(collection, path)
+    def write_markdown(self, path: str, content: str) -> dict:
+        """Create or replace `path` (full, under rag-data). A file whose first line differs belongs to
+        another source and is kept."""
+        previous = self.get_file(path)
         if previous is not None:
             if previous['content'].partition('\n')[0] != content.partition('\n')[0]:
                 raise HTTPException(409, f'{path} belongs to another source. The existing file was preserved')
             if previous['content'] == content:
-                return {'collection': collection, 'path': path, 'status': 'unchanged', 'hash': previous['hash']}
+                return {'path': path, 'status': 'unchanged', 'hash': previous['hash']}
         saved = self.request('PUT', 'file', json={'path': path, 'content': content,
                                                   'expected_hash': previous['hash'] if previous is not None else None})
-        return {'collection': collection, 'path': path, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}
+        return {'path': path, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}

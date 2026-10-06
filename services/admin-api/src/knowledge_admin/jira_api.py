@@ -215,7 +215,7 @@ def build_api(app: str, store: RepositoryStore | None,
             if current is None or current["revision"] != config["revision"] or current["fetch_revision"] != config["fetch_revision"]:
                 raise HTTPException(409, "Jira settings or tickets changed during export. Reload the list and retry")
             actor = db.actor(conn, subject, email)
-            result = publish_ticket(backoffice_client, rag_key, config["project_id"], actor, value.collection, issue["key"], content)
+            result = publish_ticket(backoffice_client, rag_key, config["project_id"], actor, issue["key"], content)
             conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'jira.ticket_exported','jira_ticket',%s,%s)""",
                 (config["project_id"], actor, ticket_id, Jsonb({"path": result["path"], "status": result["status"], "comments": len(comments)})))

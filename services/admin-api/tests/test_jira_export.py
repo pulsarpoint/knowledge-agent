@@ -19,7 +19,7 @@ MOCK = runpy.run_path(str(Path(__file__).resolve().parents[3] / "deploy/jira-moc
 def exporting(store, tmp_path, monkeypatch):
     monkeypatch.setenv("RAG_BACKOFFICE_KEY", "rag-export-key")
     state = {"issues": copy.deepcopy(MOCK["ISSUES"][:3]), "comments": copy.deepcopy(MOCK["COMMENTS"]),
-             "files": {}, "jira_collection": None, "rag_error": None, "jira_calls": [], "rag_calls": [], "fail_page": None, "after_comments": None}
+             "files": {}, "rag_error": None, "jira_calls": [], "rag_calls": [], "fail_page": None, "after_comments": None}
 
     def jira(request):
         state["jira_calls"].append(request)
@@ -49,14 +49,9 @@ def exporting(store, tmp_path, monkeypatch):
             if isinstance(error, Exception):
                 raise error
             return httpx.Response(error[0], json={"error": {"message": error[1]}})
-        if request.url.path.endswith("/paths"):
-            assert request.method == "PUT"
-            assert json.loads(request.content) == {"source_path": "rag-data/jira", "owner_kind": "jira"}
-            state["jira_collection"] = request.url.path.split("/by-name/")[1].split("/")[0]  # RAG re-points the owner
-            return httpx.Response(200, json={"name": state["jira_collection"], "paths": []})
         assert request.url.path.endswith("/file")
         if request.method == "GET":
-            assert request.url.params["collection"] == state["jira_collection"]
+            assert "collection" not in request.url.params
             result = state["files"].get(request.url.params["path"])
             return httpx.Response(200, json=result) if result is not None else httpx.Response(404, json={"error": {"message": "Document not found"}})
         assert request.method == "PUT"
@@ -79,7 +74,7 @@ def exporting(store, tmp_path, monkeypatch):
 
 def export(client, snapshot, **payload):
     return client.post(f"/api/jira/tickets/{snapshot['tickets'][0]['id']}/export", headers=HEADERS,
-                       json={"collection": "jira", "connection_revision": snapshot["connection"]["revision"], **payload})
+                       json={"connection_revision": snapshot["connection"]["revision"], **payload})
 
 
 def test_export_full_issue_all_comment_pages_and_incremental_content(exporting, store):
@@ -87,7 +82,7 @@ def test_export_full_issue_all_comment_pages_and_incremental_content(exporting, 
     response = export(client, snapshot)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "created" and response.json()["comments"] == 5
-    assert response.json()["collection"] == "jira" and response.json()["path"] == "rag-data/jira/DEMO-1.md"
+    assert "collection" not in response.json() and response.json()["path"] == "rag-data/jira/DEMO-1.md"
     document = state["files"]["rag-data/jira/DEMO-1.md"]
     assert "## Investigation" in document["content"] and "```bash" in document["content"]
     assert "**retry jitter resolved the payment timeout**" in document["content"]
@@ -151,17 +146,10 @@ def test_failed_refresh_preserves_existing_file_and_unrelated_files_are_protecte
     assert state["files"]["rag-data/jira/DEMO-1.md"]["content"] == "User-uploaded documentation"
 
 
-@pytest.mark.parametrize("collection", ["../escape", "/absolute", "jira/tickets", "jira.md", "jira\\tickets", "", "Jira", "jira_tickets", "a--b", "x" * 61])
-def test_export_rejects_unsafe_collection_before_any_outbound_request(exporting, collection):
-    client, snapshot, state = exporting
-    assert export(client, snapshot, collection=collection).status_code == 400
-    assert state["jira_calls"] == [] and state["rag_calls"] == []
-
-
 def test_export_requires_admin_identity_current_connection_and_saved_ticket(exporting):
     client, snapshot, state = exporting
     path = f"/api/jira/tickets/{snapshot['tickets'][0]['id']}/export"
-    body = {"collection": "jira", "connection_revision": 1}
+    body = {"connection_revision": 1}
     for headers in [{}, {"x-forwarded-groups": "readers"}, {"x-forwarded-groups": "docs-admins"}]:
         assert client.post(path, headers=headers, json=body).status_code == 403
     assert export(client, snapshot, connection_revision=2).status_code == 409
@@ -214,35 +202,6 @@ def test_mock_filter_examples():
             MOCK["filter_issues"](query)
 
 
-def test_export_adds_the_jira_path_to_the_chosen_collection(exporting):
-    client, snapshot, state = exporting
-    response = export(client, snapshot, collection="support")
-    assert response.status_code == 200, response.text
-    assert response.json()["collection"] == "support" and state["jira_collection"] == "support"
-    paths = [call for call in state["rag_calls"] if call.url.path.endswith("/paths")]
-    assert len(paths) == 1 and paths[0].url.path.endswith("/collections/by-name/support/paths")
-    assert state["rag_calls"].index(paths[0]) == 0  # the path is in place before anything is read or written
-    assert not [call for call in state["rag_calls"] if call.url.path.endswith("/collections")]
-
-
-def test_export_to_another_collection_moves_the_jira_path(exporting):
-    client, snapshot, state = exporting
-    assert export(client, snapshot).status_code == 200
-    moved = export(client, snapshot, collection="support")
-    assert moved.status_code == 200 and moved.json()["status"] == "unchanged"
-    assert [call.url.path.split("/by-name/")[1] for call in state["rag_calls"] if call.url.path.endswith("/paths")] == [
-        "jira/paths", "support/paths"]
-    assert list(state["files"]) == ["rag-data/jira/DEMO-1.md"]  # one folder, now indexed by support
-
-
-def test_export_fails_with_rag_overlap_message(exporting):
-    client, snapshot, state = exporting
-    state["rag_error"] = (409, "Path overlaps rag-data in collection support")
-    response = export(client, snapshot, collection="support")
-    assert response.status_code == 409 and "Path overlaps rag-data in collection support" in response.text
-    assert state["files"] == {}
-
-
 def test_export_fails_when_rag_is_unavailable(exporting, store):
     client, snapshot, state = exporting
     state["rag_error"] = httpx.ConnectError("refused")
@@ -251,3 +210,19 @@ def test_export_fails_when_rag_is_unavailable(exporting, store):
     assert state["files"] == {}
     with store.connect() as conn:
         assert conn.execute("SELECT 1 FROM ka.audit_events WHERE action='jira.ticket_exported'").fetchone() is None
+
+
+def test_export_writes_rag_data_jira_without_a_collection(exporting):
+    client, snapshot, state = exporting
+    response = export(client, snapshot)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["path"] == "rag-data/jira/DEMO-1.md" and body["status"] == "created" and "collection" not in body
+    assert [(call.method, call.url.path.rsplit("/", 1)[-1]) for call in state["rag_calls"]] == [("GET", "file"), ("PUT", "file")]
+    assert list(state["files"]) == ["rag-data/jira/DEMO-1.md"]
+
+
+def test_export_refuses_a_collection_field(exporting):
+    client, snapshot, state = exporting
+    assert export(client, snapshot, collection="jira").status_code == 400
+    assert state["jira_calls"] == [] and state["rag_calls"] == []

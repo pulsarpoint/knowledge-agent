@@ -1,4 +1,5 @@
 import json
+import time
 from uuid import uuid4
 
 import httpx
@@ -28,18 +29,22 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
         for method, resource in (("GET", "tree"), ("POST", "folders"), ("POST", "jobs"), ("PUT", f"folders/{collection}"),
                                  ("DELETE", f"folders/{collection}"), ("GET", f"collections/{collection}/other"),
                                  ("POST", f"collections/{collection}/files"), ("DELETE", "collections"),
-                                 ("POST", "collections"), ("PUT", "file"), ("DELETE", "file"), ("DELETE", "paths"),
+                                 ("PUT", "file"), ("DELETE", "file"), ("DELETE", "paths"),
+                                 ("PUT", f"collections/{collection}/paths"), ("DELETE", f"collections/{collection}/paths"),
                                  ("PUT", "collections/by-name/jira"), ("PUT", "collections/by-name/jira/paths"),
-                                 ("DELETE", "collections/by-name/Jira/paths")):
+                                 ("DELETE", "collections/by-name/jira/paths")):
             assert client.request(method, f"/api/rag/{resource}", headers=HEADERS).status_code == 404, resource
         assert calls == []
         with store.connect() as conn:
             project = store.project(conn, "docs")
         prefix = f"/backoffice/projects/{project}/"
-        for method, resource in (("GET", "collections"), ("DELETE", "collections/by-name/jira/paths"), ("GET", f"collections/{collection}"),
+        for method, resource in (("GET", "collections"), ("POST", "collections"), ("GET", f"collections/{collection}"),
                                  ("PUT", f"collections/{collection}"), ("DELETE", f"collections/{collection}"),
+                                 ("POST", f"collections/{collection}/paths"),
+                                 ("DELETE", f"collections/{collection}/paths/{collection}"),
                                  ("POST", f"collections/{collection}/sync"), ("POST", "collections/sync-stale"),
                                  ("GET", f"collections/{collection}/files"), ("GET", f"collections/{collection}/chunks"),
+                                 ("GET", f"collections/{collection}/log"), ("GET", "folders"),
                                  ("POST", f"jobs/{collection}/cancel"), ("GET", "jobs")):
             body = {"json": {}} if method in ("POST", "PUT") else {}
             assert client.request(method, f"/api/rag/{resource}", headers=HEADERS, **body).status_code == 200, resource
@@ -57,21 +62,35 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
         assert client.put("/api/rag/settings", headers=HEADERS, content="not-json").status_code == 400
 
 
-def test_rag_proxy_never_removes_source_owned_paths(store, tmp_path, monkeypatch):
+def test_startup_and_code_projects_never_call_rag(store, tmp_path, monkeypatch):
     monkeypatch.setenv("RAG_BACKOFFICE_KEY", "private-service-key")
+    root = tmp_path / "code"
+    for folder in ("api", "shared"):
+        (root / folder).mkdir(parents=True)
+    monkeypatch.setenv("CODE_ROOT", str(root))
     calls = []
     def upstream(request):
         calls.append(request)
-        return httpx.Response(200, json={"removed": 1})
+        return httpx.Response(200, json={})
     cfg = Config(apps=[App(name="docs", app_root=None)], llm=None)
     server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
     with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
-        client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
-        for params in ({"owner_kind": "jira"}, {"owner_kind": "code_project", "owner_id": str(uuid4())},
-                       {"owner_key": "api"}, {"source_path": "docs/x", "owner_id": str(uuid4())}):
-            refused = client.delete("/api/rag/collections/by-name/jira/paths", headers=HEADERS, params=params)
-            assert refused.status_code == 400, params
-            assert refused.json()["error"]["message"] == "Detach unowned paths by source_path; a source removes its own paths"
-        assert calls == []
-        detached = client.delete("/api/rag/collections/by-name/jira/paths", headers=HEADERS, params={"source_path": "docs/x"})
-        assert detached.status_code == 200 and calls[-1].url.params["source_path"] == "docs/x"
+        with TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend)) as client:
+            created = client.post("/api/code-projects", headers=HEADERS, json={
+                "name": "Payments", "description": "", "remote_url": None, "folder_paths": ["api"]})
+            assert created.status_code == 201, created.text
+            project_id = created.json()["id"]
+            row = next(p for p in client.get("/api/code-projects", headers=HEADERS).json()["projects"] if p["id"] == project_id)
+            assert not {"searchable", "collection", "search_error"} & set(row)
+            edited = client.put(f"/api/code-projects/{project_id}", headers=HEADERS, json={
+                "name": "Payments", "description": "", "remote_url": None, "folder_paths": ["api", "shared"],
+                "revision": row["revision"]})
+            assert edited.status_code == 200 and edited.json() == {"id": project_id}
+            assert client.put(f"/api/code-projects/{project_id}/search", headers=HEADERS,
+                              json={"enabled": True}).status_code in (404, 405)
+            archived = client.post(f"/api/code-projects/{project_id}/archive", headers=HEADERS)
+            assert archived.status_code == 200 and archived.json() == {"id": project_id}
+            assert all(p["id"] != project_id for p in client.get("/api/code-projects", headers=HEADERS).json()["projects"])
+            assert client.post(f"/api/code-projects/{project_id}/archive", headers=HEADERS).status_code == 404
+            time.sleep(0.2)  # startup background tasks have had time to run
+    assert calls == []
