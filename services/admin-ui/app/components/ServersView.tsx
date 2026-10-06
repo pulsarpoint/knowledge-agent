@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { ApiError, deleteServer, getServers, type ServerAsset } from "../lib/api";
+import { getSSH, testSSH } from "../lib/operations";
 import ServerForm from "./ServerForm";
 import ServerSSHForm from "./ServerSSHForm";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
@@ -25,6 +26,8 @@ export default function ServersView() {
   const [sshServer, setSshServer] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ name: string; ok: boolean; message: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -50,6 +53,16 @@ export default function ServersView() {
       setDeleteError(error instanceof ApiError ? error.message : "Could not delete the server. Try again.");
     } finally { setDeleting(false); }
   }
+  async function testConnection(server: ServerAsset) {
+    setTesting(server.id); setTestResult(null); setNotice(null);
+    try {
+      const saved = await getSSH(server.id);
+      const result = await testSSH(server.id, { revision: saved.revision, username: saved.username, port: saved.port, allow_sudo: saved.allow_sudo, known_hosts: saved.known_hosts });
+      setTestResult({ name: server.name, ok: result.ok, message: result.message });
+    } catch (error) {
+      setTestResult({ name: server.name, ok: false, message: error instanceof ApiError ? error.message : "Could not test SSH." });
+    } finally { setTesting(null); }
+  }
   const matching = servers?.filter((server) => [server.name, server.hostname, server.description, ...server.tags]
     .some((value) => value.toLowerCase().includes(query.trim().toLowerCase()))) ?? [];
 
@@ -59,6 +72,7 @@ export default function ServersView() {
         <Button disabled={loading || error !== null || servers === null || form !== null} onClick={() => openForm(null)}><Plus data-icon="inline-start" />Add server</Button></div></div>
     {error && <Alert variant="destructive"><AlertTitle>Server inventory unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
+    {testResult && <Alert variant={testResult.ok ? "default" : "destructive"}><AlertTitle className="break-words">{testResult.name}: SSH test {testResult.ok ? "passed" : "failed"}</AlertTitle><AlertDescription role="status">{testResult.message}{!testResult.ok && " Open SSH settings to fix the configuration."}</AlertDescription></Alert>}
     {sshServer && <ServerSSHForm id={sshServer} onClose={() => { setSshServer(null); setRefresh(value => value + 1); }} />}
     {form && <ServerForm key={form.server?.id ?? "new"} server={form.server}
       onClose={() => { setForm(null); setRefresh((value) => value + 1); }}
@@ -73,7 +87,7 @@ export default function ServersView() {
           <TableCell className="max-w-xs whitespace-normal align-top"><span className="break-all font-mono text-sm">{server.hostname}</span></TableCell>
           <TableCell className="max-w-xs whitespace-normal align-top"><div className="flex flex-wrap gap-1">{server.tags.map((tag) => <Badge key={tag} variant="secondary" className="max-w-full whitespace-normal break-all">{tag}</Badge>)}{server.tags.length === 0 && <span className="text-sm text-muted-foreground">No tags</span>}</div></TableCell>
           <TableCell className="align-top"><Badge variant={server.ssh_allowed ? "secondary" : "outline"}>{server.ssh_allowed ? "On" : "Off"}</Badge></TableCell>
-          <TableCell className="align-top"><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" size="sm" disabled={loading || form !== null || sshServer !== null} onClick={() => setSshServer(server.id)}>SSH settings<span className="sr-only"> {server.name}</span></Button><Button variant="outline" size="sm" disabled={loading || error !== null || form !== null} aria-label={`Edit ${server.name}`} onClick={() => openForm(server)}><Pencil data-icon="inline-start" />Edit</Button>
+          <TableCell className="align-top"><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" size="sm" disabled={loading || form !== null || sshServer !== null} onClick={() => { setTestResult(null); setSshServer(server.id); }}>SSH settings<span className="sr-only"> {server.name}</span></Button><Button variant="outline" size="sm" disabled={!server.ssh_allowed || testing !== null || sshServer !== null} title={server.ssh_allowed ? undefined : "Enable SSH allowed to test"} aria-label={`Test SSH ${server.name}`} onClick={() => void testConnection(server)}>{testing === server.id ? <Spinner data-icon="inline-start" /> : <Plug data-icon="inline-start" />}Test SSH</Button><Button variant="outline" size="sm" disabled={loading || error !== null || form !== null} aria-label={`Edit ${server.name}`} onClick={() => openForm(server)}><Pencil data-icon="inline-start" />Edit</Button>
             <Button variant="destructive" size="sm" disabled={loading || error !== null || form !== null} aria-label={`Delete ${server.name}`} onClick={() => { setDeleteTarget(server); setDeleteError(null); setNotice(null); }}><Trash2 data-icon="inline-start" />Delete</Button>
           </div></TableCell>
         </TableRow>)}{matching.length === 0 && <TableRow><TableCell colSpan={5} className="text-center">No servers match this filter.</TableCell></TableRow>}</TableBody>
