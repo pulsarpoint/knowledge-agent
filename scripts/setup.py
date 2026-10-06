@@ -115,7 +115,7 @@ def _move_jira(data: Path, jira: str) -> None:
 def _warn_other_entries(data: Path, folders: dict[str, str]) -> None:
     """Name every top-level entry that is not a configured folder; nothing is moved."""
     configured = {folder.split("/")[0] for folder in folders.values()}
-    others = sorted(entry.name for entry in data.iterdir() if entry.name not in configured)
+    others = sorted(entry.name for entry in data.iterdir() if entry.name not in configured and entry.name != ".DS_Store")
     if others:
         print(f"Warning: {data} holds entries that are not configured folders: {', '.join(others)}. "
               "RAG can see every folder in DATA_ROOT; move them out, for example to a sibling DATA_ARCHIVE folder. "
@@ -150,7 +150,7 @@ def initialize(root: Path, data_root: str | None = None) -> None:
         if key == "DATA_ROOT":
             if current.get(key) == default:
                 continue
-        elif key in current and (existing or key not in secret_keys):
+        elif key in current and (existing or (key not in secret_keys and key not in FOLDERS)):
             continue
         value = default
         if key in secret_keys:

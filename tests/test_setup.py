@@ -90,6 +90,8 @@ class SetupTests(unittest.TestCase):
             "JIRA_FOLDER=/srv/jira": "JIRA_FOLDER must be a folder inside DATA_ROOT such as jira",
             "CODE_FOLDER=../code": "CODE_FOLDER must be a folder inside DATA_ROOT such as code",
             "CODE_FOLDER=a/../b": "CODE_FOLDER must be a folder",
+            "CODE_FOLDER=code/": "CODE_FOLDER must be a folder",
+            "CODE_FOLDER=.hidden": "CODE_FOLDER must be a folder",
             "DOCS_FOLDER=.docs": "DOCS_FOLDER must be a folder",
             "DOCS_FOLDER=docs/.git": "DOCS_FOLDER must be a folder",
             "DOCS_FOLDER=a//b": "DOCS_FOLDER must be a folder",
@@ -178,6 +180,28 @@ class SetupTests(unittest.TestCase):
                           "folder. Nothing was moved.", output)
             self.assertTrue((data / "backups").is_dir() and (data / "users").is_dir())
             self.assertEqual((data / "startup.log").read_text(encoding="utf-8"), "log")
+
+    def test_setup_fills_empty_folders_accepts_siblings_and_ignores_ds_store(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(directory)
+            data = Path(directory) / "data"
+            (root / ".env").write_text("CODE_FOLDER=\nCODE_INDEX_FOLDER=code2\n", encoding="utf-8")
+            data.mkdir()
+            (data / ".DS_Store").write_text("x", encoding="utf-8")
+            output = run_setup(root, str(data))
+            values = env_values(root)
+            self.assertEqual((values["CODE_FOLDER"], values["CODE_INDEX_FOLDER"]), ("code", "code2"))
+            self.assertTrue((data / "code").is_dir() and (data / "code2").is_dir())
+            self.assertNotIn("Warning", output)
+
+    def test_setup_refuses_old_override_inside_data_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(directory)
+            data = Path(directory) / "data"
+            (root / ".env").write_text(f"DOCS_PATH={data}/docs\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as error:
+                initialize(root, str(data))
+            self.assertIn("DOCS_FOLDER=docs", str(error.exception))
 
     def test_setup_reports_an_unwritable_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
