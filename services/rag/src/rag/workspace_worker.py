@@ -99,16 +99,23 @@ def read(workspace: Workspace, path: str, limit: int) -> bytes:
     return workspace.areas.read(area, rest, limit)
 
 
-def decide(workspace: Workspace, walk: Walk, log: dict, current: str, limit: int, force: bool,
+def decide(workspace: Workspace, walk: Walk, log: dict, indexed: set[str], current: str, limit: int, force: bool,
            stats: dict) -> tuple[dict[str, dict], list[dict]]:
     """The log decision for every walked file, and the text files that need processing.
 
     A file matching its log row (size, mtime, fingerprint) is not opened; a file whose content hash and
-    fingerprint match its row is not parsed. Rebuild (`force`) reads and processes every file.
+    fingerprint match its row is not parsed. Rebuild (`force`) reads and processes every file, and so
+    does a file logged as indexed that has no row in the index (`indexed`, the paths in rag_files).
+    The text limit counts the walked size of every file within the file size limit, opened or not, so
+    an incremental sync and a Rebuild of the same files agree.
     """
-    decisions, sources, total = {}, [], 0
+    if sum(entry["size"] for entry in walk.files if entry["size"] <= limit) > MAX_BYTES:
+        raise HTTPException(400, "A sync is limited to 200 MB of text; narrow the collection's include patterns")
+    decisions, sources = {}, []
     for entry in walk.files:
         path, old = entry["path"], log.get(entry["path"])
+        if old is not None and old["status"] == "indexed" and path not in indexed:
+            old = None  # the index lost this file; process it again
         decision = {"source": entry["source"], "size": entry["size"], "mtime": entry["mtime"],
                     "content_hash": None, "status": "indexed", "error": None}
         if not force and file_log.unchanged(entry, old, current):
@@ -130,9 +137,6 @@ def decide(workspace: Workspace, walk: Walk, log: dict, current: str, limit: int
             decisions[path] = {**decision, "status": "skipped_unreadable", "error": str(message)[:2000]}
             stats["skipped_unreadable"] += 1
             continue
-        total += len(data)
-        if total > MAX_BYTES:
-            raise HTTPException(400, "A sync is limited to 200 MB of text; narrow the collection's include patterns")
         decision["content_hash"] = digest(data)
         decisions[path] = decision
         stats["hashed_files"] += 1
@@ -195,12 +199,12 @@ def process(workspace: Workspace, job: dict, transport=None):
         processing = digest({"parser": "markdown-text-json-v3", "chunker": "sections-v1",
                              "size": settings.chunk_size, "overlap": settings.chunk_overlap})
         profile = embedding_profile(model)
-        log_fingerprint = file_log.fingerprint(processing, profile, collection["include"], collection["exclude"], limit)
+        log_fingerprint = file_log.fingerprint(processing, profile, limit)
         walk = workspace.areas.walk_paths(list(path_ids), collection["include"], collection["exclude"])  # FolderMissing, limits
         for key in ("links", "special", "unreadable", "invalid_names"):
             stats["skipped_" + key] = walk.skipped[key]
-        decisions, sources = decide(workspace, walk, log, log_fingerprint, limit, force, stats)
         previous = {row["path"]: row for row in existing}
+        decisions, sources = decide(workspace, walk, log, set(previous), log_fingerprint, limit, force, stats)
         updates, vectors, reused = [], {}, set()
         for source in sources:
             old = previous.get(source["path"])
@@ -281,7 +285,10 @@ def process(workspace: Workspace, job: dict, transport=None):
                 if old["path"] not in indexed:
                     conn.execute("DELETE FROM ka.rag_files WHERE id=%s", (old["id"],))
                     stats["removed_entries"] += 1
-            file_log.record(conn, collection["id"], path_ids, decisions, log_fingerprint)
+            changed = {source["path"] for source, _ in updates} | {
+                path for path, decision in decisions.items()
+                if path not in log or log[path]["status"] != decision["status"]}
+            file_log.record(conn, collection["id"], path_ids, decisions, log_fingerprint, sorted(changed))
             conn.execute("""DELETE FROM ka.rag_vectors v WHERE v.project_id=%s AND NOT EXISTS (
                             SELECT 1 FROM ka.rag_chunks c JOIN ka.rag_files f ON f.id=c.file_id
                             WHERE c.project_id=v.project_id AND c.input_hash=v.input_hash AND f.embedding_profile=v.profile)""", (project,))

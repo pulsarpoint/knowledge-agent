@@ -85,7 +85,7 @@ def test_changed_content_is_reindexed_even_with_an_older_mtime(env):
     assert "fixed 30s" in chunks(env, created)[0]
 
 
-def test_settings_change_reprocesses_unchanged_files(env):
+def test_settings_change_reprocesses_unchanged_files(env, monkeypatch):
     (env[6]["rag-data"] / "docs").mkdir()
     created = collection(env)
     write(env)
@@ -94,8 +94,10 @@ def test_settings_change_reprocesses_unchanged_files(env):
     stats, _ = sync(env, created)
     assert stats["unopened_files"] == 0 and stats["parsed_files"] == 1
     update(env, created, include=["**/*.md", "**/*.txt", "**/*.json"])
-    stats, _ = sync(env, created)  # new patterns: read again; the indexed content is unchanged, so not parsed
-    assert (stats["unopened_files"], stats["hashed_files"], stats["parsed_files"]) == (0, 1, 0)
+    reads = spy_reads(env, monkeypatch)
+    stats, _ = sync(env, created)  # patterns only select files; a file still selected is not opened again
+    assert reads == []
+    assert (stats["unopened_files"], stats["hashed_files"], stats["parsed_files"]) == (1, 0, 0)
 
 
 def test_raising_the_size_limit_reprocesses_skipped_files(env):
@@ -261,3 +263,50 @@ def test_backfilled_rows_with_embeddings_reuse_the_index_without_embedding_calls
     assert row["status"] == "up_to_date" and row["indexed_files"] == 1 and chunks(env, created) == before
     entry = log(env, created)["rag-data/docs/readme.md"]
     assert entry["status"] == "indexed" and len(entry["fingerprint"]) == 64 and entry["size"] is not None
+
+
+def test_the_sync_text_limit_counts_every_walked_file(env, monkeypatch):
+    """Unopened files count toward the limit, so incremental syncs and Rebuild agree."""
+    (env[6]["rag-data"] / "docs").mkdir()
+    created = collection(env)
+    write(env, "a.md", "# A\n\n" + "a" * 100)
+    write(env, "b.md", "# B\n\n" + "b" * 100)
+    monkeypatch.setattr(workspace_worker, "MAX_BYTES", 1000)
+    stats, row = sync(env, created)
+    assert stats is not None and row["indexed_files"] == 2
+    stats, _ = sync(env, created)
+    assert stats["unopened_files"] == 2
+    stats, row = sync(env, created, force=True)
+    assert stats is not None and stats["parsed_files"] == 2
+    monkeypatch.setattr(workspace_worker, "MAX_BYTES", 150)  # every file would be unopened
+    stats, row = sync(env, created)
+    assert stats is None and "200 MB" in row["job"]["error"]
+    assert row["indexed_files"] == 2
+
+
+def test_an_index_row_missing_behind_the_log_is_reindexed(env):
+    (env[6]["rag-data"] / "docs").mkdir()
+    created = collection(env)
+    write(env)
+    sync(env, created)
+    with env[0].connect() as conn:
+        conn.execute("DELETE FROM ka.rag_files WHERE collection_id=%s", (created,))
+    stats, row = sync(env, created)
+    assert (stats["unopened_files"], stats["parsed_files"]) == (0, 1)
+    assert row["indexed_files"] == 1 and chunks(env, created)
+    assert log(env, created)["rag-data/docs/readme.md"]["status"] == "indexed"
+
+
+def test_index_times_are_kept_for_files_the_sync_did_not_reprocess(env):
+    folder = env[6]["rag-data"] / "docs"
+    folder.mkdir()
+    created = collection(env)
+    write(env, "a.md", "# A")
+    write(env, "b.md", "# B")
+    sync(env, created)
+    before = log(env, created)
+    write(env, "b.md", "# B changed")
+    sync(env, created)
+    after = log(env, created)
+    assert after["rag-data/docs/a.md"]["indexed_at"] == before["rag-data/docs/a.md"]["indexed_at"]
+    assert after["rag-data/docs/b.md"]["indexed_at"] > before["rag-data/docs/b.md"]["indexed_at"]

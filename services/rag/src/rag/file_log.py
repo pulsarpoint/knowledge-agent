@@ -18,10 +18,12 @@ UPSERT = """INSERT INTO ka.rag_file_log(collection_id,path_id,path,size,mtime,co
     fingerprint=EXCLUDED.fingerprint,status=EXCLUDED.status,error=EXCLUDED.error,last_seen_at=now(),removed_at=NULL"""
 
 
-def fingerprint(processing: str, profile: str, include: list[str], exclude: list[str], max_file_bytes: int) -> str:
-    """Everything besides a file's content that decides how it is processed."""
-    return digest({"processing": processing, "profile": profile, "include": list(include),
-                   "exclude": list(exclude), "max_file_bytes": max_file_bytes})
+def fingerprint(processing: str, profile: str, max_file_bytes: int) -> str:
+    """Everything besides a file's content that decides how it is processed.
+
+    Include and exclude patterns only select which files are walked, so they are not part of it.
+    """
+    return digest({"processing": processing, "profile": profile, "max_file_bytes": max_file_bytes})
 
 
 def load(conn, collection_id) -> dict[str, dict]:
@@ -35,8 +37,11 @@ def unchanged(entry: dict, row: dict | None, current: str) -> bool:
             and row["size"] == entry["size"] and row["mtime"] == entry["mtime"])
 
 
-def record(conn, collection_id, path_ids: dict, decisions: dict[str, dict], current: str) -> int:
+def record(conn, collection_id, path_ids: dict, decisions: dict[str, dict], current: str, changed: list[str]) -> int:
     """Write a sync's decisions, mark files it did not see removed and copy index times from rag_files.
+
+    Index times are copied only for `changed` paths (reprocessed, new, or with a new status); every
+    other row keeps the time it already has.
 
     Runs in the publishing transaction, so a failed sync leaves the log as it was. Returns how many
     rows became removed.
@@ -46,9 +51,9 @@ def record(conn, collection_id, path_ids: dict, decisions: dict[str, dict], curr
             cursor.executemany(UPSERT, [(collection_id, path_ids[d["source"]], path, d["size"], d["mtime"],
                                          d["content_hash"], current, d["status"], d["error"])
                                         for path, d in decisions.items()])
-    removed = conn.execute("""UPDATE ka.rag_file_log SET status='removed',removed_at=now(),error=NULL
+    removed = conn.execute("""UPDATE ka.rag_file_log SET status='removed',removed_at=now(),error=NULL,indexed_at=NULL
         WHERE collection_id=%s AND status<>'removed' AND NOT (path = ANY(%s))""", (collection_id, list(decisions))).rowcount
     conn.execute("""UPDATE ka.rag_file_log l SET indexed_at=CASE WHEN l.status='indexed' THEN
         (SELECT f.indexed_at FROM ka.rag_files f WHERE f.collection_id=l.collection_id AND f.path=l.path) END
-        WHERE l.collection_id=%s""", (collection_id,))
+        WHERE l.collection_id=%s AND l.path = ANY(%s)""", (collection_id, list(changed)))
     return removed
