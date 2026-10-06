@@ -219,7 +219,7 @@ General conventions throughout the admin app:
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
 | Code | Projects · Code graphs |
-| Docs | Documents · Prompts · Generate documents |
+| Docs | Documents · Prompts · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
@@ -262,8 +262,13 @@ Administrators create collections and connect folders here; sources only write f
 
 **Workflow**
 
-1. **New collection** → name, description and settings.
-2. **Add folder** on the collection page: browse the folders or type a path
+1. **New collection** → name, description, settings and, optionally, **Folders**
+   (**Choose a folder**, browse or type, **Add to selection**; several are allowed) →
+   **Create collection** connects them and queues a sync at once. If a folder cannot be
+   added, the collection is kept and opened with the error; fix its folders there.
+   `?folder=<path>` (used by Docs → Folders) opens New collection with that folder
+   selected.
+2. **Add folder** on an existing collection's page: browse the folders or type a path
    (`generated-documents`, `jira`, `code/<folder>`).
 3. **Refresh**, or switch on **Auto-sync** in Edit.
 4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
@@ -565,7 +570,8 @@ main tasks run concurrently, with at most 30 unfinished tasks.
 
 **Docs → Generate documents** (`/documentation/generations`) produces documentation
 from your code, inventory and servers using an LLM. Work is organized in
-**workflows**: one per service (or per environment).
+**workflows**: one per service (or per environment). Code projects get a single
+document without a workflow (see **Code project documents**).
 
 **Prerequisites**
 
@@ -577,8 +583,8 @@ from your code, inventory and servers using an LLM. Work is organized in
 
 No agent from the Agents page is needed — generation uses fixed built-in specialists.
 
-**Create a workflow:** **New documentation** → choose scope (**Service** or **Whole
-environment**), the service/environment, and the model → **Create workflow**. The
+**Create a workflow:** **New documentation** → choose scope (**Service**, **Whole
+environment** or, without a workflow, **Code project**), the service/environment, and the model → **Create workflow**. The
 workflow page shows a phase summary table, the phases, and the generation history.
 Edits to prompts and context **autosave** ("Saving…" / "Saved"); closing the page does
 not cancel running jobs.
@@ -619,6 +625,39 @@ architecture** (inspects one SSH-enabled server).
 - Results are exported as files to the generated-documents folder (`GENERATED_DOCS_FOLDER`) (Markdown, `metadata.json`,
   and `.d2` files per diagram).
 
+**Code project documents** — one document for one code project, with no workflow:
+
+1. **New documentation** → scope **Code project** → the model.
+2. **Code project**: Phase 1 **Generate graph** appears; **Generate** stays disabled until
+   the project has a graph.
+3. **Prompt**: active prompts for code or mixed input. Server prompts are hidden because
+   the run has no server access.
+4. **Comments** (optional, up to 20,000 characters): appended to the prompt for this run.
+5. **Document name**: the document title, for example "Payments – API reference". The
+   name needs ASCII letters or digits (the file name is made from them).
+6. **Documentation folder**: the default is the project name plus `-docs`, for example
+   `payments-api-docs`. Pick an existing folder or type a new one.
+7. **Generate**.
+
+Folder rule: A documentation folder is a path such as payments or team/payments: each
+segment uses letters, digits, '.', '_' and '-' and does not start with '.'; node_modules
+and a first segment services are not allowed; at most 200 characters.
+
+The agent gets that project's code and graph tools; there is no SSH, RAG or MCP.
+
+The result is a document in **Docs → Documents** (versions; linked to the code project;
+prompt, model and source commits recorded with the run), exported to
+`GENERATED_DOCS_FOLDER/<folder>/<document-slug>/README.md` with `.d2` diagrams and
+`metadata.json`. The run is listed under **Code project documents** on the Generate
+documents page.
+
+The same name in the same folder asks **Save a new version?**; the same name in another
+folder is a separate document.
+
+Errors: "The prompt changed. Reload the prompt before generating." (use **Reload
+prompt**); "Source or graph selection changed…" (run **Generate graph** again); and a
+folder whose first part is already a document's export folder (choose another folder).
+
 ### 5.14 Documents and documentation prompts
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
@@ -635,6 +674,14 @@ to the workflow that produced it.
 Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
 **RAG → Collections**, or turn on Auto-sync, to index what is on disk. The Reader's search and chat and the
 agents' document search then find them.
+
+**Folders** (`/documentation/folders`) — the documentation folders with their document
+count, code projects and last generated time, and, read-only, the RAG collections that
+include each one (**Not indexed**, or each collection, "through <folder>" when it holds
+a parent folder), each linking to its collection. **Index in RAG → Collections** opens
+RAG's New collection with the folder selected. Opening a folder lists its documents
+(title, code project, last generated), each opening in Documents. Editing a folder
+document keeps it in its folder.
 
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
 generation. Saving changed text creates a draft version; **Activate vN** makes it the
@@ -727,6 +774,13 @@ Records are kept until deleted; only administrators can see them.
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
 selected** → make sure a collection holds `jira` (RAG → Collections → Add
 folder) → **Refresh** it or let Auto-sync pick it up.
+
+### G. Make one code project's documentation searchable
+
+1. **Generate documents** → **New documentation** → **Code project** → … → **Generate**.
+2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
+   is selected; the sync starts at once).
+3. Grant the collection to agents in **Agents**.
 
 ---
 
