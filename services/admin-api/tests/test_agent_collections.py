@@ -1,5 +1,7 @@
+import pytest
+
 from knowledge_admin.agents import get_agent_config, get_paths
-from knowledge_admin.collections import area_root, document_collections, slug
+from knowledge_admin.collections import document_collections, slug
 from test_api import _client
 from test_profiles import update
 from test_repositories import HEADERS
@@ -20,23 +22,22 @@ def seed(store, *names_and_paths):
 
 
 def test_agent_config_lists_granted_collections_with_paths(store, monkeypatch):
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
-    monkeypatch.setenv('CODE_ROOT', '/work/code')
-    monkeypatch.setenv('BOOTSTRAP_DOCS_ROOT', '/work/docs')
-    ids = seed(store, ('jira', 'rag-data/jira'), ('payments', 'docs/payments', 'code/payments'))
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
+    monkeypatch.setenv('CODE_ROOT', '/work/data/code')
+    ids = seed(store, ('jira', 'jira'), ('payments', 'docs/payments', 'code/payments'))
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET all_collections=false,documents_enabled=true WHERE id='search'")
         conn.execute("INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES ('search',%s)", (ids['payments'],))
     config = get_agent_config('search', conninfo=store.conninfo)
     assert config['documents']['all_collections'] is False
     assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
-        ('payments', ['/work/code/payments', '/work/docs/payments'])]
+        ('payments', ['/work/data/code/payments', '/work/data/docs/payments'])]
     assert set(config['documents']['collections'][0]) == {'id', 'name', 'description', 'paths'}
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET all_collections=true WHERE id='search'")
         conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     config = get_agent_config('search', conninfo=store.conninfo)
-    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('jira', ['/work/rag-data/jira'])]
+    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('jira', ['/work/data/jira'])]
 
 
 def test_path_era_items_map_to_paths():
@@ -58,19 +59,18 @@ def test_ungrounded_document_agents_read_every_collection_path(monkeypatch):
     assert [str(p) for p in get_paths(config)] == ['/work/code/payments', '/work/rag-data/jira', '/work/rag-data/old']
 
 
-def test_area_root_maps_every_area_to_its_container_root(monkeypatch):
-    for name, value in (('CODE_ROOT', '/c'), ('CODE_INDEX_ROOT', '/ci'), ('RAG_SOURCE_ROOT', '/r'),
-                        ('DOCUMENT_OUTPUT_ROOT', '/g'), ('BOOTSTRAP_DOCS_ROOT', '/d')):
-        monkeypatch.setenv(name, value)
-    assert [str(area_root(p)) for p in ('code/a', 'code-index/b', 'rag-data', 'generated-documents/x/y', 'docs/z')] == [
-        '/c/a', '/ci/b', '/r', '/g/x/y', '/d/z']
-    monkeypatch.setenv('CODE_ROOT', 'relative')
-    try:
-        area_root('code/a')
-    except ValueError as error:
-        assert 'CODE_ROOT must be an absolute path' in str(error)
-    else:
-        raise AssertionError('relative roots are rejected')
+def test_agent_config_maps_any_folder_under_the_data_root(store, monkeypatch):
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
+    monkeypatch.setenv('CODE_ROOT', '/work/data/code')
+    seed(store, ('jira', 'jira'), ('tools', 'exports/tools', 'code-index/abc'))
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET all_collections=true,documents_enabled=true WHERE id='search'")
+    config = get_agent_config('search', conninfo=store.conninfo)
+    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [
+        ('jira', ['/work/data/jira']), ('tools', ['/work/data/code-index/abc', '/work/data/exports/tools'])]
+    monkeypatch.setenv('DATA_ROOT_DIR', 'relative')
+    with pytest.raises(ValueError, match='DATA_ROOT_DIR'):
+        get_agent_config('search', conninfo=store.conninfo)
 
 
 def test_legacy_folder_config_maps_to_collections(monkeypatch):

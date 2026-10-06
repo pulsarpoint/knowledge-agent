@@ -24,7 +24,7 @@ from test_repositories import HEADERS
 @pytest.fixture(autouse=True)
 def mounts(monkeypatch, tmp_path):
     monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
 
 
 @pytest.fixture

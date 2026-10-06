@@ -75,7 +75,7 @@ def test_configured_source_mount_is_allowed_without_exposing_other_roots(monkeyp
         request = ShellRequest(command=f'cat {source}', workspace=scratch, read_paths=[str(source)])
         with pytest.raises(HTTPException):
             asyncio.run(execute(request))
-        monkeypatch.setenv('CODE_ROOT', directory)
+        monkeypatch.setenv('DATA_ROOT_DIR', directory)
         result = asyncio.run(execute(request))
         assert result['exit_code'] == 0 and 'selected source' in result['stdout']
         request.read_paths = ['/etc/passwd']

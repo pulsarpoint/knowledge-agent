@@ -31,10 +31,7 @@ async def execute(value: ShellRequest) -> dict:
         raise HTTPException(422, 'Choose an existing agent workspace.')
     if not value.command.strip() or '\0' in value.command:
         raise HTTPException(422, 'Provide a shell command without null bytes.')
-    roots = [Path(os.environ.get(name, default)) for name, default in (
-        ('CODE_ROOT', '/work/code'), ('RAG_SOURCE_ROOT', '/work/rag-data'),
-        ('CODE_INDEX_ROOT', '/work/code-index'), ('DOCUMENT_OUTPUT_ROOT', '/work/generated-documents'),
-        ('BOOTSTRAP_DOCS_ROOT', '/work/docs'))]
+    roots = [Path(os.environ.get('DATA_ROOT_DIR', '/work/data'))]  # every source folder lives under DATA_ROOT
     selected = []
     for name in value.read_paths:
         path = Path(name)

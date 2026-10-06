@@ -197,7 +197,7 @@ BLANK = {'name': 'Blank agent', 'description': '', 'when_to_use': '', 'system_pr
 def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch):
     from test_api import _client
     monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
     client = _client(tmp_path, repository_store=store)
     response = client.post('/api/agents/wizard', headers=HEADERS, json=BLANK)
     assert response.status_code == 201, response.text

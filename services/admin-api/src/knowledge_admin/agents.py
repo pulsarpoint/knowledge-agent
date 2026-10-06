@@ -19,7 +19,8 @@ from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.agent_tracing import trace_secrets
-from knowledge_admin.collections import area_root, document_collections
+from knowledge_admin.collections import document_collections
+from knowledge_admin.data_root import data_path
 from knowledge_admin import grounding
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
@@ -284,8 +285,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
     Disabled capabilities retain their saved selections and explicit flags.
-    CODE_ROOT and the roots of the areas that granted collections' paths live in
-    (RAG_SOURCE_ROOT, ...) must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
+    CODE_ROOT and DATA_ROOT_DIR (where every collection folder lives) must match absolute mounts in the agent's container. Paths are joined without resolving them on the loader's host.
 
     This is the application's input to agent(), not native Agents SDK constructor
     keyword arguments. Loading it never starts the SDK or resolves secrets.
@@ -344,7 +344,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             WHERE c.project_id=%s AND c.deleted_at IS NULL AND (%s OR a.collection_id IS NOT NULL)
             ORDER BY c.name""", (agent_id, project_id, agent['all_collections'])).fetchall()
         for item in collections:
-            item['paths'] = [str(area_root(path)) for path in item.pop('source_paths')]
+            item['paths'] = [str(data_path(path)) for path in item.pop('source_paths')]
         code_projects = conn.execute("""SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
             ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
             FROM ka.repositories r LEFT JOIN ka.agent_repositories a ON a.repository_id=r.id AND a.agent_id=%s

@@ -19,7 +19,7 @@ async def shell_run(ctx: RunContextWrapper[AgentContext], command: str,
     Available programs include bash, python/python3, rg, ast-grep, git, sed, awk,
     find and standard Linux utilities. Pipelines, Bash arrays and heredocs work.
     For Python use: python - <<'PY'\nimport json\nprint(json.dumps({'ok': True}))\nPY
-    Use rg -n 'symbol' /work/code/project to locate code, then ast-grep or sed
+    Use rg -n 'symbol' /work/data/code/project to locate code, then ast-grep or sed
     to inspect complete functions or focused ranges. Python's sqlite3 module can
     query configured graph databases; use sqlite3.connect('file:PATH?mode=ro', uri=True).
     Quote paths and use single quotes around ast-grep patterns containing $.

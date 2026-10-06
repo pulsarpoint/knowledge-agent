@@ -34,7 +34,7 @@ def test_knowledge_violations(changes, reason):
 @pytest.fixture
 def admin(store, tmp_path, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', str(tmp_path.resolve()))
-    monkeypatch.setenv('RAG_SOURCE_ROOT', str(tmp_path.resolve()))
+    monkeypatch.setenv('DATA_ROOT_DIR', str(tmp_path.resolve()))
     client = _client(tmp_path, repository_store=store)
     model = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'Reader model', 'provider': 'openai', 'api_format': 'responses', 'model': 'reader-fixture',

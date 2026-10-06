@@ -18,7 +18,7 @@ from test_repositories import HEADERS
 @pytest.fixture(autouse=True)
 def agent_mounts(monkeypatch):
     monkeypatch.setenv('CODE_ROOT', '/work/code')
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/work/rag-data')
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def saved_agent(store, tmp_path):
         for name, path in (('payments', 'payments'), ('runbooks', 'payments/runbooks'), ('payments-old', 'payments-old'), ('private', 'private')):
             collection = conn.execute('INSERT INTO ka.rag_collections(project_id,name,description) VALUES (%s,%s,%s) RETURNING id',
                 (project, name, f'Description of {path}')).fetchone()['id']
-            conn.execute('INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)', (collection, 'rag-data/' + path))
+            conn.execute('INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)', (collection, path))
         conn.execute("INSERT INTO ka.agent_collections SELECT 'operations',id FROM ka.rag_collections WHERE name='payments'")
         conn.execute("INSERT INTO ka.agent_repositories VALUES ('operations',%s)", (UUID(repo['id']),))
         conn.execute("UPDATE ka.repositories SET checkout_path='managed/payments',current_commit=%s WHERE id=%s",
@@ -74,7 +74,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['instructions'] == 'Verify every change.'
     assert config['model']['provider'] == 'bedrock' and config['model']['aws_region'] == 'eu-west-1'
     assert config['documents']['all_collections'] is False and 'folders' not in config['documents']
-    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('payments', ['/work/rag-data/payments'])]
+    assert [(c['name'], c['paths']) for c in config['documents']['collections']] == [('payments', ['/work/data/payments'])]
     assert config['documents']['collections'][0]['description'] == 'Description of payments'
     assert [r['id'] for r in config['code']['projects']] == [repo['id']]
     assert config['code']['projects'][0] == {
@@ -177,7 +177,7 @@ def test_disabled_capabilities_preserve_selections_and_all_scope_is_current(stor
     assert config['code']['all_projects'] is True
     assert all(not config[key]['enabled'] for key in ('documents','code','ssh','skills','mcp','services'))
     assert {p for c in config['documents']['collections'] for p in c['paths']} == {
-        '/work/rag-data/payments', '/work/rag-data/payments/runbooks', '/work/rag-data/payments-old'}
+        '/work/data/payments', '/work/data/payments/runbooks', '/work/data/payments-old'}
     assert len(config['code']['projects']) == 1 and config['code']['projects'][0]['id'] != repo['id']
     assert not config['ssh']['servers'][0]['ssh_allowed']
     assert not config['skills']['items'][0]['enabled'] and not config['mcp']['servers'][0]['enabled']
@@ -219,7 +219,7 @@ def test_multiple_servers_have_independent_runbooks_skills_and_mcp(store, saved_
 
 def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(store, saved_agent, tmp_path, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', '/agent/source')
-    monkeypatch.setenv('RAG_SOURCE_ROOT', '/agent/documents')
+    monkeypatch.setenv('DATA_ROOT_DIR', '/agent/documents')
     monkeypatch.setenv('CODE_PATH', '/host/source')
     monkeypatch.setenv('RG_DATA', '/host/documents')
     config = get_agent_config('operations', conninfo=store.conninfo)
@@ -231,12 +231,14 @@ def test_paths_use_runtime_mounts_without_host_resolution_or_database_changes(st
     with store.connect() as conn:
         assert conn.execute('SELECT path FROM ka.code_project_folders').fetchone()['path'] == 'managed/payments'
         assert conn.execute("""SELECT p.source_path FROM ka.rag_collection_paths p JOIN ka.rag_collections c ON c.id=p.collection_id
-            WHERE c.name='runbooks'""").fetchone()['source_path'] == 'rag-data/payments/runbooks'
+            WHERE c.name='runbooks'""").fetchone()['source_path'] == 'payments/runbooks'
 
 
-@pytest.mark.parametrize('variable', ['CODE_ROOT', 'RAG_SOURCE_ROOT'])
+@pytest.mark.parametrize('variable', ['CODE_ROOT', 'DATA_ROOT_DIR'])
 @pytest.mark.parametrize('value', ['', 'relative/root', '/work/../elsewhere'])
 def test_config_requires_absolute_runtime_mounts(store, saved_agent, monkeypatch, variable, value):
+    if variable == 'DATA_ROOT_DIR' and not value:
+        pytest.skip('an empty DATA_ROOT_DIR takes its default')
     monkeypatch.setenv(variable, value)
     with pytest.raises(ValueError, match=variable + ' must be an absolute path'):
         get_agent_config('operations', conninfo=store.conninfo)
