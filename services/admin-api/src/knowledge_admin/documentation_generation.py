@@ -394,6 +394,7 @@ def environment_views(sources: dict) -> str:
 
 SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
 PROMPT_CHANGED = 'The prompt changed. Reload the prompt before generating.'  # admin-ui offers Reload prompt on it
+DOCUMENT_CHANGED_AFTER_QUEUING = 'The document changed after this run was queued. Generate again.'
 
 
 def queue_code_project(conn, project: UUID, actor: UUID, model: dict, value: GenerationInput) -> dict:
@@ -862,10 +863,16 @@ def run_once(store: RepositoryStore) -> bool:
                 if infrastructure:
                     linked_services = [s for s in linked_services if any(d['server_id'] in sources['server_ids'] for d in s['deployments'])]
                 existing = target['existing']
-                if target['kind'] == 'project' and existing is not None and conn.execute(
-                        'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (existing['id'], job['project_id'])).fetchone() is None:
-                    # The confirmed document was deleted after queuing: save the run as a new document.
-                    existing = None
+                if target['kind'] == 'project' and existing is not None:
+                    # save_document's per-project lock (taken first, as it does) keeps editor saves out until commit.
+                    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f"{job['project_id']}:document-export",))
+                    current = conn.execute('SELECT revision FROM ka.documents WHERE id=%s AND project_id=%s',
+                                           (existing['id'], job['project_id'])).fetchone()
+                    if current is None:
+                        # The confirmed document was deleted after queuing: save the run as a new document.
+                        existing = None
+                    elif current['revision'] != existing['revision']:
+                        raise HTTPException(409, DOCUMENT_CHANGED_AFTER_QUEUING)
                 if target['kind'] == 'project':
                     value = DocumentInput(slug=target['slug'], title=document.title, description=document.description,
                         markdown=document.markdown, purpose='code', code_project_ids=sources['code_project_ids'],

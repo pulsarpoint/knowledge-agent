@@ -287,6 +287,26 @@ def test_confirmed_document_deleted_before_the_run_is_created_again(store, tmp_p
     assert (tmp_path / 'team/payments/payments-api-reference/README.md').read_text().startswith('# New')
 
 
+def test_confirmed_document_edited_after_queuing_fails_the_job_clearly(store, tmp_path, monkeypatch):
+    client, request, _, _ = project_request(store, tmp_path, monkeypatch)
+    async def run(config, task, **kwargs):
+        return SimpleNamespace(final_output=generation.GeneratedDocument(title='T', description='', markdown='# New'))
+    monkeypatch.setattr(generation, 'agent', run)
+    with store.connect() as conn:
+        old = save_document(conn, store.project(conn, 'shop'), None,
+                            DocumentInput(slug='payments-api-reference', title='Old', markdown='# Old'), folder='team/payments')
+    assert post(client, request, update_existing=True).status_code == 202
+    edited = client.put('/api/documentation/documents/' + str(old['id']), headers=HEADERS,
+                        json={'slug': 'payments-api-reference', 'title': 'Edited', 'markdown': '# Edited', 'revision': 1})
+    assert edited.status_code == 200, edited.text
+    assert generation.run_once(store)
+    [run_row] = history(client)
+    assert run_row['status'] == 'failed'
+    assert run_row['error'] == 'The document changed after this run was queued. Generate again.'
+    [doc] = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
+    assert (doc['title'], doc['revision']) == ('Edited', 2)
+
+
 def test_folder_clash_that_appears_after_queuing_fails_the_job_clearly(store, tmp_path, monkeypatch):
     client, request, _, _ = project_request(store, tmp_path, monkeypatch)
     async def run(config, task, **kwargs):
