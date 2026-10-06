@@ -80,7 +80,7 @@ must commit in one transaction. Workers compare lease tokens and expiry before
 completion. See the code for each running worker's implementation.
 
 Code and RAG roots are mounted deployment settings. PostgreSQL stores managed
-Markdown as well as RAG text and vectors; raw RAG source files remain in RG_DATA.
+Markdown as well as RAG text and vectors; raw RAG source files remain in `DATA_ROOT`.
 Managed document publication into RAG is not yet enabled.
 
 ## Environments

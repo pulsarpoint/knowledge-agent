@@ -2,9 +2,8 @@
 
 The v3 runtime stores processed text, file hashes, and vectors in PostgreSQL. It indexes
 **collections**: each holds one or more paths (folders), added by sources such as Jira,
-Documents and code projects, inside five data areas mounted at `/work/code`,
-`/work/code-index`, `/work/rag-data`, `/work/generated-documents` and `/work/docs`
-(read-only except `rag-data`). View collections and their paths, refresh,
+Documents and code projects, inside `DATA_ROOT`, mounted at `/work/data` (read-only except the Jira folder,
+`JIRA_FOLDER`). View collections and their paths, refresh,
 processing jobs and search in **Administration → RAG**. Manage embedding
 connections in **LLM Settings**, then select one in **RAG → Settings**.
 
@@ -23,10 +22,10 @@ uv run rag serve-workspace --env-file /path/to/runtime.env
 uv run rag-workspace-worker   # or: uv run rag worker
 ```
 
-Both processes need PostgreSQL connection variables, `RAG_SOURCE_ROOT` (the local
-`rag-data` directory), the other area roots (`CODE_ROOT`, `CODE_INDEX_ROOT`,
-`DOCUMENT_OUTPUT_ROOT`, `BOOTSTRAP_DOCS_ROOT`) and `CREDENTIAL_ENCRYPTION_KEY`. The host path
-variables (`RG_DATA`, `CODE_PATH`, ...) are display metadata and are not resolved inside the container. The API also
+Both processes need PostgreSQL connection variables, `DATA_ROOT_DIR` (the local data
+directory, `/work/data` in Compose), `JIRA_EXPORT_ROOT` (the writable Jira folder inside it),
+`DATA_ROOT` (the host path, display metadata that is never resolved inside the container)
+and `CREDENTIAL_ENCRYPTION_KEY`. The API also
 requires `RAG_BACKOFFICE_KEY`. Native workers require their environment to be
 exported. Per-collection settings and the global embedding model are saved through the admin API.
 

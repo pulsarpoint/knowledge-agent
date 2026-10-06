@@ -160,10 +160,10 @@ to save configuration and use **Clone** later. **Automatic pulls** schedules pul
 at the selected interval (5 minutes to 7 days), or leave it off for manual pulls.
 A Git project can include additional existing folders too.
 
-Code lives in `DATA_ROOT/code` on the host (override with an absolute `CODE_PATH`).
-Compose mounts it at `/work/code`; the browser displays
-both paths. The admin API and source browser mount it read-only; the repository
-worker writes clones. Arbitrary host paths and symbolic links cannot be mapped.
+Code lives in `DATA_ROOT/code` on the host (the folder is `CODE_FOLDER`).
+Compose mounts `DATA_ROOT` read-only at `/work/data`; the browser displays
+both paths. The repository worker (and admin API) have the code folder writable and
+write clones. Arbitrary host paths and symbolic links cannot be mapped.
 
 New clones keep the chosen folder across pulls. The worker fetches shallow
 history and checks out the requested commit, without running source code, hooks,
@@ -188,11 +188,11 @@ agent configuration previews include all mapped folders.
 
 ## Content and model configuration
 
-RAG indexes **collections**: each holds one or more folders in `DATA_ROOT` (`code`, `code-index`,
-`rag-data`, `generated-documents` or `docs`) and is indexed where it is, with no copy step.
+RAG indexes **collections**: each holds one or more folders in `DATA_ROOT` (for example `code/payments`,
+`jira`, `generated-documents` or `docs/runbooks`) and is indexed where it is, with no copy step.
 Administrators create collections and connect folders in RAG → Collections; sources only write files. Auto-sync checks folders at an interval.
-The RAG services mount all five areas, read-only except `rag-data` (override with an
-absolute `RG_DATA`). **Refresh** collections when files change, and review jobs through RAG
+The RAG services mount `DATA_ROOT` read-only at `/work/data` and write only the Jira
+folder (`JIRA_FOLDER`). **Refresh** collections when files change, and review jobs through RAG
 administration. Unchanged files are identified by content hash so processing can be reused. Add and pull Git repositories
 through Code projects.
 

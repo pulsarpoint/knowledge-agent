@@ -20,7 +20,8 @@ Full-text search works without an embedding model.
 
 ## How do I use my own content and source code?
 
-Put sources in DATA_ROOT/rag-data (or set RG_DATA in the root .env to another
-absolute host folder) and restart the RAG containers. RAG Settings displays its mapping to /work/rag-data. Add and pull
+Put sources in a folder inside DATA_ROOT (for example DATA_ROOT/docs/runbooks) and
+add that folder to a RAG collection. RAG mounts DATA_ROOT read-only at /work/data and
+only the Jira folder (JIRA_FOLDER) is writable. Add and pull
 repositories through GitHub Projects. Configure model connections in LLM Settings
 and test the search agent from Agents.

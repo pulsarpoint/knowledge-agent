@@ -7,7 +7,7 @@ The standalone admin has two pages:
 - [Jira Tickets](http://localhost:8183/jira/tickets): choose 1–200 tickets and
   select **Fetch tickets**. The default is 25, ordered by updated time descending.
   Add JQL to filter at Jira, then use text, project and status filters on the saved
-  list. Select tickets and **Export selected** to write Markdown into `rag-data/jira`.
+  list. Select tickets and **Export selected** to write Markdown into the Jira folder (`JIRA_FOLDER`, default `jira`).
 
 This adapter targets Jira Data Center. PATs use `Authorization: Bearer`, rather
 than username/password Basic auth. The saved username is checked against
@@ -98,8 +98,8 @@ downloads and Cloud authentication remain future work.
 | `GET /api/jira/settings` | Public configuration and token-presence flag |
 | `PUT /api/jira/settings` | Save URL, username and optional write-only token; current revision required on edits |
 | `POST /api/jira/test` | Check token owner and issue-search access; save the test result |
-| `GET /api/jira/tickets` | Read the last successful local selection |
-| `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }` |
+| `GET /api/jira/tickets` | Read the last successful local selection; the response is `{connection, tickets, export_folder}`, where `export_folder` names the configured export folder |
+| `POST /api/jira/tickets/fetch` | Fetch and save matching tickets using `{ "limit": 25, "jql": "project = DEMO ORDER BY updated DESC" }`; returns the same `{connection, tickets, export_folder}` |
 | `POST /api/jira/tickets/{ticket_id}/export` | Export one saved ticket using `{ "connection_revision": 1 }`; returns path, status, hash, issue key and comment count |
 
 ## Markdown export and RAG processing
@@ -108,12 +108,12 @@ downloads and Cloud authentication remain future work.
    a saved-list filter clears the selection; **Select all filtered tickets** selects
    only the currently displayed rows.
 2. Select **Export selected** and keep the page open. Tickets are written to
-   `rag-data/jira/<KEY>.md`, with no collection choice. A RAG error, such as the service
+   `<JIRA_FOLDER>/<KEY>.md` (default `jira/<KEY>.md`), with no collection choice. A RAG error, such as the service
    being unavailable, fails that ticket's export with its message and writes nothing.
    Each ticket is an independent export; successes remain saved if another ticket fails,
    and failed tickets remain selected for retry. Leaving the page stops the remaining
    requests; an in-flight server request may still finish.
-3. Add `rag-data/jira` to a collection once (**RAG → Collections** → **Add folder**), then
+3. Add the Jira folder (default `jira`) to a collection once (**RAG → Collections** → **Add folder**), then
    **Refresh** it or turn on **Auto-sync**. This uses the existing incremental processing
    and embedding pipeline. Exports do not refresh the collection or configure an embedding
    provider.
@@ -138,7 +138,7 @@ Existing files from another source are preserved with a conflict error. Refreshi
 an export replaces the complete generated file, including any manual edits below
 its marker. RAG compare-and-set hashes also protect changes made during publishing.
 Exporting a smaller selection never removes previously exported files; delete the files
-from `rag-data/jira` on the host and **Refresh** the collection to clean their search data. Ticket key changes
+from the Jira folder on the host and **Refresh** the collection to clean their search data. Ticket key changes
 require fetching the list again; any export under the previous key remains until
 explicitly removed. `jira.ticket_exported` audit events record path, result and
 comment count, without ticket bodies or tokens.

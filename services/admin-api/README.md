@@ -88,10 +88,10 @@ The document tools search and read by collection name and collection-relative pa
 (`search_documents`, `read_document(collection, path)`), confined to granted
 collections. Agents that are not grounded get the collection folders as read roots.
 Both root environment variables must be absolute paths in the agent container.
-Compose mounts the same code and document directories read-only at `/work/code`
-and `/work/rag-data` in `admin-api`. The config joins the stored
-relative paths to these roots without resolving paths on the host. `CODE_PATH`
-and `RG_DATA` are host-side mount sources and never enter the generated paths.
+Compose mounts `DATA_ROOT` read-only at `/work/data` in `admin-api`, with the code,
+code-index and generated-documents folders writable. The config joins the stored
+relative paths to these roots without resolving paths on the host. `DATA_ROOT` and the
+`*_FOLDER` variables are host-side mount sources and never enter the generated paths.
 Service repository checkout paths use the same code root; remote deployment log
 paths remain paths on their SSH servers. Database paths remain relative.
 Service context does not grant access to its linked repositories or servers.

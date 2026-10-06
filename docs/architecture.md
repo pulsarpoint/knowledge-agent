@@ -1,6 +1,6 @@
 # Architecture and admin workflows
 
-The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. RAG uses `RG_DATA` → `/work/rag-data` directly, without a UUID subdirectory. Reader and admin remain separate web applications with independent authentication sessions.
+The current deployment is a single workspace. Administration has no application selector or application-prefixed URLs; the API binds all operations to the existing database identity. RAG reads `DATA_ROOT` (mounted read-only at `/work/data`) directly and writes only `JIRA_FOLDER`, without a UUID subdirectory. Reader and admin remain separate web applications with independent authentication sessions.
 
 
 Status: target design, with an independently runnable v2-derived baseline now
@@ -215,7 +215,7 @@ operation before they become current database revisions.
 
 ## Document processing and search
 
-The fixed source mount is `/work/rag-data`. PostgreSQL stores folder descriptions, file manifests, parsed chunks, full-text indexes, and pgvector embeddings. File content and processing-profile hashes determine which stages need to run. Unchanged parsing and embeddings are reused; changed and deleted files are published atomically. See [RAG administration](rag.md).
+The fixed source mount is `/work/data` (`DATA_ROOT`, read-only; only the Jira folder is writable for RAG). PostgreSQL stores folder descriptions, file manifests, parsed chunks, full-text indexes, and pgvector embeddings. File content and processing-profile hashes determine which stages need to run. Unchanged parsing and embeddings are reused; changed and deleted files are published atomically. See [RAG administration](rag.md).
 
 The search agent receives the indexed document catalog with short descriptions on every turn. It calls `/search` for retrieval and reads full documents when needed. Source-code questions use read-only analysis of checkouts published by the repository worker. The same agent and chat component serve the reader and the separate administration test page; their conversations are stored separately and scoped to the authenticated user. Phoenix tracks the agent execution.
 

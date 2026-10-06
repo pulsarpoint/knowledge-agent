@@ -98,8 +98,10 @@ make smoke       # verify logins, isolation, search, DB migrations, Phoenix (no 
   and `chown` it to your user if needed). `make up` refuses to start without it.
 - `make up` runs `scripts/setup.py`, which creates `.env` (mode 0600) from
   `.env.example`, fills empty secrets with random values (never overwriting existing
-  ones), records `DATA_ROOT`, and creates `code/`, `code-index/`, `rag-data/`,
-  `generated-documents/` and `docs/` inside it.
+  ones), records `DATA_ROOT`, and creates `code/`, `code-index/`, `docs/`,
+  `generated-documents/` and `jira/` inside it (the names come from the `*_FOLDER`
+  variables). It warns about any other entry in `DATA_ROOT`, because RAG can see every
+  folder there; it never moves or deletes them.
 - The bootstrap admin is `v3-admin` with the password `APP_ADMIN_PASSWORD` from `.env`.
   Change it in Keycloak afterwards, not in `.env`.
 - Additional admins: create the user in the Keycloak console and add it to the
@@ -121,7 +123,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 1. **LLM Settings** → add a chat model and **Test connection**. Optionally add an
    embeddings model (AWS Bedrock Titan v2) for vector search.
 2. **RAG → Settings** → select the embeddings model if you added one.
-3. Create collections in **RAG → Collections** and add folders: `generated-documents` for documents, `rag-data/jira` for Jira, `code/<folder>` for code; then **Refresh**, or switch on **Auto-sync**.
+3. Create collections in **RAG → Collections** and add folders: `generated-documents` for documents, `jira` for Jira, `code/<folder>` for code; then **Refresh**, or switch on **Auto-sync**.
 4. **Code projects** → map local folders or clone Git repositories; **Generate graph**.
 5. **Servers** → register hosts; configure **SSH settings** if agents or deployment
    documentation should inspect them.
@@ -261,7 +263,7 @@ Administrators create collections and connect folders here; sources only write f
 
 1. **New collection** → name, description and settings.
 2. **Add folder** on the collection page: browse the folders or type a path
-   (`generated-documents`, `rag-data/jira`, `code/<folder>`).
+   (`generated-documents`, `jira`, `code/<folder>`).
 3. **Refresh**, or switch on **Auto-sync** in Edit.
 4. When embeddings are on, watch **Embedded** go from `0 / N` to `N / N`.
 
@@ -327,8 +329,8 @@ This is retrieval only; it does not generate answers.
 ### 5.4 Code projects
 
 `/code-projects` — the source code the platform can analyze. Files live under
-`DATA_ROOT/code` on the host (or `CODE_PATH`), mounted read-only as `/work/code`
-(only the repository worker writes there).
+`DATA_ROOT/<CODE_FOLDER>` on the host (default `code`), mounted read-only under
+`/work/data` (only the repository worker and admin API have it writable).
 
 **Folder browser** — navigate the code root, preview text files (up to 512 KB).
 Symbolic links are listed but never followed.
@@ -444,10 +446,10 @@ and search permission).
 1. Enter a **JQL** query (default `ORDER BY updated DESC, key DESC`) and the number of
    tickets (1–200), then **Fetch tickets**. Results are stored locally.
 2. Filter by text, project and status; tick tickets.
-3. **Export selected** writes each ticket to `rag-data/jira/<KEY>.md` with metadata,
+3. **Export selected** writes each ticket to `jira/<KEY>.md` with metadata,
    description and comments. Keep the page open until it finishes; failed tickets stay
    selected. A RAG error fails the export with its message.
-4. Make sure a collection holds `rag-data/jira` (RAG → Collections → Add folder), then
+4. Make sure a collection holds `jira` (RAG → Collections → Add folder), then
    Refresh it or let Auto-sync pick it up.
 
 For testing without a real Jira: `make jira-mock-up`, then URL
@@ -610,7 +612,7 @@ architecture** (inspects one SSH-enabled server).
   sections that already completed when inputs are unchanged.
 - Token usage (input, output, model calls; cached/reasoning listed separately) is
   recorded even for failed runs.
-- Results are exported as files to `GENERATED_DOCS_PATH` (Markdown, `metadata.json`,
+- Results are exported as files to the generated-documents folder (`GENERATED_DOCS_FOLDER`) (Markdown, `metadata.json`,
   and `.d2` files per diagram).
 
 ### 5.14 Documents and documentation prompts
@@ -637,9 +639,9 @@ workflow page is open, generating fails with "An active prompt changed. Reload i
 
 ### 5.15 Storage
 
-`/storage` — read-only overview of the five storage areas: source code
-(`CODE_PATH`), code graphs (`CODE_INDEX_PATH`), RAG source files (`RG_DATA`, where Jira exports are written), document
-exports (`GENERATED_DOCS_PATH`) and bootstrap docs (`DOCS_PATH`). Each shows host and
+`/storage` — read-only overview of the data folder (`DATA_ROOT`) and its five folders: source code
+(`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`), Jira exports (`JIRA_FOLDER`), document
+exports (`GENERATED_DOCS_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
 ### 5.16 Activity
@@ -719,7 +721,7 @@ Records are kept until deleted; only administrators can see them.
 ### F. Bring Jira knowledge into RAG
 
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
-selected** → make sure a collection holds `rag-data/jira` (RAG → Collections → Add
+selected** → make sure a collection holds `jira` (RAG → Collections → Add
 folder) → **Refresh** it or let Auto-sync pick it up.
 
 ---
@@ -733,11 +735,11 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `WEB_PORT` 8180, `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
 | `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
-| `RG_DATA` | Optional override for the `rag-data` area, the writable folder for Jira exports (default `DATA_ROOT/rag-data`) |
-| `CODE_PATH` | Optional override for code projects and Git clones (default `DATA_ROOT/code`) |
-| `CODE_INDEX_PATH` | Optional override for code graph snapshots (default `DATA_ROOT/code-index`) |
-| `GENERATED_DOCS_PATH` | Optional override for document exports (default `DATA_ROOT/generated-documents`) |
-| `DOCS_PATH` | Optional override for bootstrap docs (default `DATA_ROOT/docs`; not what the Reader shows) |
+| `CODE_FOLDER` | Folder inside `DATA_ROOT` for code projects and Git clones (default `code`) |
+| `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
+| `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; not what the Reader shows) |
+| `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
+| `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |

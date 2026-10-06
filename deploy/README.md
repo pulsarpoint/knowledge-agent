@@ -22,9 +22,9 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   the one-time verified adoption procedure in the [migration guide](../docs/migrations.md).
   Repository settings, encrypted
   tokens and pull jobs use PostgreSQL; SQLite remains the reader's current store.
-- `repository-worker` has no host port and owns the writable `/work/code` bind
-  mount. It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders. The admin API
-  and source browser mount the same folder read-only.
+- `repository-worker` has no host port and owns the writable `CODE_FOLDER` and
+  `CODE_INDEX_FOLDER` binds; everything else sees `DATA_ROOT` read-only at `/work/data`.
+  It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders.
 - `jira-mock` is an optional local test profile. `make jira-mock-up` starts 75
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
@@ -45,22 +45,39 @@ make setup DATA_ROOT=/opt/knowledge-agent
 ```
 
 Compose refuses to start without it (`Run make setup DATA_ROOT=/path`); nothing is
-created inside the checkout. Paths must be absolute.
+created inside the checkout. `DATA_ROOT` must be an absolute path. `make setup` creates
+the folders below inside it. `DATA_ROOT` is mounted once, read-only, at `/work/data`;
+each folder is writable only in the services listed.
 
-| Folder | Override | Container path | Contents |
-| --- | --- | --- | --- |
-| `DATA_ROOT/code` | `CODE_PATH` | `/work/code` | Code projects, Git clones and caches |
-| `DATA_ROOT/code-index` | `CODE_INDEX_PATH` | `/work/code-index` | Code graph snapshots |
-| `DATA_ROOT/rag-data` | `RG_DATA` | `/work/rag-data` | Writable folder for Jira exports (`rag-data/jira`); RAG also indexes the other areas read-only |
-| `DATA_ROOT/generated-documents` | `GENERATED_DOCS_PATH` | `/work/generated-documents` | Current Markdown/D2 export of each document: `<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) |
-| `DATA_ROOT/docs` | `DOCS_PATH` | `/work/docs` | Bootstrap docs seeded from `examples/docs` |
+| Variable | Default | Container path | Contents | Writable in |
+| --- | --- | --- | --- | --- |
+| `DATA_ROOT` | (required) | `/work/data` | Everything below; read-only base | nothing |
+| `CODE_FOLDER` | `code` | `/work/data/code` | Code projects, Git clones and caches | `admin-api`, `repository-worker` |
+| `CODE_INDEX_FOLDER` | `code-index` | `/work/data/code-index` | Code graph snapshots | `admin-api`, `repository-worker`, `documentation-worker` |
+| `DOCS_FOLDER` | `docs` | `/work/data/docs` | Bootstrap docs seeded from `examples/docs` | nothing |
+| `GENERATED_DOCS_FOLDER` | `generated-documents` | `/work/data/generated-documents` | Current Markdown/D2 export of each document: `<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) | `admin-api`, `documentation-worker` |
+| `JIRA_FOLDER` | `jira` | `/work/data/jira` | Jira exports, one `<KEY>.md` per ticket | `rag` |
 
-RAG collections can hold paths in any of these five folders. The `rag` and `rag-worker`
-services mount all of them at the container paths above, read-only except `rag-data`.
+Each `*_FOLDER` value is a path relative to `DATA_ROOT`: no leading `/`, no `..`, no
+hidden or empty segments, and no folder inside another one. `make setup` stops and
+names the variable when a value breaks these rules.
 
-Set an override in `.env` (absolute path) only to put one folder elsewhere, for
-example code on a larger disk. Admin → Storage shows the host and container path
-of each folder.
+RAG sees all of `DATA_ROOT`, so it should hold only the configured folders and folders
+you add for RAG on purpose; `make setup` warns about any other entry (hidden
+`.DS_Store` files are ignored). Keep backups and logs in a sibling folder such as
+`DATA_ARCHIVE`, not inside `DATA_ROOT`. Admin -> Storage shows the host and container
+path of each folder.
+
+**Upgrading from per-folder overrides:** `CODE_PATH`, `CODE_INDEX_PATH`, `RG_DATA`,
+`GENERATED_DOCS_PATH`, `DOCS_PATH` and `RAG_SOURCE_ROOT` are refused by `make setup`,
+which names the replacement variable. An override inside `DATA_ROOT` translates to the
+relative value (`CODE_PATH=$DATA_ROOT/sources/code` becomes `CODE_FOLDER=sources/code`);
+one outside must be moved into `DATA_ROOT` first. `make setup` moves
+`DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once, and migration `0067` rewrites the RAG
+paths (it assumes the default `JIRA_FOLDER`; with another value the collection shows
+**Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
+configured folders: move them out of `DATA_ROOT`, and a collection that used them shows
+**Folder missing**.
 
 **Upgrading to RAG collections (migration `0063`):** after `make up`, admin-api
 re-exports every document whose current export is missing into `generated-documents`
@@ -70,20 +87,19 @@ Expect a full re-parse and, with embeddings on, a full re-embed (for example abo
 chunks for `jira`). Until a collection is refreshed its previous index keeps serving search.
 
 **Moving the data:** `make down`, copy the folders (for example
-`rsync -a .local/ /opt/knowledge-agent/`), set `DATA_ROOT` in `.env`, remove any
-overrides that pointed at the old place, then `make up`.
+`rsync -a .local/ /opt/knowledge-agent/`), set `DATA_ROOT` in `.env`, then `make up`.
 
 ## Data and lifecycle
 
 | Location | Contents |
 | --- | --- |
-| `DATA_ROOT` host folder | Code, code graphs, RAG sources, document exports and bootstrap docs (see above) |
+| `DATA_ROOT` host folder | Code, code graphs, Jira exports, document exports and bootstrap docs (see above) |
 | `knowledge-agent-v3_postgres-data` | V3 application metadata, processing jobs, searchable text and vectors |
 | `knowledge-agent-v3_wiki-data` | Reader sessions, audit transcript and gaps |
 | `knowledge-agent-v3_keycloak-data` | Independent realm, users and login configuration |
 | `knowledge-agent-v3_phoenix-data` | Independent Phoenix traces and accounts |
 
-**Administration → Storage** shows configured host/container paths for these four content mounts, their availability and a read-only directory/file browser. Relative host paths are displayed as relative to the Compose file directory; the container does not guess their absolute host location. Managed document versions and RAG indexes remain in PostgreSQL. Generated exports are indexed through the `documents` collection (path `generated-documents`, which skips `v<n>/` folders): **Refresh** it in Admin → RAG → Collections after exports change.
+**Administration → Storage** shows configured host/container paths for `DATA_ROOT` and its five folders, their availability and a read-only directory/file browser. Relative host paths are displayed as relative to the Compose file directory; the container does not guess their absolute host location. Managed document versions and RAG indexes remain in PostgreSQL. Generated exports are indexed through the `documents` collection (path `generated-documents` by default, which skips `v<n>/` folders): **Refresh** it in Admin → RAG → Collections after exports change.
 
 `make down` retains volumes. Back up these volumes and the configured content
 folders before migrating real data. Credentials in root `.env` are required to

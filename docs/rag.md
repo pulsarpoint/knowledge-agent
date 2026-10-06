@@ -6,7 +6,7 @@ indexes the files in those folders where they already are; nothing is copied.
 
 RAG owns the configuration: administrators (or external tools, through the API) create
 collections and connect folders. Sources only write files: Docs → Documents writes
-`generated-documents/…`, the Jira export writes `rag-data/jira/<KEY>.md`, and Git pulls
+`generated-documents/…`, the Jira export writes `jira/<KEY>.md` (`JIRA_FOLDER`), and Git pulls
 update `code/…`. See [Folders](#folders).
 
 Open the standalone admin app and choose **RAG** in the sidebar:
@@ -30,7 +30,7 @@ A collection has:
 | --- | --- |
 | Name | Lowercase letters, digits and single hyphens (`payments-code`), at most 60 characters, unique among collections |
 | Description | Up to 2,000 characters; shown to agents and Reader users |
-| Folders | One or more `source_path` values, relative to `DATA_ROOT`. The first segment is one of the five data areas (`code`, `code-index`, `rag-data`, `generated-documents`, `docs`); deeper segments use letters, digits, `.`, `_` and `-`. Added and removed on the collection detail page or through the API, not in the Edit form |
+| Folders | One or more `source_path` values, relative to `DATA_ROOT`. A folder is any path relative to `DATA_ROOT` whose segments use letters, digits, `.`, `_` and `-` and do not start with `.`. Added and removed on the collection detail page or through the API, not in the Edit form |
 | Search mode | `full_text` (default), `embedding` or `hybrid` |
 | Embeddings | On or off per collection; needs the global embedding model |
 | Include / exclude | Glob patterns. Default include: `**/*.md`, `**/*.markdown`, `**/*.txt`; default exclude: none |
@@ -45,16 +45,15 @@ Examples:
 | Collection | Folders | Notes |
 | --- | --- | --- |
 | `documents` | `generated-documents` | The Docs → Documents exports; add `*/v[0-9]*/**` and `services/*/*/v[0-9]*/**` to the exclude patterns so old `<slug>/v<n>/` version folders are not indexed |
-| `jira` | `rag-data/jira` | One Markdown file per ticket |
-| `payments` | `code/payments`, `rag-data/jira` and `docs/runbooks` | One collection searching code, tickets and runbooks |
+| `jira` | `jira` | One Markdown file per ticket |
+| `payments` | `code/payments`, `jira` and `docs/runbooks` | One collection searching code, tickets and runbooks |
 
 Migration `0063` converted every top-level folder of `rag-data` into a collection (folder
 `X` became collection `X` with folder `rag-data/X`) and rewrote indexed files and agent
 grants, so search keeps working until each collection is refreshed. Deleting a collection
 removes its index rows, folders, file log and agent grants and keeps the files on disk.
 
-Adding a folder that is missing under `rag-data` creates it. A missing folder anywhere else
-is refused with `Folder does not exist`. A collection whose folder later disappears shows
+Add folder never creates a folder: a missing folder is refused with `Folder does not exist`. A collection whose folder later disappears shows
 **Folder missing**.
 
 ## Folders
@@ -78,11 +77,11 @@ Where sources write:
 | Source | Writes to |
 | --- | --- |
 | Docs → Documents | `generated-documents` |
-| Jira export | `rag-data/jira/<KEY>.md` |
+| Jira export | `<JIRA_FOLDER>/<KEY>.md` (default `jira/<KEY>.md`) |
 | Code projects | `code/<folder>` (clone and pull only) |
 
 On a fresh install there are no collections. Create a `documents` collection and add
-`generated-documents` to search generated documents, and add `rag-data/jira` to a collection
+`generated-documents` to search generated documents, and add `jira` to a collection
 to search Jira tickets. To search code, add the project's folders (`code/<folder>`) to a
 collection.
 
@@ -111,6 +110,21 @@ collection.
   the first sync reads and hashes each file but does not re-embed unchanged content.
 - Rolling back re-adds the owner and search columns empty.
 
+### Upgrading to 0067
+
+- Collection paths `rag-data/jira` and `rag-data/jira/...` become `jira` and `jira/...`,
+  and the indexed files and file log rows under them are rewritten without reprocessing.
+  `make setup` moves the files from `DATA_ROOT/rag-data/jira` to `JIRA_FOLDER` once; the
+  migration assumes the default `JIRA_FOLDER` (with another value the collection shows
+  **Folder missing** until its folder is replaced). Other `rag-data/...` folders are not
+  configured folders: move them out of `DATA_ROOT`; a collection that used them shows
+  **Folder missing**.
+- The `source_path` check accepts any top-level folder instead of the five fixed areas.
+- Saved agent versions holding `/work/rag-data/jira`, `/work/code`, `/work/code-index`,
+  `/work/generated-documents` or `/work/docs` paths are rewritten to `/work/data/...`.
+- Rolling back moves the Jira paths and agent paths back and restores the five-area check
+  as `NOT VALID`: folders already added elsewhere stay, and only new ones are refused.
+
 ### Upgrading to collections
 
 After upgrading:
@@ -123,25 +137,25 @@ After upgrading:
 3. **Refresh** each collection (or **Refresh all stale**). Expect a full re-parse and, with
    embeddings on, a full re-embed (for example about 975 chunks for `jira`).
 
-## Data areas and mounts
+## DATA_ROOT and mounts
 
-All five areas are mounted into `rag` and `rag-worker` at their existing container paths.
-`rag-data` is read-write (RAG creates folders added under it and writes Jira exports through its internal file endpoint); the other four are read-only.
+`DATA_ROOT` is mounted once, read-only, at `/work/data` in `rag` and `rag-worker`. The only
+writable folder for RAG is `JIRA_FOLDER` (default `jira`), mounted over the base at
+`/work/data/<JIRA_FOLDER>` and exposed to the service as `JIRA_EXPORT_ROOT`; `rag-worker`
+writes nothing.
 
-| Area | Container path | Setting |
-| --- | --- | --- |
-| `code` | `/work/code` | `CODE_ROOT` |
-| `code-index` | `/work/code-index` | `CODE_INDEX_ROOT` |
-| `rag-data` | `/work/rag-data` | `RAG_SOURCE_ROOT` |
-| `generated-documents` | `/work/generated-documents` | `DOCUMENT_OUTPUT_ROOT` |
-| `docs` | `/work/docs` | `BOOTSTRAP_DOCS_ROOT` |
+| Variable | Meaning |
+| --- | --- |
+| `DATA_ROOT_DIR` | Container path of the data folder (`/work/data`) |
+| `DATA_ROOT` | Host path of the data folder; display metadata, never resolved inside the container |
+| `JIRA_EXPORT_ROOT` | Container path of the writable Jira folder (`/work/data/<JIRA_FOLDER>`) |
 
-The services also receive the host paths (`CODE_PATH`, `RG_DATA`, ...) so the UI can show where a
-collection lives. Host paths are metadata and are never resolved inside the container.
-Change `DATA_ROOT` (or an override) and recreate the RAG API and worker to use another host folder.
-
-Only the Jira export writes files into `rag-data` (through the internal `PUT /file`). Each folder of
-a collection is walked with a descriptor-based, no-follow traversal that starts at that path.
+Host paths shown in the UI are `DATA_ROOT/<folder>`. The folder browser starts at the top
+level of `DATA_ROOT` and hides hidden folders and links, so RAG can reach every folder in
+`DATA_ROOT`: keep it for the configured folders and folders added for RAG, and keep
+backups and logs in a sibling folder. Each folder of a collection is walked with a
+descriptor-based, no-follow traversal that starts at `/work/data`. Only the Jira export
+writes files (through the internal `PUT /file`).
 
 ## What is indexed
 
@@ -168,7 +182,7 @@ collection shows **Too large to sync** with Refresh disabled, **Refresh all stal
 and Auto-sync queues nothing for it.
 
 The file API (`GET /file?collection=&path=`, used by the Reader's document view and the agents'
-`read_document`) takes the full path under `DATA_ROOT` (for example `rag-data/jira/DEMO-1.md`).
+`read_document`) takes the full path under `DATA_ROOT` (for example `jira/DEMO-1.md`).
 It serves only files a sync would index, under one of the collection's paths: a hidden,
 `.env*`, `.git` or `node_modules` path or a file outside the paths or the include/exclude
 patterns answers 404 "Document not found", exactly like a missing file.
@@ -329,15 +343,15 @@ Browser/admin API prefix: `/api/rag`. All these routes require a Keycloak user i
 
 | Method | Relative route | Purpose |
 | --- | --- | --- |
-| GET / PUT | `/settings` | Read/save global settings (`max_file_bytes`, `embedding_model_id`) with `revision` |
+| GET / PUT | `/settings` | Read/save global settings (`max_file_bytes`, `embedding_model_id`) with `revision`; `GET` also returns `data_root` (`container_root`, `host_root`, `jira_folder`) |
 | POST | `/test/embedding` | Test the saved model endpoint (makes a small model request) |
 | GET | `/collections` | List collections with freshness, counts and `paths` |
 | POST | `/collections` | Create a collection; 409 `Collection <name> already exists` |
 | GET / PUT | `/collections/{id}` | Read / update settings (with its `revision`), including `auto_sync` and `poll_interval_minutes`; saving only those does not bump the revision; the name is not editable |
 | DELETE | `/collections/{id}?revision=...&confirmed=true` | Delete index rows, folders, file log and grants; files stay on disk. Always allowed |
-| POST | `/collections/{id}/paths` | Add a folder with `{source_path}`; creates a missing `rag-data` folder, else 409 `Folder does not exist`; 409 on overlap |
+| POST | `/collections/{id}/paths` | Add a folder with `{source_path}`; a missing folder is refused with 409 `Folder does not exist`; 409 on overlap |
 | DELETE | `/collections/{id}/paths/{path_id}` | Remove a folder and its indexed files and log rows |
-| GET | `/folders?path=` | List visible subfolders for the folder browser |
+| GET | `/folders?path=` | List visible subfolders for the folder browser; without `path` the top-level folders of `DATA_ROOT` |
 | GET | `/collections/{id}/log?status=&q=&limit=&offset=` | File log; `status` is `indexed`, `skipped`, `failed` or `removed`, `q` searches the path |
 | POST | `/collections/{id}/sync` | Queue a sync (optionally forced) |
 | POST | `/collections/sync-stale` | Queue a sync for every collection that needs refresh |
@@ -354,11 +368,11 @@ External tools use the same backoffice routes with `X-Rag-Key`.
 
 | Call | Purpose |
 | --- | --- |
-| `GET file?path=rag-data/<folder>/…` | Read a file under `rag-data` by its full path, without a collection (needs `X-Rag-Key`) |
-| `PUT file {path, content, expected_hash}` | Write a file under `rag-data` only |
+| `GET file?path=<JIRA_FOLDER>/…` | Read a file under the Jira folder by its full path, without a collection (needs `X-Rag-Key`); elsewhere 404 `Document not found` |
+| `PUT file {path, content, expected_hash}` | Write a file inside `JIRA_FOLDER` only; 403 elsewhere |
 
 The internal service exposes administration under `/backoffice/projects/{project_id}` and generic `/search` at its root. All service routes require `X-Rag-Key`. Generic service requests additionally require `project_id`; admin clients omit it because the gateway supplies the fixed workspace identity.
 
 Keys are AES-256-GCM encrypted with the existing `CREDENTIAL_ENCRYPTION_KEY`, a fresh 12-byte nonce, and project/purpose-bound associated data. The stored byte value contains nonce followed by ciphertext and authentication tag. Keys are never returned. Omitted key fields retain existing keys; explicit null removes one. Changing an endpoint with a stored key requires re-entering or removing it. Back up the encryption key with PostgreSQL and the source directory.
 
-The search agent in both applications retrieves from this PostgreSQL workspace. It receives the catalog of its granted collections on every turn, then uses `search_documents` (collection names) and `read_document(collection, path)` to ground its answer. `path` is the full path, such as `rag-data/jira/DEMO-1.md`; the Reader document path is `<collection>/<full path>`. Agents that are not grounded read every path of their granted collections. Agents are granted whole collections ("All collections" or a picked list); there are no subfolder grants. Frozen agent versions that still hold old folder selectors are mapped to the collection of their top-level segment when loaded. The Reader's Advanced panel narrows a chat to chosen collections and never broadens beyond what the agent allows. There is no separate `/rag` answer endpoint. Test the agent under Administration → Agents.
+The search agent in both applications retrieves from this PostgreSQL workspace. It receives the catalog of its granted collections on every turn, then uses `search_documents` (collection names) and `read_document(collection, path)` to ground its answer. `path` is the full path, such as `jira/DEMO-1.md`; the Reader document path is `<collection>/<full path>`. Agents that are not grounded read every path of their granted collections. Agents are granted whole collections ("All collections" or a picked list); there are no subfolder grants. Frozen agent versions that still hold old folder selectors are mapped to the collection of their top-level segment when loaded. The Reader's Advanced panel narrows a chat to chosen collections and never broadens beyond what the agent allows. There is no separate `/rag` answer endpoint. Test the agent under Administration → Agents.
