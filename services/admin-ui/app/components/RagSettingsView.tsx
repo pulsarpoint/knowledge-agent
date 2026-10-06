@@ -44,10 +44,12 @@ export default function RagSettingsView() {
       const row = await ragRequest<RagConfig>("settings", "PUT", { revision: config.revision, settings, embedding_model_id: embeddingModelId });
       setConfig(row); setSettings(row.settings); setEmbeddingModelId(row.embedding_model_id); setNotice("RAG settings saved. Refresh affected collections to apply changes.");
     }); }}>
-      <FieldSet className="rounded-lg border p-5"><FieldLegend>Data root areas</FieldLegend>
-        <FieldDescription>Collections map to folders inside these areas. The host folders are chosen in the deployment environment.</FieldDescription>
-        <Table><TableHeader><TableRow><TableHead>Area</TableHead><TableHead>Host folder</TableHead><TableHead>In container</TableHead></TableRow></TableHeader><TableBody>
-          {config.areas.map((area) => <TableRow key={area.area}><TableCell>{area.area}</TableCell><TableCell>{area.host_root ? <code className="break-all">{area.host_root}</code> : "Not provided"}</TableCell><TableCell><code className="break-all">{area.container_root}</code></TableCell></TableRow>)}
+      <FieldSet className="rounded-lg border p-5"><FieldLegend>Data folder</FieldLegend>
+        <FieldDescription>Collections connect folders inside DATA_ROOT. The host folder and the Jira folder are set in the deployment's .env.</FieldDescription>
+        <Table><TableHeader><TableRow><TableHead>Host folder</TableHead><TableHead>In container</TableHead><TableHead>Jira exports</TableHead></TableRow></TableHeader><TableBody>
+          <TableRow><TableCell>{config.data_root.host_root ? <code className="break-all">{config.data_root.host_root}</code> : "Not provided"}</TableCell>
+            <TableCell>{config.data_root.container_root ? <code className="break-all">{config.data_root.container_root}</code> : "Not mounted"}</TableCell>
+            <TableCell>{config.data_root.jira_folder ?? "Not configured"}</TableCell></TableRow>
         </TableBody></Table></FieldSet>
       <FieldSet disabled={busy} className="rounded-lg border p-5"><FieldLegend>File processing</FieldLegend><FieldGroup>
         <Field className="max-w-xs"><FieldLabel htmlFor="max_file_bytes">Maximum file size (bytes)</FieldLabel><Input id="max_file_bytes" required type="number" min={100} max={10000000} value={settings.max_file_bytes} onChange={(e) => setSettings({ max_file_bytes: Number(e.target.value) })} /><FieldDescription>Larger files are skipped. Chunking, patterns and embeddings are set per collection.</FieldDescription></Field>

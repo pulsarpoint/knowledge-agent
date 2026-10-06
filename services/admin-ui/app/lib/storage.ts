@@ -1,9 +1,9 @@
 import { request } from './api';
 
-export type StorageArea = 'code' | 'code_index' | 'rag' | 'documents' | 'bootstrap';
+export type StorageArea = 'data' | 'code' | 'code_index' | 'jira' | 'documents' | 'bootstrap';
 export interface StorageLocation {
   id: StorageArea; container_path: string | null; host_path: string | null;
-  host_variable: string; host_path_relative: boolean; status: 'available' | 'unavailable' | 'unconfigured';
+  variable: string; status: 'available' | 'unavailable' | 'unconfigured';
 }
 export interface StorageEntry {
   name: string; path: string; kind: 'folder' | 'file' | 'symlink' | 'other'; size: number | null; modified_at: string;

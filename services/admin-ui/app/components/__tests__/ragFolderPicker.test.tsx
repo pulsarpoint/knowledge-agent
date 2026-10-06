@@ -5,7 +5,7 @@ import RagFolderPicker from "../RagFolderPicker";
 function api(add: () => Response = () => Response.json({ id: "c1", paths: [] })) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") return add();
-    if (url === "/api/rag/folders") return Response.json({ path: null, truncated: false, folders: [{ name: "code", path: "code" }, { name: "rag-data", path: "rag-data" }] });
+    if (url === "/api/rag/folders") return Response.json({ path: null, truncated: false, folders: [{ name: "code", path: "code" }, { name: "jira", path: "jira" }] });
     if (url === "/api/rag/folders?path=code") return Response.json({ path: "code", truncated: false, folders: [{ name: "payments", path: "code/payments" }] });
     return Response.json({ path: "code/payments", truncated: false, folders: [] });
   });
@@ -38,18 +38,28 @@ test("Up returns to the parent folder", async () => {
   await user.click(await screen.findByRole("button", { name: "code" }));
   await screen.findByRole("button", { name: "payments" });
   await user.click(screen.getByRole("button", { name: "Up" }));
-  expect(await screen.findByRole("button", { name: "rag-data" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "jira" })).toBeInTheDocument();
   expect(screen.getByLabelText("Folder path")).toHaveValue("");
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/rag/folders", "/api/rag/folders?path=code", "/api/rag/folders"]);
+});
+
+test("starts at the DATA_ROOT top level and only connects existing folders", async () => {
+  const fetchMock = api();
+  picker();
+  expect(await screen.findByRole("button", { name: "jira" })).toBeInTheDocument();
+  expect(screen.getByText("DATA_ROOT")).toBeInTheDocument();
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/rag/folders");
+  expect(screen.getByText(/The folder must already exist/)).toBeInTheDocument();
+  expect(screen.queryByText(/rag-data|is created/)).toBeNull();
 });
 
 test("a typed path is trimmed of slashes", async () => {
   const fetchMock = api();
   const user = userEvent.setup();
   picker();
-  await user.type(await screen.findByLabelText("Folder path"), " /rag-data/notes/ ");
+  await user.type(await screen.findByLabelText("Folder path"), " /jira/notes/ ");
   await user.click(screen.getByRole("button", { name: "Connect folder" }));
-  await waitFor(() => expect(posted(fetchMock)).toEqual([["/api/rag/collections/c1/paths", { source_path: "rag-data/notes" }]]));
+  await waitFor(() => expect(posted(fetchMock)).toEqual([["/api/rag/collections/c1/paths", { source_path: "jira/notes" }]]));
 });
 
 test("a refused folder shows the RAG message and nothing is added", async () => {

@@ -3,10 +3,11 @@ import { MemoryRouter } from 'react-router';
 import StorageOverviewView from '../StorageOverviewView';
 
 const locations = [
-  { id: 'code', container_path: '/work/code', host_path: '../.local/code', host_variable: 'CODE_PATH', host_path_relative: true, status: 'available' },
-  { id: 'rag', container_path: '/work/rag-data', host_path: '/host/rag', host_variable: 'RG_DATA', host_path_relative: false, status: 'available' },
-  { id: 'documents', container_path: '/work/generated-documents', host_path: '/host/exports', host_variable: 'GENERATED_DOCS_PATH', host_path_relative: false, status: 'available' },
-  { id: 'bootstrap', container_path: '/work/docs', host_path: null, host_variable: 'DOCS_PATH', host_path_relative: false, status: 'available' },
+  { id: 'data', container_path: '/work/data', host_path: '/opt/ka', variable: 'DATA_ROOT', status: 'available' },
+  { id: 'code', container_path: '/work/data/code', host_path: '/opt/ka/code', variable: 'CODE_FOLDER', status: 'available' },
+  { id: 'jira', container_path: '/work/data/jira', host_path: '/opt/ka/jira', variable: 'JIRA_FOLDER', status: 'available' },
+  { id: 'documents', container_path: '/work/data/generated-documents', host_path: '/opt/ka/generated-documents', variable: 'GENERATED_DOCS_FOLDER', status: 'available' },
+  { id: 'bootstrap', container_path: '/work/data/docs', host_path: null, variable: 'DOCS_FOLDER', status: 'available' },
 ];
 const entry = (name: string, path: string, kind = 'folder') => ({ name, path, kind, size: kind === 'file' ? 42 : null, modified_at: '2026-09-14T10:00:00Z' });
 
@@ -25,14 +26,18 @@ function mockStorage() {
   return fetchMock;
 }
 
-test('shows actual mount configuration and explains the separation from database storage and RAG publication', async () => {
+test('lists DATA_ROOT and its folders with host paths and .env variables', async () => {
   mockStorage();
   render(<MemoryRouter><StorageOverviewView /></MemoryRouter>);
-  expect(await screen.findByText('../.local/code')).toBeInTheDocument();
-  expect(screen.getByText('/host/rag')).toBeInTheDocument();
-  expect(screen.getByText('/work/generated-documents')).toBeInTheDocument();
-  expect(screen.getByText('Relative to the Compose file directory on the host.')).toBeInTheDocument();
-  expect(screen.getByText(/Jira exports go to rag-data\/jira/)).toBeInTheDocument();
+  expect(await screen.findByText('/opt/ka')).toBeInTheDocument();
+  expect(screen.getByText('Host · DATA_ROOT')).toBeInTheDocument();
+  expect(screen.getByText('/opt/ka/jira')).toBeInTheDocument();
+  expect(screen.getByText('Host · JIRA_FOLDER')).toBeInTheDocument();
+  expect(screen.getByText('/work/data/generated-documents')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Browse Data folder' })).toHaveAttribute('href', '/storage?area=data&path=&offset=0#files');
+  expect(screen.getByRole('link', { name: 'Export Jira tickets' })).toHaveAttribute('href', '/jira/tickets');
+  expect(screen.getByText(/Jira exports to the Jira export folder/)).toBeInTheDocument();
+  expect(screen.queryByText(/rag-data|Relative to the Compose file directory/)).toBeNull();
   expect(screen.getByText(/PostgreSQL stores managed documents and versions/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Manage documents' })).toHaveAttribute('href', '/documents');
 });

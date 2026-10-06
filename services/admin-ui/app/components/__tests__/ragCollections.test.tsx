@@ -7,13 +7,13 @@ import { pollIntervalToSend } from "../RagCollectionForm";
 import type { CollectionPath, RagCollection } from "../../lib/rag";
 
 const jiraPath: CollectionPath = {
-  id: "p1", collection_id: "c1", source_path: "rag-data/jira", created_at: "2026-10-05T09:00:00Z", files: 75,
-  host_path: "/opt/ka/rag-data/jira", container_path: "/work/rag-data/jira", present: true,
+  id: "p1", collection_id: "c1", source_path: "jira", created_at: "2026-10-05T09:00:00Z", files: 75,
+  host_path: "/opt/ka/jira", container_path: "/work/data/jira", present: true,
 };
 const codePath: CollectionPath = { ...jiraPath, id: "p2", source_path: "code/payments", files: 12,
   host_path: "/opt/ka/code/payments", container_path: "/work/code/payments" };
-const notesPath: CollectionPath = { ...jiraPath, id: "p3", source_path: "rag-data/notes", files: 3,
-  host_path: "/opt/ka/rag-data/notes", container_path: "/work/rag-data/notes" };
+const notesPath: CollectionPath = { ...jiraPath, id: "p3", source_path: "notes", files: 3,
+  host_path: "/opt/ka/notes", container_path: "/work/data/notes" };
 const base: RagCollection = {
   id: "c1", name: "jira", description: "Jira tickets", search_mode: "full_text", embeddings_enabled: true, include: ["**/*.md"],
   exclude: [], chunk_size: 2000, chunk_overlap: 200, auto_sync: false, poll_interval_minutes: 5, last_polled_at: null, revision: 2, synced_revision: 2, last_synced_at: "2026-10-05T09:00:00Z",
@@ -40,7 +40,7 @@ test("lists collections with their folders and no source badges", async () => {
   vi.stubGlobal("fetch", fetchMock);
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   const row = (await screen.findByRole("link", { name: "jira" })).closest("tr")!;
-  expect(within(row).getByText("/opt/ka/rag-data/jira")).toBeInTheDocument();
+  expect(within(row).getByText("/opt/ka/jira")).toBeInTheDocument();
   expect(within(row).getByText("75 files")).toBeInTheDocument();
   expect(within(row).getByText("0 / 975")).toBeInTheDocument();
   expect(screen.queryByText("Unowned")).toBeNull();
@@ -84,11 +84,11 @@ test("an invalid name disables Create collection", async () => {
 
 test("missing folders are named and failed syncs show the error", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ collections: [
-    { ...base, status: "folder_missing", folder_present: false, missing_paths: ["rag-data/jira"], paths: [{ ...jiraPath, present: false }] },
+    { ...base, status: "folder_missing", folder_present: false, missing_paths: ["jira"], paths: [{ ...jiraPath, present: false }] },
     { ...notes, status: "failed", job: { id: "j", status: "failed", error: "Select an enabled embedding model", created_at: "", finished_at: "" } }] })));
   render(<MemoryRouter><RagCollectionsView /></MemoryRouter>);
   expect(await screen.findByText("Folder missing")).toBeInTheDocument();
-  expect(screen.getByText("Missing: rag-data/jira")).toBeInTheDocument();
+  expect(screen.getByText("Missing: jira")).toBeInTheDocument();
   expect(screen.getByText(/Select an enabled embedding model/)).toBeInTheDocument();
 });
 
@@ -110,18 +110,18 @@ test("a collection whose status walk stopped but that fits the sync limits can b
 test("detail shows status counts, the file log and a file's chunks", async () => {
   const fetchMock = vi.fn(async (url: string) => {
     if (url.includes("/chunks")) return Response.json({ chunks: [{ position: 0, text: "First chunk text", embedded: false }] });
-    if (url.includes("/log?")) return Response.json({ total: 1, files: [{ path: "rag-data/jira/DEMO-1.md", status: "indexed", size: 10,
+    if (url.includes("/log?")) return Response.json({ total: 1, files: [{ path: "jira/DEMO-1.md", status: "indexed", size: 10,
       mtime: 1, error: null, indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 13 }] });
     return Response.json(base);
   });
   const user = userEvent.setup();
   detail(fetchMock);
   expect(await screen.findByText("90 indexed · 2 skipped · 1 failed")).toBeInTheDocument();
-  const file = await screen.findByRole("button", { name: "rag-data/jira/DEMO-1.md" });
+  const file = await screen.findByRole("button", { name: "jira/DEMO-1.md" });
   expect(within(file.closest("tr")!).getByText("13")).toBeInTheDocument();
   await user.click(file);
   expect(await screen.findByText("First chunk text")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/rag/collections/c1/chunks?path=rag-data%2Fjira%2FDEMO-1.md"), expect.anything());
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/rag/collections/c1/chunks?path=jira%2FDEMO-1.md"), expect.anything());
   expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/files"))).toBe(false);
 });
 
@@ -205,8 +205,8 @@ test("Add folder connects a typed folder and Remove folder disconnects one", asy
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/paths",
     expect.objectContaining({ method: "POST", body: JSON.stringify({ source_path: "docs/runbooks" }) })));
   expect(await screen.findByText("Folder added. Refresh the collection to index it.")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Remove folder rag-data/notes" }));
-  expect(screen.getByText("Remove folder rag-data/notes from jira? Its indexed files and log entries are removed from search. Files on disk are kept.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Remove folder notes" }));
+  expect(screen.getByText("Remove folder notes from jira? Its indexed files and log entries are removed from search. Files on disk are kept.")).toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "DELETE")).toBe(false);
   await user.click(screen.getByRole("button", { name: "Remove folder" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/rag/collections/c1/paths/p3", expect.objectContaining({ method: "DELETE" })));
@@ -294,9 +294,9 @@ test("an invalid check interval is never sent: the saved value while auto-sync i
 });
 
 test("the chunk panel closes when the selected file leaves the log page or the filters change", async () => {
-  const demo1 = { path: "rag-data/jira/DEMO-1.md", status: "indexed", size: 10, mtime: 1, error: null,
+  const demo1 = { path: "jira/DEMO-1.md", status: "indexed", size: 10, mtime: 1, error: null,
     indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 1 };
-  const demo2 = { ...demo1, path: "rag-data/jira/DEMO-2.md" };
+  const demo2 = { ...demo1, path: "jira/DEMO-2.md" };
   const fetchMock = vi.fn(async (url: string) => {
     if (url.includes("/chunks")) return Response.json({ chunks: [{ position: 0, text: "First chunk text", embedded: true }] });
     if (url.includes("/log?")) return Response.json(url.includes("q=DEMO-2") ? { total: 1, files: [demo2] }
@@ -305,13 +305,13 @@ test("the chunk panel closes when the selected file leaves the log page or the f
   });
   const user = userEvent.setup();
   detail(fetchMock);
-  await user.click(await screen.findByRole("button", { name: "rag-data/jira/DEMO-1.md" }));
+  await user.click(await screen.findByRole("button", { name: "jira/DEMO-1.md" }));
   expect(await screen.findByText("First chunk text")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Next page" }));  // DEMO-1 is not on page two
   await waitFor(() => expect(screen.queryByText("First chunk text")).toBeNull());
   expect(screen.queryByText(/Chunks of/)).toBeNull();
-  await user.click(await screen.findByRole("button", { name: "rag-data/jira/DEMO-2.md" }));
-  expect(await screen.findByText("Chunks of rag-data/jira/DEMO-2.md")).toBeInTheDocument();
+  await user.click(await screen.findByRole("button", { name: "jira/DEMO-2.md" }));
+  expect(await screen.findByText("Chunks of jira/DEMO-2.md")).toBeInTheDocument();
   await user.type(screen.getByRole("searchbox", { name: "Search files" }), "DEMO-2");  // still listed, but the search changed
   await waitFor(() => expect(screen.queryByText(/Chunks of/)).toBeNull());
 });

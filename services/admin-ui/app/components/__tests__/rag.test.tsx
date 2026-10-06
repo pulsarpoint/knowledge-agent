@@ -5,18 +5,17 @@ import RagSettingsView from "../RagSettingsView";
 import RagSearchView from "../RagSearchView";
 import type { RagConfig } from "../../lib/rag";
 
-const config: RagConfig = { revision: 3, settings: { max_file_bytes: 2000000 }, embedding_model_id: null, areas: [
-  { area: "code", container_root: "/work/code", host_root: "/srv/knowledge/code" },
-  { area: "rag-data", container_root: "/work/rag-data", host_root: null },
-] };
+const config: RagConfig = { revision: 3, settings: { max_file_bytes: 2000000 }, embedding_model_id: null,
+  data_root: { container_root: "/work/data", host_root: "/srv/knowledge", jira_folder: "jira" } };
 
-test("settings show area roots read-only and save only max file size and model selection", async () => {
+test("settings show the data folder read-only and save only max file size and model selection", async () => {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => new Response(JSON.stringify(url === "/api/llm" ? { models: [] } : init?.method === "PUT" ? { ...config, revision: 4, settings: JSON.parse(init.body as string).settings } : config)));
   vi.stubGlobal("fetch", fetch);
   render(<MemoryRouter><RagSettingsView /></MemoryRouter>);
   fireEvent.change(await screen.findByLabelText("Maximum file size (bytes)"), { target: { value: "3000000" } });
-  expect(screen.getByText("/srv/knowledge/code")).toBeInTheDocument();
-  expect(screen.getByText("/work/rag-data")).toBeInTheDocument();
+  expect(screen.getByText("/srv/knowledge")).toBeInTheDocument();
+  expect(screen.getByText("/work/data")).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "jira" })).toBeInTheDocument();
   expect(screen.queryByLabelText("Chunk size (characters)")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Save RAG settings" }));
   await screen.findByText(/RAG settings saved/);

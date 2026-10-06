@@ -33,7 +33,7 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
         {service.repositories.map((repo) => <div key={repo.id} className="flex flex-col gap-1 text-sm">
           <div className="flex flex-wrap items-center gap-2"><Link className="font-medium underline underline-offset-4" to="/code-projects">{repo.name}</Link>{repo.archived && <Badge variant="outline">Archived</Badge>}</div>
           {repo.remote_url ? <p className="text-muted-foreground">Downloaded commit: <span className="font-mono">{repo.current_commit?.slice(0, 12) || "Not pulled"}</span> · Ref: {repo.requested_ref || "Default branch"}</p> : <p className="text-muted-foreground">Local folders</p>}
-          {repo.checkout_path && <p className="break-all font-mono text-xs text-muted-foreground">/work/code/{repo.checkout_path}</p>}
+          {repo.checkout_path && <p className="break-all font-mono text-xs text-muted-foreground">/work/data/code/{repo.checkout_path}</p>}
         </div>)}
       </section>
       <Separator />

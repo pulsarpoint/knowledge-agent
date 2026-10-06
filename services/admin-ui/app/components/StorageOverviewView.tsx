@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowRight, Database, FileText, Folder, FolderGit2, RefreshCw } from 'lucide-react';
+import { ArrowRight, Database, FileText, Folder, FolderGit2, HardDrive, RefreshCw, Ticket } from 'lucide-react';
 import { getStorage, getStorageDirectory, getStorageFile, type StorageArea, type StorageDirectory, type StorageLocation } from '~/lib/storage';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -13,9 +13,10 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
 const areas = {
+  data: { name: 'Data folder', icon: HardDrive, purpose: 'DATA_ROOT, the one host folder that holds every folder below. RAG can index any folder in it; each service writes only to its own folder.', layout: 'Top-level folders: code, code graphs, document exports, Jira exports and bootstrap docs, plus folders added for RAG.', link: '/rag/collections', action: 'Manage RAG collections' },
   code: { name: 'Source code', icon: FolderGit2, purpose: 'Mapped project folders and Git clones. Agents read the folders selected in their configuration.', layout: 'Project → one or more folders. Git pulls update the configured clone folder.', link: '/code-projects', action: 'Manage code projects' },
   code_index: { name: 'Code graphs', icon: Database, purpose: 'CodeGraph indexes and source hashes created explicitly in Phase 1. Documentation uses the inspected snapshot.', layout: 'Project ID → source mirror and content hash → graph.sqlite and summary.json. Index data stays separate from source checkouts.', link: '/documentation/generations', action: 'Generate and inspect graphs' },
-  rag: { name: 'RAG source files', icon: Folder, purpose: 'Files for search, including Jira ticket exports (rag-data/jira). Processing creates searchable text and embeddings in PostgreSQL.', layout: 'Folders → subfolders → source files. Connect folders to collections in RAG → Collections.', link: '/rag/collections', action: 'Manage RAG collections' },
+  jira: { name: 'Jira exports', icon: Ticket, purpose: 'One Markdown file per exported ticket. Add this folder to a collection in RAG → Collections to search tickets.', layout: 'One <KEY>.md file per ticket. Re-exporting a ticket replaces its file.', link: '/jira/tickets', action: 'Export Jira tickets' },
   documents: { name: 'Document exports', icon: FileText, purpose: 'Markdown and D2 files exported from managed documents. PostgreSQL holds the original documents and version history.', layout: 'Document slug → v1, v2, … → README.md and architecture-N.d2. Generation exports automatically; manual documents have an Export action.', link: '/documents', action: 'Manage documents' },
   bootstrap: { name: 'Bootstrap docs', icon: Folder, purpose: 'The original startup directory, seeded with example Markdown. This is not the current RAG source folder or the generated-document destination.', layout: 'Legacy startup files. Add new knowledge through RAG files or managed Documents.', link: null, action: null },
 } as const;
@@ -74,8 +75,7 @@ export default function StorageOverviewView() {
             return <TableRow key={location.id} data-state={area === location.id ? 'selected' : undefined}>
               <TableCell className="min-w-52 max-w-sm align-top"><div className="flex items-center gap-2 font-medium"><info.icon className="size-4 shrink-0" />{info.name}</div><p className="mt-2 whitespace-normal text-sm text-muted-foreground">{info.purpose}</p></TableCell>
               <TableCell className="min-w-56 max-w-sm align-top"><dl className="flex flex-col gap-1 text-sm">
-                <dt className="text-muted-foreground">Host · {location.host_variable}</dt><dd><code className="whitespace-normal break-all">{location.host_path ?? 'Not supplied by deployment'}</code></dd>
-                {location.host_path_relative && <dd className="whitespace-normal text-xs text-muted-foreground">Relative to the Compose file directory on the host.</dd>}
+                <dt className="text-muted-foreground">Host · {location.variable}</dt><dd><code className="whitespace-normal break-all">{location.host_path ?? 'Not supplied by deployment'}</code></dd>
                 <dt className="mt-2 text-muted-foreground">Inside Docker</dt><dd><code className="whitespace-normal break-all">{location.container_path ?? 'Not configured'}</code></dd>
               </dl></TableCell>
               <TableCell className="align-top"><div className="flex flex-col items-start gap-2"><Badge variant={location.status === 'available' ? 'secondary' : 'outline'}>{location.status === 'available' ? 'Available' : location.status === 'unavailable' ? 'Folder unavailable' : 'Not configured'}</Badge>
@@ -117,7 +117,7 @@ export default function StorageOverviewView() {
           <li><p className="font-medium">2. Managed documents and exports</p><p className="mt-1 text-muted-foreground">Documents are saved with version history in PostgreSQL. Markdown and D2 exports are written into the document export folder.</p></li>
           <li><p className="font-medium">3. RAG source files → search</p><p className="mt-1 text-muted-foreground">Upload selected files to RAG, then process their folder. Extracted text, hashes and embeddings are stored in PostgreSQL for search.</p></li>
         </ol>
-        <Alert><AlertDescription>Documents are written to generated-documents and Jira exports go to rag-data/jira. Connect these folders to a collection in RAG → Collections (upgraded installs already have documents) and refresh it to make them searchable.</AlertDescription></Alert>
+        <Alert><AlertDescription>Documents are written to the document export folder and Jira exports to the Jira export folder. Connect these folders to a collection in RAG → Collections and refresh it to make them searchable.</AlertDescription></Alert>
         <div className="flex items-start gap-3 text-sm"><Database className="mt-0.5 size-4 shrink-0" /><div><p className="font-medium">Some information lives in the database, not in a content folder</p><p className="mt-1 text-muted-foreground">PostgreSQL stores managed documents and versions, service and environment relationships, agent configuration, sessions, jobs, encrypted credentials, and RAG indexes. These records are managed through their administration pages. Docker also keeps separate volumes for login data, traces, and reader activity.</p></div></div>
       </CardContent>
       <CardFooter className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link to="/documentation/generations">Generate documentation</Link></Button><Button asChild variant="outline"><Link to="/rag/collections">Refresh RAG collections</Link></Button></CardFooter>

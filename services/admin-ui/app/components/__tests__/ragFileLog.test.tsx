@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import RagFileLog from "../RagFileLog";
 import type { LogFile } from "../../lib/rag";
 
-const indexed: LogFile = { path: "rag-data/jira/DEMO-1.md", status: "indexed", size: 2048, mtime: 1, error: null,
+const indexed: LogFile = { path: "jira/DEMO-1.md", status: "indexed", size: 2048, mtime: 1, error: null,
   indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 13 };
-const failed: LogFile = { ...indexed, path: "rag-data/jira/DEMO-2.md", status: "failed", indexed_at: null, chunks: 0,
+const failed: LogFile = { ...indexed, path: "jira/DEMO-2.md", status: "failed", indexed_at: null, chunks: 0,
   error: "Could not parse this file: unbalanced table" };
 
 function api(files: LogFile[] = [indexed, failed], total = files.length) {
@@ -19,17 +19,17 @@ test("shows each file's status, size, chunks and error; only indexed files open 
   const onSelect = vi.fn();
   const user = userEvent.setup();
   render(<RagFileLog collectionId="c1" selected="" onSelect={onSelect} />);
-  const bad = (await screen.findByText("rag-data/jira/DEMO-2.md")).closest("tr")!;
+  const bad = (await screen.findByText("jira/DEMO-2.md")).closest("tr")!;
   expect(within(bad).getByText("Failed")).toBeInTheDocument();
   expect(within(bad).getByText("Could not parse this file: unbalanced table")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "rag-data/jira/DEMO-2.md" })).toBeNull();
-  const ok = screen.getByRole("button", { name: "rag-data/jira/DEMO-1.md" });
+  expect(screen.queryByRole("button", { name: "jira/DEMO-2.md" })).toBeNull();
+  const ok = screen.getByRole("button", { name: "jira/DEMO-1.md" });
   const row = ok.closest("tr")!;
   expect(within(row).getByText("Indexed")).toBeInTheDocument();
   expect(within(row).getByText("2.0 KB")).toBeInTheDocument();
   expect(within(row).getByText("13")).toBeInTheDocument();
   await user.click(ok);
-  expect(onSelect).toHaveBeenCalledWith("rag-data/jira/DEMO-1.md");
+  expect(onSelect).toHaveBeenCalledWith("jira/DEMO-1.md");
 });
 
 test("the first request asks for every file except removed ones, page one", async () => {

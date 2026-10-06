@@ -1,8 +1,8 @@
 import { request } from "./api";
 
 export interface RagSettings { max_file_bytes: number }
-export interface RagArea { area: string; container_root: string; host_root: string | null }
-export interface RagConfig { revision: number; settings: RagSettings; embedding_model_id: string | null; areas: RagArea[] }
+export interface RagDataRoot { container_root: string | null; host_root: string | null; jira_folder: string | null }
+export interface RagConfig { revision: number; settings: RagSettings; embedding_model_id: string | null; data_root: RagDataRoot }
 export interface RagJob {
   id: string; status: string; input: { force?: boolean; auto?: boolean }; result: Record<string, number>;
   error: string | null; created_at: string; started_at: string | null; finished_at: string | null;

@@ -9,13 +9,13 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 
 const parent = (path: string) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
 
-/** Browse the DATA_ROOT areas or type a folder path, then connect the folder to the collection. */
+/** Browse DATA_ROOT or type a folder path, then connect the existing folder to the collection. */
 export default function RagFolderPicker({ open, collection, onOpenChange, onAdded }: {
   open: boolean; collection: { id: string; name: string }; onOpenChange: (open: boolean) => void; onAdded: () => void;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
     <SheetHeader><SheetTitle>Add folder to {collection.name}</SheetTitle>
-      <SheetDescription>Choose a folder under DATA_ROOT or type its path, such as code/payments. A missing folder under rag-data is created.</SheetDescription></SheetHeader>
+      <SheetDescription>Choose a folder under DATA_ROOT or type its path, such as code/payments or jira. The folder must already exist.</SheetDescription></SheetHeader>
     {open && <Picker collectionId={collection.id} onAdded={onAdded} />}
   </SheetContent></Sheet>;
 }
@@ -60,7 +60,7 @@ function Picker({ collectionId, onAdded }: { collectionId: string; onAdded: () =
     </div>
     <Field><FieldLabel htmlFor="folder-path">Folder path</FieldLabel>
       <Input id="folder-path" value={value} placeholder="code/payments" onChange={(e) => setValue(e.target.value)} />
-      <FieldDescription>Relative to DATA_ROOT; starts with code, code-index, rag-data, generated-documents or docs.</FieldDescription></Field>
+      <FieldDescription>Relative to DATA_ROOT, such as jira or code/payments.</FieldDescription></Field>
     <Button className="self-start" type="submit" disabled={busy || normalizeFolder(value) === ""}>Connect folder</Button>
   </form>;
 }
