@@ -65,6 +65,10 @@ export interface FolderListing { path: string | null; folders: FolderEntry[]; tr
 
 /** A folder path as RAG expects it: relative to DATA_ROOT, no surrounding whitespace or slashes. */
 export const normalizeFolder = (value: string) => value.trim().replace(/^\/+|\/+$/g, "");
+const RAG_SEGMENT = "[A-Za-z0-9_-][A-Za-z0-9._-]*";
+const RAG_FOLDER = new RegExp(`^${RAG_SEGMENT}(/${RAG_SEGMENT})*$`);
+/** RAG's source path rule: names of letters, digits, ".", "_" and "-" separated by "/", none starting with ".". */
+export const isRagFolder = (value: string) => value.length <= 500 && RAG_FOLDER.test(value);
 /** A collection name from a folder's last segment: lowercase letters, digits and single hyphens, at most 60 characters. */
 export const collectionNameFor = (folder: string) => (normalizeFolder(folder).split("/").pop() ?? "").toLowerCase()
   .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "");

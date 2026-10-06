@@ -377,6 +377,42 @@ test("?folder= opens New collection with that folder selected and a name from it
   expect(writes(fetchMock)).toEqual([]);
 });
 
+function Search() { return <div data-testid="search">{useLocation().search}</div>; }
+function collectionsWithSearchAt(entry: string) {
+  render(<MemoryRouter initialEntries={[entry]}><Routes>
+    <Route path="/rag/collections" element={<><RagCollectionsView /><Search /></>} />
+    <Route path="/rag/collections/:id" element={<Opened />} /></Routes></MemoryRouter>);
+}
+
+test("an invalid ?folder= is ignored with a notice and creates nothing", async () => {
+  const fetchMock = creating();
+  collectionsWithSearchAt("/rag/collections?folder=..%2Fetc");
+  expect(await screen.findByText("The folder ../etc in the link is not a valid folder and was ignored.")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Name")).toBeNull();
+  await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent(/^$/));
+  expect(writes(fetchMock)).toEqual([]);
+});
+
+test("an empty ?folder= does not open New collection", async () => {
+  creating();
+  collectionsWithSearchAt("/rag/collections?folder=");
+  expect(await screen.findByRole("button", { name: "New collection" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Name")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("closing New collection opened from ?folder= clears it from the URL", async () => {
+  creating();
+  const user = userEvent.setup();
+  collectionsWithSearchAt("/rag/collections?folder=generated-documents%2Fpayments-api-docs");
+  expect(await screen.findByLabelText("Name")).toHaveValue("payments-api-docs");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
+  expect(screen.getByTestId("search")).toHaveTextContent(/^$/);
+  await user.click(screen.getByRole("button", { name: "New collection" }));
+  expect(await screen.findByLabelText("Name")).toHaveValue("");
+});
+
 test("a folder that cannot be added keeps the collection and opens it with the error", async () => {
   const fetchMock = creating(true);
   const user = userEvent.setup();
