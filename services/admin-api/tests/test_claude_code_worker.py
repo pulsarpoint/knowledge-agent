@@ -50,7 +50,8 @@ def test_credentials_reach_only_the_cli_environment():
     assert 'CLAUDE_CODE_USE_BEDROCK' not in env and 'AWS_BEARER_TOKEN_BEDROCK' not in env
     assert worker.BASE_ENV == {'HOME': '/home/claude', 'TMPDIR': '/home/claude/tmp', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                                'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
-                               'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1'}
+                               'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1',
+                               'SHELL': '/bin/bash'}
     options = worker.build_options(SESSION, BEDROCK)
     assert 'bedrock-secret-token' not in repr({key: value for key, value in options.items() if key != 'env'})
     for model in (replace(BEDROCK, model='amazon.nova-pro-v1:0'), replace(ANTHROPIC, api_key=None),

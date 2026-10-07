@@ -36,7 +36,7 @@ MAX_TOOL_OUTPUT = 64 * 1024
 TOOL_TRUNCATED = '… [truncated]'
 BASE_ENV = {'HOME': '/home/claude', 'TMPDIR': '/home/claude/tmp', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
-            'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1'}
+            'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1', 'SHELL': '/bin/bash'}
 HINTS = (
     (('inference profile', 'on-demand throughput'),
      'Bedrock needs an inference profile ID for this model, such as eu.anthropic.claude-sonnet-4-5-20250929-v1:0. '
@@ -51,6 +51,7 @@ STOPPED = 'Stopped. Send a message to continue.'
 INTERRUPTED = 'The worker restarted during this turn. Send a message to continue.'
 END_STATUS = {'waiting': 'completed', 'stopped': 'stopped', 'failed': 'failed'}
 CLOSED = object()
+LOST = object()  # another worker holds the session now: stop without further writes
 
 
 def credential_env(model: RuntimeModel) -> dict[str, str]:
@@ -234,9 +235,13 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                 status_message=CASE WHEN s.status='working' THEN %s ELSE s.status_message END,
                 stop_requested_at=CASE WHEN s.status='working' THEN NULL ELSE s.stop_requested_at END
             FROM picked WHERE s.id=picked.id
-            RETURNING s.*,picked.previous,(SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id) AS agent_name""",
+            RETURNING s.*,picked.previous,(SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id) AS agent_name,
+                EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued""",
             (active, free, worker_id, LEASE_SECONDS, INTERRUPTED)).fetchall()
         for row in rows:
+            if row['previous'] == 'working' and not row['queued']:  # failed now; it needs a worker only for a message
+                conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
+                             (row['id'], worker_id))
             if row['previous'] == 'working' and row['turns'] > 0:
                 key = f"cc:{row['id']}:{row['turns']}"
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
@@ -253,7 +258,7 @@ class SessionRunner:
     def __init__(self, store: RepositoryStore, session: dict, client_factory=sdk_client, *, poll: float = 1.0,
                  idle_release: float = IDLE_RELEASE_SECONDS):
         self.store, self.session, self.client_factory = store, session, client_factory
-        self.id = session['id']
+        self.id, self.worker_id = session['id'], session['worker_id']
         self.poll, self.idle_release = poll, idle_release
         self.secrets: list[str] = []
         self.stack: AsyncExitStack | None = None
@@ -265,7 +270,7 @@ class SessionRunner:
         try:
             while True:
                 turn = await asyncio.to_thread(self.next_turn)
-                if turn is CLOSED:
+                if turn is CLOSED or turn is LOST:
                     return
                 if turn is None:
                     if time.monotonic() - idle_since >= self.idle_release:
@@ -281,11 +286,15 @@ class SessionRunner:
                 await asyncio.to_thread(self.release)
 
     def next_turn(self):
-        """Deliver every queued message as the next turn, once; CLOSED when the session is closed."""
+        """Deliver every queued message as the next turn, once; CLOSED when the session is closed, LOST when this worker
+        no longer holds its lease."""
         with self.store.connect() as conn:
-            row = conn.execute('SELECT status,turns FROM ka.agent_sessions_cc WHERE id=%s FOR UPDATE', (self.id,)).fetchone()
+            row = conn.execute('''SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
+                FROM ka.agent_sessions_cc WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
             if row is None or row['status'] == 'closed':
                 return CLOSED
+            if not row['owned']:
+                return LOST
             inputs = conn.execute("""SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
                 ORDER BY seq""", (self.id,)).fetchall()
             if not inputs:
@@ -298,6 +307,7 @@ class SessionRunner:
             return number, '\n\n'.join(item['text'] for item in inputs)
 
     async def run_turn(self, number: int, text: str) -> None:
+        self.stderr.clear()
         recorder = RunRecorder(run_key=f'cc:{self.id}:{number}', project_id=str(self.session['project_id']),
                                agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=self.secrets)
         recorder.add('start', {'kind': 'claude_code', 'title': self.session['title'], 'agent': self.session['agent_name'],
@@ -395,8 +405,9 @@ class SessionRunner:
 
     def stop_requested(self) -> bool:
         with self.store.connect() as conn:
-            row = conn.execute('SELECT status,stop_requested_at FROM ka.agent_sessions_cc WHERE id=%s', (self.id,)).fetchone()
-        return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None
+            row = conn.execute('''SELECT status,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
+                FROM ka.agent_sessions_cc WHERE id=%s''', (self.worker_id, self.id)).fetchone()
+        return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None or not row['owned']
 
     def finish_turn(self, number: int, status: str, message: str, turn: Turn) -> None:
         usage = turn.usage or {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'cost_usd': 0.0}
@@ -410,15 +421,15 @@ class SessionRunner:
                 claude_session_id=coalesce(%(cli)s::text, claude_session_id),
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s, cost_usd=cost_usd+%(cost)s::numeric,
-                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s""",
+                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s""",
                 {'status': status, 'message': message, 'draft': draft, 'turn': number, 'cli': turn.session_id,
                  'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'cost': usage['cost_usd'], 'id': self.id})
+                 'cost': usage['cost_usd'], 'id': self.id, 'worker': self.worker_id})
 
     def release(self) -> None:
         with self.store.connect() as conn:
             conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
-                         (self.id, self.session['worker_id']))
+                         (self.id, self.worker_id))
 
 
 async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: asyncio.Event, worker_id: str | None = None,
@@ -440,6 +451,8 @@ async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: a
                 logger.warning('Claude Code worker database unavailable (%s); retrying', type(exc).__name__)
                 claimed = []
             for session in claimed:
+                if session['previous'] == 'working' and not session['queued']:
+                    continue  # its interrupted turn is recorded; claim released it until a message arrives
                 runner = SessionRunner(store, session, client_factory, poll=poll, idle_release=idle_release)
                 active[session['id']] = asyncio.create_task(runner.run())
             with suppress(TimeoutError):

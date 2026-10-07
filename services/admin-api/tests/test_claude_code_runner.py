@@ -18,6 +18,9 @@ from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 KEY = 'bedrock-secret-token'
+PROXY_AND_CA = {name: 'x' for name in (
+    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'USER', 'LOGNAME', 'TERM', 'SHELL')}
 
 
 def done(text: str, **usage) -> ResultMessage:
@@ -271,6 +274,84 @@ def test_expired_lease_is_reclaimed_and_the_interrupted_turn_fails(started):
     assert worker.claim(store, 'worker-3', [], 4) == []
 
 
+class LostClient(FakeClient):
+    """Its interrupt() is ignored: the turn only ends when the worker gives up waiting."""
+
+    async def interrupt(self) -> None:
+        self.interrupts += 1
+
+
+def test_stuck_interrupt_falls_back_to_dropping_the_client(started, monkeypatch):
+    monkeypatch.setattr(worker, 'INTERRUPT_GRACE_SECONDS', 0.1)
+    sessions, sid = started
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    client = LostClient([[AssistantMessage([TextBlock('Partial')]), done('never reached')]], gates={0: asyncio.Event()})
+
+    async def scenario():
+        runner = asyncio.create_task(worker.SessionRunner(store, claimed(sessions), client, poll=0.02).run())
+        await wait_for(store, sid, lambda s: s['status'] == 'working')
+        await post(sessions, url + '/stop')
+        row = await wait_for(store, sid, lambda s: s['status'] == 'stopped')
+        assert row['status_message'] == worker.STOPPED
+        assert (client.entered, client.exited) == (1, 1)  # the unresponsive client was dropped
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+
+    asyncio.run(scenario())
+    assert client.interrupts == 1
+    assert [e['payload'] for e in events(store, sid) if e['kind'] == 'end'] == [{'status': 'stopped'}]
+
+
+def test_a_runner_that_lost_its_lease_stops_without_touching_the_session(started):
+    sessions, sid = started
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    client = FakeClient([[AssistantMessage([TextBlock('Partial')]), done('never reached')], [done('# Not mine')]],
+                        gates={0: asyncio.Event()})
+
+    async def scenario():
+        runner = asyncio.create_task(worker.SessionRunner(store, claimed(sessions), client, poll=0.02).run())
+        await wait_for(store, sid, lambda s: s['status'] == 'working')
+        with store.connect() as conn:  # worker-1 looked dead; worker-2 took the session over
+            conn.execute("""UPDATE ka.agent_sessions_cc SET worker_id='worker-2',lease_expires_at=now()+interval '1 minute',
+                status='failed',status_message='owned by worker-2' WHERE id=%s""", (sid,))
+        await post(sessions, url + '/messages', {'text': 'For worker-2'})
+        await asyncio.wait_for(runner, 5)
+
+    asyncio.run(scenario())
+    assert (client.interrupts, client.queries[1:], client.entered, client.exited) == (1, [], 1, 1)
+    row = session_row(store, sid)
+    assert (row['worker_id'], row['status'], row['status_message'], row['turns'], row['draft']) == (
+        'worker-2', 'failed', 'owned by worker-2', 1, None)
+    with store.connect() as conn:
+        assert conn.execute("SELECT status FROM ka.agent_session_inputs WHERE session_id=%s AND seq=2",
+                            (sid,)).fetchone()['status'] == 'queued'  # left for the new owner
+
+
+def test_serve_leaves_a_reclaimed_interrupted_session_until_a_message_arrives(started):
+    sessions, sid = started
+    store = sessions.store
+    with store.connect() as conn:  # a dead worker left turn 1 working, with nothing queued
+        conn.execute("UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now() WHERE session_id=%s", (sid,))
+        conn.execute("""UPDATE ka.agent_sessions_cc SET status='working',turns=1,worker_id='dead',
+            lease_expires_at=now()-interval '1 second' WHERE id=%s""", (sid,))
+    client = FakeClient([])
+
+    async def scenario():
+        stopped = asyncio.Event()
+        serving = asyncio.create_task(worker.serve(store, client, stopped=stopped, worker_id='worker-1', limit=2, poll=0.02))
+        row = await wait_for(store, sid, lambda s: s['status'] == 'failed')
+        await asyncio.sleep(0.1)
+        current = session_row(store, sid)
+        assert (current['worker_id'], current['lease_expires_at']) == (None, None)  # released at once, not held by a runner
+        stopped.set()
+        await asyncio.wait_for(serving, 5)
+        return row
+
+    row = asyncio.run(scenario())
+    assert row['status_message'] == worker.INTERRUPTED
+    assert client.entered == 0  # no runner started: the session waits for a message
+
+
 def test_worker_strips_database_and_encryption_secrets_from_its_environment(monkeypatch):
     monkeypatch.setenv('CREDENTIAL_ENCRYPTION_KEY', base64.urlsafe_b64encode(b'k' * 32).decode())
     monkeypatch.setenv('PGPASSWORD', 'db-secret')
@@ -285,9 +366,9 @@ def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(mon
     calls = []
 
     class FakeOs:
-        def __init__(self, uid: int):
-            self.uid = uid
-            self.environ = {'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'FOO_SECRET': 'planted',
+        def __init__(self, uid: int, keep_gid: bool = False):
+            self.uid, self.gid, self.keep_gid = uid, uid, keep_gid
+            self.environ = {**PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'FOO_SECRET': 'planted',
                             'PGPASSWORD': 'db-secret', 'CREDENTIAL_ENCRYPTION_KEY': 'encryption-key', 'PGHOST': 'postgres',
                             'AUTH_ISSUER_URL': 'http://auth', 'AWS_BEARER_TOKEN_BEDROCK': KEY, 'AWS_REGION': 'eu-central-1',
                             'CLAUDE_CODE_USE_BEDROCK': '1', 'CLAUDE_CODE_ENTRYPOINT': 'sdk-py',
@@ -296,11 +377,16 @@ def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(mon
         def getuid(self):
             return self.uid
 
+        def getgid(self):
+            return self.gid
+
         def setgroups(self, groups):
             calls.append(('setgroups', groups))
 
         def setgid(self, gid):
             calls.append(('setgid', gid))
+            if not self.keep_gid:
+                self.gid = gid
 
         def setuid(self, uid):
             calls.append(('setuid', uid))
@@ -316,11 +402,19 @@ def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(mon
     assert calls == [('setgroups', []), ('setgid', 1001), ('setuid', 1001),
                      ('execve', '/venv/claude_agent_sdk/_bundled/claude',
                       ['/venv/claude_agent_sdk/_bundled/claude', '--output-format', 'stream-json'], {
-                          'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'AWS_BEARER_TOKEN_BEDROCK': KEY,
+                          **PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'AWS_BEARER_TOKEN_BEDROCK': KEY,
                           'AWS_REGION': 'eu-central-1', 'CLAUDE_CODE_USE_BEDROCK': '1', 'CLAUDE_CODE_ENTRYPOINT': 'sdk-py',
                           'CLAUDE_AGENT_SDK_VERSION': '0.1', 'ANTHROPIC_SMALL_FAST_MODEL': 'm'})]  # only the allowlist
     with pytest.raises(SystemExit):  # neither root nor claude: refuse instead of running as another user
         cli.main([], os_module=FakeOs(501))
+    with pytest.raises(SystemExit, match='group'):  # the gid did not change: refuse
+        cli.main([], os_module=FakeOs(0, keep_gid=True))
     monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: SimpleNamespace(pw_uid=0, pw_gid=0))
     with pytest.raises(SystemExit):
+        cli.main([], os_module=FakeOs(0))
+
+    def missing(name):
+        raise KeyError(name)
+    monkeypatch.setattr(cli.pwd, 'getpwnam', missing)
+    with pytest.raises(SystemExit, match='The claude user does not exist'):
         cli.main([], os_module=FakeOs(0))

@@ -12,7 +12,9 @@ from pathlib import Path
 
 USER = 'claude'
 ALLOWED_ENV = frozenset({
-    'PATH', 'HOME', 'LANG', 'TZ', 'PWD', 'TMPDIR',
+    'PATH', 'HOME', 'LANG', 'TZ', 'PWD', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME', 'TERM',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+    'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
     'DISABLE_AUTOUPDATER', 'DISABLE_TELEMETRY', 'DISABLE_ERROR_REPORTING',
     'CLAUDE_CODE_USE_BEDROCK', 'AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
     'ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'})
@@ -33,7 +35,10 @@ def cli_environment(environ) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None, *, os_module=os) -> None:
-    user = pwd.getpwnam(USER)
+    try:
+        user = pwd.getpwnam(USER)
+    except KeyError:
+        raise SystemExit(f'The {USER} user does not exist in this image; Claude Code cannot run.') from None
     if user.pw_uid == 0:
         raise SystemExit(f'The {USER} user must not be root')
     if os_module.getuid() == 0:
@@ -42,5 +47,7 @@ def main(argv: list[str] | None = None, *, os_module=os) -> None:
         os_module.setuid(user.pw_uid)
     if os_module.getuid() != user.pw_uid:
         raise SystemExit(f'Claude Code must run as {USER}')
+    if os_module.getgid() != user.pw_gid:
+        raise SystemExit(f'Claude Code must run with the {USER} group')
     target = bundled_cli()
     os_module.execve(target, [target, *(sys.argv[1:] if argv is None else argv)], cli_environment(os_module.environ))
