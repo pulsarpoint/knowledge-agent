@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
-vi.mock('../ReaderAssistantCard', () => ({ default: () => null }));
 import AgentsView from '../AgentsView';
 import AgentDetailView from '../AgentDetailView';
 

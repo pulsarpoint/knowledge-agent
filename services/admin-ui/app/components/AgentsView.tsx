@@ -3,7 +3,6 @@ import { Link, Navigate, useNavigate, useSearchParams, useLocation } from 'react
 import { ArrowRight, Sparkles, Trash2 } from 'lucide-react';
 import AgentWizard from './AgentWizard';
 import ClaudeCodeAgentForm from './ClaudeCodeAgentForm';
-import ReaderAssistantCard from './ReaderAssistantCard';
 import { deleteAgent, getAgents, type AgentSummary } from '../lib/profiles';
 import { CLAUDE_CODE_SDK, CLAUDE_CODE_TOOLS } from '~/lib/claudeCode';
 import { Alert, AlertDescription } from '~/components/ui/alert';
@@ -41,7 +40,6 @@ export default function AgentsView() {
   }
   const filtered = agents?.filter(a => `${a.name} ${a.description} ${a.is_coordinator ? 'coordinator' : ''} ${a.runtime === 'claude_code' ? 'claude code' : ''}`.toLowerCase().includes(query.toLowerCase()));
   return <section className="flex flex-col gap-6" aria-label="Agent list">
-    <ReaderAssistantCard />
     <div className="flex flex-wrap items-center justify-between gap-3"><Input aria-label="Find agents" placeholder="Find an agent…" className="max-w-sm" value={query} onChange={e => setQuery(e.target.value)} /><Button onClick={() => setWizard(true)} disabled={wizard}><Sparkles data-icon="inline-start" />New Agent Wizard</Button><Button variant="outline" onClick={() => setCreating(true)} disabled={creating}>New Claude Code agent</Button></div>
     {wizard && <AgentWizard onClose={() => setWizard(false)} onCreated={id => navigate(`/agents/${id}`)} />}
     {creating && <ClaudeCodeAgentForm onCancel={() => setCreating(false)} onSaved={saved => navigate(`/agents/${saved.id}`)} />}

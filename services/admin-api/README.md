@@ -1,13 +1,12 @@
 # Administration API
 
-Independent FastAPI application for Jira settings/tickets, services/server inventory, code projects, RAG workspace management
-and user/session audit inspection. All `/api` routes require the forwarded `docs-admins` group. Only the
+Independent FastAPI application for Jira settings/tickets, services/server inventory, code projects, RAG workspace management,
+agents and agent run records. All `/api` routes require the forwarded `docs-admins` group. Only the
 admin OAuth gateway may expose this service; `/health` is its internal health check.
-Reader, search and chat routes are absent.
 
-The package reuses `docs-wiki` configuration and audit-storage modules through a
-locked local dependency. It does not require the reader process to run. Docker
-binds no API host port and uses the same audit data volume as the reader.
+Startup configuration lives in `knowledge_admin/config.py` (`DOCS_WIKI_RAG_URL`,
+`DOCS_WIKI_ADMIN_GROUP`) and Phoenix tracing in `knowledge_admin/agent_tracing.py`
+(`DOCS_WIKI_PHOENIX_*`); the variable names are unchanged. Docker binds no API host port.
 
 ```sh
 uv sync --frozen
@@ -235,7 +234,7 @@ outputs, token counts, errors, and timings are recorded with bounded text sizes.
 Existing task rows store OpenTelemetry trace/span IDs alongside status and final
 results. Main tasks link to the complete trace; finished specialists link to their
 agent span. These IDs differ from the native SDK's internal trace IDs.
-The existing `docs-wiki` Phoenix project and OTLP configuration are reused.
+Traces go to the Phoenix project `docs-wiki` (name kept from earlier versions) using the `DOCS_WIKI_PHOENIX_*` OTLP configuration.
 Set `PHOENIX_PUBLIC_URL` to the browser-accessible Phoenix URL for **View trace**;
 this public URL carries no API key. Phoenix handles its own login.
 

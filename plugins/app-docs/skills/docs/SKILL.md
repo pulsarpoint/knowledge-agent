@@ -16,12 +16,8 @@ Before acting, read completely:
 All three paths are required. `build` performs a full analysis and creates the
 documentation set; `update` refreshes only documents affected by source
 changes since each document's recorded `analyzed_commits`, following the
-workflow's update mode, and also addresses reader questions logged by
-docs-wiki — plus any code-derived draft answers docs-wiki's optional
-"Ask the code" escalation attached to them — read from the gaps-file
-path the developer provides (documented default
-`~/.local/state/docs-wiki/<app>/gaps.jsonl`), falling back to the legacy
-`<docs-folder>/.docs-wiki/gaps.jsonl` when present. When the mode is
+workflow's update mode. Reader gaps are no longer collected (the Reader
+application was removed), so there is no gaps file to read. When the mode is
 omitted, use `update` if
 `<docs-folder>/index.md` exists and `build` otherwise.
 

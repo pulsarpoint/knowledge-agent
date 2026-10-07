@@ -28,3 +28,4 @@ export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
 export const saveProfileModel = (value: AgentProfile, model_id: string | null) => request<AgentProfile>(path(value.id) + '/model', json('PUT', { revision: value.revision, model_id }));
 
 export const deleteAgent = (id: string, revision: number) => request<void>(path(id), json('DELETE', { revision, confirmed: true }));
+

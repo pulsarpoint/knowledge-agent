@@ -5,7 +5,7 @@ from uuid import uuid4
 import httpx
 from fastapi.testclient import TestClient
 
-from docs_wiki.config import App, Config, ServerConfig
+from knowledge_admin.config import App, Config, ServerConfig
 from knowledge_admin.app import create_app
 
 
@@ -18,8 +18,8 @@ def test_rag_proxy_auth_project_binding_and_allowlist(store, tmp_path, monkeypat
     def upstream(request):
         calls.append(request)
         return httpx.Response(200, json={"results": []})
-    cfg = Config(apps=[App(name="docs", app_root=None)], llm=None)
-    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
+    cfg = Config(apps=[App(name="docs")])
+    server = ServerConfig()
     with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
         client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
         assert client.get("/api/rag/collections").status_code == 403
@@ -75,8 +75,8 @@ def test_startup_and_code_projects_never_call_rag(store, tmp_path, monkeypatch):
     def upstream(request):
         calls.append(request)
         return httpx.Response(200, json={})
-    cfg = Config(apps=[App(name="docs", app_root=None)], llm=None)
-    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
+    cfg = Config(apps=[App(name="docs")])
+    server = ServerConfig()
     with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
         with TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend)) as client:
             created = client.post("/api/code-projects", headers=HEADERS, json={

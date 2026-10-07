@@ -9,27 +9,26 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
 - [1. What the application is](#1-what-the-application-is)
 - [2. Install, start and sign in](#2-install-start-and-sign-in)
 - [3. Recommended first-time setup order](#3-recommended-first-time-setup-order)
-- [4. The Reader application (port 8180)](#4-the-reader-application-port-8180)
-- [5. The Administration application (port 8183)](#5-the-administration-application-port-8183)
-  - [5.1 Navigation](#51-navigation)
-  - [5.2 LLM Settings](#52-llm-settings)
-  - [5.3 RAG: collections, processing, settings, search](#53-rag-collections-processing-settings-search)
-  - [5.4 Code projects](#54-code-projects)
-  - [5.5 Servers](#55-servers)
-  - [5.6 Environments](#56-environments)
-  - [5.7 Services](#57-services)
-  - [5.8 Jira](#58-jira)
-  - [5.9 Skills](#59-skills)
-  - [5.10 MCP servers](#510-mcp-servers)
-  - [5.11 Agents](#511-agents)
-  - [5.12 Multi-agent board](#512-multi-agent-board)
-  - [5.13 Documentation generation](#513-documentation-generation)
-  - [5.14 Documents and documentation prompts](#514-documents-and-documentation-prompts)
-  - [5.15 Storage](#515-storage)
-  - [5.16 Activity](#516-activity)
-- [6. End-to-end workflows](#6-end-to-end-workflows)
-- [7. Operations](#7-operations)
-- [8. Current limitations](#8-current-limitations)
+- [4. The Administration application (port 8183)](#4-the-administration-application-port-8183)
+  - [4.1 Navigation](#41-navigation)
+  - [4.2 LLM Settings](#42-llm-settings)
+  - [4.3 RAG: collections, processing, settings, search](#43-rag-collections-processing-settings-search)
+  - [4.4 Code projects](#44-code-projects)
+  - [4.5 Servers](#45-servers)
+  - [4.6 Environments](#46-environments)
+  - [4.7 Services](#47-services)
+  - [4.8 Jira](#48-jira)
+  - [4.9 Skills](#49-skills)
+  - [4.10 MCP servers](#410-mcp-servers)
+  - [4.11 Agents](#411-agents)
+  - [4.12 Multi-agent board](#412-multi-agent-board)
+  - [4.13 Documentation generation](#413-documentation-generation)
+  - [4.14 Documents and documentation prompts](#414-documents-and-documentation-prompts)
+  - [4.15 Storage](#415-storage)
+  - [4.16 Agent runs](#416-agent-runs)
+- [5. End-to-end workflows](#5-end-to-end-workflows)
+- [6. Operations](#6-operations)
+- [7. Current limitations](#7-current-limitations)
 - [Appendix A: Agent tools and safety](#appendix-a-agent-tools-and-safety)
 - [Appendix B: Where older docs disagree with the code](#appendix-b-where-older-docs-disagree-with-the-code)
 
@@ -38,12 +37,11 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
 ## 1. What the application is
 
 Knowledge Agent v3 is a self-hosted platform for building a knowledge base about
-your software systems and running AI agents over it. It consists of two separate web
-applications sharing one Keycloak realm and one PostgreSQL database:
+your software systems and running AI agents over it. It consists of one web
+application (Administration), signed in through Keycloak and backed by PostgreSQL:
 
 | Application | URL | Who | Purpose |
 | --- | --- | --- | --- |
-| **Reader** | http://localhost:8180 | Any user in the Keycloak `docs` realm | Browse and search the documentation knowledge base |
 | **Administration** | http://localhost:8183 | Members of the `docs-admins` group only | Configure models, content, code, inventory, agents; generate documentation |
 | Keycloak console | http://localhost:8181 | Keycloak master `admin` | Manage users and groups |
 | Phoenix | http://localhost:8182 | `admin@localhost` | Inspect agent traces |
@@ -53,7 +51,7 @@ What you can actually do today:
 - **Curate a searchable knowledge base** (RAG): review **collections**, each holding
   paths under `DATA_ROOT` that sources add (documents, Jira exports or source code),
   index them into a full-text (and optionally vector) index with **Refresh**, and
-  search them — from the admin RAG pages, agents and the Reader.
+  search them — from the admin RAG pages and agents.
 - **Map source code**: register local folders or clone Git repositories, keep them
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
@@ -67,12 +65,11 @@ What you can actually do today:
 - **Import Jira tickets** into the knowledge base as Markdown.
 
 Generated documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs), after a **Refresh** or with Auto-sync in RAG → Collections
-(see [5.3](#53-rag-collections-processing-settings-search)).
+(see [4.3](#43-rag-collections-processing-settings-search)).
 
 ### Architecture at a glance
 
 ```
-Browser ──► oauth2-proxy :8180 ──► web (nginx, Reader UI) ──► docs-wiki API ──► rag API ──► PostgreSQL (+pgvector)
 Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-web (nginx, Admin UI) ──► admin-api
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
@@ -96,7 +93,7 @@ credentials are needed to start.
 
 ```sh
 make up          # generate .env secrets, build images, migrate DB, start everything
-make smoke       # verify logins, isolation, search, DB migrations, Phoenix (no model calls)
+make smoke       # verify admin login, gateway isolation, search, DB migrations, Phoenix (no model calls)
 ```
 
 - The first time, choose where the application keeps its files:
@@ -112,10 +109,10 @@ make smoke       # verify logins, isolation, search, DB migrations, Phoenix (no 
   Change it in Keycloak afterwards, not in `.env`.
 - Additional admins: create the user in the Keycloak console and add it to the
   `docs-admins` group.
-- **Reader-only users** and group changes are managed in the Keycloak console
+- Users and group changes are managed in the Keycloak console
   (http://localhost:8181, user `admin`, password `KEYCLOAK_ADMIN_PASSWORD`), realm `docs`.
-  Any user in the realm can open the Reader; only `docs-admins` members can open
-  Administration. After adding someone to a group they must sign out and back in.
+  Only `docs-admins` members can open Administration. After adding someone to a group
+  they must sign out and back in.
 
 Stop with `make down` (data volumes are preserved). `make status` and `make logs`
 show state and logs.
@@ -141,66 +138,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
 
 ---
 
-## 4. The Reader application (port 8180)
-
-Sign in through Keycloak. The Reader is read-only: there is no editing and no admin
-navigation (admin paths return 404).
-
-**Where its content comes from.** The Reader shows the **RAG workspace** (the
-collections managed in Admin → RAG → Collections), not the bootstrap `DATA_ROOT/docs`. With a single
-configured app (the default, named `docs`), `/` redirects straight to `/docs`.
-
-### Layout
-
-- **Sidebar**: app name (a switcher if several apps exist), links **Search**, **Chat**,
-  **Gaps**, then a table of contents grouped by **collection**, with file names as
-  titles. Collapse with the header button or **Ctrl/Cmd+B**; the state is remembered.
-- **Footer**: light/dark theme toggle.
-- **Breadcrumbs**: app › collection › document.
-
-### Reading a document — `/docs/doc/<path>`
-
-Markdown is rendered with GitHub-flavored syntax and code highlighting. Code blocks
-have a **Copy** button; Mermaid diagrams open full-screen on click with zoom controls.
-The app landing page `/docs` renders `index.md` from the workspace root, so if your RAG root
-has no `index.md` it shows an error. Add one to give readers a home page.
-
-### Search — `/docs/search`
-
-Type in the box; results update as you type (150 ms debounce). The Reader always
-uses **hybrid** search across **all collections** (a collection uses keyword search
-when its embeddings are off; the admin Search page shows "Keyword search used for: ..."). Each result shows the file (link), its collection and the
-matching text chunk. There are no filters here — use Admin → RAG → Search for
-collection scope and search-mode control. Errors show as "no results".
-
-### Chat — `/docs/chat`
-
-Ask a question and the assistant answers only from the knowledge base (the RAG
-collections). **Advanced** lets you narrow the chat to chosen collections (all by
-default); it can only narrow what the agent is allowed to search. While it works you see activity lines such as "searching: …" and
-"reading: …"; the answer appears when it is complete. Claims carry `[n]` citations
-that link to the cited documents. Enter sends; Shift+Enter adds a new line. Which
-agent answers is chosen by an administrator (see [5.11](#511-agents)).
-
-If the documents do not cover a question, the answer says what is missing, shows a
-**not covered** badge, and the question is recorded on the **Gaps** page.
-
-Conversations expire after 7 days idle (a message in an expired one shows "This
-conversation has ended. Start a new one."). **Delete** removes a conversation from
-your list only; administrators can still see it in Activity. Only one answer runs at a
-time ("Wait for the current answer."). If an administrator has not configured the
-assistant you see "The assistant isn't configured yet. Ask an administrator.";
-"The assistant's configuration isn't allowed in the Reader." and "Chat is temporarily
-unavailable." mean the chosen agent is unsuitable or the service is down.
-
-### Gaps — `/docs/gaps`
-
-Lists questions the chat agent could not answer from the docs. A new gap is recorded
-whenever a Reader answer is marked **not covered** (or "No gaps recorded").
-
----
-
-## 5. The Administration application (port 8183)
+## 4. The Administration application (port 8183)
 
 Requires membership in `docs-admins`; otherwise you see "Administration unavailable"
 with a **Sign out** button. `/` redirects to **RAG → Collections**.
@@ -216,11 +154,11 @@ General conventions throughout the admin app:
   projects) cannot be deleted at all — disable them instead.
 - Configuration changes are recorded in an internal audit table.
 
-### 5.1 Navigation
+### 4.1 Navigation
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Skills · MCP servers · Activity · Agent runs |
+| Administration | Storage · Skills · MCP servers · Agent runs |
 | Agents | All agents · Multi-agent board |
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
@@ -232,7 +170,7 @@ General conventions throughout the admin app:
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
 redirect to their current pages.
 
-### 5.2 LLM Settings
+### 4.2 LLM Settings
 
 `/llm-settings` — named model connections used by agents, documentation generation
 and RAG embeddings.
@@ -260,7 +198,7 @@ no delete — disable a model instead.
 > or Bedrock `anthropic.claude*`. OpenAI **Chat Completions** models can only be used
 > by the Coordinator.
 
-### 5.3 RAG: collections, processing, settings, search
+### 4.3 RAG: collections, processing, settings, search
 
 A **collection** is a named search index with its own settings and one or more folders
 (under `DATA_ROOT`). RAG indexes the files where they already are — nothing is copied.
@@ -339,7 +277,7 @@ embeddings (or with no model configured) falls back to full text, and the result
 which ones did ("Keyword search used for: ..."). Results show a citation number, collection, full path, chunk text and hash.
 This is retrieval only; it does not generate answers.
 
-### 5.4 Code projects
+### 4.4 Code projects
 
 `/code-projects` — the source code the platform can analyze. Files live under
 `DATA_ROOT/<CODE_FOLDER>` on the host (default `code`), mounted read-only under
@@ -374,7 +312,7 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 lists every project's graph (status, files, symbols, relationships, languages, last
 generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
 directly. The graph is a
-prerequisite for code documentation phases ([5.13](#513-documentation-generation)).
+prerequisite for code documentation phases ([4.13](#413-documentation-generation)).
 
 Code projects only clone and pull into `code/…`. To search code, add the project's folders
 to a collection in RAG → Collections; removing a project does not change RAG.
@@ -392,7 +330,7 @@ removed and the page names the folder left behind. The API is
 
 Projects cannot be edited or removed while a job runs.
 
-### 5.5 Servers
+### 4.5 Servers
 
 `/servers` — inventory of hosts. **Register server**: name, IP or hostname (no
 URL/port), description, tags (comma-separated, lowercased, up to 32), **SSH allowed**.
@@ -412,7 +350,7 @@ Registering does not connect to anything.
 
 A server cannot be deleted while service deployments reference it.
 
-### 5.6 Environments
+### 4.6 Environments
 
 `/environments` — named groups of services and servers (e.g. `prod`, `staging`).
 Each asset can belong to several environments.
@@ -425,7 +363,7 @@ Each asset can belong to several environments.
   update the deployment in Services first. Deleting an environment keeps its name as a
   plain label on former deployments.
 
-### 5.7 Services
+### 4.7 Services
 
 `/services` — the application inventory that ties code, environments and servers together.
 
@@ -450,7 +388,7 @@ service for agents. Note: the *downloaded* commit is not the *deployed* version.
 
 Deleting a service removes its deployments and links but not code projects or servers.
 
-### 5.8 Jira
+### 4.8 Jira
 
 **Settings** (`/jira/settings`) — Jira Data Center URL (include context path such as
 `/jira`; use `host.docker.internal` for a Jira on your machine), username, personal
@@ -472,14 +410,14 @@ For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
 
-### 5.9 Skills
+### 4.9 Skills
 
 `/skills` — a library of reusable Markdown instructions that agents can be given.
 Fields: name (lowercase-with-dashes, unique), description, instructions (Markdown),
 enabled. Search and filter by status; toggle enabled inline. Skills are context only
 (injected into the agent's instructions, never executed) and cannot be deleted — disable them.
 
-### 5.10 MCP servers
+### 4.10 MCP servers
 
 `/mcp-servers` — external tool servers agents can call. Only the **Streamable HTTP**
 transport is supported. Fields: name, description, HTTP(S) endpoint (use
@@ -490,7 +428,7 @@ enabled.
 selected for an agent after it is enabled, tested successfully and exposes at least
 one tool. Changing the URL clears discovered tools and requires re-entering the token.
 
-### 5.11 Agents
+### 4.11 Agents
 
 `/agents` lists agents with capabilities, model, active system prompt and status.
 
@@ -536,34 +474,24 @@ Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire 
 1 hour idle, one running message per session. A run is blocked if the agent is
 disabled, has no enabled model, or other tabs have unsaved changes.
 
-**Reader assistant.** A card at the top of `/agents` chooses which agent answers
-Reader chat (default: the Search agent). Agents that are disabled, have no enabled
-model, use SSH, MCP tools or code projects, or have Documents off, or have **Answer
-only from documents** off, are disabled in the list with the reason, and the card
-warns when the current Reader agent can't answer. The Reader agent cannot be deleted.
-
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back
-on. Settings changes touch only the agent's working copy: if the Search agent (or
-whichever agent answers the Reader) has an active configuration version, the Reader
-keeps using that version's snapshot. Save and activate a new version so the Reader
-uses the new settings — until then the card lists "active version vN predates these
-settings" and the Reader replies "The assistant's configuration isn't allowed in the
-Reader."
+on. Settings changes touch only the agent's working copy: if the Search agent has an
+active configuration version, runs keep using that version's snapshot until you save
+and activate a new version.
 
 **Claude Code agents.** **All agents** shows them with a **Claude Code SDK** badge.
 **New Claude Code agent** asks only for a name and a description, and the agent page edits
 only those. The model, folders, prompt and context are chosen per session (see
-[5.13](#513-documentation-generation), **With an agent**). Tools are fixed: Read, Grep, Glob
+[4.13](#413-documentation-generation), **With an agent**). Tools are fixed: Read, Grep, Glob
 and Bash, in their own container with `DATA_ROOT` read-only. Bash can reach the network.
 There is no Edit/Write, no MCP and no sub-agents, and there are no turn, time or cost
-limits. Claude Code agents never appear as the Reader assistant, on the multi-agent board
-or in test chats.
+limits. Claude Code agents never appear on the multi-agent board or in test chats.
 
 Agents with sessions or board history cannot be removed — disable them instead.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
-### 5.12 Multi-agent board
+### 4.12 Multi-agent board
 
 `/agent-board` — give one task to a **Coordinator** agent, which delegates subtasks
 to selected specialist agents and then writes a final summary.
@@ -582,7 +510,7 @@ Coordinator settings (Coordinator's General tab): max model turns (1–30), max 
 calls (1–50), task timeout (30–3600 s), notes, and the final-summary prompt. Up to 3
 main tasks run concurrently, with at most 30 unfinished tasks.
 
-### 5.13 Documentation generation
+### 4.13 Documentation generation
 
 **Docs → Generate documents** (`/documentation/generations`) produces documentation
 from your code, inventory and servers using an LLM. Work is organized in
@@ -731,7 +659,7 @@ Security: the model key is passed only to the Claude Code process and is redacte
 all stored events. Residual risk: Bash in the session could read the key from the CLI
 process, so use a key with limited scope and spend.
 
-### 5.14 Documents and documentation prompts
+### 4.14 Documents and documentation prompts
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
 title/slug/description and filter by linked resources. **Create document** writes one
@@ -745,7 +673,7 @@ draft**). Actions: **Save new version** (every save is a full immutable version)
 to the workflow that produced it.
 
 Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
-**RAG → Collections**, or turn on Auto-sync, to index what is on disk. The Reader's search and chat and the
+**RAG → Collections**, or turn on Auto-sync, to index what is on disk. **RAG → Search** and the
 agents' document search then find them.
 
 **Folders** (`/documentation/folders`) — the documentation folders with their document
@@ -765,24 +693,17 @@ generation. Saving changed text creates a draft version; **Activate vN** makes i
 active one; inactive versions can be deleted. If an active prompt changes while a
 workflow page is open, generating fails with "An active prompt changed. Reload it…".
 
-### 5.15 Storage
+### 4.15 Storage
 
 `/storage` — read-only overview of the data folder (`DATA_ROOT`) and its five folders: source code
 (`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`), Jira exports (`JIRA_FOLDER`), document
 exports (`GENERATED_DOCS_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
-### 5.16 Activity
+### 4.16 Agent runs
 
-`/activity` — Reader chat usage: users, their sessions, and each session's questions
-and answers with the cited sources and the **not covered** badge. It reads Reader
-conversations from the database. **Open in agent session** opens the conversation in
-the Reader agent's **Test** tab, where **Add feedback** → **Suggest improvements**
-works on real conversations. It does not show admin changes, agent test sessions or
-board tasks.
-
-**Agent runs** (`/activity/runs`) — a complete record of every agent run: agent Test
-conversations, Reader chat, multi-agent board tasks (coordinator, every specialist and
+`/activity/runs` — a complete record of every agent run: agent Test
+conversations, multi-agent board tasks (coordinator, every specialist and
 the summary in one record) and documentation steps. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
@@ -799,9 +720,9 @@ Records are kept until deleted; only administrators can see them.
 
 ---
 
-## 6. End-to-end workflows
+## 5. End-to-end workflows
 
-### A. Make internal documentation searchable for everyone
+### A. Make internal documentation searchable
 
 1. Write the pages in **Docs → Documents**; they are exported to `generated-documents`.
    (Code is made searchable by adding its `code/<folder>` to a collection.)
@@ -810,7 +731,6 @@ Records are kept until deleted; only administrators can see them.
    until it succeeds.
 3. Check the collection's files under its detail page.
 4. Check results in **RAG → Search**.
-5. Readers open http://localhost:8180 → the collection appears in the sidebar; use **Search**.
 
 ### B. Document a service from its source code
 
@@ -870,18 +790,18 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ---
 
-## 7. Operations
+## 6. Operations
 
 ### Configuration (`.env`)
 
 | Variable | Meaning |
 | --- | --- |
-| `WEB_PORT` 8180, `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
+| `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
 | `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
 | `CODE_FOLDER` | Folder inside `DATA_ROOT` for code projects and Git clones (default `code`) |
 | `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
-| `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; not what the Reader shows) |
+| `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `CLAUDE_CODE_MAX_SESSIONS` | Running Claude Code processes per `claude-code-worker` (default 4) |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
@@ -895,7 +815,7 @@ Model credentials are **not** in `.env`; they are configured in LLM Settings.
 
 ### Backup
 
-Back up the Docker volumes `knowledge-agent-v3_postgres-data`, `_wiki-data`,
+Back up the Docker volumes `knowledge-agent-v3_postgres-data`,
 `_keycloak-data`, `_phoenix-data`, the `DATA_ROOT` folder (plus any folder
 overridden outside it), and `.env`. Store `CREDENTIAL_ENCRYPTION_KEY`
 separately from database backups — without it, saved tokens and keys cannot be decrypted.
@@ -929,9 +849,8 @@ before exposing it beyond localhost.
 
 ---
 
-## 8. Current limitations
+## 7. Current limitations
 
-- **Reader chat answers appear when complete** (no word-by-word streaming).
 - **Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs)** only after a **Refresh** or an Auto-sync.
 - **Collections are refreshed manually unless Auto-sync is on** (it is off by default), so use
   **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
@@ -942,8 +861,6 @@ before exposing it beyond localhost.
   Test chats or the board.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
-- Reader document pages don't show front matter, "updated", or freshness badges in
-  workspace mode; search results have no highlighting.
 
 ---
 
@@ -959,7 +876,7 @@ before exposing it beyond localhost.
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
-| `report_not_covered` | **Answer only from documents** on | Records the uncovered question as a gap and marks the answer **not covered** |
+| `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
 
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and
@@ -981,7 +898,6 @@ and always save trusted host keys.
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
 | README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models |
-| services/docs-wiki-ui/README.md | Freshness badges, streaming chat, highlighted snippets | Not present in workspace mode |
 | docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |

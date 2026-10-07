@@ -5,8 +5,7 @@ title: Knowledge Agent v3
 
 ## What is available?
 
-The reader provides documentation, search and chat. The separate administration
-application manages RAG sources, GitHub repositories, services, servers, Jira,
+The administration application manages RAG sources, GitHub repositories, services, servers, Jira,
 skills, model connections and agent tests. Keycloak provides login, Phoenix
 provides tracing, and PostgreSQL stores configuration and searchable content.
 

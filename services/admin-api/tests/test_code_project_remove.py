@@ -2,7 +2,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from docs_wiki.config import App, Config, ServerConfig
+from knowledge_admin.config import App, Config, ServerConfig
 from knowledge_admin.app import create_app
 
 
@@ -29,8 +29,8 @@ def env(store, tmp_path, monkeypatch):
         collections = [{"name": "code-docs", "paths": [{"source_path": p} for p in state["rag_paths"]]}]
         return httpx.Response(200, json={"collections": collections})
 
-    cfg = Config(apps=[App(name="docs", app_root=None)], llm=None)
-    server = ServerConfig(cors_origin=None, session_retention_days=90, state_dir=str(tmp_path))
+    cfg = Config(apps=[App(name="docs")])
+    server = ServerConfig()
     with httpx.Client(base_url="http://rag.test", transport=httpx.MockTransport(upstream)) as backend:
         client = TestClient(create_app(cfg, server=server, repository_store=store, backoffice_client=backend))
 

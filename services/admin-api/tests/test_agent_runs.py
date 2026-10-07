@@ -164,9 +164,7 @@ def test_closing_stream_keeps_session_and_turn_alive(direct, store, monkeypatch)
         assert conn.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,27002)) AS unlocked', (run_id,)).fetchone()['unlocked']
 
 
-from datetime import timedelta
-from fastapi import HTTPException
-from knowledge_admin.agent_sessions import create_session, expire_sessions, load_session
+from knowledge_admin.agent_sessions import create_session, expire_sessions
 
 
 def grounded_run(answer, state):
@@ -199,33 +197,14 @@ def test_idle_timeout_controls_expiry(direct, store):
     from knowledge_admin.agents import get_agent_config
     config = get_agent_config(agent_id, conninfo=store.conninfo)
     with store.connect() as conn:
-        project, actor = store.project(conn, 'shop'), store.actor(conn, 'reader-1', 'reader@test')
+        project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-1', 'admin@test')
         long = create_session(conn, session_id=uuid4(), project_id=project, actor_id=actor, config=config,
-                              title='Long', is_test=False, channel='reader', idle_timeout=timedelta(days=7))
+                              title='Long', is_test=False)
         short = create_session(conn, session_id=uuid4(), project_id=project, actor_id=actor, config=config,
                                title='Short', is_test=False)
+        conn.execute("UPDATE ka.agent_sessions SET idle_timeout=interval '7 days' WHERE id=%s", (long['id'],))
         conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '2 hours'")
     expire_sessions(store)
     with store.connect() as conn:
         status = {row['id']: row['status'] for row in conn.execute('SELECT id,status FROM ka.agent_sessions')}
     assert status[long['id']] == 'active' and status[short['id']] == 'expired'
-    assert long['channel'] == 'reader' and short['channel'] == 'admin'
-
-
-def test_load_session_owner_filter(direct, store):
-    _, agent_id, _ = direct
-    from knowledge_admin.agents import get_agent_config
-    config = get_agent_config(agent_id, conninfo=store.conninfo)
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        alice, bob = store.actor(conn, 'alice', 'a@test'), store.actor(conn, 'bob', 'b@test')
-        saved = create_session(conn, session_id=uuid4(), project_id=project, actor_id=alice, config=config,
-                               title='Mine', is_test=False, channel='reader')
-        assert load_session(store, conn, 'shop', agent_id, saved['id'], owner=alice)['id'] == saved['id']
-        with pytest.raises(HTTPException) as denied:
-            load_session(store, conn, 'shop', agent_id, saved['id'], owner=bob)
-        assert denied.value.status_code == 404
-        conn.execute('UPDATE ka.agent_sessions SET hidden_by_owner_at=now() WHERE id=%s', (saved['id'],))
-        with pytest.raises(HTTPException):
-            load_session(store, conn, 'shop', agent_id, saved['id'], owner=alice)
-        assert load_session(store, conn, 'shop', agent_id, saved['id'])['id'] == saved['id']

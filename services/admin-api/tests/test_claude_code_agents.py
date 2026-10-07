@@ -59,8 +59,6 @@ def test_claude_code_agents_are_hidden_from_openai_only_places(store, writer):
                 'all_collections': False, 'all_repositories': False, 'collection_ids': [], 'repository_ids': [],
                 'service_ids': [], **{flag: False for flag in FLAGS}}
     assert client.put(f'/api/agents/{agent_id}', headers=HEADERS, json=settings).status_code == 409
-    candidates = client.get('/api/reader/settings', headers=HEADERS).json()['candidates']
-    assert agent_id not in [candidate['id'] for candidate in candidates] and 'search' in [c['id'] for c in candidates]
     board = client.post('/api/agent-board/tasks', headers=HEADERS,
                         json={'id': str(uuid4()), 'task': 'Document payments', 'subagent_ids': [agent_id]})
     assert board.status_code == 400 and 'Claude Code agents' in board.json()['error']['message']

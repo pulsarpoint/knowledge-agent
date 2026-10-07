@@ -47,7 +47,7 @@ def main() -> None:
     template = json.loads(Path("/config/realm-docs.json").read_text(encoding="utf-8"))
     for definition in template["clients"]:
         client = json.loads(Template(json.dumps(definition)).substitute(os.environ))
-        if client["clientId"] not in ("knowledge-agent-v3", "knowledge-agent-v3-admin"):
+        if client["clientId"] != "knowledge-agent-v3-admin":
             raise ValueError("Unexpected client in v3 configuration")
         endpoint = origin + "/admin/realms/docs/clients"
         existing = request_json(endpoint + "?" + urllib.parse.urlencode({"clientId": client["clientId"]}), token=token)
@@ -58,6 +58,11 @@ def main() -> None:
         else:
             request_json(endpoint, method="POST", token=token, payload=client)
         print(f"Configured OIDC client: {client['clientId']}")
+    # The Reader application and its login client were removed; delete the client a persisted realm still has.
+    endpoint = origin + "/admin/realms/docs/clients"
+    for retired in request_json(endpoint + "?" + urllib.parse.urlencode({"clientId": "knowledge-agent-v3"}), token=token):
+        request_json(endpoint + "/" + retired["id"], method="DELETE", token=token)
+        print("Removed retired OIDC client: knowledge-agent-v3")
 
 
 if __name__ == "__main__":

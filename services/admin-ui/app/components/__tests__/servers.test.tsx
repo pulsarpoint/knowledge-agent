@@ -146,3 +146,36 @@ test("failed inventory load prevents adding and can be retried", async () => {
   expect(await screen.findByText("Build your server inventory")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("button", { name: "Add server" })).toBeEnabled());
 });
+
+test("Test SSH runs a connection test with the saved server settings and shows the result", async () => {
+  const sshSettings = { id: "server-1", name: "App host", hostname: "app.internal", port: 2222, username: "deploy", revision: 5,
+    ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: "", has_private_key: true, last_tested_at: null, last_test_error: null };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/servers/server-1/ssh/test") return new Response(JSON.stringify({ ok: true, message: "SSH connected. Host verification is off.", host_key: null }));
+    if (url === "/api/servers/server-1/ssh") return new Response(JSON.stringify(sshSettings));
+    return new Response(JSON.stringify({ servers: [{ ...server, ssh_allowed: true }] }));
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<ServersView />);
+  fireEvent.click(await screen.findByRole("button", { name: "Test SSH App host" }));
+  expect(await screen.findByText("SSH connected. Host verification is off.")).toBeInTheDocument();
+  const [, init] = fetch.mock.calls.find(([url]) => url === "/api/servers/server-1/ssh/test")!;
+  expect(JSON.parse(init!.body as string)).toEqual({ revision: 5, username: "deploy", port: 2222, allow_sudo: false, known_hosts: "" });
+});
+
+test("Test SSH shows why a server cannot connect", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/servers/server-1/ssh/test") return new Response(JSON.stringify({ error: { message: "Set an SSH login user before testing." } }), { status: 409 });
+    if (url === "/api/servers/server-1/ssh") return new Response(JSON.stringify({ id: "server-1", port: 22, username: null, revision: 2, ssh_allowed: true, enabled: false, allow_sudo: false, known_hosts: "", has_private_key: true }));
+    return new Response(JSON.stringify({ servers: [{ ...server, ssh_allowed: true }] }));
+  }));
+  render(<ServersView />);
+  fireEvent.click(await screen.findByRole("button", { name: "Test SSH App host" }));
+  expect(await screen.findByText(/Set an SSH login user before testing\./)).toBeInTheDocument();
+  expect(screen.getByText(/App host: SSH test failed/)).toBeInTheDocument();
+});
+
+test("Test SSH is unavailable when SSH is not allowed", async () => {
+  setup([server]);
+  expect(await screen.findByRole("button", { name: "Test SSH App host" })).toBeDisabled();
+});

@@ -54,27 +54,14 @@ Prompt content is limited to 40,000 characters.
 
 ## Mermaid validation
 
-Search answers default to prose; diagrams are optional. The search agent has a
-`validate_mermaid` tool that returns real parser diagnostics so it can correct
-syntax before including a diagram. Final answers are checked again using a cache
-of diagrams already validated during that turn. Invalid or unavailable diagrams
-remain readable as ordinary code rather than failing the answer. No model call is
-made by the validator.
+Search answers default to prose; diagrams are optional. The admin UI defers diagram
+rendering until streaming completes, checks syntax with Mermaid **11.16.0** before
+rendering, preserves code fences during citation formatting, and shows an English
+message plus escaped source if rendering still fails. Browser layout/rendering
+failures can still occur even for syntactically valid diagrams. Diagrams use the
+same available font for measurement and display, outside the Markdown code-block
+wrapper, so inherited monospace styles do not clip labels.
 
-The parser runs locally with Node and JSDOM, using Mermaid **11.16.0**, the same
-version pinned in both UIs. It parses syntax without rendering SVG, executing
-scripts or loading remote resources. Each invocation has an eight-second timeout,
-a 40,000-character source limit and no application credentials in its environment.
-Final processing checks at most eight diagrams per answer.
-
-The reader and admin defer diagram rendering until streaming completes, validate
-syntax before rendering, preserve code fences during citation formatting, and
-show an English message plus escaped source if rendering still fails. Browser
-layout/rendering failures can still occur even for syntactically valid diagrams.
-Diagrams use the same available font for measurement and display, outside the
-Markdown code-block wrapper, so inherited monospace styles do not clip labels.
-
-Docker includes the parser in both search-agent hosts. For native development,
-use Node 22.12+ and run `make build-mermaid`. `MERMAID_VALIDATOR_SCRIPT` can override
-the script location; otherwise the source checkout path is used. Run
-`make test-mermaid` for the real parser tests.
+The server-side Node parser (`packages/mermaid-validator`, `make build-mermaid`,
+`make test-mermaid`) was removed together with the Reader application. The search
+prompt still mentions a `validate_mermaid` tool, but no agent currently registers it.

@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 const runs = { next: null, runs: [
-  { run_key: 'run:1', agent_id: 'search', agent: 'Search agent', kind: 'reader', title: 'How many retries?', user: 'alice@example.test', status: 'completed', total_tokens: 15, started_at: '2026-10-04T10:00:00Z' },
+  { run_key: 'run:1', agent_id: 'search', agent: 'Search agent', kind: 'test', title: 'How many retries?', user: 'alice@example.test', status: 'completed', total_tokens: 15, started_at: '2026-10-04T10:00:00Z' },
 ] };
 
 test('runs list shows each run and filters by kind', async () => {
@@ -19,8 +19,8 @@ test('runs list shows each run and filters by kind', async () => {
   expect(await screen.findByText('How many retries?')).toBeInTheDocument();
   expect(screen.getByText('alice@example.test')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'How many retries?' })).toHaveAttribute('href', '/activity/runs/run%3A1');
-  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'reader' } });
-  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=reader'));
+  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'board' } });
+  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=board'));
 });
 
 test('runs list passes a key prefix from the URL', async () => {
@@ -33,7 +33,7 @@ test('runs list passes a key prefix from the URL', async () => {
 
 test('run record shows the full timeline', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => json({ run_key: 'run:1', agent_id: 'search', user: 'alice@example.test', events: [
-    { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'reader', title: 'How many retries?', agent: 'Search agent' }, created_at: '2026-10-04T10:00:00Z' },
+    { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'test', title: 'How many retries?', agent: 'Search agent' }, created_at: '2026-10-04T10:00:00Z' },
     { seq: 2, kind: 'instructions', agent_id: 'search', payload: { agent: 'Search agent', text: 'SYSTEM PROMPT TEXT' }, created_at: '2026-10-04T10:00:00Z' },
     { seq: 3, kind: 'reasoning', agent_id: 'search', payload: { agent: 'Search agent', available: false }, created_at: '2026-10-04T10:00:01Z' },
     { seq: 4, kind: 'tool_call', agent_id: 'search', payload: { agent: 'Search agent', name: 'search_documents', arguments: '{"query":"retries"}' }, created_at: '2026-10-04T10:00:01Z' },

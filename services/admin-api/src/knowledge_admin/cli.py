@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import uvicorn
 
-from docs_wiki.config import ConfigError, load_config, load_env_file, resolve_rag, resolve_server
+from knowledge_admin.config import ConfigError, load_config, load_env_file, resolve_rag, resolve_server
 from knowledge_admin.app import create_app
 from knowledge_admin.repositories import RepositoryStore
 

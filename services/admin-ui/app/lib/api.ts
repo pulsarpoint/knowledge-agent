@@ -1,15 +1,6 @@
 import type { ServiceType, ServiceRole } from "./serviceClassification";
 
 export interface AdminSession { is_admin: boolean }
-export interface AuditUser { user_email: string; sessions: number; questions: number; last_ts: string }
-export interface AuditSession {
-  session_key: string; first_question: string; questions: number; first_ts: string; last_ts: string;
-}
-export interface AuditRow {
-  id: string; ts: string; user_email: string; session_key: string; agent_id: string; question: string; answer: string;
-  status: string; sources_used: string[]; sources: { n: number; path: string; heading_path: string; anchor: string | null }[];
-  not_covered: boolean; escalated: boolean;
-}
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -167,11 +158,3 @@ export const exportJiraTicket = (ticketId: string, connectionRevision: number, s
     body: JSON.stringify({ connection_revision: connectionRevision }),
   });
 
-export const getAuditUsers = () =>
-  request<{ users: AuditUser[] }>(`/api/admin/audit/users`);
-export const getAuditUserSessions = (email: string) =>
-  request<{ sessions: AuditSession[] }>(
-    `/api/admin/audit/users/${encodeURIComponent(email)}/sessions`);
-export const getSessionAudit = (key: string) =>
-  request<{ rows: AuditRow[] }>(
-    `/api/admin/audit/session/${encodeURIComponent(key)}`);

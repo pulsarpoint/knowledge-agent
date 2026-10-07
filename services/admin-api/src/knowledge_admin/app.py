@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from docs_wiki.config import Config, ServerConfig
+from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
 from knowledge_admin.documents import backfill_exports
@@ -81,6 +81,4 @@ def create_app(cfg: Config, *, server: ServerConfig,
     if repository_store is not None:
         from knowledge_admin import run_record
         run_record.configure(repository_store, cfg.apps[0].name)
-    from knowledge_admin import reader_api
-    app.include_router(reader_api.build_api(cfg.apps[0].name, repository_store))
     return app

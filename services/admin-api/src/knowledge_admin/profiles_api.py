@@ -184,8 +184,6 @@ def build_api(app_name, store):
             old = read(conn, agent_id)
             if old['is_coordinator']:
                 raise HTTPException(409, 'The coordinator cannot be removed.')
-            if conn.execute('SELECT 1 FROM ka.reader_settings WHERE knowledge_agent_id=%s', (agent_id,)).fetchone():
-                raise HTTPException(409, 'This agent is the Reader assistant. Choose another Reader agent first.')
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Reload before deleting.')
             if conn.execute('''SELECT 1 FROM ka.operations_runs WHERE agent=%s

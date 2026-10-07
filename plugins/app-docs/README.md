@@ -38,17 +38,9 @@ After application code changes:
 
 `update` refreshes only the documents affected by source changes since
 each document's recorded `analyzed_commits` (kept in the document's front
-matter — there is no other state). If the docs folder is served by
-docs-wiki, `update` also picks up the gaps file — the questions readers
-asked that the documentation could not answer, each one already carrying
-a code-derived draft answer and citations when the reader escalated it
-through docs-wiki's optional "Ask the code" — from the path the
-developer provides (documented default
-`~/.local/state/docs-wiki/<app>/gaps.jsonl`, docs-wiki's central state
-directory; falls back to the legacy `<docs-folder>/.docs-wiki/gaps.jsonl`
-when present), verifies and lands each draft (or answers from code fresh
-where there isn't one) where possible, and brings the rest into the
-interview; the run's summary lists which gaps were addressed.
+matter — there is no other state). Reader gaps (unanswered reader
+questions) are no longer collected: the Reader application (docs-wiki) was
+removed, so `update` no longer reads a gaps file.
 
 ## What it produces
 

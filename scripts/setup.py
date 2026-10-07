@@ -149,11 +149,10 @@ def initialize(root: Path, data_root: str | None = None) -> None:
     _create(data, [data / folder for folder in folders.values()])
     defaults["DATA_ROOT"] = _quote(data)
     secret_keys = {
-        "POSTGRES_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "APP_ADMIN_PASSWORD",
-        "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET", "PHOENIX_SECRET",
+        "POSTGRES_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "APP_ADMIN_PASSWORD", "PHOENIX_SECRET",
         "ADMIN_OAUTH2_PROXY_CLIENT_SECRET", "ADMIN_OAUTH2_PROXY_COOKIE_SECRET",
         "PHOENIX_ADMIN_PASSWORD", "PHOENIX_ADMIN_SECRET", "LITELLM_MASTER_KEY",
-        "CREDENTIAL_ENCRYPTION_KEY", "RAG_BACKOFFICE_KEY", "READER_AGENT_KEY",
+        "CREDENTIAL_ENCRYPTION_KEY", "RAG_BACKOFFICE_KEY",
     }
     for key, default in defaults.items():
         existing = current.get(key, "").strip().strip("\"'")

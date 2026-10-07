@@ -74,9 +74,6 @@ def test_assignments_live_changes_disable_and_no_env_fallback(store, tmp_path, m
     monkeypatch.setenv('DOCS_WIKI_CHAT_MODEL', 'must-not-fallback')
     with pytest.raises(ModelUnavailable, match='enabled model'):
         assigned_model('search')
-    # The live chat status reads the same saved settings, not the old env configuration.
-    status = client.get('/api/agents/search/status', headers=HEADERS).json()
-    assert status['ask_enabled'] and status['ask_reason'] is None
     assert client.put('/api/llm/assignments', headers=HEADERS, json={**selection, 'revision': 2}).status_code == 400
     incompatible = {**BEDROCK, 'model': 'amazon.nova-test', 'revision': 1}
     assert client.put('/api/llm/models/' + bedrock['id'], headers=HEADERS, json=incompatible).status_code == 400

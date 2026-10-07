@@ -9,14 +9,12 @@ and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
-and connection tests work. Reader chat answers from the knowledge base using the
-agent chosen in Admin → Agents → Reader assistant; agent Test and the multi-agent
-board run models. The legacy admin search chat endpoint
-(`/api/agents/search/chat`) still returns HTTP 200 with plain text `TODO`.
+and connection tests work. Agent Test (Admin → Agents) and the multi-agent board run
+models; agents can be set to answer only from documents with citations.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
-**New here? Start with the [User Guide](docs/user-guide.md)** — how to use the Reader
-and Administration applications end to end, verified against the current code.
+**New here? Start with the [User Guide](docs/user-guide.md)** — how to use the
+Administration application end to end, verified against the current code.
 
 ## Start locally
 
@@ -33,13 +31,11 @@ The first run needs the host folder for the application's files:
 `make up` generates local secrets in `.env` (mode 0600), seeds `DATA_ROOT/docs` only
 when empty, builds the application images from this checkout, migrates
 PostgreSQL, and waits for service health. Repeating setup preserves credentials
-and documentation. `make smoke` checks both Keycloak logins and application isolation, initializes the
-configured docs/code indexes, then checks reading, search and the
-database. It does not invoke a model.
+and documentation. `make smoke` checks the admin Keycloak login and gateway isolation, then checks
+RAG settings, collections and search, database migrations and Phoenix. It does not invoke a model.
 
 | Service | Local address | Login |
 | --- | --- | --- |
-| Reader | http://localhost:8180 | `v3-admin`, password from `APP_ADMIN_PASSWORD` in `.env` |
 | Administration app | http://localhost:8183 | `v3-admin`, password from `APP_ADMIN_PASSWORD` in `.env` |
 | Keycloak administration | http://localhost:8181 | `admin`, password from `KEYCLOAK_ADMIN_PASSWORD` |
 | Phoenix | http://localhost:8182 | `admin@localhost`, password from `PHOENIX_ADMIN_PASSWORD` |
@@ -57,23 +53,24 @@ make logs          # follow service logs
 make down          # stop; preserve all data volumes
 ```
 
-## Separate applications
+## Administration application
 
-The reader (`services/docs-wiki-ui` + `services/docs-wiki`) runs on port 8180.
-Administration (`services/admin-ui` + `services/admin-api`) runs on port 8183.
-They have separate source packages, builds, containers, API processes, Keycloak
-clients, client secrets and session cookies. The reader contains no admin
-navigation, pages or API routes, even for administrators. The admin API serves configuration, integration actions, and placeholder agent tests. Admin access requires `docs-admins` at both
+Administration (`services/admin-ui` + `services/admin-api`) runs on port 8183 behind
+its own oauth2-proxy gateway and Keycloak client. The admin API serves configuration,
+integration actions and agent runs. Admin access requires `docs-admins` at both
 the gateway and the API.
 
-Both applications use the same Keycloak realm and underlying project data.
 Any member of the `docs-admins` group can sign in to the admin application.
-`make up` configures both OIDC clients for fresh and existing environments without
+`make up` configures the OIDC client for fresh and existing environments without
 reimporting users. `ADMIN_PORT` controls the administration port.
+
+The end-user Reader application (port 8180) was removed and will be redesigned
+later; agent **Test** in Admin → Agents is the way to try agents. When upgrading an
+existing installation, follow [Upgrading after the Reader removal](deploy/README.md#upgrading-after-the-reader-removal).
 
 ## Administrators
 
-Sign in to both applications as `v3-admin` with the password `APP_ADMIN_PASSWORD` from
+Sign in to the administration application as `v3-admin` with the password `APP_ADMIN_PASSWORD` from
 `.env`. To add another administrator, create the user in the Keycloak console
 (http://localhost:8181, realm `docs`) and add it to the `docs-admins` group; the user
 must sign out and in again to pick up the group.
@@ -199,7 +196,7 @@ through Code projects.
 LLM Settings stores named OpenAI-compatible, Anthropic and Bedrock connections
 with encrypted credentials. Model connection tests still contact the configured
 provider. Agent pages store model selections, prompts and capabilities for future
-execution. Agent Test and Reader chat require a model assignment.
+execution. Agent Test requires a model assignment.
 
 
 ## Development and tests
@@ -208,12 +205,12 @@ For native development install Python 3.12+, uv, Node 22.12+, and pnpm 9.12.
 
 ```sh
 make build          # sync Python dependencies and build the UI
-make test           # setup, 4 Python services, both UIs and PostgreSQL tests
+make test           # setup, rag and admin-api, the admin UI and PostgreSQL tests
 make compose-validate
 ```
 
 Dependency resolution uses copied lockfiles and frozen installs. Internal
-package names (`docs-wiki`, `rag`) remain stable so their tested
+package names (for example `rag`) remain stable so their tested
 imports and CLI entry points stay intact.
 
 Database-only commands remain available: `make db-up`, `make db-migrate`,
@@ -238,7 +235,7 @@ SDK. For manual Claude use, register this checkout as a marketplace and install
 
 ### RAG collections administration
 
-The separate admin app includes RAG Collections, Processing jobs, Settings, and Search. A collection is a folder inside `DATA_ROOT` with its own search mode, embeddings, include/exclude patterns and chunking; agents and the Reader are granted whole collections. See [the RAG guide](docs/rag.md) for collections, freshness and Refresh, incremental processing, `/search` across collections, credentials, and API contracts.
+The separate admin app includes RAG Collections, Processing jobs, Settings, and Search. A collection is a folder inside `DATA_ROOT` with its own search mode, embeddings, include/exclude patterns and chunking; agents are granted whole collections. See [the RAG guide](docs/rag.md) for collections, freshness and Refresh, incremental processing, `/search` across collections, credentials, and API contracts.
 
 Administration → Agents manages configuration and offers direct agent Test conversations. See [Agents](docs/agents.md).
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { BookOpen, FolderOpen, MessagesSquare, Bot, Activity, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LayoutDashboard, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
+import { BookOpen, FolderOpen, MessagesSquare, Bot, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LayoutDashboard, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
 import { ApiError, getAdminSession } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "~/lib/utils";
@@ -55,14 +55,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsSessions = pathname.startsWith('/documentation/sessions');
   const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
-  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : docsSessions ? "Documentation sessions" : docsFolders ? "Documentation folders" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Activity";
+  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : docsSessions ? "Documentation sessions" : docsFolders ? "Documentation folders" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Administration";
   const description = runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : boardPage ? "Coordinate one main task across your agents and review their shared results." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
     : servers ? "Manage hosts, descriptions, and tags for your service infrastructure."
     : jiraSettings ? "Configure access to your Jira Data Center server and test the connection."
     : jiraTickets ? "Filter Jira tickets and export their content to RAG."
-    : "Review user sessions and recorded answers.";
+    : "";
   return <SidebarProvider>
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -76,7 +76,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/storage"}><Link to="/storage"><Database /><span>Storage</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/skills"}><Link to="/skills"><BookOpen /><span>Skills</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/mcp-servers"}><Link to="/mcp-servers"><Plug /><span>MCP servers</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname.startsWith(`/activity`) && !runsPage}><Link to={`/activity`}><Activity /><span>Activity</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={runsPage}><Link to="/activity/runs"><ListChecks /><span>Agent runs</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Agents"><SidebarGroupLabel>Agents</SidebarGroupLabel><SidebarMenu>

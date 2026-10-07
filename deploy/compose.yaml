@@ -1,5 +1,5 @@
 name: knowledge-agent-v3
-# DATA_ROOT is mounted once, read-only, at /work/data (docs-wiki gets only DOCS_FOLDER there).
+# DATA_ROOT is mounted once, read-only, at /work/data.
 # A service that writes gets that
 # folder as a writable bind on top, at the same relative path. make setup validates the
 # folder variables (relative, no overlap) and creates the folders, which must exist as the
@@ -106,42 +106,6 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
-  docs-wiki:
-    build: {context: .., dockerfile: deploy/Dockerfile.docs-wiki}
-    restart: unless-stopped
-    command: [serve, "/work/data/${DOCS_FOLDER:-docs}", --host, "0.0.0.0"]
-    volumes:
-      # Only the docs folder: the reader serves it and reaches everything else through RAG.
-      - type: bind
-        source: ${DATA_ROOT:?Run make setup DATA_ROOT=/path}/${DOCS_FOLDER:-docs}
-        target: /work/data/${DOCS_FOLDER:-docs}
-        read_only: true
-      - wiki-data:/data
-    environment:
-      LLM_SETTINGS_SOURCE: database
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-      DOCS_WIKI_RAG_URL: http://rag:8790
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
-      DOCS_WIKI_STATE_DIR: /data/docs-wiki
-      DOCS_WIKI_ADMIN_GROUP: docs-admins
-      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
-      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
-      READER_AGENT_URL: http://admin-api:8766
-      READER_AGENT_KEY: ${READER_AGENT_KEY:?Run make setup}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-      rag: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/apps', timeout=3)"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-
   admin-api:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
@@ -154,7 +118,6 @@ services:
       - *code-rw
       - *code-index-rw
       - *generated-docs-rw
-      - wiki-data:/data
       - agent-workspaces:/work/agent-workspaces
     environment:
       <<: *data-env
@@ -165,10 +128,8 @@ services:
       DOCS_WIKI_RAG_URL: http://rag:8790
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
-      DOCS_WIKI_STATE_DIR: /data/docs-wiki
       DOCS_WIKI_ADMIN_GROUP: docs-admins
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
-      READER_AGENT_KEY: ${READER_AGENT_KEY:?Run make setup}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -332,17 +293,6 @@ services:
       retries: 20
       start_period: 30s
 
-  web:
-    build: {context: .., dockerfile: deploy/Dockerfile.web}
-    restart: unless-stopped
-    depends_on:
-      docs-wiki: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
     restart: unless-stopped
@@ -354,10 +304,8 @@ services:
       KC_HOSTNAME: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       WEB_HOST: ${WEB_HOST:-localhost}
-      WEB_PORT: ${WEB_PORT:-8180}
       ADMIN_PORT: ${ADMIN_PORT:-8183}
       ADMIN_OAUTH2_PROXY_CLIENT_SECRET: ${ADMIN_OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
-      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
       APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-v3-admin}
       APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-v3-admin@example.test}
       APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?Run make setup}
@@ -387,47 +335,13 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Run make setup}
       WEB_HOST: ${WEB_HOST:-localhost}
-      WEB_PORT: ${WEB_PORT:-8180}
       ADMIN_PORT: ${ADMIN_PORT:-8183}
-      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
       ADMIN_OAUTH2_PROXY_CLIENT_SECRET: ${ADMIN_OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
     volumes:
       - ../scripts:/workspace/scripts:ro
       - ./keycloak/realm-docs.json:/config/realm-docs.json:ro
     depends_on:
       keycloak: {condition: service_healthy}
-
-  oauth2-proxy:
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
-    restart: unless-stopped
-    environment:
-      OAUTH2_PROXY_PROVIDER: keycloak-oidc
-      OAUTH2_PROXY_CLIENT_ID: knowledge-agent-v3
-      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?Run make setup}
-      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?Run make setup}
-      OAUTH2_PROXY_COOKIE_NAME: _knowledge_agent_v3
-      OAUTH2_PROXY_COOKIE_SECURE: "false"
-      OAUTH2_PROXY_COOKIE_SAMESITE: lax
-      OAUTH2_PROXY_OIDC_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
-      # Browser login uses the public URL; token/JWKS requests use Docker DNS.
-      # Issuer validation remains enabled; localhost inside a container is not the host.
-      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
-      OAUTH2_PROXY_LOGIN_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs/protocol/openid-connect/auth
-      OAUTH2_PROXY_REDEEM_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/token
-      OAUTH2_PROXY_OIDC_JWKS_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/certs
-      OAUTH2_PROXY_PROFILE_URL: http://keycloak:8080/realms/docs/protocol/openid-connect/userinfo
-      OAUTH2_PROXY_REDIRECT_URL: http://${WEB_HOST:-localhost}:${WEB_PORT:-8180}/oauth2/callback
-      OAUTH2_PROXY_UPSTREAMS: http://web:80
-      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
-      OAUTH2_PROXY_OIDC_GROUPS_CLAIM: groups
-      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
-    ports: ["127.0.0.1:${WEB_PORT:-8180}:4180"]
-    depends_on:
-      keycloak-configure: {condition: service_completed_successfully}
-      web: {condition: service_healthy}
 
   admin-oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
@@ -493,6 +407,5 @@ volumes:
   agent-workspaces:
   claude-code-home:
   postgres-data:
-  wiki-data:
   keycloak-data:
   phoenix-data:

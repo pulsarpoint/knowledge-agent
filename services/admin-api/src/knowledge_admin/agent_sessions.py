@@ -3,9 +3,8 @@ import asyncio
 import copy
 from agents import ModelBehaviorError
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import suppress
-from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -44,19 +43,18 @@ class SessionInput(BaseModel):
 
 
 def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UUID,
-                   actor_id: UUID, config: dict[str, Any], title: str, is_test: bool,
-                   channel: str = 'admin', idle_timeout: timedelta | None = None) -> dict[str, Any]:
-    """Create the same pinned agent session for a test, an admin live conversation, or a Reader conversation."""
+                   actor_id: UUID, config: dict[str, Any], title: str, is_test: bool) -> dict[str, Any]:
+    """Create the same pinned agent session for a test or an admin live conversation."""
     if not config['enabled']:
         raise ValueError('Agent is disabled.')
     if config['model'] is None or not config['model']['enabled']:
         raise ValueError('Select an enabled model in this agent’s General tab.')
     return conn.execute('''INSERT INTO ka.agent_sessions
-        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test,channel,idle_timeout)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(%s::interval,interval '1 hour')) RETURNING *,
+        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,
         last_activity_at+idle_timeout AS expires_at,config->'config_version' AS config_version''',
         (session_id,project_id,config['id'],actor_id,title,Jsonb(config),
-         config.get('config_version',{}).get('id'),is_test,channel,idle_timeout)).fetchone()
+         config.get('config_version',{}).get('id'),is_test)).fetchone()
 
 
 class ReviewInput(BaseModel):
@@ -99,24 +97,18 @@ def expire_sessions(store) -> None:
             AND NOT EXISTS (SELECT 1 FROM ka.operations_runs r WHERE r.session_id=s.id AND r.status='running')""")
 
 
-async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunInput, actor: tuple[str, str], *,
-                     channel: str = 'admin', idle_timeout: timedelta | None = None, owner_only: bool = False,
-                     prepare: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-                     validate: Callable[[dict[str, Any]], None] | None = None) -> AsyncIterator[tuple[str, Any]]:
+async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunInput,
+                     actor: tuple[str, str]) -> AsyncIterator[tuple[str, Any]]:
     """Start one agent turn and return its events; raises HTTPException before the turn starts.
 
     Yields ('started', run), ('activity', item), ('heartbeat', None) and ('completed', run).
     A disconnecting consumer does not stop the turn.
     """
     await asyncio.to_thread(expire_sessions,store)
-    owner = None
     try:
-        if owner_only:
-            with store.connect() as owner_connection:
-                owner = store.actor(owner_connection, *actor)
         if value.session_id is not None:
             with store.connect() as saved_connection:
-                saved = load_session(store, saved_connection, app_name, agent_id, value.session_id, owner=owner)
+                saved = load_session(store, saved_connection, app_name, agent_id, value.session_id)
                 if saved['status'] != 'active':
                     raise HTTPException(409,'This session is closed or expired. Start a new session.')
                 if value.version_id is not None and value.version_id != saved['agent_version_id']:
@@ -126,10 +118,6 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                 config = saved['config']
         else:
             config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
-            if prepare is not None:
-                config = prepare(config)
-        if validate is not None:
-            validate(config)
         if not config['enabled']:
             raise ValueError('Agent is disabled.')
         if config['model'] is None or not config['model']['enabled']:
@@ -161,10 +149,10 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
             if value.session_id is None:
                 saved = create_session(setup, session_id=session_id, project_id=project, actor_id=actor_id,
                     config=context['config'], title=redact(value.task,credentials.values())[:200],
-                    is_test=value.is_test is True, channel=channel, idle_timeout=idle_timeout)
+                    is_test=value.is_test is True)
             else:
                 setup.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE',(session_id,))
-                saved = load_session(store,setup,app_name,agent_id,session_id,owner=owner)
+                saved = load_session(store,setup,app_name,agent_id,session_id)
                 if saved['status'] != 'active':
                     raise HTTPException(409,'This session is closed or expired. Start a new session.')
             history = saved['history']
@@ -191,7 +179,7 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
             await conn.execute('UPDATE ka.operations_runs SET context=%s,progress=%s WHERE id=%s', (Jsonb(context),item['title'],value.id))
             publish('activity',item)
         recorded = {**config, 'record': {'run_key': f'run:{value.id}', 'project_id': str(project),
-            'actor_id': str(actor_id), 'kind': 'reader' if channel == 'reader' else 'test', 'title': value.task[:200]}}
+            'actor_id': str(actor_id), 'kind': 'test', 'title': value.task[:200]}}
         turn = asyncio.create_task(agent(recorded,value.task,credentials=credentials,on_activity=on_activity,history=history))
         try:
             while not turn.done():
@@ -267,12 +255,11 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
     return stream()
 
 
-def load_session(store, conn, app_name: str, agent_id: str, session_id: UUID, *, owner: UUID | None = None) -> dict[str, Any]:
-    """Load one session of this agent; with owner, only that principal's visible session."""
+def load_session(store, conn, app_name: str, agent_id: str, session_id: UUID) -> dict[str, Any]:
+    """Load one session of this agent."""
     value = conn.execute("""SELECT s.*,s.last_activity_at+s.idle_timeout AS expires_at
-        FROM ka.agent_sessions s WHERE s.id=%s AND s.agent=%s AND s.project_id=%s
-        AND (%s::uuid IS NULL OR (s.actor_id=%s AND s.hidden_by_owner_at IS NULL))""",
-        (session_id, agent_id, store.project(conn, app_name), owner, owner)).fetchone()
+        FROM ka.agent_sessions s WHERE s.id=%s AND s.agent=%s AND s.project_id=%s""",
+        (session_id, agent_id, store.project(conn, app_name))).fetchone()
     if value is None:
         raise HTTPException(404, 'Session not found for this agent.')
     return value

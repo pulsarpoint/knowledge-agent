@@ -13,7 +13,7 @@ import { Separator } from "~/components/ui/separator";
 import { Spinner } from "~/components/ui/spinner";
 
 const MAX_QUESTION = 10000;
-// The Reader's reply when a follow-up targets a closed or expired conversation.
+// The former Reader chat API's reply when a follow-up targets a closed or expired conversation.
 const CONVERSATION_ENDED = "This conversation has ended. Start a new one.";
 
 interface Turn {

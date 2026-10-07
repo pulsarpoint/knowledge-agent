@@ -11,12 +11,12 @@ interface MarkdownProps {
   isStreaming?: boolean;
 }
 
-// Slugs a heading's plain text into an anchor id using the same rule the
-// docs-wiki API uses server-side (services/docs-wiki/src/docs_wiki/indexer.py
-// `slugify`): lowercase, collapse runs of non-alphanumeric characters to a
-// single hyphen, trim leading/trailing hyphens, fall back to "section" if
-// that leaves nothing. Headings need stable, matching ids so DocView's
-// table-of-contents `#anchor` links land.
+// Slugs a heading's plain text into an anchor id using the same rule as the
+// former Reader API's server-side `slugify` (since removed): lowercase,
+// collapse runs of non-alphanumeric characters to a single hyphen, trim
+// leading/trailing hyphens, fall back to "section" if that leaves nothing.
+// Headings need stable, matching ids so DocView's table-of-contents `#anchor`
+// links land.
 function slugifyHeading(text: string): string {
   const slug = text
     .toLowerCase()
