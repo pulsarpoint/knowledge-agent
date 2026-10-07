@@ -39,7 +39,8 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   `/home/claude/sessions/<session id>` (0700). A later turn may run in another slot: the
   CLI wrapper hands the session's HOME (and its transcript, for resume) to the new
   slot's user. When a session leaves its slot, the worker kills the slot user's
-  processes and takes the HOME back for root before the slot is reused. At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
+  processes, removes its `/dev/shm` entries and takes the HOME back for root before
+  the slot is reused (SysV IPC objects are not removed: an accepted residual). At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
   Files under `DATA_ROOT` must be readable by the claude users: world-readable, or
   group-readable by gid 1001.
 - Phoenix has its own authenticated UI and volume. The admin API exports

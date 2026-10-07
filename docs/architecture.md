@@ -131,8 +131,12 @@ lease. Isolation:
   privileges the wrapper kills every process of the slot user, then hands the HOME to
   it (CAP_CHOWN only), so a resumed session finds its transcript in any slot. When a
   session leaves its slot (idle release, close, failure) the worker kills the slot
-  user's processes and takes the HOME back for root before the slot is reused; at
-  start it does the same for every slot and session HOME.
+  user's processes, removes its `/dev/shm` entries and takes the HOME back for root
+  before the slot is reused; at start it does the same for every slot and session HOME.
+  A HOME too large or deep to take back whole keeps only its top folder root's (that
+  session cannot start again); a slot whose processes cannot be killed stays unused.
+  SysV IPC objects (shared memory segments, semaphores, message queues) a session
+  creates are not removed: an accepted residual.
 - Secrets: the session's key reaches only the CLI environment; every enabled Claude
   connection's key is redacted from run events, drafts and error messages, and NUL
   characters are removed before storing.

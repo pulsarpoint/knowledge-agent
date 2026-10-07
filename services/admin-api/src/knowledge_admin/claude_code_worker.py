@@ -6,7 +6,9 @@ import asyncio
 import base64
 import logging
 import os
+import shutil
 import signal
+import stat
 import socket
 import time
 from collections import deque
@@ -514,24 +516,73 @@ def secrets_from_environment() -> tuple[bytes, str]:
     return key, make_conninfo('', password=password) if password else ''
 
 
+def _root_top(home: str) -> None:
+    """A HOME that could not be taken back whole: its top folder is root's (0700), so no slot user can enter it."""
+    os.lchown(home, 0, 0)
+    os.chmod(home, 0o700)
+
+
+def _take_back(session_id: str, home: str) -> None:
+    try:
+        cli.own_tree(home, 0, 0)
+    except cli.HomeError:
+        logger.warning('Claude Code session %s: its folder could not be taken back whole; only its top folder is '
+                       "root's now, and the session cannot start again", session_id)
+        _root_top(home)
+
+
+def sweep_shm(uid: int, root: str = '/dev/shm') -> None:
+    """Remove what the slot user left in /dev/shm (POSIX shared memory, files, folders), never following a link.
+    Root owns /dev/shm, so it may unlink there; a folder is first made root's (own_tree), then removed."""
+    try:
+        names = os.listdir(root)
+    except FileNotFoundError:
+        return
+    for name in names:
+        path = f'{root}/{name}'
+        try:
+            info = os.lstat(path)
+            if info.st_uid != uid:
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                cli.own_tree(path, 0, 0)
+                shutil.rmtree(path)
+            else:
+                os.unlink(path)
+        except (OSError, cli.HomeError) as exc:
+            logger.warning('Claude Code slot cleanup: an entry in %s could not be removed (%s)', root, type(exc).__name__)
+
+
 def reclaim_slot(session_id, slot: int) -> None:
-    """A session left its slot: kill every process of the slot user, then take the session HOME back for root."""
+    """A session left its slot: kill every process of the slot user, sweep its /dev/shm entries, then take the session
+    HOME back for root. Only a failed kill (or an unprotectable HOME) raises: the slot then stays out of use."""
     uid, gid = cli.slot_ids(slot)
     cli.kill_slot(uid, gid)
-    home = f'{SESSION_HOMES}/{UUID(str(session_id))}'
+    sweep_shm(uid)
+    session_id = str(UUID(str(session_id)))
+    home = f'{SESSION_HOMES}/{session_id}'
     if os.path.lexists(home):
-        cli.own_tree(home, 0, 0)
+        _take_back(session_id, home)
 
 
 def reclaim_all(sessions: str = SESSION_HOMES) -> None:
     """At start no session holds a slot: kill every slot user's processes, then take back each session HOME that is
-    not root's."""
+    not root's. One slot or HOME that fails is logged and skipped; it never stops the worker."""
     for slot in range(1, MAX_SLOTS + 1):
-        cli.kill_slot(*cli.slot_ids(slot))
+        try:
+            uid, gid = cli.slot_ids(slot)
+            cli.kill_slot(uid, gid)
+            sweep_shm(uid)
+        except Exception as exc:
+            logger.warning('Claude Code slot %s could not be cleared at start (%s)', slot, type(exc).__name__)
     for name in os.listdir(sessions):
         path = f'{sessions}/{name}'
-        if os.lstat(path).st_uid != 0:
-            cli.own_tree(path, 0, 0)
+        try:
+            if os.lstat(path).st_uid != 0:
+                _take_back(name, path)
+        except OSError as exc:
+            logger.warning('Claude Code session %s: its folder could not be taken back at start (%s)', name,
+                           type(exc).__name__)
 
 
 def prepare_home_root(root: str = HOME_ROOT) -> None:

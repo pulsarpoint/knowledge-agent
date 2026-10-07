@@ -303,33 +303,106 @@ def test_kill_slot_runs_kill_as_the_slot_user_with_a_minimal_environment():
     assert kwargs['check'] is True
 
 
-def test_a_session_leaving_its_slot_has_the_slot_killed_then_its_home_taken_back(monkeypatch):
+@pytest.fixture
+def slot_calls(monkeypatch):
     from knowledge_admin import claude_code_cli as cli
     calls = []
     monkeypatch.setattr(cli, 'slot_ids', lambda slot: (1000 + slot, 1001))
     monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: calls.append(('kill', uid)))
     monkeypatch.setattr(cli, 'own_tree', lambda path, uid, gid, os_module=None: calls.append(('own', path, uid)))
+    monkeypatch.setattr(worker, 'sweep_shm', lambda uid, root='/dev/shm': calls.append(('shm', uid)))
+    monkeypatch.setattr(worker.os, 'lchown', lambda path, uid, gid: calls.append(('top', path, uid)))
+    monkeypatch.setattr(worker.os, 'chmod', lambda path, mode: calls.append(('mode', path, mode)))
+    return calls
+
+
+def test_a_session_leaving_its_slot_has_the_slot_killed_then_its_home_taken_back(slot_calls, monkeypatch):
     monkeypatch.setattr(worker.os.path, 'lexists', lambda path: True)
+    home = f'/home/claude/sessions/{SESSION_ID}'
     worker.reclaim_slot(SESSION_ID, 3)
-    assert calls == [('kill', 1003), ('own', f'/home/claude/sessions/{SESSION_ID}', 0)]
-    calls.clear()
+    assert slot_calls == [('kill', 1003), ('shm', 1003), ('own', home, 0)]
+    slot_calls.clear()
     monkeypatch.setattr(worker.os.path, 'lexists', lambda path: False)  # the session never started its CLI
     worker.reclaim_slot(SESSION_ID, 3)
-    assert calls == [('kill', 1003)]
+    assert slot_calls == [('kill', 1003), ('shm', 1003)]
 
 
-def test_startup_kills_every_slot_and_takes_back_every_session_home(tmp_path, monkeypatch):
+def test_a_home_too_big_to_take_back_leaves_its_top_roots_and_frees_the_slot(slot_calls, monkeypatch, caplog):
+    from knowledge_admin import claude_code_cli as cli
+    monkeypatch.setattr(worker.os.path, 'lexists', lambda path: True)
+
+    def too_deep(path, uid, gid, os_module=None):
+        raise cli.HomeError(cli.NOT_PREPARED)
+    monkeypatch.setattr(cli, 'own_tree', too_deep)
+    home = f'/home/claude/sessions/{SESSION_ID}'
+    worker.reclaim_slot(SESSION_ID, 3)  # no error: the slot can be used again
+    assert slot_calls[-2:] == [('top', home, 0), ('mode', home, 0o700)]
+    assert SESSION_ID in caplog.text and home not in caplog.text
+
+
+def test_a_slot_whose_processes_cannot_be_killed_is_not_released(slot_calls, monkeypatch):
+    from knowledge_admin import claude_code_cli as cli
+
+    def fails(uid, gid):
+        raise OSError('setuid failed')
+    monkeypatch.setattr(cli, 'kill_slot', fails)
+    with pytest.raises(OSError):
+        worker.reclaim_slot(SESSION_ID, 3)
+    assert not [call for call in slot_calls if call[0] in ('own', 'shm')]
+
+
+def test_startup_kills_every_slot_and_takes_back_every_session_home(tmp_path, slot_calls):
+    sessions = tmp_path / 'sessions'
+    for name in ('a', 'b'):
+        (sessions / name).mkdir(parents=True)
+    worker.reclaim_all(str(sessions))
+    first_own = next(i for i, call in enumerate(slot_calls) if call[0] == 'own')
+    assert [call for call in slot_calls[:first_own] if call[0] == 'kill'] == [('kill', 1000 + slot) for slot in range(1, 9)]
+    assert ('shm', 1008) in slot_calls[:first_own]  # first: nothing runs while homes move
+    assert sorted(call for call in slot_calls[first_own:] if call[0] == 'own') == [
+        ('own', str(sessions / 'a'), 0), ('own', str(sessions / 'b'), 0)]  # not owned by root
+
+
+def test_startup_continues_past_a_slot_or_home_that_fails(tmp_path, slot_calls, monkeypatch):
     from knowledge_admin import claude_code_cli as cli
     sessions = tmp_path / 'sessions'
     for name in ('a', 'b'):
         (sessions / name).mkdir(parents=True)
-    calls = []
-    monkeypatch.setattr(cli, 'slot_ids', lambda slot: (1000 + slot, 1001))
-    monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: calls.append(('kill', uid)))
-    monkeypatch.setattr(cli, 'own_tree', lambda path, uid, gid, os_module=None: calls.append(('own', path, uid)))
-    worker.reclaim_all(str(sessions))
-    assert calls[:8] == [('kill', 1000 + slot) for slot in range(1, 9)]  # first: nothing runs while homes move
-    assert sorted(calls[8:]) == [('own', str(sessions / 'a'), 0), ('own', str(sessions / 'b'), 0)]  # not owned by root
+
+    def kill(uid, gid):
+        if uid == 1001:
+            raise OSError('no')
+        slot_calls.append(('kill', uid))
+
+    def own(path, uid, gid, os_module=None):
+        if path.endswith('/a'):
+            raise cli.HomeError(cli.NOT_PREPARED)
+        slot_calls.append(('own', path, uid))
+    monkeypatch.setattr(cli, 'kill_slot', kill)
+    monkeypatch.setattr(cli, 'own_tree', own)
+    worker.reclaim_all(str(sessions))  # never raises: one bad HOME must not stop the worker
+    assert [call[1] for call in slot_calls if call[0] == 'kill'] == list(range(1002, 1009))
+    assert ('own', str(sessions / 'b'), 0) in slot_calls
+    assert [('top', str(sessions / 'a'), 0), ('mode', str(sessions / 'a'), 0o700)] == [
+        call for call in slot_calls if call[0] in ('top', 'mode')]
+
+
+def test_shm_sweep_removes_only_the_slot_users_entries_without_following_links(tmp_path, monkeypatch):
+    import os
+    from knowledge_admin import claude_code_cli as cli
+    monkeypatch.setattr(cli, 'own_tree', lambda path, uid, gid, os_module=None: None)  # tests cannot chown
+    shm, outside = tmp_path / 'shm', tmp_path / 'outside'
+    (shm / 'folder/inner').mkdir(parents=True)
+    (shm / 'folder/inner/file').write_text('x')
+    (shm / 'segment').write_text('x')
+    outside.mkdir()
+    (outside / 'keep').write_text('x')
+    (shm / 'link').symlink_to(outside)
+    worker.sweep_shm(os.getuid() + 1, str(shm))  # another uid's entries: untouched
+    assert sorted(path.name for path in shm.iterdir()) == ['folder', 'link', 'segment']
+    worker.sweep_shm(os.getuid(), str(shm))
+    assert list(shm.iterdir()) == [] and (outside / 'keep').exists()  # the link went, not its target
+    worker.sweep_shm(os.getuid(), str(tmp_path / 'missing'))  # no /dev/shm: nothing to do
 
 
 def test_home_root_belongs_to_root_and_hides_what_an_earlier_image_left(tmp_path, monkeypatch):
