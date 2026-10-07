@@ -219,6 +219,38 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
+  agent-session-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    # Native agents' Generate documents sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
+    # providers and SSH hosts on default and shell-worker on agent-shell; it has no host port.
+    networks: [default, agent-shell]
+    dns_search: ${DOCKER_DNS_SEARCH:-.}
+    entrypoint: [/services/admin-api/.venv/bin/knowledge-agent-session-worker]
+    command: []
+    volumes:
+      - *data-root
+      - agent-workspaces:/work/agent-workspaces
+    environment:
+      <<: *data-env
+      AGENT_SHELL_URL: http://shell-worker:8796
+      AGENT_WORKSPACE_ROOT: /work/agent-workspaces
+      AGENT_SESSION_MAX_SESSIONS: ${AGENT_SESSION_MAX_SESSIONS:-4}
+      DOCS_WIKI_RAG_URL: http://rag:8790
+      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
+      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
+      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rag: {condition: service_healthy}
+      shell-worker: {condition: service_healthy}
+
   shell-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped

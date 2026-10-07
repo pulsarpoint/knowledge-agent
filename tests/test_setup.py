@@ -302,7 +302,7 @@ class SetupTests(unittest.TestCase):
             folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
             writers = {"rag": ["jira"], "rag-worker": [], "shell-worker": [],
                        "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
-                       "claude-code-worker": []}
+                       "claude-code-worker": [], "agent-session-worker": []}
             for name, writable in writers.items():
                 mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]
                                 if v["target"].startswith("/work/data"))
@@ -354,4 +354,35 @@ class SetupTests(unittest.TestCase):
             self.assertNotIn("AGENT_SHELL_URL", env)
             self.assertEqual(env["CLAUDE_CODE_MAX_SESSIONS"], "4")
             self.assertIn("claude-code-home", config["volumes"])
+
+    def test_agent_session_worker_mounts_networks_and_environment(self) -> None:
+        source = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(source / ".env.example", root / ".env.example")
+            shutil.copytree(source / "examples", root / "examples")
+            run_setup(root, str(root / "data"))
+            result = subprocess.run(
+                ["docker", "compose", "--env-file", str(root / ".env"), "-f", str(source / "deploy/compose.yaml"), "config", "--format", "json"],
+                capture_output=True, text=True, check=True,
+            )
+            config = json.loads(result.stdout)
+            worker = config["services"]["agent-session-worker"]
+            data = str(root / "data").replace("$", "$$")
+            self.assertEqual(sorted((v["type"], v["source"], v["target"], bool(v.get("read_only"))) for v in worker["volumes"]),
+                             [("bind", data, "/work/data", True), ("volume", "agent-workspaces", "/work/agent-workspaces", False)])
+            self.assertEqual(worker["entrypoint"], ["/services/admin-api/.venv/bin/knowledge-agent-session-worker"])
+            self.assertNotIn("ports", worker)
+            # Like admin-api: RAG, PostgreSQL, MCP servers and model providers on default; shell-worker on agent-shell.
+            self.assertEqual(set(worker["networks"]), {"default", "agent-shell"})
+            self.assertEqual(set(config["services"]["claude-code-worker"]["networks"]), {"claude-code"})  # unchanged
+            env = worker["environment"]
+            self.assertEqual((env["AGENT_SHELL_URL"], env["AGENT_WORKSPACE_ROOT"], env["CODE_ROOT"], env["DATA_ROOT_DIR"],
+                              env["DOCS_WIKI_RAG_URL"], env["DOCS_WIKI_PHOENIX_ENDPOINT"], env["AGENT_SESSION_MAX_SESSIONS"]),
+                             ("http://shell-worker:8796", "/work/agent-workspaces", "/work/data/code", "/work/data",
+                              "http://rag:8790", "http://phoenix:6006/v1/traces", "4"))
+            for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL", "RAG_BACKOFFICE_KEY",
+                         "DOCS_WIKI_PHOENIX_API_KEY"):
+                self.assertIn(name, env)
+            self.assertEqual(set(worker["depends_on"]), {"migrate", "rag", "shell-worker"})
 
