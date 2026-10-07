@@ -20,7 +20,7 @@ from knowledge_admin.claude_code import agent_system_prompt, close_idle
 from knowledge_admin.data_root import data_dir, documentation_folder
 from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.generate_documents import first_message, subjects
-from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, require_run_resources
 from knowledge_admin.knowledge_agents.native_sessions import code_roots
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
@@ -199,6 +199,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             try:  # the agent's saved config: its active version, or its working settings before the first version
                 config = get_agent_config(agent['id'], conninfo=db.conninfo)
             except (LookupError, ValueError) as exc:
+                raise HTTPException(400, str(exc)) from None
+            try:  # replaced by run resources in Task 5
+                require_run_resources(config)
+            except ValueError as exc:
                 raise HTTPException(400, str(exc)) from None
             model_id = (config['model'] or {}).get('id')  # the agent's own model; the form has none
             model = conn.execute('SELECT id,provider,model,api_format,enabled FROM ka.llm_models WHERE id=%s FOR SHARE',

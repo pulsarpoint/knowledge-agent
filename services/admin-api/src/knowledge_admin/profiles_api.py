@@ -35,6 +35,7 @@ class ProfileInput(BaseModel):
     services_enabled: bool = Field(strict=True)
     runtime: Literal['openai', 'claude_code'] | None = None  # None keeps the agent type
     claude_code_tools: list[ClaudeCodeTool] | None = Field(default=None, max_length=8)  # None keeps the saved tools
+    resources: Literal['fixed', 'per_run'] | None = None  # None keeps the setting
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
@@ -60,6 +61,7 @@ class ModelInput(BaseModel):
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
 WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions, runs and board tasks, '
                    'or wait for them to finish, then delete it.')
+COORDINATOR_FIXED = 'The coordinator uses fixed resources.'
 # Anything still in progress for the agent, including a board task whose team it is on.
 WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')
     UNION ALL SELECT 1 FROM ka.operations_runs WHERE agent=%(a)s AND status='running'
@@ -146,6 +148,7 @@ def build_api(app_name, store):
             for row in rows:
                 config = row.pop('version_config')
                 if config is not None:
+                    row['resources'] = config.get('resources', 'fixed')  # versions saved before 0075 are fixed
                     row['claude_code_tools'] = config.get('claude_code_tools', row['claude_code_tools'])
                     for key in ('name','description','when_to_use'):
                         row[key] = config[key]
@@ -201,6 +204,9 @@ def build_api(app_name, store):
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 runtime = value.runtime or old['runtime']
+                resources = value.resources or old['resources']
+                if old['is_coordinator'] and resources != 'fixed':
+                    raise HTTPException(400, COORDINATOR_FIXED)
                 if runtime != old['runtime']:
                     if old['is_coordinator']:
                         raise HTTPException(400, 'The coordinator runs on the native runtime.')
@@ -217,7 +223,8 @@ def build_api(app_name, store):
                             raise HTTPException(400, CHOOSE_CLAUDE)
                 tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
-                switch = {'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}
+                switch = {**({'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}),
+                          **({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {})}
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
                     skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
@@ -240,8 +247,8 @@ def build_api(app_name, store):
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,resources=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,resources,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

@@ -111,6 +111,7 @@ class AgentProposal(BaseModel):
 class CreateInput(AgentProposal):
     """A reviewed proposal plus the agent type. The administrator chooses the type; the designer never proposes it."""
     runtime: Literal['openai', 'claude_code'] = 'openai'
+    resources: Literal['fixed', 'per_run'] = 'fixed'
     claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
 
 
@@ -257,12 +258,12 @@ def build_api(app_name, store):
                     if not model_fits('claude_code', chosen):
                         raise HTTPException(400, CHOOSE_CLAUDE)
                 actor = store.actor(conn, *request_actor(request))
-                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,
+                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,resources,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
                     all_collections,all_repositories,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                     (agent_id,value.name,value.description,value.when_to_use,value.enabled,value.model_id,
-                     value.runtime,normalize_tools(value.claude_code_tools),
+                     value.runtime,normalize_tools(value.claude_code_tools),value.resources,
                      value.documents_enabled,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,
                      value.mcp_enabled,value.services_enabled,value.all_collections,value.all_repositories,
                      actor,actor))
@@ -295,7 +296,7 @@ def build_api(app_name, store):
                         for resource_id in ids or []:
                             conn.execute(f'INSERT INTO ka.{table}(config_id,project_id,{column}) VALUES (%s,%s,%s)', (config_id,project,resource_id))
                 conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                    VALUES (%s,%s,'agent.created','agent',%s)''', (project,actor,Jsonb({'agent_id':agent_id,'source':'wizard','runtime':value.runtime})))
+                    VALUES (%s,%s,'agent.created','agent',%s)''', (project,actor,Jsonb({'agent_id':agent_id,'source':'wizard','runtime':value.runtime,'resources':value.resources})))
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists. Open it from the list or choose another name.') from None
         except psycopg.errors.ForeignKeyViolation:

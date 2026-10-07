@@ -15,6 +15,7 @@ vi.mock('../PromptsView', () => ({ default: () => <div>Prompt versions</div> }))
 vi.mock('../AgentInstructions', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
 vi.mock('../AgentVersionsView', () => ({ default: ({ testable }: { testable?: boolean }) => <div>{testable === false ? 'Versions without Test vN' : 'Versions with Test vN'}</div> }));
+vi.mock('../CoordinatorSettings', () => ({ default: () => null }));
 
 const writer: profiles.AgentProfile = { id: 'writer', name: 'Technical writer', description: '', when_to_use: '', enabled: true,
   is_coordinator: false, runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false,
@@ -110,4 +111,36 @@ test('All agents shows the agent type and New agent opens one wizard', async () 
   await user.click(screen.getByRole('button', { name: 'New agent' }));
   expect(screen.getByText('Agent wizard')).toBeVisible();
   expect(screen.queryByRole('tab')).toBeNull();
+});
+
+test('General sets Resources next to the agent type', async () => {
+  const user = userEvent.setup();
+  open('/agents/search');
+  const resources = await screen.findByRole('combobox', { name: 'Resources' });
+  expect(resources).toHaveTextContent('Fixed');
+  expect(screen.getByText('Always works with the resources selected in its tabs.')).toBeVisible();
+  await user.click(resources);
+  await user.click(screen.getByRole('option', { name: 'Per run' }));
+  expect(screen.getByText(/^Each run says what to work on/)).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save details' }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'search', resources: 'per_run' })));
+});
+
+test('the coordinator shows Fixed resources without a choice', async () => {
+  vi.mocked(profiles.getAgent).mockResolvedValue({ ...structuredClone(writer), id: 'coordinator', name: 'Coordinator',
+    runtime: 'openai', is_coordinator: true, resources: 'fixed' });
+  open('/agents/coordinator');
+  expect(await screen.findByText('The coordinator works through the specialists it delegates to.')).toBeVisible();
+  expect(screen.queryByRole('combobox', { name: 'Resources' })).toBeNull();
+});
+
+test('All agents shows how each agent gets its resources', async () => {
+  vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
+    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', resources: 'fixed', model_name: 'GPT', prompt_title: 'Search', prompt_version: 2 },
+    { ...writer, resources: 'per_run', model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+  render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
+  const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
+  expect(screen.getByRole('columnheader', { name: 'Resources' })).toBeVisible();
+  expect(within(row).getByText('Per run')).toBeVisible();
+  expect(within(screen.getByRole('link', { name: 'Search agent' }).closest('tr')!).getByText('Fixed')).toBeVisible();
 });

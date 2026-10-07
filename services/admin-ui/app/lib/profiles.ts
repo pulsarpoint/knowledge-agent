@@ -6,11 +6,18 @@ export const AGENT_TYPE_HELP: Record<AgentRuntime, string> = {
   openai: 'Runs on the OpenAI Agents SDK with the tools enabled in its tabs.',
   claude_code: 'Runs on the Claude Agent SDK (Claude Code) in its own container. Needs a Claude model (Bedrock or Anthropic).',
 };
+export type AgentResources = 'fixed' | 'per_run';
+export const RESOURCE_MODES: [AgentResources, string][] = [['fixed', 'Fixed'], ['per_run', 'Per run']];
+export const resourcesLabel = (mode?: AgentResources) => mode === 'per_run' ? 'Per run' : 'Fixed';
+export const RESOURCES_HELP: Record<AgentResources, string> = {
+  fixed: 'Always works with the resources selected in its tabs.',
+  per_run: 'Each run says what to work on: callers pass code projects, collections, servers or services from those selected in its tabs.',
+};
 export const CLAUDE_CODE_TOOL_NAMES = ['Read', 'Grep', 'Glob', 'Bash'] as const;
 export type ClaudeCodeTool = typeof CLAUDE_CODE_TOOL_NAMES[number];
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean; is_coordinator: boolean;
-  runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[];
+  runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[]; resources?: AgentResources;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   active_config_version_id?: string | null;
   revision: number; model_id: string | null; all_collections: boolean; all_repositories: boolean;
@@ -31,9 +38,9 @@ export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string, versionId?: string) => request<Record<string, unknown>>(path(id) + '/config' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
-  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, runtime, claude_code_tools } = value;
+  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, runtime, claude_code_tools, resources } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,
-    ...(runtime ? { runtime } : {}), ...(claude_code_tools ? { claude_code_tools } : {}) }));
+    ...(runtime ? { runtime } : {}), ...(resources ? { resources } : {}), ...(claude_code_tools ? { claude_code_tools } : {}) }));
 };
 export const saveProfileModel = (value: AgentProfile, model_id: string | null) => request<AgentProfile>(path(value.id) + '/model', json('PUT', { revision: value.revision, model_id }));
 

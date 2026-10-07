@@ -29,7 +29,7 @@ from knowledge_admin.tools.ast_grep import ast_grep
 from knowledge_admin.tools.code_search import code_search
 from knowledge_admin.tools.ssh import ssh_run
 from knowledge_admin.tools.shell import shell_run
-from knowledge_admin.knowledge_agents.config import get_agent_config  # noqa: F401  (moved; imported from here too)
+from knowledge_admin.knowledge_agents.config import get_agent_config, require_run_resources  # noqa: F401  (moved; imported from here too)
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
@@ -133,6 +133,7 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
+    require_run_resources(config)
     model = get_model(config)
     reference = model['api_key_ref']
     if reference is not None and not credentials.get(reference['id']):

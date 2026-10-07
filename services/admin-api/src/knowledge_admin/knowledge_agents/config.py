@@ -15,9 +15,11 @@ from knowledge_admin.data_root import data_path
 
 Runtime = Literal['openai', 'claude_code']
 ClaudeCodeTool = Literal['Read', 'Grep', 'Glob', 'Bash']
+Resources = Literal['fixed', 'per_run']
 CLAUDE_CODE_TOOLS: tuple[str, ...] = ('Read', 'Grep', 'Glob', 'Bash')
 CHOOSE_CLAUDE = 'Choose a Claude model for Claude Code agents'
 NATIVE_ONLY = 'Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.'
+NO_RUN_RESOURCES = 'This agent receives its resources per run, and this run was started without them.'
 
 
 class AgentConfig(TypedDict):
@@ -30,6 +32,7 @@ class AgentConfig(TypedDict):
     revision: int
     runtime: Runtime
     claude_code_tools: list[ClaudeCodeTool]
+    resources: Resources
     model: dict[str, Any] | None
     system_prompt: dict[str, Any]
     instructions: str
@@ -41,6 +44,7 @@ class AgentConfig(TypedDict):
     ssh: dict[str, Any]
     services: dict[str, Any]
     config_version: NotRequired[dict[str, Any]]
+    run_resources: NotRequired[dict[str, list[str]]]
 
 
 def normalize_tools(values: Iterable[str]) -> list[str]:
@@ -65,6 +69,17 @@ def require_native(config: Mapping[str, Any]) -> None:
         raise ValueError(NATIVE_ONLY)
 
 
+def per_run(config: Mapping[str, Any]) -> bool:
+    """Per-run agents: the saved selections are what a run may be given (versions saved before 0075 are fixed)."""
+    return config.get('resources', 'fixed') == 'per_run'
+
+
+def require_run_resources(config: Mapping[str, Any]) -> None:
+    """A per-run agent runs only with the resources its run was given, never with its whole selection."""
+    if per_run(config) and 'run_resources' not in config:
+        raise ValueError(NO_RUN_RESOURCES)
+
+
 def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | None = None, working_copy: bool = False) -> dict[str, object]:
     """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent of
     either type.
@@ -79,7 +94,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     """
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,runtime,claude_code_tools,
+        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,runtime,claude_code_tools,resources,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
@@ -95,6 +110,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             config['enabled'] = agent['enabled']
             config['runtime'] = agent['runtime']  # the agent type belongs to the agent, never to a version
             config.setdefault('claude_code_tools', list(CLAUDE_CODE_TOOLS))  # versions saved before 0072
+            config.setdefault('resources', 'fixed')  # versions saved before 0075
             config['config_version'] = jsonable_encoder({key:version[key] for key in ('id','version','label')})
             return config
         prompt = conn.execute("""SELECT v.id,v.title,v.version,v.revision,v.content
@@ -228,6 +244,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'id': agent['id'], 'name': agent['name'], 'description': agent['description'],
             'when_to_use': agent['when_to_use'], 'enabled': agent['enabled'], 'revision': agent['revision'],
             'runtime': agent['runtime'], 'claude_code_tools': list(agent['claude_code_tools']),
+            'resources': agent['resources'],
             'model': model, 'system_prompt': prompt, 'instructions': instructions,
             'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
             'documents': {'enabled': agent['documents_enabled'], 'grounded': agent['documents_grounded'],
