@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-import psycopg
 import pytest
 
 from knowledge_admin.agents import load_credentials
@@ -173,3 +172,7 @@ def test_options_list_what_a_caller_may_pass(per_run):
         conn.execute('DELETE FROM ka.agent_repositories WHERE agent_id=%s', (s.analyst,))
     assert offered()['code_projects'] == [{'id': s.repo, 'name': 'Payments API'}, {'id': s.worker, 'name': 'Payments worker'}]
     assert offered()['collections'] is None
+    config = get_agent_config(s.analyst, conninfo=s.store.conninfo)
+    config['ssh']['servers'][0]['ssh_allowed'] = False  # as a saved version may have it, whatever the server says now
+    with s.store.connect() as conn:
+        assert options(conn, s.store.project(conn, 'shop'), config)['servers'] == []

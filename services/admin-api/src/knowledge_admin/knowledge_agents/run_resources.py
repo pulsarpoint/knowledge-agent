@@ -183,6 +183,11 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
     return jsonable_encoder(effective)
 
 
+def _usable_server(server: dict[str, Any]) -> bool:
+    """As `resolve` checks it: the snapshot's server is enabled and allows SSH."""
+    return bool(server['enabled'] and server['ssh_allowed'])
+
+
 def options(conn, project_id, config: dict[str, Any]) -> dict[str, list[dict[str, str]] | None]:
     """What a caller may pass to one run of a per-run agent, per kind: the usable resources inside its saved selection
     (every usable one for All), as id and name; None for a kind the agent does not use."""
@@ -195,5 +200,5 @@ def options(conn, project_id, config: dict[str, Any]) -> dict[str, list[dict[str
         result[kind.option] = [
             {'id': str(row['id']), 'name': row['name']} for row in conn.execute(LISTED[kind.key], (project_id,))
             if selection is None or str(row['id']) in selection and (
-                kind.capability != 'ssh' or selection[str(row['id'])]['enabled'])]
+                kind.capability != 'ssh' or _usable_server(selection[str(row['id'])]))]
     return result
