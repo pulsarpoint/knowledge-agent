@@ -27,6 +27,20 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
+- `claude-code-worker` runs interactive documentation sessions with the Claude Agent SDK.
+  It is on its own `claude-code` network, shared only with `postgres` (not internal, so
+  it keeps internet egress to Bedrock or Anthropic); Bash in a session cannot reach
+  `admin-api`, `admin-web`, `rag`, `litellm`, Keycloak, the proxies or Phoenix. It sees
+  `DATA_ROOT` read-only; its only writable mount is the `claude-code-home` volume at
+  `/home/claude`. The worker runs as root (`cap_add: SETUID, SETGID, CHOWN`) to keep the
+  database password and encryption key to itself. Each running session holds one worker
+  slot and its Claude Code process runs as that slot's user, `claude1`..`claude8`
+  (uids 1001-1008, group `claude`, gid 1001), with the session's own HOME,
+  `/home/claude/sessions/<session id>` (0700). A later turn may run in another slot: the
+  CLI wrapper hands the session's HOME (and its transcript, for resume) to the new
+  slot's user. At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
+  Files under `DATA_ROOT` must be readable by the claude users: world-readable, or
+  group-readable by gid 1001.
 - Phoenix has its own authenticated UI and volume. The admin API exports
   OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
 - Each service receives an explicit subset of environment variables. The complete
@@ -226,3 +240,26 @@ was removed. After pulling this version on an existing installation:
    automatically.
 5. Delete the obsolete `.env` keys `WEB_PORT`, `READER_AGENT_KEY`,
    `OAUTH2_PROXY_CLIENT_SECRET` and `OAUTH2_PROXY_COOKIE_SECRET`.
+
+### Development databases that applied `0071_reader_agents`
+
+An earlier, unreleased build had a different migration `0071_reader_agents`. A database
+that applied it is already at version 71, so `0071_remove_reader` never runs. Fix it by
+hand once (back up first), in `psql` as `knowledge_agent`:
+
+```sql
+SET search_path = ka, public;
+DELETE FROM agent_run_events e USING operations_runs r, agent_sessions s
+    WHERE e.run_key = 'run:' || r.id AND r.session_id = s.id AND s.channel = 'reader';
+DELETE FROM operations_commands c USING operations_runs r, agent_sessions s
+    WHERE c.run_id = r.id AND r.session_id = s.id AND s.channel = 'reader';
+DELETE FROM operations_runs r USING agent_sessions s WHERE r.session_id = s.id AND s.channel = 'reader';
+DELETE FROM agent_session_reviews v USING agent_sessions s WHERE v.session_id = s.id AND s.channel = 'reader';
+DELETE FROM agent_sessions WHERE channel = 'reader';
+DROP INDEX IF EXISTS agent_sessions_reader_owner;
+ALTER TABLE agent_sessions DROP COLUMN channel, DROP COLUMN hidden_by_owner_at;
+ALTER TABLE agents DROP COLUMN reader_enabled;   -- added by 0071_reader_agents
+DROP TABLE IF EXISTS reader_settings;            -- 0071_reader_agents already dropped it
+```
+
+The recorded migration version stays 71.
