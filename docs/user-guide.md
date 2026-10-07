@@ -56,7 +56,7 @@ What you can actually do today:
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
   deployments and service-to-service dependencies.
-- **Generate documents with a Claude Code agent**: pick an agent and what to document
+- **Generate documents with a native or Claude Code agent**: pick an agent and what to document
   (code projects, environments, services, servers), follow the session and save the draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
   and MCP tools, and run them interactively (agent **Test** chat) or as a team on the
@@ -73,13 +73,17 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
-               claude-code-worker (Generate documents sessions)
+               claude-code-worker (Claude Code sessions) · agent-session-worker (native sessions)
 ```
 
 `claude-code-worker` runs the Claude Agent SDK with its bundled Claude Code CLI. It reads
 `DATA_ROOT` read-only, needs network access to Bedrock or the Anthropic API, and its home
 volume `claude-code-home` is its only writable mount. It runs as user `claude` (uid 1001),
 so the files under `DATA_ROOT` that sessions should read must be readable by uid 1001.
+
+`agent-session-worker` runs native agents' Generate documents sessions with the native runtime. Like `admin-api` it reaches
+RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
+read-only.
 
 All ports bind to `127.0.0.1` only. Internal services have no host ports.
 
@@ -131,7 +135,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
    documentation should inspect them.
 6. **Environments** → group servers and services (e.g. `production`, `staging`).
 7. **Services** → describe applications, link code projects, add deployments and dependencies.
-8. **Docs → Generate documents** → **New**: choose a Claude Code agent and what to document → **Generate**.
+8. **Docs → Generate documents** → **New**: choose a native or Claude Code agent and what to document → **Generate**.
 9. **Agents** → create agents, assign a model, enable capabilities, test them.
 10. **Multi-agent board** → give the Coordinator a model and run team tasks.
 
@@ -510,19 +514,21 @@ main tasks run concurrently, with at most 30 unfinished tasks.
 
 ### 4.13 Generate documents
 
-**Docs → Generate documents** (`/documentation/generations`) lists Claude Code sessions in which an agent writes one
+**Docs → Generate documents** (`/documentation/generations`) lists sessions of native and Claude Code agents in which an agent writes one
 document: status, agent, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
 and close after 24 idle hours (a session idle for 5 minutes is paused and resumes on your next message).
 
 **Prerequisites**
 
-- An enabled Claude Code agent with a Claude model (Agents → Agent type: Claude Code).
-- Claude Code needs at least one working folder: code projects with folders, or environments or services linked to code
-  projects, or an agent with code projects of its own.
+- An enabled agent of either type with a model that fits its type (Claude Code: a Claude connection; Native: a Responses or
+  Claude connection).
+- Claude Code agents need at least one working folder: code projects with folders, or environments or services linked to code
+  projects, or an agent with code projects of its own (native agents do not).
 
 **The form**
 
-- **Agent**: an enabled Claude Code agent (from an agent's Test tab it is preselected).
+- **Agent**: an enabled agent with a model, shown with its type, for example `Technical writer (Claude Code)` or
+  `API writer (Native)`; an agent without a model is not offered (from its Test tab the form says so).
 - **What to document**: tick **Code**, **Environment**, **Services** and/or **Servers**; each shows its picker. Pick at
   least one item.
 - **Instructions** (optional): extra instructions for this run.
@@ -531,7 +537,7 @@ and close after 24 idle hours (a session idle for 5 minutes is paused and resume
   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
   characters. The name needs ASCII letters or digits (the file name is made from them).
 
-There is no model or prompt field: the agent runs with its own model, prompt, instructions, skills and Claude Code tools.
+There is no model or prompt field: the agent runs with its own model, prompt, instructions, skills and tools (Claude Code tools for Claude Code agents).
 Put a documentation prompt in the agent (Docs → Prompts holds the earlier prompts to copy from).
 
 **What the agent receives.** Its system prompt (its own prompt, instructions and skills), then one first message listing
@@ -561,6 +567,13 @@ Environments and services are described as text (servers, services, deployments,
 **Working folders** (read-only): the chosen code projects, then the code projects linked to the chosen environments and
 services, then the agent's own code projects. The first is the working directory.
 
+**Native agents.** The chosen and linked code projects' folders and the agent's own code projects become its code roots
+(read-only, read with `list_files`, `read_file`, `search_files`, `shell_run`, `code_search` and `ast_grep`); its documents,
+SSH, MCP and services tools work as in its Test tab. A native turn has no time or model-call limit: it ends when the agent
+finishes or you press **Stop** (each model request and MCP connection still times out after 5 minutes). A failed or stopped
+turn leaves the conversation and the draft as they were; history is saved only when a turn succeeds. Tokens are recorded,
+cost is not.
+
 **Servers are text only.** The form lists name, address and description; there is no SSH from this form. SSH through the
 agent comes with the tool gateway.
 
@@ -569,9 +582,12 @@ visible. Activity follows new events at the bottom; after you scroll up it stops
 Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning of the session**.
 It also shows tokens in/out/cached and a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
 
-- **Send message**: while the agent is working, the message is queued and delivered when the current response finishes.
-  After a turn it starts a new turn in the same conversation.
-- **Stop**: interrupts the turn and drops queued messages.
+- **Send message**: while a native agent works, the message box stays enabled ("Queued. Your comment reaches the agent at its
+  next step.") and the comment reaches the agent at its next step in the same turn. A Claude Code agent receives it after its
+  current response. After a turn it starts a new turn in the same conversation.
+- **Stop**: always ends the turn: it is recorded as stopped at the latest 30 seconds after Stop, and after that it cannot start
+  new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
+  discarded when the turn is stopped; after a failure or a lost worker they go to the next turn.
 - **Draft**: each finished turn's final answer, as Markdown.
 - **Save document**: a versioned document in the folder, linked to the code projects and exported to
   `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name in the same folder asks **Save a new version?**; the
@@ -580,7 +596,7 @@ It also shows tokens in/out/cached and a status: Starting, Working, Waiting for 
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
 
-Errors: "The agent has no enabled Claude model. Choose one on its General tab."; "Choose at least one code project,
+Errors: "The agent has no enabled model for its agent type. Choose one on its General tab."; "Choose at least one code project,
 environment, service or server to document."; "Claude Code needs at least one working folder…"; a provider error, such as
 a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the Claude
 Code worker…" when the worker is not running; a folder that no longer exists is refused when starting.
@@ -645,7 +661,7 @@ the summary in one record) and Generate documents sessions. Each record shows, i
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Agent test**, **Board task** and **Claude Code** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
+characters. The run type filter offers **Agent test**, **Board task** and **Claude Code** and **Native session** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
 an agent's Test tab, from a board task, and from each Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
 
@@ -731,6 +747,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `CLAUDE_CODE_MAX_SESSIONS` | Running Claude Code processes per `claude-code-worker` (default 4) |
+| `AGENT_SESSION_MAX_SESSIONS` | Native sessions running at once per agent-session-worker (default 4) |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
@@ -785,7 +802,7 @@ before exposing it beyond localhost.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
-- Generate documents runs Claude Code agents only (native agents come with the session API) and describes servers as text (no SSH from the form).
+- Generate documents describes servers as text (no SSH from the form). The agent **Test** tab still uses test chats for native agents.
 
 ---
 

@@ -201,6 +201,11 @@ one-hour idle expiry logic; `is_test` distinguishes them. Failed or cancelled tu
 leave the previous history intact. Tool workspaces are temporary; the runner no
 longer reads or writes session-history files. See [session APIs and migration](../../docs/agents.md).
 
+Generate documents sessions of native agents pass `session=HistorySession` instead (`knowledge_agents/history.py`, an Agents
+SDK `Session`) with `stream=False` and `hooks=SessionEvents`; `agent()` refuses a session together with `history` or
+streaming. Their turns pass `max_turns=None, turn_timeout_seconds=None` (no turn limit; `timeout_seconds` still bounds each
+model request and MCP connection).
+
 ## Live board activity and Phoenix traces
 
 `GET /api/agent-board/tasks/{id}/activity` is an admin-authenticated SSE stream
