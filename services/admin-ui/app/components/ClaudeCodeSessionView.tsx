@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
 import { closeSession, formatTokens, getSession, saveSessionDocument, sendMessage, sessionEventsUrl, statusLabels, stopSession,
@@ -30,6 +30,8 @@ function EventLine({ event }: { event: SessionEvent }) {
   }
 }
 
+const STOPPING = 'Stopping the current turn…';
+
 /** One interactive Claude Code session: the live stream, messages, Stop, the draft, Save document and Close session. */
 export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -40,25 +42,46 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const [saved, setSaved] = useState<SavedDocument | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [reconnecting, setReconnecting] = useState(false);
+  const status = session?.status;
+  const previousStatus = useRef(status);
+  useEffect(() => {  // a new status answers the Stop request
+    if (previousStatus.current !== status) setNotice(current => current === STOPPING ? '' : current);
+    previousStatus.current = status;
+  }, [status]);
 
   useEffect(() => {
     const controller = new AbortController();
-    setSession(null); setEvents([]); setError('');
-    getSession(sessionId, controller.signal).then(setSession)
+    setSession(null); setEvents([]); setError(''); setReconnecting(false);
+    let streamed: SessionState | null = null;  // newer than a page load that finishes after it
+    getSession(sessionId, controller.signal).then(detail => setSession(streamed ? { ...detail, ...streamed } : detail))
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not open the session'); });
+    // Event ids increase: anything at or below the last one is a replay after a reconnect. New events are appended
+    // once per animation frame, so a long history replays in a few renders.
+    let lastId = 0, frame = 0;
+    let pending: SessionEvent[] = [];
+    const flush = () => { frame = 0; const batch = pending; pending = []; setEvents(current => [...current, ...batch]); };
     // Leaving the page closes only this stream; the session keeps running.
     const stream = new EventSource(sessionEventsUrl(sessionId));
     stream.addEventListener('run_event', e => {
+      setReconnecting(false);
       const event = JSON.parse((e as MessageEvent).data) as SessionEvent;
-      setEvents(current => current.some(item => item.id === event.id) ? current : [...current, event]);
+      if (event.id <= lastId) return;
+      lastId = event.id;
+      pending.push(event);
+      if (!frame) frame = requestAnimationFrame(flush);
     });
     stream.addEventListener('session', e => {
+      setReconnecting(false);
       const next = JSON.parse((e as MessageEvent).data) as SessionState;
+      streamed = next;
       setSession(current => current && { ...current, ...next });
     });
-    stream.addEventListener('closed', () => stream.close());
+    stream.addEventListener('open', () => setReconnecting(false));
+    stream.addEventListener('error', () => { if (stream.readyState !== 2) setReconnecting(true); });
+    stream.addEventListener('closed', () => { setReconnecting(false); stream.close(); });
     stream.addEventListener('unavailable', () => setError('The session stream is unavailable. Reload the page.'));
-    return () => { controller.abort(); stream.close(); };
+    return () => { controller.abort(); stream.close(); if (frame) cancelAnimationFrame(frame); };
   }, [sessionId]);
 
   async function run(action: () => Promise<void>) {
@@ -70,7 +93,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
     setMessage('');
     setNotice(result.working ? 'Queued. The agent gets your message when it finishes its current response.' : 'Sent. The agent starts a new turn with your message.');
   });
-  const stop = () => run(async () => { await stopSession(sessionId); setNotice('Stopping the current turn…'); });
+  const stop = () => run(async () => { await stopSession(sessionId); setNotice(STOPPING); });
   const close = () => run(async () => { await closeSession(sessionId); setSession(current => current && { ...current, status: 'closed' }); });
   async function save(updateExisting: boolean) {
     setBusy(true); setError(''); setNotice('');
@@ -95,6 +118,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
     {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the Claude Code worker. The session starts when the worker is running.</AlertDescription></Alert>}
     {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+    {reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
     {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
     {saved && <Alert><AlertDescription>Saved as version {saved.revision} in {saved.folder}. <Link className="underline" to={`/documents/${saved.id}`}>Open document</Link>{saved.export_error ? ` ${saved.export_error}` : ''}</AlertDescription></Alert>}
     <div className="grid gap-5 lg:grid-cols-2">

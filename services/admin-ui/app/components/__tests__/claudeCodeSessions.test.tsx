@@ -29,4 +29,5 @@ test('Docs → Sessions lists sessions with status, agent, tokens and document',
   expect(docs.getAllByRole('link').map(link => link.textContent)).toEqual(['Documents', 'Prompts', 'Generate documents', 'Sessions', 'Folders']);
   expect(docs.getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/documentation/sessions');
   expect(screen.getByRole('heading', { name: 'Documentation sessions' })).toBeVisible();
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);  // the layout's heading only
 });

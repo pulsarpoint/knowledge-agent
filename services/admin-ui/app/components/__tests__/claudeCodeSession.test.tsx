@@ -50,7 +50,7 @@ test('the session page streams activity, sends messages, stops, saves the draft 
   expect(screen.getByText('Working')).toBeVisible();
   expect(screen.queryByText(/Waiting for the Claude Code worker/)).toBeNull();
   const activity = within(screen.getByRole('region', { name: 'Agent activity' }));
-  expect(activity.getByText('Document the payments API.')).toBeVisible();
+  expect(await activity.findByText('Document the payments API.')).toBeVisible();  // appended once per animation frame
   expect(activity.getByText('Start with the routes.')).toBeVisible();
   expect(activity.getByText('/work/data/code/app/main.py')).toBeVisible();
   expect(activity.getAllByText(/drwxr-xr-x app/)).toHaveLength(1);  // a replayed event is shown once
@@ -61,12 +61,14 @@ test('the session page streams activity, sends messages, stops, saves the draft 
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
   await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/stop'));
+  expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
   act(() => {
     stream.emit('run_event', { id: 5, turn: 1, seq: 7, kind: 'message', payload: { text: '# Payments API' } });
     stream.emit('session', { ...state, status: 'waiting', turns: 1, worker_active: true, queued: 0, draft: '# Payments API\n\nRetries back off.',
       draft_turn: 1, input_tokens: 1050, output_tokens: 40, cached_tokens: 900 });
   });
   expect(screen.getByText('Waiting for you')).toBeVisible();
+  expect(screen.queryByText('Stopping the current turn…')).toBeNull();  // the status changed: the notice is stale
   expect(within(screen.getByRole('region', { name: 'Draft' })).getByTestId('markdown')).toHaveTextContent('# Payments API Retries back off.');
   expect(screen.getByText('In 1,050 · Out 40 · Cached 900')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
@@ -81,4 +83,39 @@ test('the session page streams activity, sends messages, stops, saves the draft 
   expect(screen.getByText('Finished')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   expect(stream.close).toHaveBeenCalled();
+});
+
+test('a replayed batch of events is shown once and a stale session load does not undo the stream', async () => {
+  let resolve: (response: Response) => void = () => {};
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(done => { resolve = done; })));
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
+  vi.stubGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  const [stream] = Stream.instances;
+  const batch = [1, 2, 3].map(id => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } }));
+  act(() => {
+    stream.emit('session', { ...state, status: 'working', turns: 1, worker_active: true, queued: 0 });
+    batch.forEach(event => stream.emit('run_event', event));
+  });
+  await act(async () => { resolve(Response.json(detail)); });  // loaded after the stream said working: still working
+  expect(await screen.findByText('Working')).toBeVisible();
+  act(() => {  // the stream reconnects and replays from an earlier id
+    stream.dispatchEvent(new Event('error'));
+  });
+  expect(await screen.findByText('Reconnecting…')).toBeVisible();
+  act(() => {
+    [...batch, { id: 4, turn: 1, seq: 4, kind: 'message', payload: { text: 'Message 4' } }].forEach(event => stream.emit('run_event', event));
+  });
+  const activity = within(screen.getByRole('region', { name: 'Agent activity' }));
+  expect(await activity.findByText('Message 4')).toBeVisible();
+  for (const id of [1, 2, 3, 4]) expect(activity.getAllByText(`Message ${id}`)).toHaveLength(1);
+  expect(screen.queryByText('Reconnecting…')).toBeNull();
+});
+
+test('the session page has one page heading, the session title', async () => {
+  const { default: AdminLayout } = await import('../AdminLayout');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/claude-code/') ? Response.json(detail) : Response.json({ is_admin: true })));
+  render(<MemoryRouter initialEntries={['/documentation/sessions/s1']}><AdminLayout><ClaudeCodeSessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
 });

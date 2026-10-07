@@ -53,6 +53,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsPrompts = pathname.startsWith('/documentation/prompts');
   const docsHistory = pathname.startsWith('/documentation/generations');
   const docsSessions = pathname.startsWith('/documentation/sessions');
+  const sessionPage = /^\/documentation\/sessions\/[^/]+/.test(pathname);  // its own heading is the session title
   const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
   const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documentation" : docsSessions ? "Documentation sessions" : docsFolders ? "Documentation folders" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Administration";
@@ -116,7 +117,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <SidebarInset>
       <header className="flex h-16 items-center gap-3 border-b px-6"><SidebarTrigger /><span className="text-sm text-muted-foreground">Administration</span></header>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
-        {!docsHistory && <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>}
+        {!docsHistory && !sessionPage && <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>}
         {children}
       </main>
     </SidebarInset>

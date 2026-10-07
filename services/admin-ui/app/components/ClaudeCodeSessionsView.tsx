@@ -19,9 +19,8 @@ export default function ClaudeCodeSessionsView() {
     return () => controller.abort();
   }, [offset]);
   return <div className="flex flex-col gap-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-semibold">Sessions</h1>
+    <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-muted-foreground">Interactive documentation sessions with Claude Code agents. Leaving a session page does not stop it. Sessions idle for 24 hours are closed; their history is kept.</p>
       <Button asChild><Link to="/documentation/generations/new?scope=agent">New session</Link></Button></div>
-    <p className="text-muted-foreground">Interactive documentation sessions with Claude Code agents. Leaving a session page does not stop it. Sessions idle for 24 hours are closed; their history is kept.</p>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {rows === null ? <Skeleton className="h-40" /> : <Table><TableHeader><TableRow><TableHead>Session</TableHead><TableHead>Status</TableHead><TableHead>Agent</TableHead>
       <TableHead>Tokens</TableHead><TableHead>Document</TableHead><TableHead>Last activity</TableHead></TableRow></TableHeader><TableBody>
