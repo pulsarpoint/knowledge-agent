@@ -69,3 +69,9 @@ def test_claude_code_agents_stay_out_of_native_runs(store, saved_agent):
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
+
+
+def test_the_claude_code_tool_names_are_defined_once():
+    from knowledge_admin.claude_code import ALLOWED_TOOLS
+    from knowledge_admin.knowledge_agents.config import CLAUDE_CODE_TOOLS
+    assert ALLOWED_TOOLS is CLAUDE_CODE_TOOLS and CLAUDE_CODE_TOOLS == ('Read', 'Grep', 'Glob', 'Bash')

@@ -1,10 +1,12 @@
 """Claude Code sessions: fixed tools, the built-in system prompt, the first message and idle closing (admin-api and worker)."""
 from typing import Any
 
+from knowledge_admin.knowledge_agents.config import CLAUDE_CODE_TOOLS
+
 SYSTEM_PROMPT = ('You are an expert technical writer. You explore the provided folders and context to write accurate '
                  'documentation; everything you state must be grounded in what you read.')
 BUILT_IN_PROMPT_TITLE = 'Built-in documentation writer'  # prompt version 1 of agents created before 0072
-ALLOWED_TOOLS = ('Read', 'Grep', 'Glob', 'Bash')
+ALLOWED_TOOLS = CLAUDE_CODE_TOOLS  # the four tools a Claude Code agent can be given, defined once
 DISALLOWED_TOOLS = ('Edit', 'Write', 'NotebookEdit', 'Agent', 'Task', 'Skill', 'WebFetch', 'WebSearch', 'TodoWrite')
 FINAL_ANSWER = ('When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. '
                 'After each later message, reply again with the complete updated document.')
