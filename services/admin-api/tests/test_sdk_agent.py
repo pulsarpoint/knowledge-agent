@@ -55,6 +55,9 @@ def responses_api():
             if 'SHELL_TOOL_CYCLE' in json.dumps(body['input']) and not any(item.get('type')=='function_call_output' for item in body['input']):
                 output = [{'id':'fc_shell','type':'function_call','call_id':'shell-call','name':'shell_run',
                     'arguments':json.dumps({'command':"python -c \"print('SHELL_FIXTURE_RESULT')\"",'timeout_seconds':5}), 'status':'completed'}]
+            if 'FILES_TOOL_CYCLE' in json.dumps(body['input']) and not any(item.get('type')=='function_call_output' for item in body['input']):
+                output = [{'id':'fc_list','type':'function_call','call_id':'list-call','name':'list_files',
+                    'arguments':'{}', 'status':'completed'}]
             events = [
                 {'type': 'response.created', 'response': {'id': 'resp_fixture', 'status': 'in_progress', 'output': []}},
                 {'type': 'response.output_item.done', 'output_index': 0, 'item': output[0]},

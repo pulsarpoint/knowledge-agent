@@ -17,6 +17,7 @@ from knowledge_admin import claude_code_worker, run_record
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
+from knowledge_admin.knowledge_agents.history import HistorySession
 from test_claude_code_runner import done, events, post, session_row, wait_for
 from test_claude_code_sessions import native_agent, sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -509,3 +510,32 @@ def test_the_worker_script_is_installed():
     pyproject = Path(__file__).resolve().parents[1] / 'pyproject.toml'
     scripts = tomllib.loads(pyproject.read_text())['project']['scripts']
     assert scripts['knowledge-agent-session-worker'] == 'knowledge_admin.knowledge_agents.native_sessions:main'
+
+
+def test_a_comment_stays_in_place_in_the_real_sdk_input_and_history(config, responses_api):
+    """agent() with the Comments filter and a real tool call: the comment delivered before the second model request
+    is in its input exactly once, and the turn's history holds it between the tool output and the answer."""
+    _, requests = responses_api
+
+    class Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def queued_comments(self, number, on_delivered=None):
+            self.calls += 1
+            return ['Also cover retries.'] if self.calls == 2 else []
+
+    history = HistorySession('session', [])
+    comments = native_sessions.Comments(Runner(), 1, None, history)
+    result = asyncio.run(agent(config, 'FILES_TOOL_CYCLE', credentials={'model-key': 'fixture-api-secret'},
+                               session=history, max_turns=None, turn_timeout_seconds=None,
+                               call_model_input_filter=comments, stream=False))
+    assert result.final_output == 'Configured agent completed the task.'
+    first, second = (request['body']['input'] for request in requests if request['path'] == '/v1/responses')
+    note = comment('Also cover retries.')
+    assert note not in first and second.count(note) == 1
+    assert [item.get('type') for item in second[-3:]] == ['function_call', 'function_call_output', None]
+    assert second[-1] == note  # after the tool output, before the model answers
+    kinds = [item.get('type') or item.get('role') for item in history.pending]
+    assert kinds == ['user', 'function_call', 'function_call_output', 'user', 'message']
+    assert history.pending[0]['content'] == 'FILES_TOOL_CYCLE' and history.pending[3] == note
