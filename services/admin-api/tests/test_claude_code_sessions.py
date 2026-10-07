@@ -12,7 +12,6 @@ from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
 from knowledge_admin.claude_code_api import AGENT_MODEL, NO_AGENT, NO_FOLDER, NOTHING_CHOSEN
 from knowledge_admin.documents import SAME_DOCUMENT_NAME
-from knowledge_admin.knowledge_agents.native_sessions import code_roots
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
 from test_operations import setup as ssh_setup
@@ -468,24 +467,7 @@ def native_agent(client, name: str = 'Native writer', **change) -> str:
     return response.json()['id']
 
 
-def test_code_roots_add_the_session_folders_and_keep_a_switched_off_agents_projects_out():
-    config = {'name': 'Writer', 'code': {'enabled': False, 'all_projects': True, 'projects': [
-        {'id': 'own', 'name': 'Own', 'description': 'Its own', 'folder_paths': ['/c/own']}]}}
-    folders = [{'path': '/c/app', 'kind': 'code_project', 'name': 'App', 'code_project_id': 'app'},
-               {'path': '/c/app-2', 'kind': 'code_project', 'name': 'App', 'code_project_id': 'app'},
-               {'path': '/c/own', 'kind': 'code_project', 'name': 'Own', 'code_project_id': 'own'}]
-    pinned = code_roots(config, folders)
-    assert pinned['code'] == {'enabled': True, 'all_projects': False, 'projects': [
-        {'id': 'app', 'name': 'App', 'description': 'Chosen for this session.', 'folder_paths': ['/c/app', '/c/app-2']},
-        {'id': 'own', 'name': 'Own', 'description': 'Chosen for this session.', 'folder_paths': ['/c/own']}]}
-    assert config['code']['enabled'] is False  # the agent's config is not changed
-    switched_on = {**config, 'code': {**config['code'], 'enabled': True}}
-    assert [(p['id'], p['folder_paths']) for p in code_roots(switched_on, folders)['code']['projects']] == [
-        ('own', ['/c/own']), ('app', ['/c/app', '/c/app-2'])]  # its own folder is not added twice
-    assert code_roots(config, []) == config  # no folders: Code projects stays off
-
-
-def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_as_code_roots(sessions):
+def test_native_agents_start_sessions_with_their_own_config(sessions):
     client, data = sessions.client, sessions.data
     ssh_server, ssh = ssh_setup(client)  # a saved private key
     mcp = client.post('/api/mcp/servers', headers=HEADERS, json={
@@ -498,7 +480,7 @@ def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_a
     app, worker = f'{data}/code/app', f'{data}/code/worker'
     assert (session['runtime'], session['status'], session['agent_name'], session['model_name']) == (
         'openai', 'starting', 'Native writer', 'Claude')
-    assert [f['path'] for f in session['context_snapshot']['folders']] == [app, worker]  # chosen, then its own
+    assert [f['path'] for f in session['context_snapshot']['folders']] == [worker]  # its own code projects only
     assert set(session['prompt_snapshot']) == {'system_prompt', 'agent_version'}  # no Claude Code tools
     assert session['prompt_snapshot']['system_prompt'].startswith('You document systems.')
     assert session['inputs'][0]['text'].startswith(f'Document the following.\n\n## Code\n- Payments API — {app}')
@@ -512,7 +494,7 @@ def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_a
     pinned = row['agent_config']
     assert (pinned['id'], pinned['runtime'], pinned['model']['id']) == (agent, 'openai', sessions.claude)
     assert pinned['code']['enabled'] is True and [(p['name'], p['folder_paths']) for p in pinned['code']['projects']] == [
-        ('Payments worker', [worker]), ('Payments API', [app])]
+        ('Payments worker', [worker])]
     assert pinned['model']['api_key_ref']['id'] == sessions.claude  # a reference: nothing is decrypted here
     [pinned_ssh], [pinned_mcp] = pinned['ssh']['servers'], pinned['mcp']['servers']
     assert pinned_ssh['private_key_ref']['id'] and pinned_mcp['bearer_token_ref']['id']  # references only

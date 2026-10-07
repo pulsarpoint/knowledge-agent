@@ -10,10 +10,9 @@ from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
 from knowledge_admin.agents import create_agent
-from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES, get_agent_config, require_run_resources
+from knowledge_admin.knowledge_agents.config import get_agent_config, require_run_resources
 from knowledge_admin.profiles_api import COORDINATOR_FIXED
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_claude_code_sessions import refused, sessions  # noqa: F401  (fixture)
 from test_profiles import update, wizard_payload
 from test_repositories import HEADERS
 
@@ -135,9 +134,3 @@ def test_a_per_run_agent_never_runs_with_its_whole_selection(store, saved_agent)
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
 
-
-def test_generate_documents_refuses_per_run_agents_until_runs_pass_resources(sessions):
-    """Replaced in Task 5, when Generate documents passes run resources."""
-    with sessions.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (sessions.agent,))
-    assert refused(sessions) == NO_RUN_RESOURCES

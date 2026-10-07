@@ -30,7 +30,7 @@ FAILED = 'Agent execution failed (RuntimeError). Check the model connection and 
 @pytest.fixture
 def native(sessions, monkeypatch):
     """A native writer with the Claude model and the Payments worker as its own code project, and a session that
-    documents the Payments API code project and the prod-1 server."""
+    documents the Payments API code project (named in the first message) and the prod-1 server."""
     monkeypatch.setattr(run_record, '_store', sessions.store)
     monkeypatch.setattr(claude_code_worker, 'reclaim_slot', lambda session_id, slot: None)
     agent_id = native_agent(sessions.client, model_id=sessions.claude, repositories_enabled=True,
@@ -96,7 +96,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert first['credentials'] == {sessions.claude: KEY}  # decrypted in the worker, for this turn
     assert 'record' not in first['config']
     code = first['config']['code']
-    assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/worker'], [f'{data}/code/app']]
+    assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/worker']]
     row = session_row(store, sid)
     assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'], row['cached_tokens'],
             row['cost_usd']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40, 0)

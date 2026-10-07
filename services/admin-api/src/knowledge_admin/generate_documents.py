@@ -22,7 +22,7 @@ def _in_order(rows: list[dict], ids: list[UUID], what: str) -> list[dict]:
 
 
 def subjects(conn, project: UUID, value) -> dict:
-    """The chosen code projects, environments, services and servers with what the message says about them. Code project
+    """The chosen code projects, collections, environments, services and servers with what the message says about them. Code project
     folders are container paths under CODE_ROOT; archived code projects are never linked."""
     code_root: list[PurePosixPath] = []
 
@@ -40,6 +40,9 @@ def subjects(conn, project: UUID, value) -> dict:
     for item in code:
         if not item['folder_paths']:
             raise HTTPException(400, f"The code project {item['name']} has no folders.")
+    collections = _in_order(conn.execute('''SELECT id,name,description FROM ka.rag_collections
+        WHERE project_id=%s AND id=ANY(%s) AND deleted_at IS NULL''', (project, value.collection_ids)).fetchall(),
+        value.collection_ids, 'collections')
     environments = _in_order(conn.execute('''SELECT id,name,description,services,servers FROM ka.environment_assets
         WHERE project_id=%s AND id=ANY(%s)''', (project, value.environment_ids)).fetchall(), value.environment_ids, 'environments')
     services = _in_order(conn.execute('''SELECT id,name,description,deployments FROM ka.service_assets
@@ -71,6 +74,7 @@ def subjects(conn, project: UUID, value) -> dict:
 
     return jsonable_encoder({
         'code_projects': [{'id': item['id'], 'name': item['name'], 'paths': paths(item['folder_paths'])} for item in code],
+        'collections': [{'id': c['id'], 'name': c['name'], 'description': c['description']} for c in collections],
         'environments': [{'id': e['id'], 'name': e['name'], 'description': e['description'],
                           'servers': [f"{s['name']} ({s['hostname']})" for s in e['servers']],
                           'services': [s['name'] for s in e['services']], 'deployments': deployments.get(e['id'], []),
@@ -103,6 +107,9 @@ def first_message(context: dict[str, Any]) -> str:
     if context['code_projects']:
         sections.append('## Code\n' + '\n'.join(
             f"- {_flat(p['name'])} — {', '.join(map(_flat, p['paths']))}" for p in context['code_projects']))
+    if context.get('collections'):
+        sections.append('## Documents\n' + '\n'.join(
+            _line(c['name'], c['description'], []) for c in context['collections']))
     if context['environments']:
         sections.append('## Environments\n' + '\n'.join(_line(e['name'], e['description'], [
             ('servers: ', e['servers']), ('services: ', e['services']), ('deployments: ', e['deployments']),
