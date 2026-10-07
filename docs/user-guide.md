@@ -640,7 +640,7 @@ the summary in one record) and Generate documents sessions. Each record shows, i
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers `test`, `board` and `claude_code`; you can also filter by user. **Full record** links lead here from each reply in
+characters. The run type filter offers **Agent test**, **Board task** and **Claude Code** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
 an agent's Test tab, from a board task, and from each Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
 
