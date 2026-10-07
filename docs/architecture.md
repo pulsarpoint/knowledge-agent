@@ -128,9 +128,11 @@ lease. Isolation:
   `CLAUDE_CODE_MAX_SESSIONS`), and `knowledge-claude-cli` runs the CLI as that slot's
   user (`claude1`..`claude8`), so one session cannot read another's process environment
   or files. HOME is per session (`/home/claude/sessions/<id>`, 0700); before dropping
-  privileges the wrapper hands it to the slot's user (CAP_CHOWN only), so a resumed
-  session finds its transcript in any slot, and it kills processes an earlier session
-  left under that uid.
+  privileges the wrapper kills every process of the slot user, then hands the HOME to
+  it (CAP_CHOWN only), so a resumed session finds its transcript in any slot. When a
+  session leaves its slot (idle release, close, failure) the worker kills the slot
+  user's processes and takes the HOME back for root before the slot is reused; at
+  start it does the same for every slot and session HOME.
 - Secrets: the session's key reaches only the CLI environment; every enabled Claude
   connection's key is redacted from run events, drafts and error messages, and NUL
   characters are removed before storing.

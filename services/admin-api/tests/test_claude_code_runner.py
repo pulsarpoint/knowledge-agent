@@ -27,9 +27,14 @@ def done(text: str, **usage) -> ResultMessage:
     return ResultMessage('success', False, 'cli-session', result=text, usage=usage or None)
 
 
+RECLAIMED: list[tuple] = []
+
+
 @pytest.fixture
 def started(sessions, monkeypatch):
     monkeypatch.setattr(run_record, '_store', sessions.store)
+    RECLAIMED.clear()
+    monkeypatch.setattr(worker, 'reclaim_slot', lambda session_id, slot: RECLAIMED.append((session_id, slot)))
     return sessions, UUID(start(sessions)['id'])
 
 
@@ -424,9 +429,11 @@ def test_cli_wrapper_drops_to_the_slot_user_before_running_the_bundled_cli(monke
     monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: slot if name == 'claude2' else None)
     monkeypatch.setattr(cli, 'bundled_cli', lambda: '/venv/claude_agent_sdk/_bundled/claude')
     monkeypatch.setattr(cli, 'prepare_home', lambda home, uid, gid, os_module: calls.append(('home', home, uid, gid)))
+    monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: calls.append(('kill-slot', uid, gid)))
     cli.main(['--output-format', 'stream-json'], os_module=FakeOs(0))
-    assert calls == [('home', HOME, 1002, 1001), ('setgroups', []), ('setgid', 1001), ('setuid', 1002),
-                     ('kill', -1, cli.signal.SIGKILL, 1002),  # leftovers of an earlier session in this slot, never as root
+    assert calls == [('kill-slot', 1002, 1001),  # leftovers die before the HOME is handed to the slot user
+                     ('home', HOME, 1002, 1001), ('setgroups', []), ('setgid', 1001), ('setuid', 1002),
+                     ('kill', -1, cli.signal.SIGKILL, 1002),  # a second guard, as the slot user, never as root
                      ('execve', '/venv/claude_agent_sdk/_bundled/claude',
                       ['/venv/claude_agent_sdk/_bundled/claude', '--output-format', 'stream-json'], {
                           **PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': HOME, 'TMPDIR': HOME + '/tmp', 'LC_ALL': 'C.UTF-8',
@@ -484,6 +491,37 @@ def test_concurrent_sessions_run_in_different_slots_and_keep_their_home(started)
     assert envs[0]['KNOWLEDGE_CLAUDE_SLOT'] != envs[1]['KNOWLEDGE_CLAUDE_SLOT']  # one uid per running session
     assert {env['KNOWLEDGE_CLAUDE_SLOT'] for env in envs} <= {str(n) for n in range(1, 9)}  # at most 8 slots
     assert clients[2].options[0]['resume'] == 'cli-session'
+    assert {session for session, _ in RECLAIMED} == {first, second}  # each release took the slot and HOME back
+    first_slot = envs[0]['KNOWLEDGE_CLAUDE_SLOT'] if envs[0]['HOME'].endswith(str(first)) else envs[1]['KNOWLEDGE_CLAUDE_SLOT']
+    assert (first, int(first_slot)) in RECLAIMED
+
+
+def test_a_slot_whose_home_cannot_be_taken_back_is_not_reused(started, monkeypatch):
+    sessions, first = started
+    store = sessions.store
+    clients: list[FakeClient] = []
+
+    def refuse(session_id, slot):
+        raise OSError('busy')
+    monkeypatch.setattr(worker, 'reclaim_slot', refuse)
+
+    def factory(options):
+        client = FakeClient([[done('# Draft')], [done('# Again')]])
+        clients.append(client)
+        return client(options)
+
+    async def scenario():
+        stopped = asyncio.Event()
+        serving = asyncio.create_task(worker.serve(store, factory, stopped=stopped, worker_id='worker-1', limit=1, poll=0.02,
+                                                   idle_release=0.1))
+        await wait_for(store, first, lambda s: s['status'] == 'waiting' and s['worker_id'] is None)
+        await post(sessions, f'/api/claude-code/sessions/{first}/messages', {'text': 'Again'})
+        await asyncio.sleep(0.4)
+        stopped.set()
+        await asyncio.wait_for(serving, 5)
+
+    asyncio.run(scenario())
+    assert len(clients) == 1  # its only slot stayed out of use
 
 
 def test_every_enabled_claude_connection_key_is_redacted(started):

@@ -1,6 +1,7 @@
 """Claude Code worker building blocks: the fixed options, credentials only in the CLI environment, safe errors, run
 events and the draft of a turn."""
 from dataclasses import replace
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -200,38 +201,135 @@ def test_null_characters_never_reach_events_or_the_draft():
     assert '\x00' not in worker.safe_error('boom\x00', [])
 
 
-def test_session_home_is_handed_to_the_slot_user_without_following_links(tmp_path):
-    """own_tree needs only CAP_CHOWN: each directory is root's before it is listed, then the slot user's after."""
-    from knowledge_admin import claude_code_cli as cli
+class RecordingOs:
+    """Real lstat/listdir/mkdir on a tmp tree; chown and chmod are recorded (tests do not run as root)."""
+
+    def __init__(self, home, fail_on: str | None = None):
+        import os
+        self.home, self.calls, self.fail_on, self.os = str(home), [], fail_on, os
+
+    def lstat(self, path):
+        return self.os.lstat(path)
+
+    def listdir(self, path):
+        return self.os.listdir(path)
+
+    def mkdir(self, path, mode):
+        self.os.mkdir(path, mode)
+
+    def lchown(self, path, uid, gid):
+        relative = path.removeprefix(self.home) or '/'
+        if self.fail_on == relative and uid != 0:
+            raise PermissionError(path)
+        self.calls.append(('chown', relative, uid))
+
+    def chmod(self, path, mode):
+        self.calls.append(('chmod', path.removeprefix(self.home) or '/', mode))
+
+
+def home_tree(tmp_path):
     home = tmp_path / 'home'
     (home / '.claude/projects/app').mkdir(parents=True)
     (home / '.claude/projects/app/session.jsonl').write_text('{}')
     (home / 'link').symlink_to('/etc')
     (tmp_path / 'outside').write_text('x')
     (home / 'hard').hardlink_to(tmp_path / 'outside')
+    return home
+
+
+def test_session_home_is_taken_by_root_then_handed_to_the_slot_user_without_following_links(tmp_path):
+    """own_tree needs only CAP_CHOWN: the whole tree becomes root's (0700 folders) before anything is handed over;
+    the slot user gets the entries before their folder, the HOME last."""
+    from knowledge_admin import claude_code_cli as cli
+    home = home_tree(tmp_path)
+    fake = RecordingOs(home)
+    cli.own_tree(str(home), 1003, 1001, fake)
+    calls = fake.calls
+    tree = {'/', '/.claude', '/.claude/projects', '/.claude/projects/app', '/.claude/projects/app/session.jsonl', '/link'}
+    assert {path for kind, path, uid in calls if kind == 'chown' and uid == 1003} == tree
+    assert {path for kind, path, uid in calls if kind == 'chown' and uid == 0} == tree
+    first_handover = next(i for i, call in enumerate(calls) if call[0] == 'chown' and call[2] == 1003)
+    assert all(call[2] != 1003 for call in calls[:first_handover]) and all(
+        call[0] == 'chown' and call[2] == 1003 for call in calls[first_handover:])  # root's first, completely
+    assert calls[-1] == ('chown', '/', 1003)
+    order = [path for kind, path, uid in calls if kind == 'chown' and uid == 1003]
+    for folder in ('/.claude', '/.claude/projects', '/.claude/projects/app'):
+        assert all(order.index(path) < order.index(folder) for path in tree if path.startswith(folder + '/'))
+    assert '/hard' not in {path for _, path, _ in calls}  # another hard link: never touched
+    assert {path for kind, path, mode in calls if kind == 'chmod'} == {'/', '/.claude', '/.claude/projects', '/.claude/projects/app'}
+    taken = RecordingOs(home)
+    cli.own_tree(str(home), 0, 0, taken)  # taking back: root's only, folders 0700
+    assert {uid for kind, _, uid in taken.calls if kind == 'chown'} == {0}
+
+
+def test_a_home_that_cannot_be_prepared_fails_clearly_and_stays_roots(tmp_path, monkeypatch):
+    from knowledge_admin import claude_code_cli as cli
+    home = home_tree(tmp_path)
+    failing = RecordingOs(home, fail_on='/.claude/projects/app/session.jsonl')
+    with pytest.raises(cli.HomeError, match="This session's working folder could not be prepared"):
+        cli.own_tree(str(home), 1003, 1001, failing)
+    assert failing.calls[-2:] == [('chown', '/', 0), ('chmod', '/', 0o700)]  # the HOME is root's again
+    for limit, value in (('MAX_DEPTH', 2), ('MAX_ENTRIES', 3)):
+        monkeypatch.setattr(cli, limit, value)
+        limited = RecordingOs(home)
+        with pytest.raises(cli.HomeError):
+            cli.own_tree(str(home), 1003, 1001, limited)
+        assert all(uid == 0 for kind, _, uid in limited.calls if kind == 'chown')  # nothing handed over
+        monkeypatch.undo()
+    monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: None)
+    monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: SimpleNamespace(pw_uid=1003, pw_gid=1001))
+
+    def broken(home, uid, gid, os_module):
+        raise cli.HomeError("This session's working folder could not be prepared.")
+    monkeypatch.setattr(cli, 'prepare_home', broken)
+
+    class Root:
+        environ = {'KNOWLEDGE_CLAUDE_SLOT': '3', 'HOME': '/home/claude/sessions/0b5d2c3e-1f2a-4b5c-8d9e-0f1a2b3c4d5e'}
+
+        @staticmethod
+        def getuid():
+            return 0
+    with pytest.raises(SystemExit, match="This session's working folder could not be prepared"):
+        cli.main([], os_module=Root())
+
+
+def test_kill_slot_runs_kill_as_the_slot_user_with_a_minimal_environment():
+    from knowledge_admin import claude_code_cli as cli
+    runs = []
+    cli.kill_slot(1004, 1001, run=lambda *args, **kwargs: runs.append((args, kwargs)))
+    [(args, kwargs)] = runs
+    assert args[0][:2] == ['/bin/bash', '-c'] and 'kill -9 -1' in args[0][2]
+    assert (kwargs['user'], kwargs['group'], kwargs['extra_groups'], kwargs['env']) == (1004, 1001, [], {'PATH': '/usr/bin:/bin'})
+    assert kwargs['check'] is True
+
+
+def test_a_session_leaving_its_slot_has_the_slot_killed_then_its_home_taken_back(monkeypatch):
+    from knowledge_admin import claude_code_cli as cli
     calls = []
+    monkeypatch.setattr(cli, 'slot_ids', lambda slot: (1000 + slot, 1001))
+    monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: calls.append(('kill', uid)))
+    monkeypatch.setattr(cli, 'own_tree', lambda path, uid, gid, os_module=None: calls.append(('own', path, uid)))
+    monkeypatch.setattr(worker.os.path, 'lexists', lambda path: True)
+    worker.reclaim_slot(SESSION_ID, 3)
+    assert calls == [('kill', 1003), ('own', f'/home/claude/sessions/{SESSION_ID}', 0)]
+    calls.clear()
+    monkeypatch.setattr(worker.os.path, 'lexists', lambda path: False)  # the session never started its CLI
+    worker.reclaim_slot(SESSION_ID, 3)
+    assert calls == [('kill', 1003)]
 
-    class Os:
-        lstat, listdir, mkdir = staticmethod(__import__('os').lstat), staticmethod(__import__('os').listdir), None
 
-        @staticmethod
-        def lchown(path, uid, gid):
-            calls.append(('chown', path.removeprefix(str(home)) or '/', uid))
-
-        @staticmethod
-        def chmod(path, mode):
-            calls.append(('chmod', path.removeprefix(str(home)) or '/', mode))
-
-    cli.own_tree(str(home), 1003, 1001, Os)
-    owned = {path for kind, path, uid in calls if kind == 'chown' and uid == 1003}
-    assert owned == {'/', '/.claude', '/.claude/projects', '/.claude/projects/app', '/.claude/projects/app/session.jsonl', '/link'}
-    assert '/hard' not in {path for _, path, _ in calls}  # another hard link: never handed over
-    for folder in ('/', '/.claude', '/.claude/projects', '/.claude/projects/app'):
-        root, mode, given = calls.index(('chown', folder, 0)), calls.index(('chmod', folder, 0o700)), calls.index(('chown', folder, 1003))
-        assert root < mode < given
-        children = [i for i, (kind, path, uid) in enumerate(calls) if path.startswith(folder.rstrip('/') + '/') and path != folder]
-        assert all(mode < i < given for i in children), folder
-    assert ('chmod', '/link', 0o700) not in calls
+def test_startup_kills_every_slot_and_takes_back_every_session_home(tmp_path, monkeypatch):
+    from knowledge_admin import claude_code_cli as cli
+    sessions = tmp_path / 'sessions'
+    for name in ('a', 'b'):
+        (sessions / name).mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(cli, 'slot_ids', lambda slot: (1000 + slot, 1001))
+    monkeypatch.setattr(cli, 'kill_slot', lambda uid, gid: calls.append(('kill', uid)))
+    monkeypatch.setattr(cli, 'own_tree', lambda path, uid, gid, os_module=None: calls.append(('own', path, uid)))
+    worker.reclaim_all(str(sessions))
+    assert calls[:8] == [('kill', 1000 + slot) for slot in range(1, 9)]  # first: nothing runs while homes move
+    assert sorted(calls[8:]) == [('own', str(sessions / 'a'), 0), ('own', str(sessions / 'b'), 0)]  # not owned by root
 
 
 def test_home_root_belongs_to_root_and_hides_what_an_earlier_image_left(tmp_path, monkeypatch):

@@ -25,6 +25,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin import run_record
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.claude_code import ALLOWED_TOOLS, DISALLOWED_TOOLS, close_idle
+from knowledge_admin import claude_code_cli as cli
 from knowledge_admin.claude_code_cli import HOME_ROOT, MAX_SLOTS, SESSION_HOMES, SLOT_ENV
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import RunRecorder
@@ -476,11 +477,18 @@ async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: a
             for session_id, task in list(active.items()):
                 if task.done():
                     del active[session_id]
-                    free_slots.append(slots.pop(session_id))
+                    slot = slots.pop(session_id)
+                    try:  # nothing of this session stays readable by the next session in this slot
+                        await asyncio.to_thread(reclaim_slot, session_id, slot)
+                    except Exception as exc:
+                        logger.warning('Claude Code slot %s is kept out of use: it could not be cleared (%s)',
+                                       slot, type(exc).__name__)
+                    else:
+                        free_slots.append(slot)
                     if not task.cancelled() and task.exception() is not None:
                         logger.warning('Claude Code session %s ended with %s', session_id, type(task.exception()).__name__)
             try:
-                claimed = await asyncio.to_thread(claim, store, worker_id, list(active), limit - len(active))
+                claimed = await asyncio.to_thread(claim, store, worker_id, list(active), len(free_slots))
             except psycopg.Error as exc:
                 logger.warning('Claude Code worker database unavailable (%s); retrying', type(exc).__name__)
                 claimed = []
@@ -504,6 +512,26 @@ def secrets_from_environment() -> tuple[bytes, str]:
     key = base64.urlsafe_b64decode(os.environ.pop('CREDENTIAL_ENCRYPTION_KEY'))
     password = os.environ.pop('PGPASSWORD', None)
     return key, make_conninfo('', password=password) if password else ''
+
+
+def reclaim_slot(session_id, slot: int) -> None:
+    """A session left its slot: kill every process of the slot user, then take the session HOME back for root."""
+    uid, gid = cli.slot_ids(slot)
+    cli.kill_slot(uid, gid)
+    home = f'{SESSION_HOMES}/{UUID(str(session_id))}'
+    if os.path.lexists(home):
+        cli.own_tree(home, 0, 0)
+
+
+def reclaim_all(sessions: str = SESSION_HOMES) -> None:
+    """At start no session holds a slot: kill every slot user's processes, then take back each session HOME that is
+    not root's."""
+    for slot in range(1, MAX_SLOTS + 1):
+        cli.kill_slot(*cli.slot_ids(slot))
+    for name in os.listdir(sessions):
+        path = f'{sessions}/{name}'
+        if os.lstat(path).st_uid != 0:
+            cli.own_tree(path, 0, 0)
 
 
 def prepare_home_root(root: str = HOME_ROOT) -> None:
@@ -530,6 +558,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
     key, conninfo = secrets_from_environment()
     prepare_home_root()
+    reclaim_all()
     # The SDK's version probe would start the CLI wrapper without a slot; the bundled CLI is the SDK's own version.
     os.environ['CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK'] = '1'
     store = RepositoryStore(conninfo, key, os.environ['AUTH_ISSUER_URL'])

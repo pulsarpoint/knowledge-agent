@@ -7,7 +7,9 @@ its own uid (claude1..claude8): Bash in one session cannot read another session'
 or files. The worker passes the slot in KNOWLEDGE_CLAUDE_SLOT, which this script removes.
 
 HOME is the session's own folder, /home/claude/sessions/<session id>, so its transcript stays with the session when a
-later turn runs in another slot (resume): before dropping privileges, this script gives that folder to the slot's user.
+later turn runs in another slot (resume): before dropping privileges, this script kills what is left of the slot user's
+processes and gives that folder to the slot's user. When the session leaves its slot, the worker kills the slot user's
+processes again and takes the folder back for root (reclaim_slot), so the next session in that slot cannot read it.
 The SDK starts this script with the worker's whole environment plus the session's; only an allowlist reaches the CLI."""
 import errno
 import importlib.util
@@ -16,6 +18,7 @@ import pwd
 import re
 import signal
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,35 +63,88 @@ def session_home(value: str | None) -> str:
     return value
 
 
+MAX_DEPTH = 64
+MAX_ENTRIES = 200_000
+NOT_PREPARED = "This session's working folder could not be prepared. Start a new session."
+
+
+class HomeError(Exception):
+    """A session HOME that could not be taken or handed over; what was taken stays root's."""
+
+
+def slot_ids(slot: int) -> tuple[int, int]:
+    user = pwd.getpwnam(slot_user(str(slot)))
+    if user.pw_uid == 0:
+        raise SystemExit(f'The claude{slot} user must not be root')
+    return user.pw_uid, user.pw_gid
+
+
+def kill_slot(uid: int, gid: int, run=subprocess.run) -> None:
+    """Kill every process of a slot user: a child that is that user calls kill(-1), which spares only itself. Used
+    before a session HOME is handed to the slot user and when a session leaves its slot."""
+    run(['/bin/bash', '-c', 'kill -9 -1 2>/dev/null; exit 0'], user=uid, group=gid, extra_groups=[],
+        env={'PATH': '/usr/bin:/bin'}, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, timeout=30)
+
+
+def _take(path: str, os_module) -> list[str]:
+    """Make a tree root's, top-down, without CAP_DAC_*: each folder becomes root's (0700) before it is listed, so its
+    previous owner can no longer change it. Returns the taken paths in pre-order. Symbolic links are never followed;
+    a file with other hard links is left alone. Depth and size are limited."""
+    taken, stack = [], [(path, 0)]
+    while stack:
+        current, depth = stack.pop()
+        info = os_module.lstat(current)
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            continue
+        os_module.lchown(current, 0, 0)
+        taken.append(current)
+        if len(taken) > MAX_ENTRIES:
+            raise HomeError(f'more than {MAX_ENTRIES} entries')
+        if stat.S_ISDIR(info.st_mode):
+            os_module.chmod(current, 0o700)
+            names = os_module.listdir(current)
+            if names and depth >= MAX_DEPTH:
+                raise HomeError(f'deeper than {MAX_DEPTH} folders')
+            stack.extend((f'{current}/{name}', depth + 1) for name in sorted(names, reverse=True))
+    return taken
+
+
 def own_tree(path: str, uid: int, gid: int, os_module=os) -> None:
-    """Give a session folder to a slot user with CAP_CHOWN alone (root has no CAP_DAC_* here): each directory becomes
-    root's first, so root may list it and its previous owner can no longer change it, then its entries are handed over,
-    then the directory itself. Symbolic links are never followed; a file with other hard links is left alone."""
-    info = os_module.lstat(path)
-    if stat.S_ISDIR(info.st_mode):
-        os_module.lchown(path, 0, 0)
-        os_module.chmod(path, 0o700)
-        for name in os_module.listdir(path):
-            own_tree(f'{path}/{name}', uid, gid, os_module)
-        os_module.lchown(path, uid, gid)
-    elif not (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
-        os_module.lchown(path, uid, gid)
+    """Give a session folder to a slot user (uid 0: take it back) with CAP_CHOWN alone. The whole tree is first made
+    root's; only then are entries handed over, each before its folder and the folder itself last. On any error the
+    folder is root's again (0700) and HomeError says the session's folder could not be prepared."""
+    try:
+        taken = _take(path, os_module)
+        if uid != 0:
+            for current in reversed(taken):
+                os_module.lchown(current, uid, gid)
+    except (OSError, HomeError) as exc:
+        try:
+            os_module.lchown(path, 0, 0)
+            os_module.chmod(path, 0o700)
+        except OSError:
+            pass
+        raise HomeError(NOT_PREPARED) from exc
 
 
 def prepare_home(home: str, uid: int, gid: int, os_module=os) -> None:
     """The session's HOME with a tmp folder, owned by the slot user and private to it (0700)."""
     try:
-        os_module.mkdir(home, 0o700)
-    except FileExistsError:
-        pass
-    if not stat.S_ISDIR(os_module.lstat(home).st_mode):
-        raise SystemExit(f'{home} is not a folder')
-    os_module.lchown(home, 0, 0)  # root may now create tmp in it; the previous slot user can no longer change it
-    os_module.chmod(home, 0o700)
-    try:
-        os_module.mkdir(f'{home}/tmp', 0o700)
-    except FileExistsError:
-        pass
+        try:
+            os_module.mkdir(home, 0o700)
+        except FileExistsError:
+            pass
+        if not stat.S_ISDIR(os_module.lstat(home).st_mode):
+            raise HomeError(f'{home} is not a folder')
+        os_module.lchown(home, 0, 0)  # root may now create tmp in it; the previous slot user can no longer change it
+        os_module.chmod(home, 0o700)
+        try:
+            os_module.mkdir(f'{home}/tmp', 0o700)
+        except FileExistsError:
+            pass
+    except OSError as exc:
+        raise HomeError(NOT_PREPARED) from exc
     own_tree(home, uid, gid, os_module)
 
 
@@ -103,7 +159,11 @@ def main(argv: list[str] | None = None, *, os_module=os) -> None:
     if user.pw_uid == 0:
         raise SystemExit(f'The {name} user must not be root')
     if os_module.getuid() == 0:
-        prepare_home(home, user.pw_uid, user.pw_gid, os_module)
+        try:
+            kill_slot(user.pw_uid, user.pw_gid)  # an earlier session's leftovers die before this HOME is handed over
+            prepare_home(home, user.pw_uid, user.pw_gid, os_module)
+        except (HomeError, OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit(NOT_PREPARED) from exc
         os_module.setgroups([])
         os_module.setgid(user.pw_gid)
         os_module.setuid(user.pw_uid)
@@ -111,7 +171,7 @@ def main(argv: list[str] | None = None, *, os_module=os) -> None:
         raise SystemExit(f'Claude Code must run as {name}')
     if os_module.getgid() != user.pw_gid:
         raise SystemExit(f'Claude Code must run with the {name} group')
-    # Processes an earlier session left in this slot (a Bash job in the background) must not see this session.
+    # A second guard against processes an earlier session left in this slot (a Bash job in the background).
     try:
         os_module.kill(-1, signal.SIGKILL)  # as the slot user: every process of this uid except this one
     except OSError as exc:
