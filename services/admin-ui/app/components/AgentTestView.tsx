@@ -48,7 +48,8 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configError, setConfigError] = useState('');
   const [runOptions, setRunOptions] = useState<RunResourceOptions | null>(null);
-  const [runOptionsFailed, setRunOptionsFailed] = useState(false);
+  const [runOptionsError, setRunOptionsError] = useState('');
+  const [runOptionsRetry, setRunOptionsRetry] = useState(0);
   const [runResources, setRunResources] = useState<RunResourcesInput>(NO_RUN_RESOURCES);
   const perRun = runOptions?.resources === 'per_run';
   const request = useRef<AbortController | null>(null);
@@ -61,11 +62,18 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   }
   useEffect(() => { void refreshHistory().catch(reason => setError(reason.message)); }, [agentId]);
   useEffect(() => {
-    let live = true; setRunOptions(null); setRunOptionsFailed(false);
-    getRunResourceOptions(agentId, versionId ?? undefined).then(value => { if (live) setRunOptions(value); })
-      .catch(reason => { if (live) { setRunOptionsFailed(true); setError(reason instanceof Error ? reason.message : 'Could not load the resources for this run.'); } });
+    let live = true; setRunOptionsError('');  // the old options stay visible while these load
+    getRunResourceOptions(agentId, versionId ?? undefined).then(value => {
+      if (!live) return;
+      setRunOptions(value);
+      // keep only the choices the new options still offer
+      setRunResources(current => Object.fromEntries(RUN_RESOURCE_KINDS.map(([option, key]) => {
+        const offered = new Set((value[option] ?? []).map(item => item.id));
+        return [key, current[key].filter(id => offered.has(id))];
+      })) as unknown as RunResourcesInput);
+    }).catch(reason => { if (live) setRunOptionsError(reason instanceof Error ? reason.message : 'Could not load the resources for this run.'); });
     return () => { live = false; };
-  }, [agentId, versionId, revision]);
+  }, [agentId, versionId, revision, runOptionsRetry]);
   useEffect(() => {
     if (!sessionId) { setConversation(null); return; }
     if (streaming) return;
@@ -134,7 +142,8 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const blockReason = !available ? 'This agent is disabled. Enable it in General to run a task.' : !ready ? 'Loading agent configuration…'
     : dirty ? 'Save or discard changes in the configuration tabs before starting a task.'
     : sessionId && conversation?.id !== sessionId ? 'Loading conversation…'
-    : !sessionId && !runOptions && !runOptionsFailed ? 'Loading the resources for this run…'
+    : !sessionId && runOptionsError ? runOptionsError
+    : !sessionId && !runOptions ? 'Loading the resources for this run…'
     : conversation && conversation.status !== 'active' ? 'This session is closed or expired. Start a new session to continue.'
     : running ? null
     : busy ? 'Please wait for the current operation to finish.'
@@ -217,6 +226,10 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       {missingUsage > 0 && <p className="text-xs text-muted-foreground">Usage was not recorded for {missingUsage} {missingUsage === 1 ? 'turn' : 'turns'}.{recordedUsage.length > 0 ? ' Totals are partial.' : ''}</p>}
       {running && <p role="status" className="text-xs text-muted-foreground">Current reply’s usage is pending.</p>}
     </section>}
+    {!sessionId && runOptionsError && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">
+      <span>{runOptionsError}</span>
+      <Button variant="outline" size="sm" onClick={() => setRunOptionsRetry(count => count + 1)}>Retry</Button>
+    </AlertDescription></Alert>}
     {perRun && !sessionId && <section aria-label="Resources for this run" className="flex flex-col gap-3 rounded-lg border p-3">
       <div><p className="text-sm font-medium">Resources for this run</p>
         <p className="text-xs text-muted-foreground">This agent works only with what you choose here. The choice is fixed for the conversation, like its configuration.</p></div>
@@ -232,8 +245,9 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
             <FieldLabel htmlFor={`run-${key}-${item.id}`}>{item.name}</FieldLabel></Field>)}
         </FieldSet>;
       })}
+      {RUN_RESOURCE_KINDS.every(([, key]) => runResources[key].length === 0) && <p className="text-xs text-muted-foreground">Nothing chosen: the agent’s tools will have nothing to work on</p>}
     </section>}
-    {perRun && conversation && <p aria-label="Resources for this run" className="text-xs text-muted-foreground">Resources for this run: {runSummary(conversation.config)}</p>}
+    {conversation && 'run_resources' in conversation.config && <p aria-label="Resources for this run" className="text-xs text-muted-foreground">Resources for this run: {runSummary(conversation.config)}</p>}
     {sessionId && !conversation && !error && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Loading conversation…</p>}
     <Conversation key={sessionId ?? legacy?.id ?? 'new'} messages={messages}
       className="h-[calc(100dvh-22rem)] min-h-96"

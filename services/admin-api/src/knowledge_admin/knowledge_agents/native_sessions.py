@@ -11,7 +11,7 @@ import logging
 import os
 import signal
 import socket
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from typing import Any
 
@@ -75,14 +75,16 @@ def _arguments(raw: str) -> Any:
 
 class SessionEvents(RunHooks):
     """A native turn's SDK lifecycle as the run events of a Claude Code turn: instructions (first turn), reasoning,
-    message, tool_call with a summary, tool_result with a preview, and one usage event for the turn (finish). Every
-    hook flushes, so the session page follows the turn live. The recorder redacts every event with `secrets`; tool
-    output is also cleaned before it is capped, so no partial key survives the cut."""
+    message, tool_call with a summary, tool_result with a preview, and a usage event for each model call. Every hook
+    flushes, so the session page follows the turn live; after a model call, `record_usage(usage)` (the runner) writes
+    the events together with the call's tokens on the session, so its totals rise with every call. `usage` sums the
+    turn's calls. The recorder redacts every event with `secrets`; tool output is also cleaned before it is capped, so
+    no partial key survives the cut."""
 
-    def __init__(self, recorder, *, secrets: list[str], first: bool):
-        self.recorder, self.secrets, self.first = recorder, secrets, first
+    def __init__(self, recorder, *, secrets: list[str], first: bool,
+                 record_usage: Callable[[dict[str, Any]], None] | None = None):
+        self.recorder, self.secrets, self.first, self.record_usage = recorder, secrets, first, record_usage
         self.texts: list[str] = []
-        self.calls = 0
         self.closed = False  # the turn ended: a turn that outlived Stop records nothing more and starts no tool call
         self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'total_tokens': 0, 'cost_usd': 0.0}
 
@@ -118,12 +120,16 @@ class SessionEvents(RunHooks):
                                                 'summary': summary(item.name, arguments)})
         usage = response.usage
         details = getattr(usage, 'input_tokens_details', None)
-        self.usage['input_tokens'] += int(usage.input_tokens or 0)
-        self.usage['output_tokens'] += int(usage.output_tokens or 0)
-        self.usage['cached_tokens'] += int(getattr(details, 'cached_tokens', 0) or 0)
-        self.usage['total_tokens'] += int(usage.total_tokens or 0)
-        self.calls += 1
-        await self._flush()
+        call = {'input_tokens': int(usage.input_tokens or 0), 'output_tokens': int(usage.output_tokens or 0),
+                'cached_tokens': int(getattr(details, 'cached_tokens', 0) or 0),
+                'total_tokens': int(usage.total_tokens or 0), 'cost_usd': 0.0}
+        for key, value in call.items():
+            self.usage[key] += value
+        self.recorder.add('usage', call)
+        if self.record_usage is None:
+            await self._flush()
+        else:
+            await asyncio.to_thread(self.record_usage, call)
 
     async def on_tool_start(self, context, agent, tool) -> None:
         # The SDK calls this before the tool runs: a turn that outlived Stop starts no new tool call (shell_run,
@@ -141,11 +147,6 @@ class SessionEvents(RunHooks):
             'preview': capped('\n'.join(output.splitlines()[:PREVIEW_LINES]), MAX_PREVIEW_CHARS),
             'is_error': tool_failed(output)})
         await self._flush()
-
-    def finish(self) -> None:
-        """The turn's one usage event (sums of its model calls); none when no model call finished."""
-        if self.calls:
-            self.recorder.add('usage', dict(self.usage))
 
     def draft(self, final_output: Any) -> str:
         """The final answer, or the last message when the answer is empty."""
@@ -252,6 +253,17 @@ class NativeRunner(shared.SessionRunner):
         config.pop('record', None)  # the turn's events are recorded here, not by agent()
         return config, load_credentials(self.store, config), history
 
+    def add_usage(self, recorder: RunRecorder, usage: dict[str, Any]) -> None:
+        """One model call: its events and its tokens on the session, in one transaction, while this worker holds the
+        session (as finish_turn), so the session page's totals rise during the turn."""
+        with self.store.connect() as conn:
+            recorder.flush_in(conn)
+            conn.execute('''UPDATE ka.agent_sessions_cc SET input_tokens=input_tokens+%(input)s,
+                output_tokens=output_tokens+%(output)s, cached_tokens=cached_tokens+%(cached)s,
+                cost_usd=cost_usd+%(cost)s::numeric, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s''',
+                {'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
+                 'cost': usage['cost_usd'], 'id': self.id, 'worker': self.worker_id})
+
     async def run_turn(self, number: int, text: str) -> None:
         # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
         secrets: list[str] = []
@@ -262,7 +274,8 @@ class NativeRunner(shared.SessionRunner):
                                'turn': number})
         recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
-        events = SessionEvents(recorder, secrets=secrets, first=number == 1)
+        events = SessionEvents(recorder, secrets=secrets, first=number == 1,
+                               record_usage=lambda usage: self.add_usage(recorder, usage))
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
@@ -283,7 +296,6 @@ class NativeRunner(shared.SessionRunner):
             if comments is not None:
                 comments.closed = True
                 await comments.settle()
-            events.finish()
             recorder.add('end', {'status': END_STATUS[status]})
             recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)
@@ -293,7 +305,8 @@ class NativeRunner(shared.SessionRunner):
             # the comments delivered inside the turn stay delivered and its history is not saved. A session closed
             # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
-            await asyncio.to_thread(self.finish_turn, number, status, message, usage=events.usage, commit=commit,
+            # usage=None: every model call already added its tokens (add_usage)
+            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit,
                                     draft=clean_text(events.draft(final), secrets))
         finally:
             if history is not None:

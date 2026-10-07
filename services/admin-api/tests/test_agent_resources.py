@@ -153,3 +153,25 @@ def test_the_list_says_what_a_per_run_agent_accepts(store, saved_agent):
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET documents_enabled=false,services_enabled=false WHERE id='operations'")
     assert listed(client)['operations']['accepts'] == expected
+
+
+def test_the_list_counts_only_servers_a_run_may_use(store, saved_agent):
+    """As run resource options: a server counts when it is enabled and allows SSH."""
+    client = saved_agent[0]
+
+    def servers() -> int:
+        return next(item['limit'] for item in listed(client)['operations']['accepts'] if item['kind'] == 'servers')
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
+    assert servers() == 1
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.servers SET ssh_allowed=false")
+    assert servers() == 0
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.servers SET ssh_allowed=true, enabled=false")
+        conn.execute("DELETE FROM ka.agent_server_connections WHERE agent_id='operations'")
+    assert servers() == 0
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.servers SET enabled=true, ssh_allowed=false")
+    new_version(client, 'No SSH')  # the active version's snapshot decides
+    assert servers() == 0

@@ -82,6 +82,10 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
   function offered(kind: Kind): Item[] | null {
     const items = data?.items[kind] ?? [];
     const runKind = RUN_KIND[kind];
+    if (perRun && kind === 'environments') {  // an environment brings code projects, servers and services
+      if (!runOptions) return [];  // still loading
+      return (['code_projects', 'servers', 'services'] as const).some(key => runOptions[key]) ? items : null;
+    }
     if (!perRun || !runKind) return items;
     const allowed = runOptions?.[runKind];
     if (allowed === undefined) return [];  // still loading

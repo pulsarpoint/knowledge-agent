@@ -104,22 +104,23 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
                               {'role': 'assistant', 'content': '# Payments API\n\nShort.'}]
     recorded = events(store, sid)
     turn1 = [e for e in recorded if e['run_key'] == f'cc:{sid}:1']
-    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'tool_result', 'message',
-                                          'usage', 'end']
+    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
+                                          'message', 'usage', 'end']
     assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Payments – API reference', 'agent': 'Native writer',
                                    'turn': 1}
     assert turn1[1]['payload'] == {'task': first['task']}  # no empty history from agent()'s own run record
     assert turn1[2]['payload']['text'] == 'Native prompt for Native writer'
-    assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[4]['payload']['preview'] == 'import app'
-    assert turn1[-2]['payload'] == {'input_tokens': 220, 'output_tokens': 40, 'cached_tokens': 40, 'total_tokens': 260,
-                                    'cost_usd': 0.0}
+    assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
+    assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
+        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'total_tokens': 110, 'cost_usd': 0.0},
+        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'total_tokens': 150, 'cost_usd': 0.0}]
     assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == ['start', 'input', 'message', 'usage', 'end']
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']
     assert [(r['run_key'], r['status'], r['agent'], r['total_tokens']) for r in runs] == [
         (f'cc:{sid}:2', 'completed', 'Native writer', 58), (f'cc:{sid}:1', 'completed', 'Native writer', 260)]
     page = sessions.client.get(url + '/events/history', headers=HEADERS).json()['events']
-    assert [e['kind'] for e in page if e['turn'] == 1][3:5] == ['tool_call', 'tool_result']
+    assert [e['kind'] for e in page if e['turn'] == 1][3:6] == ['tool_call', 'usage', 'tool_result']
     assert 'output' not in next(e['payload'] for e in page if e['kind'] == 'tool_result')  # the page gets the preview
 
 
@@ -156,6 +157,58 @@ def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     recorded = events(store, sid)
     assert [e['payload']['status'] for e in recorded if e['kind'] == 'end'] == ['completed', 'failed', 'stopped']
     assert [e['payload']['message'] for e in recorded if e['kind'] == 'error'] == [FAILED]
+
+
+def test_session_tokens_rise_after_every_model_call_and_count_once(native):
+    """The session page's In/Out/Cached follow the turn live; the end of the turn adds nothing more, and a stopped turn
+    keeps the tokens of its finished model calls."""
+    sessions, sid = native
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    reached, go = [asyncio.Event() for _ in range(4)], [asyncio.Event() for _ in range(4)]
+
+    def pause(n: int):
+        async def step(turn):
+            reached[n].set()
+            await go[n].wait()
+        return step
+    fake = FakeAgent([
+        {'steps': [llm(call('c1', 'read_file', {'path': 'a'}), input_tokens=100, output_tokens=10, cached=40), pause(0),
+                   tool('c1', 'read_file', 'a'),
+                   llm(call('c2', 'read_file', {'path': 'b'}), input_tokens=200, output_tokens=20, cached=80), pause(1),
+                   tool('c2', 'read_file', 'b'),
+                   llm(message('# Docs'), input_tokens=300, output_tokens=30), pause(2)],
+         'answer': '# Docs'},
+        {'steps': [llm(call('c3', 'read_file', {'path': 'c'}), input_tokens=7, output_tokens=3), pause(3),
+                   hang('tool', asyncio.Event(), [])], 'answer': 'never reached'}])
+
+    def tokens(row: dict) -> tuple:
+        return row['input_tokens'], row['output_tokens'], row['cached_tokens']
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        seen = []
+        for n in range(3):
+            await asyncio.wait_for(reached[n].wait(), 5)
+            row = session_row(store, sid)
+            seen.append((row['status'], *tokens(row)))
+            go[n].set()
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        ended = tokens(session_row(store, sid))
+        await post(sessions, url + '/messages', {'text': 'More.'})
+        await asyncio.wait_for(reached[3].wait(), 5)
+        go[3].set()
+        assert (await post(sessions, url + '/stop')).status_code == 202
+        stopped = await wait_for(store, sid, lambda s: s['status'] == 'stopped')
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+        return seen, ended, tokens(stopped)
+
+    seen, ended, stopped = asyncio.run(scenario())
+    assert seen == [('working', 100, 10, 40), ('working', 300, 30, 120), ('working', 600, 60, 120)]
+    assert ended == (600, 60, 120)  # the sum of the model calls, exactly once
+    assert stopped == (607, 63, 120)
+    recorded = events(store, sid)
+    assert sum(e['payload']['total_tokens'] for e in recorded if e['kind'] == 'usage') == 670
 
 
 @pytest.mark.parametrize('where', ['connect', 'model', 'tool'])
@@ -298,9 +351,9 @@ def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     assert second['history'] == [{'role': 'user', 'content': first['task']}, note,
                                  {'role': 'assistant', 'content': '# Docs'}]
     turn1 = [e for e in events(store, sid) if e['run_key'] == f'cc:{sid}:1']
-    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'tool_result', 'input',
-                                          'tool_call', 'tool_result', 'message', 'usage', 'end']
-    assert turn1[5]['payload'] == {'task': 'Also cover retries.', 'comment': True}
+    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
+                                          'input', 'tool_call', 'usage', 'tool_result', 'message', 'usage', 'end']
+    assert turn1[6]['payload'] == {'task': 'Also cover retries.', 'comment': True}
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'delivered', 1), ('Shorten it.', 'delivered', 2)]
 
 
