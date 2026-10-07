@@ -10,7 +10,7 @@ import * as prompts from '../../lib/prompts';
 import * as llm from '../../lib/llm';
 import * as profiles from '../../lib/profiles';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn() }));
+vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
 vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })), getCodeMCP: vi.fn(async () => ({ revision: 1, mcp_server_ids: [] })), saveCodeMCP: vi.fn() }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
 vi.mock('../OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
@@ -34,6 +34,7 @@ beforeEach(() => {
   vi.mocked(profiles.getAgents).mockImplementation(async () => ({ agents: structuredClone(agents) }));
   vi.mocked(profiles.getAgent).mockImplementation(async id => structuredClone(agents.find(a => a.id === id)!));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 });
 });
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} /></Routes></AdminLayout></MemoryRouter>; }
@@ -258,4 +259,37 @@ test('agent removal requires confirmation and preserves the record on conflicts'
   expect(screen.getByRole('alertdialog')).toBeVisible();
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
   expect(screen.queryByRole('button', { name: 'Remove Payments code' })).not.toBeInTheDocument();
+  expect(await screen.findByText('Agent Payments code removed')).toBeVisible();
+});
+
+test('an agent with history lists it and is deleted with it only on the destructive action', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, chats: 0, claude_code_sessions: 1, runs: 3, board_tasks: 1, board_memberships: 0 });
+  vi.mocked(profiles.deleteAgent).mockResolvedValue(undefined);
+  render(app('/agents'));
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
+  const dialog = screen.getByRole('alertdialog');
+  expect(await within(dialog).findByText('2 test chats, 1 Claude Code session, 3 runs, 1 board task')).toBeVisible();
+  expect(profiles.getAgentHistory).toHaveBeenCalledWith('custom-code');
+  expect(dialog).toHaveTextContent('Saved documents are kept.');
+  expect(within(dialog).queryByRole('button', { name: 'Remove agent' })).toBeNull();
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(profiles.deleteAgent).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Remove Payments code' }));
+  await user.click(await within(screen.getByRole('alertdialog')).findByRole('button', { name: 'Delete agent and history' }));
+  expect(profiles.deleteAgent).toHaveBeenCalledWith('custom-code', 1, true);
+  expect(screen.queryByRole('button', { name: 'Remove Payments code' })).not.toBeInTheDocument();
+  expect(await screen.findByText('Agent Payments code and its history deleted')).toBeVisible();
+});
+
+test('a delete refused because history appeared meanwhile shows that history', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 })
+    .mockResolvedValue({ test_chats: 0, chats: 1, claude_code_sessions: 0, runs: 1, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error('This agent has sessions or run history.'));
+  render(app('/agents'));
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
+  expect(await within(screen.getByRole('alertdialog')).findByText('1 chat, 1 run')).toBeVisible();
+  expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete agent and history' })).toBeEnabled();
 });

@@ -37,5 +37,16 @@ export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
 };
 export const saveProfileModel = (value: AgentProfile, model_id: string | null) => request<AgentProfile>(path(value.id) + '/model', json('PUT', { revision: value.revision, model_id }));
 
-export const deleteAgent = (id: string, revision: number) => request<void>(path(id), json('DELETE', { revision, confirmed: true }));
+export const deleteAgent = (id: string, revision: number, withHistory = false) =>
+  request<void>(path(id), json('DELETE', { revision, confirmed: true, ...(withHistory ? { with_history: true } : {}) }));
+/** What deleting an agent with its history removes; saved documents are kept. */
+export interface AgentHistory { test_chats: number; chats: number; claude_code_sessions: number; runs: number; board_tasks: number; board_memberships: number }
+export const getAgentHistory = (id: string) => request<AgentHistory>(path(id) + '/history');
+const HISTORY_LABELS: [keyof AgentHistory, string, string][] = [
+  ['test_chats', 'test chat', 'test chats'], ['chats', 'chat', 'chats'], ['claude_code_sessions', 'Claude Code session', 'Claude Code sessions'],
+  ['runs', 'run', 'runs'], ['board_tasks', 'board task', 'board tasks'], ['board_memberships', 'board membership', 'board memberships'],
+];
+/** "2 test chats, 1 Claude Code session, 3 runs"; empty when the agent has no history. */
+export const describeHistory = (history: AgentHistory) =>
+  HISTORY_LABELS.filter(([key]) => history[key] > 0).map(([key, one, many]) => `${history[key]} ${history[key] === 1 ? one : many}`).join(', ');
 

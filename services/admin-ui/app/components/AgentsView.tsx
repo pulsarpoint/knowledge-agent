@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams, useLocation } from 'react-router';
 import { ArrowRight, Sparkles, Trash2 } from 'lucide-react';
 import AgentWizard from './AgentWizard';
-import { agentTypeLabel, deleteAgent, getAgents, type AgentSummary } from '../lib/profiles';
+import { toast } from 'sonner';
+import { agentTypeLabel, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from '../lib/profiles';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
-import { Button } from '~/components/ui/button';
+import { Button, buttonVariants } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { Skeleton } from '~/components/ui/skeleton';
@@ -22,17 +23,32 @@ export default function AgentsView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  // What would go with the agent: undefined while checking, '' without history (or when it could not be checked).
+  const [history, setHistory] = useState<string>();
   useEffect(() => { let live = true; getAgents().then(data => { if (live) { setAgents(data.agents); setError(''); } }).catch(e => { if (live) setError(e.message); }); return () => { live = false; }; }, [reload]);
+  useEffect(() => {
+    if (!removing) return;
+    let live = true; setHistory(undefined);
+    getAgentHistory(removing.id).then(value => { if (live) setHistory(describeHistory(value)); }).catch(() => { if (live) setHistory(''); });
+    return () => { live = false; };
+  }, [removing]);
   const legacy = params.get('agent');
   if (legacy) return <Navigate replace to={`/agents/${encodeURIComponent(legacy)}?view=${params.get('view') === 'test' ? 'test' : 'settings'}${hash}`} />;
   async function remove() {
     if (!removing || removing.is_coordinator) return;
     setBusy(true); setError('');
+    const withHistory = Boolean(history);
     try {
-      await deleteAgent(removing.id, removing.revision);
+      if (withHistory) await deleteAgent(removing.id, removing.revision, true);
+      else await deleteAgent(removing.id, removing.revision);
       setAgents(current => current?.filter(agent => agent.id !== removing.id));
       setRemoving(null);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not remove the agent.'); }
+      toast.success(withHistory ? `Agent ${removing.name} and its history deleted` : `Agent ${removing.name} removed`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not remove the agent.');
+      // History may have appeared since the dialog opened; show it so it can be deleted too.
+      if (!withHistory) await getAgentHistory(removing.id).then(value => { const found = describeHistory(value); if (found) { setHistory(found); setError(''); } }).catch(() => undefined);
+    }
     finally { setBusy(false); }
   }
   const filtered = agents?.filter(a => `${a.name} ${a.description} ${a.is_coordinator ? 'coordinator' : ''} ${agentTypeLabel(a.runtime)}`.toLowerCase().includes(query.toLowerCase()));
@@ -46,10 +62,13 @@ export default function AgentsView() {
     </TableBody></Table></div>}
     <AlertDialog open={removing !== null} onOpenChange={open => { if (!busy && !open) setRemoving(null); }}>
       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove agent?</AlertDialogTitle><AlertDialogDescription>
-        Remove {removing?.name} and its saved configuration and prompt versions? Shared servers, code projects, skills, models, and documents will be kept. Agents with retained run history cannot be removed.
+        Remove {removing?.name} and its saved configuration and prompt versions? Shared servers, code projects, skills, models, and documents will be kept.
       </AlertDialogDescription></AlertDialogHeader>
+      {history && <div className="flex flex-col gap-1 text-sm"><p>This agent has history that will be deleted with it:</p><p className="font-medium">{history}</p><p className="text-muted-foreground">Saved documents are kept. To keep the history instead, disable the agent.</p></div>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void remove(); }}>{busy ? 'Removing…' : 'Remove agent'}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>{history
+        ? <AlertDialogAction className={buttonVariants({ variant: "destructive" })} disabled={busy} onClick={event => { event.preventDefault(); void remove(); }}>{busy ? 'Deleting…' : 'Delete agent and history'}</AlertDialogAction>
+        : <AlertDialogAction disabled={busy || history === undefined} onClick={event => { event.preventDefault(); void remove(); }}>{busy ? 'Removing…' : history === undefined ? 'Checking history…' : 'Remove agent'}</AlertDialogAction>}</AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
   </section>;
 }
