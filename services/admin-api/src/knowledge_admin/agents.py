@@ -30,8 +30,6 @@ from knowledge_admin.tools.ssh import ssh_run
 from knowledge_admin.tools.shell import shell_run
 from knowledge_admin.knowledge_agents.config import get_agent_config  # noqa: F401  (moved; imported from here too)
 
-CLAUDE_CODE_ONLY = 'Claude Code agents run in documentation sessions only (Docs → Generate documents → With an agent).'
-
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
                 timeout_seconds: float = 300, output_type: type[BaseModel] | None = None,

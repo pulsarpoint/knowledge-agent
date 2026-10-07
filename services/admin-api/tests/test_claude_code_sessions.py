@@ -12,6 +12,7 @@ from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
 from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from test_api import _client
+from test_claude_code_agents import claude_code_agent
 from test_repositories import HEADERS
 
 
@@ -25,7 +26,7 @@ def sessions(store, tmp_path, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
     client = _client(tmp_path, repository_store=store)
-    agent = client.post('/api/claude-code/agents', headers=HEADERS, json={'name': 'Technical writer'}).json()['id']
+    agent = claude_code_agent(client)
     claude = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'Claude', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
         'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-secret-token'}).json()['id']
