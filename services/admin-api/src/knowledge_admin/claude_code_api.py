@@ -17,14 +17,16 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.claude_code import SYSTEM_PROMPT, close_idle, first_message
+from knowledge_admin.claude_code import agent_system_prompt, close_idle, first_message
 from knowledge_admin.data_root import data_dir, data_folder, data_path, documentation_folder
 from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
 
 NOT_CLAUDE = 'Select an enabled Claude model (Bedrock or Anthropic) from LLM Settings.'
+NO_CONTEXT = 'Add at least one code project or folder as context'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
@@ -32,7 +34,7 @@ NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 class SessionInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     agent_id: str = Field(min_length=1, max_length=100)
-    model_id: UUID
+    model_id: UUID | None = None  # None: the agent's model
     prompt_id: UUID
     prompt_version_id: UUID
     comments: str = Field(default='', max_length=20000)
@@ -54,8 +56,6 @@ class SessionInput(BaseModel):
         self.folders = list(dict.fromkeys(data_folder(folder) for folder in self.folders))
         self.code_project_ids = list(dict.fromkeys(self.code_project_ids))
         self.server_ids = list(dict.fromkeys(self.server_ids))
-        if not self.code_project_ids and not self.folders:
-            raise ValueError('Add at least one code project or folder as context')
         return self
 
 
@@ -113,9 +113,10 @@ def inside_data_root(path: str) -> None:
         raise refused from None
 
 
-def session_context(conn, project: UUID, value: SessionInput) -> dict:
-    """Working folders as container paths (code project folders in the chosen order, then DATA_ROOT folders), servers
-    as text and the notes. Every folder must exist now, inside DATA_ROOT, without a symbolic link on the way."""
+def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict] | None = None) -> dict:
+    """Working folders as container paths: this run's code projects (in the chosen order), its DATA_ROOT folders, then
+    the agent's own code projects. Servers as text and the notes. Every folder must exist now, inside DATA_ROOT, without
+    a symbolic link on the way."""
     code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
     if value.code_project_ids and (not code_root.is_absolute() or '..' in code_root.parts):
         raise HTTPException(503, 'CODE_ROOT must be an absolute mounted path')
@@ -133,15 +134,23 @@ def session_context(conn, project: UUID, value: SessionInput) -> dict:
         candidates += [{'path': str(code_root / path), 'kind': 'code_project', 'name': item['name'],
                         'code_project_id': str(project_id)} for path in item['folder_paths']]
     candidates += [{'path': str(data_path(folder)), 'kind': 'folder', 'name': folder} for folder in value.folders]
+    for item in agent_projects or []:  # the agent's code projects come after this run's context; no folders adds nothing
+        candidates += [{'path': path, 'kind': 'code_project', 'name': item['name'], 'code_project_id': str(item['id']),
+                        'agent': True} for path in item['folder_paths']]
     folders, seen = [], set()
     for item in candidates:
+        from_agent = item.pop('agent', False)
         if item['path'] in seen:
             continue
         seen.add(item['path'])
         if not Path(item['path']).is_dir():
-            raise HTTPException(400, f"The folder {item['path']} does not exist. Remove it from the context.")
+            raise HTTPException(400, f"The folder {item['path']} of the agent's code project {item['name']} does not exist. "
+                                     'Remove the project from the agent or check its folders.' if from_agent else
+                                f"The folder {item['path']} does not exist. Remove it from the context.")
         inside_data_root(item['path'])
         folders.append(item)
+    if not folders:
+        raise HTTPException(400, NO_CONTEXT)
     servers = conn.execute('''SELECT id,name,hostname,description FROM ka.servers WHERE project_id=%s AND id=ANY(%s)
         ORDER BY lower(name),id''', (project, value.server_ids)).fetchall()
     if len(servers) != len(value.server_ids):
@@ -200,8 +209,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             agent = conn.execute('SELECT id,enabled,runtime FROM ka.agents WHERE id=%s FOR SHARE', (value.agent_id,)).fetchone()
             if agent is None or agent['runtime'] != 'claude_code' or not agent['enabled']:
                 raise HTTPException(400, 'Select an enabled Claude Code agent.')
+            try:  # the agent's saved config: its active version, or its working settings before the first version
+                config = get_agent_config(agent['id'], conninfo=db.conninfo)
+            except (LookupError, ValueError) as exc:
+                raise HTTPException(400, str(exc)) from None
+            model_id = value.model_id or (config['model'] or {}).get('id')
             model = conn.execute('SELECT id,provider,model,api_format,enabled FROM ka.llm_models WHERE id=%s FOR SHARE',
-                                 (value.model_id,)).fetchone()
+                                 (model_id,)).fetchone() if model_id else None
             if model is None or not model['enabled'] or not claude_model(model['provider'], model['api_format'], model['model']):
                 raise HTTPException(400, NOT_CLAUDE)
             prompt = conn.execute("""SELECT p.id,p.name,v.id AS version_id,v.version,v.content
@@ -211,8 +225,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(400, 'Select an active documentation prompt.')
             if prompt['version_id'] != value.prompt_version_id:
                 raise HTTPException(409, PROMPT_CHANGED)
-            context = session_context(conn, project, value)
-            snapshot = jsonable_encoder({**prompt, 'comments': value.comments, 'system_prompt': SYSTEM_PROMPT})
+            context = session_context(conn, project, value, config['code']['projects'] if config['code']['enabled'] else [])
+            snapshot = jsonable_encoder({**prompt, 'comments': value.comments, 'system_prompt': agent_system_prompt(config),
+                                         'claude_code_tools': config['claude_code_tools'],
+                                         'agent_version': config.get('config_version')})
             session_id = uuid4()
             conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
                 context_snapshot,document_name,folder) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
