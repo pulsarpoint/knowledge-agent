@@ -47,7 +47,27 @@ def generated_document(conn, project) -> dict:
         VALUES (%s,%s,'Payments documentation','service')""", (workflow, project))
     conn.execute('INSERT INTO ka.documentation_workflow_jobs(workflow_id,job_id,project_id) VALUES (%s,%s,%s)',
                  (workflow, job, project))
-    return {'job': job, 'document': document, 'version': version, 'metadata': metadata}
+    return {'job': job, 'document': document, 'version': version, 'metadata': metadata, 'workflow': workflow}
+
+
+def unrelated_history(conn, project, workflow) -> dict:
+    """What 0073 must leave alone: run records of the other run kinds, jobs of other kinds with their events, and a
+    graph job a workflow linked to."""
+    jobs = {kind: uuid4() for kind in ('code_index', 'repository_sync')}
+    for kind, job in jobs.items():  # one repository each: a repository runs one job at a time
+        repository = uuid4()
+        conn.execute("INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,%s,'Payments')",
+                     (repository, project, f'payments-{repository.hex[:6]}'))
+        conn.execute('INSERT INTO ka.jobs(id,project_id,kind,repository_id) VALUES (%s,%s,%s,%s)',
+                     (job, project, kind, repository))
+        conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'queued','Queued')", (job,))
+    conn.execute('INSERT INTO ka.documentation_workflow_jobs(workflow_id,job_id,project_id) VALUES (%s,%s,%s)',
+                 (workflow, jobs['code_index'], project))
+    keys = [f'cc:{uuid4()}', f'run:{uuid4()}', f'board:{uuid4()}']
+    for key in keys:
+        conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+            VALUES (%s,%s,1,'start','search','{}')""", (project, key))
+    return {'jobs': list(jobs.values()), 'run_keys': keys}
 
 
 def test_up_removes_the_generation_its_history_and_runs_but_keeps_documents(store):
@@ -56,11 +76,17 @@ def test_up_removes_the_generation_its_history_and_runs_but_keeps_documents(stor
         conn.commit()
         project = store.project(conn, 'shop')
         made = generated_document(conn, project)
+        kept = unrelated_history(conn, project, made['workflow'])
         conn.commit()
         run(conn, UP)
         conn.commit()
         for name in GONE:
             assert conn.execute('SELECT to_regclass(%s) AS r', (f'ka.{name}',)).fetchone()['r'] is None, name
+        for job in kept['jobs']:  # other job kinds survive, even one a workflow linked to
+            assert count(conn, 'ka.jobs WHERE id=%s', job) == 1
+            assert count(conn, 'ka.job_events WHERE job_id=%s', job) == 1
+        for key in kept['run_keys']:  # only doc: run records go
+            assert count(conn, 'ka.agent_run_events WHERE run_key=%s', key) == 1, key
         assert count(conn, 'ka.jobs WHERE id=%s', made['job']) == 0
         assert count(conn, 'ka.job_events WHERE job_id=%s', made['job']) == 0
         assert count(conn, "ka.agent_run_events WHERE starts_with(run_key,'doc:')") == 0
