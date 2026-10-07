@@ -16,6 +16,7 @@ export default [
   route("documentation/generations", "./routes/documentationGenerations.tsx"),
   route("documentation/generations/new", "./routes/documentationWorkflowNew.tsx"),
   route("documentation/generations/:workflowId", "./routes/documentationWorkflow.tsx"),
+  route("documentation/sessions", "./routes/documentationSessions.tsx"),
   route("documentation/sessions/:sessionId", "./routes/documentationSession.tsx"),
   route("documentation/folders", "./routes/documentationFolders.tsx"),
   route("documentation/folders/*", "./routes/documentationFolder.tsx"),
