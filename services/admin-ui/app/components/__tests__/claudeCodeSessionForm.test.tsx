@@ -14,7 +14,8 @@ const bodies: Record<string, unknown> = {
     { id: 'search', name: 'Search agent', runtime: 'openai', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' },
     { id: 'coordinator', name: 'Coordinator', runtime: 'openai', enabled: true, is_coordinator: true, model_id: 'gpt', model_name: 'GPT' },
     { id: 'analyst', name: 'Code analyst', runtime: 'openai', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' },
-    { id: 'reader', name: 'Code reader', runtime: 'claude_code', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' }] },
+    { id: 'reader', name: 'Code reader', runtime: 'claude_code', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
+    { id: 'librarian', name: 'Librarian', runtime: 'openai', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' }] },
   '/api/code-projects': { projects: [{ id: 'repo', name: 'Payments API' }, { id: 'worker', name: 'Payments worker' }] },
   '/api/environments': { environments: [{ id: 'env', name: 'Production', services: [], servers: [] }] },
   '/api/services': { services: [{ id: 'svc', name: 'Payments' }] },
@@ -23,6 +24,8 @@ const bodies: Record<string, unknown> = {
   '/api/agents/analyst/run-resources': { resources: 'per_run', code_projects: [{ id: 'repo', name: 'Payments API' }],
     collections: null, servers: [{ id: 'srv', name: 'prod-1' }], services: null },
   '/api/agents/reader/run-resources': { resources: 'per_run', code_projects: [{ id: 'worker', name: 'Payments worker' }],
+    collections: [{ id: 'runbooks', name: 'runbooks' }], servers: null, services: null },
+  '/api/agents/librarian/run-resources': { resources: 'per_run', code_projects: null,
     collections: [{ id: 'runbooks', name: 'runbooks' }], servers: null, services: null },
   '/api/documentation/folders': { generated_folder: 'generated-documents', folders: [] },
 };
@@ -159,4 +162,13 @@ test('Documents adds collections to the first message of a fixed agent', async (
   expect(await screen.findByText('Session page')).toBeVisible();
   expect(posts).toEqual([{ agent_id: 'writer', code_project_ids: [], collection_ids: ['runbooks'], environment_ids: [], service_ids: [],
     server_ids: [], instructions: '', document_name: 'Runbooks', folder: 'docs' }]);
+});
+
+test('a per-run agent is offered environments only when it accepts code, servers or services', async () => {
+  setup();
+  await select('Agent', 'Librarian (Native)');
+  expect(await screen.findByText('This agent does not take environments.')).toBeVisible();
+  expect(screen.getByRole('checkbox', { name: 'Environment' })).toBeDisabled();
+  await select('Agent', 'Code analyst (Native)');
+  expect(await screen.findByRole('checkbox', { name: 'Environment' })).toBeEnabled();
 });
