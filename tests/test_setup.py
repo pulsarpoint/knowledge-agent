@@ -303,7 +303,7 @@ class SetupTests(unittest.TestCase):
             folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
             writers = {"rag": ["jira"], "rag-worker": [], "shell-worker": [],
                        "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
-                       "documentation-worker": ["index", "documents"]}
+                       "documentation-worker": ["index", "documents"], "claude-code-worker": []}
             for name, writable in writers.items():
                 mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]
                                 if v["target"].startswith("/work/data"))
@@ -323,6 +323,37 @@ class SetupTests(unittest.TestCase):
             for service in services.values():
                 for volume in service.get("volumes", []):
                     self.assertNotIn(".local", volume.get("source", ""))
+
+    def test_claude_code_worker_mounts_and_environment(self) -> None:
+        source = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(source / ".env.example", root / ".env.example")
+            shutil.copytree(source / "examples", root / "examples")
+            run_setup(root, str(root / "data"))
+            result = subprocess.run(
+                ["docker", "compose", "--env-file", str(root / ".env"), "-f", str(source / "deploy/compose.yaml"), "config", "--format", "json"],
+                capture_output=True, text=True, check=True,
+            )
+            config = json.loads(result.stdout)
+            worker = config["services"]["claude-code-worker"]
+            data = str(root / "data").replace("$", "$$")
+            self.assertEqual(sorted((v["type"], v["source"], v["target"], bool(v.get("read_only"))) for v in worker["volumes"]),
+                             [("bind", data, "/work/data", True), ("volume", "claude-code-home", "/home/claude", False)])
+            self.assertTrue(worker["read_only"])
+            self.assertEqual(worker["cap_drop"], ["ALL"])
+            self.assertEqual(sorted(worker["cap_add"]), ["SETGID", "SETUID"])
+            self.assertEqual(worker["entrypoint"], ["/services/admin-api/.venv/bin/knowledge-claude-code-worker"])
+            self.assertNotIn("ports", worker)
+            self.assertEqual(set(worker.get("networks", {"default": None})), {"default"})
+            env = worker["environment"]
+            self.assertEqual(env["CLAUDE_CODE_CLI"], "/services/admin-api/.venv/bin/knowledge-claude-cli")
+            self.assertEqual((env["HOME"], env["TMPDIR"], env["DATA_ROOT_DIR"], env["CODE_ROOT"]),
+                             ("/home/claude", "/home/claude/tmp", "/work/data", "/work/data/code"))
+            for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL"):
+                self.assertIn(name, env)
+            self.assertNotIn("AGENT_SHELL_URL", env)
+            self.assertIn("claude-code-home", config["volumes"])
 
     def test_setup_generates_reader_agent_key(self) -> None:
         source = Path(__file__).resolve().parents[1]

@@ -20,6 +20,13 @@ COPY services/docs-wiki /services/docs-wiki
 COPY services/admin-api /services/admin-api
 RUN uv sync --frozen --no-dev
 RUN mkdir -p /work/agent-workspaces
+# Claude Code runs as this unprivileged user (knowledge-claude-cli drops to it); /home/claude is the only writable
+# mount of the claude-code-worker container. The CLI comes bundled in the claude-agent-sdk wheel (no Node.js).
+# Files under DATA_ROOT must be readable by uid 1001 (e.g. world-readable, or group-readable with gid 1001).
+RUN useradd --uid 1001 --user-group --home-dir /home/claude --create-home --shell /usr/sbin/nologin claude \
+    && install -d -o claude -g claude -m 700 /home/claude/tmp \
+    && chmod 700 /home/claude \
+    && test -x "$(/services/admin-api/.venv/bin/python -c 'import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude")')"
 EXPOSE 8766
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "knowledge-admin"]
 CMD ["/work/data/docs", "--host", "0.0.0.0"]

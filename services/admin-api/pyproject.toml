@@ -17,12 +17,15 @@ dependencies = [
     "mcp>=1.26,<2",
     "litellm==1.100.0",
     "openinference-instrumentation-openai-agents==2.4.1",
+    "claude-agent-sdk==0.2.163",
 ]
 
 [project.scripts]
 knowledge-admin = "knowledge_admin.cli:main"
 knowledge-doc-worker = "knowledge_admin.documentation_generation:main"
 knowledge-repo-worker = "knowledge_admin.repository_worker:main"
+knowledge-claude-code-worker = "knowledge_admin.claude_code_worker:main"
+knowledge-claude-cli = "knowledge_admin.claude_code_cli:main"
 
 [tool.uv.sources]
 knowledge-llm = { path = "../../packages/llm-settings", editable = true }

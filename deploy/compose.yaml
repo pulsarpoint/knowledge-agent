@@ -249,6 +249,37 @@ services:
       migrate: {condition: service_completed_successfully}
       shell-worker: {condition: service_healthy}
 
+  claude-code-worker:
+    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
+    restart: unless-stopped
+    # Interactive documentation sessions with the Claude Agent SDK. DATA_ROOT is read-only and the CLI's home is the
+    # only writable mount. It needs the network for Bedrock or Anthropic, so Bash can reach the network too (accepted).
+    # It runs as root to hold its secrets; the CLI runs as the claude user (knowledge-claude-cli), hence SETUID/SETGID.
+    # The claude user is uid 1001: files under DATA_ROOT must be readable by it (world-readable, or group 1001).
+    entrypoint: [/services/admin-api/.venv/bin/knowledge-claude-code-worker]
+    command: []
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    dns_search: ${DOCKER_DNS_SEARCH:-.}
+    volumes:
+      - *data-root
+      - claude-code-home:/home/claude
+    environment:
+      <<: *data-env
+      HOME: /home/claude
+      TMPDIR: /home/claude/tmp
+      CLAUDE_CODE_CLI: /services/admin-api/.venv/bin/knowledge-claude-cli
+      PGHOST: postgres
+      PGDATABASE: knowledge_agent
+      PGUSER: knowledge_agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
+      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
   shell-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
@@ -460,6 +491,7 @@ networks:
 
 volumes:
   agent-workspaces:
+  claude-code-home:
   postgres-data:
   wiki-data:
   keycloak-data:

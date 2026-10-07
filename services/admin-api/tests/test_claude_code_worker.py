@@ -164,3 +164,16 @@ def test_tool_output_and_preview_are_capped():
     assert 'bedrock' not in repr(split.events)  # redacted before the cap, so no partial key survives the cut
     with pytest.raises(TypeError):
         worker.Turn(recorder)  # secrets are required: a caller cannot forget the key
+
+
+def test_fakes_match_the_sdk_message_types():
+    import dataclasses
+    sdk = pytest.importorskip('claude_agent_sdk')
+    import claude_code_fakes as fakes
+    for name in ('TextBlock', 'ThinkingBlock', 'ToolUseBlock', 'ToolResultBlock', 'AssistantMessage', 'UserMessage',
+                 'SystemMessage', 'ResultMessage'):
+        real = {field.name for field in dataclasses.fields(getattr(sdk, name))}
+        fake = {field.name for field in dataclasses.fields(getattr(fakes, name))}
+        assert fake <= real, (name, fake - real)
+    options = {field.name for field in dataclasses.fields(sdk.ClaudeAgentOptions)}
+    assert set(worker.build_options(SESSION, BEDROCK)) | {'cli_path', 'stderr'} <= options

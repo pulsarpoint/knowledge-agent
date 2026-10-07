@@ -19,7 +19,7 @@ FOLDERS = {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDE
 WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "shell-worker": [],
            "admin-api": ["CODE_FOLDER", "CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"],
            "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"],
-           "documentation-worker": ["CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"]}
+           "documentation-worker": ["CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"], "claude-code-worker": []}
 
 
 def folder(variable: str) -> str:
@@ -39,7 +39,7 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
     compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
     assert compose["name"] == "knowledge-agent-v3"
     services = compose["services"]
-    assert set(services) == {"postgres", "migrate", "rag", "docs-wiki", "web", "keycloak", "oauth2-proxy", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "documentation-worker", "shell-worker"}
+    assert set(services) == {"postgres", "migrate", "rag", "docs-wiki", "web", "keycloak", "oauth2-proxy", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "documentation-worker", "shell-worker", "claude-code-worker"}
     assert services["docs-wiki"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert services["migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     for service in services.values():
@@ -55,7 +55,7 @@ def test_private_services_and_separate_persistent_state():
         assert not compose["services"][name].get("ports")
     for name in ("postgres", "oauth2-proxy", "admin-oauth2-proxy", "keycloak", "phoenix"):
         assert all(port.startswith("127.0.0.1:") for port in compose["services"][name]["ports"])
-    assert set(compose["volumes"]) == {"postgres-data", "wiki-data", "keycloak-data", "phoenix-data", "agent-workspaces"}
+    assert set(compose["volumes"]) == {"postgres-data", "wiki-data", "keycloak-data", "phoenix-data", "agent-workspaces", "claude-code-home"}
     assert all(not value or not value.get("external") for value in compose["volumes"].values())
 
 
@@ -170,7 +170,7 @@ def test_services_compute_their_roots_from_the_folder_variables():
                 "DOCUMENT_OUTPUT_ROOT": "/work/data/" + folder("GENERATED_DOCS_FOLDER"),
                 "JIRA_EXPORT_ROOT": "/work/data/" + folder("JIRA_FOLDER")}
     removed = {"RAG_SOURCE_ROOT", "RG_DATA", "CODE_PATH", "CODE_INDEX_PATH", "GENERATED_DOCS_PATH", "DOCS_PATH"}
-    for name in ("rag", "rag-worker", "admin-api", "repository-worker", "documentation-worker"):
+    for name in ("rag", "rag-worker", "admin-api", "repository-worker", "documentation-worker", "claude-code-worker"):
         env = services[name]["environment"]
         assert {key: env[key] for key in expected} == expected, name
         assert not removed & set(env), name
