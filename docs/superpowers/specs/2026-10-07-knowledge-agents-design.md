@@ -146,18 +146,22 @@ networks. Catalog tools therefore run in a separate service.
 
 ## Documentation generation
 
-- **Docs → Generate documents → New** becomes one flow:
-  - pick an **agent** of either type and a **prompt**;
-  - pick the **context**: code projects, folders, servers, notes;
-  - add **comments**, a **document name** and a **folder**.
-- **The session runs with the agent's config plus the context for this run:**
-  - the folders become working folders (Claude Code) or code roots (native);
-  - the servers are added to the agent's SSH servers for this run only, if the agent
-    has SSH enabled.
+- **Docs → Generate documents → New → With an agent** asks only for:
+  - an **agent** (Claude Code agents until step 3, then either type);
+  - **sources**: any mix of **code projects**, **environments** and **services**;
+  - optional **comments**, plus a **document name** and a **folder**.
+- **There is no model or prompt field.** The agent runs with its own model, prompt,
+  instructions, skills and tools; the form never overrides them. A documentation agent
+  therefore carries its documentation prompt itself.
+- **What the agent receives:** its system prompt, then one message listing the
+  sources and the comments.
+  - Code projects become working folders (Claude Code) or code roots (native).
+  - Environments and services are described as text: their servers, deployments and
+    linked code projects. Their linked code projects' folders are also working folders.
+- **The free folders, servers and notes fields go away.**
 - **The draft is saved as a document,** as today.
-- **The special documentation runtimes are removed in step 4:** code project scope,
-  the service and environment phases, and their fixed agent snapshots. Existing
-  documents and history stay.
+- **The other generation modes stay as they are:** **Service**, **Whole environment**
+  and **Code project**.
 
 ## Delivery steps (each ships alone)
 
@@ -174,8 +178,9 @@ networks. Catalog tools therefore run in a separate service.
    Claude Code agents can then use documents, code graph, SSH, MCP and services.
 3. **Native agents through the session API:** `agent-session-worker`, the
    `/api/agent-sessions` routes, and the Test tab on sessions for both types.
-4. **Documentation generation calls an agent:** the unified New documentation flow,
-   and removal of the special documentation runtimes and their UI.
+4. **Documentation with an agent takes only an agent and sources:** the With an agent
+   form drops model, prompt, folders, servers and notes, and adds environments and
+   services as sources. Planned right after step 1.
 
 ## Errors
 
@@ -207,7 +212,7 @@ networks. Catalog tools therefore run in a separate service.
   - identical tabs for both types;
   - Agent type and model filtering;
   - the Claude Code tools card;
-  - the unified documentation flow.
+  - the With an agent form (agent, sources, comments, name, folder).
 - **Real run:** one Claude Code session that calls `search_documents`, `code_graph` and
   `ssh_run` through the gateway.
 
