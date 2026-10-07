@@ -30,7 +30,7 @@ test('run types have readable names in the filter and the list', async () => {
   expect(within(row).getByText('Claude Code')).toBeInTheDocument();
   const options = within(screen.getByLabelText('Run type')).getAllByRole('option');
   expect(options.map(option => [option.getAttribute('value'), option.textContent])).toEqual([
-    ['', 'All'], ['test', 'Agent test'], ['board', 'Board task'], ['claude_code', 'Claude Code']]);
+    ['', 'All'], ['test', 'Agent test'], ['board', 'Board task'], ['claude_code', 'Claude Code'], ['native_session', 'Native session']]);
 });
 
 test('runs list passes a key prefix from the URL', async () => {

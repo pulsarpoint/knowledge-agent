@@ -4,7 +4,7 @@ import { ApiError, getEnvironments, getServers, getServices } from '~/lib/api';
 import { createSession } from '~/lib/claudeCode';
 import { getCodeProjects } from '~/lib/codeProjects';
 import { defaultFolder, documentSlug, folderError, getDocumentationFolders } from '~/lib/documents';
-import { getAgents, type AgentSummary } from '~/lib/profiles';
+import { agentTypeLabel, getAgents, type AgentSummary } from '~/lib/profiles';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
@@ -16,7 +16,7 @@ import { Textarea } from '~/components/ui/textarea';
 
 type Kind = 'code' | 'environments' | 'services' | 'servers';
 type Item = { id: string; name: string };
-type Data = { agents: AgentSummary[]; items: Record<Kind, Item[]>; folders: string[] };
+type Data = { agents: AgentSummary[]; items: Record<Kind, Item[]>; folders: string[]; noModel: string };
 const KINDS: { kind: Kind; label: string; legend: string }[] = [
   { kind: 'code', label: 'Code', legend: 'Code projects' }, { kind: 'environments', label: 'Environment', legend: 'Environments' },
   { kind: 'services', label: 'Services', legend: 'Services' }, { kind: 'servers', label: 'Servers', legend: 'Servers' }];
@@ -43,11 +43,14 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
       getDocumentationFolders().catch(() => ({ folders: [] as { folder: string }[] }))])
       .then(([agents, projects, environments, services, servers, docFolders]) => {
         if (cancelled) return;
-        const claudeAgents = agents.agents.filter(agent => agent.runtime === 'claude_code' && agent.enabled);
-        setData({ agents: claudeAgents, folders: docFolders.folders.map(item => item.folder), items: {
+        // Both agent types; only agents that can run: enabled, with a model, not the board's coordinator.
+        const usable = agents.agents.filter(agent => agent.enabled && !agent.is_coordinator);
+        const listed = usable.filter(agent => agent.model_id);
+        const noModel = usable.find(agent => agent.id === initialAgentId && !agent.model_id)?.name ?? '';
+        setData({ agents: listed, noModel, folders: docFolders.folders.map(item => item.folder), items: {
           code: projects.projects, environments: environments.environments, services: services.services,
           servers: servers.servers.map(server => ({ id: server.id, name: `${server.name} (${server.hostname})` })) } });
-        if (!claudeAgents.some(agent => agent.id === initialAgentId)) setAgentId('');
+        if (!listed.some(agent => agent.id === initialAgentId)) setAgentId('');
       }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load agents and what to document'); });
     return () => { cancelled = true; };
   }, [initialAgentId]);
@@ -90,13 +93,13 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
         <Select value={agentId || 'none'} onValueChange={value => setAgentId(value === 'none' ? '' : value)}>
           <SelectTrigger id="generate-agent"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup><SelectItem value="none">Select…</SelectItem>
-            {data.agents.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select>
-        <FieldDescription className={agent && !agent.model_id ? 'text-destructive' : undefined}>{data.agents.length === 0
-          ? 'Create one in Agents → New agent with Agent type Claude Code.'
-          : agent && !agent.model_id ? 'This agent has no model. Choose a Claude model on its General tab.'
+            {data.agents.map(item => <SelectItem key={item.id} value={item.id}>{`${item.name} (${agentTypeLabel(item.runtime)})`}</SelectItem>)}</SelectGroup></SelectContent></Select>
+        <FieldDescription className={!agent && data.noModel ? 'text-destructive' : undefined}>{data.agents.length === 0
+          ? 'Create one in Agents → New agent and choose its model.'
+          : !agent && data.noModel ? `${data.noModel} has no model. Choose one on its General tab.`
           : `The agent works with its own model, prompt, instructions, skills and tools${agent?.model_name ? ` (${agent.model_name})` : ''}.`}</FieldDescription></Field>
       <FieldSet><FieldLegend>What to document</FieldLegend>
-        <FieldDescription>Code projects, and the code projects of the environments and services you choose, become the agent's read-only working folders. Environments, services and servers are described to the agent as text; this form gives no server access.</FieldDescription>
+        <FieldDescription>Code projects, and the code projects of the environments and services you choose, become the agent's read-only working folders (Claude Code) or code roots (Native). Environments, services and servers are described to the agent as text; this form gives no server access.</FieldDescription>
         {KINDS.map(({ kind, label, legend }) => <div key={kind} className="flex flex-col gap-2">
           {check(`what-${kind}`, label, kinds.includes(kind), value => toggleKind(kind, value))}
           {kinds.includes(kind) && <FieldSet className="ml-6"><FieldLegend variant="label">{legend}</FieldLegend>

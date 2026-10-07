@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { ModelProfile } from './llm';
+import type { AgentRuntime } from './profiles';
 
 /** The server's Claude connection rule (knowledge_llm.claude_model). */
 export const claudeModel = (model: { provider: string; api_format: string; model: string }) =>
@@ -11,6 +12,8 @@ export const claudeCodeNotes: Partial<Record<string, string>> = {
   git: 'Claude Code sessions open these code projects as read-only working folders. Code search and the code graph come in the next update.',
 };
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
+/** A session's agent type; sessions read before migration 0074 have none and are Claude Code sessions. */
+export const sessionTypeLabel = (runtime?: AgentRuntime) => runtime === 'openai' ? 'Native' : 'Claude Code';
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
@@ -19,7 +22,7 @@ export const statusLabels: Record<SessionStatus, string> = {
 };
 export interface SessionFolder { path: string; kind: 'code_project' | 'folder'; name: string; code_project_id?: string }
 export interface SessionSummary {
-  id: string; title: string; agent_id: string; agent_name: string; model_name: string; status: SessionStatus; status_message: string;
+  id: string; title: string; runtime?: AgentRuntime; agent_id: string; agent_name: string; model_name: string; status: SessionStatus; status_message: string;
   turns: number; input_tokens: number; output_tokens: number; cached_tokens: number; cost_usd: number;
   document_id: string | null; document_title: string | null; folder: string; worker_active: boolean; queued: number;
   created_at: string; last_activity_at: string; closed_at: string | null;

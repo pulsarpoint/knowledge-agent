@@ -161,7 +161,10 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const send = () => run(async () => {
     const result = await sendMessage(sessionId, message.trim());
     setMessage('');
-    setNotice(result.working ? 'Queued. The agent gets your message when it finishes its current response.' : 'Sent. The agent starts a new turn with your message.');
+    // A native agent reads comments before its next model call; Claude Code reads them after the current response.
+    setNotice(!result.working ? 'Sent. The agent starts a new turn with your message.'
+      : session?.runtime === 'openai' ? 'Queued. Your comment reaches the agent at its next step.'
+      : 'Queued. The agent gets your message when it finishes its current response.');
   });
   const stop = () => run(async () => { await stopSession(sessionId); setNotice(STOPPING); });
   const close = () => run(async () => { await closeSession(sessionId); setSession(current => current && { ...current, status: 'closed' }); });
@@ -187,7 +190,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
         <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
       <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>
       <p className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`}</p>
-      {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the Claude Code worker. The session starts when the worker is running.</AlertDescription></Alert>}
+      {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
       {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
