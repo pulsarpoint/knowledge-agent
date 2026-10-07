@@ -183,7 +183,8 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
             publish('activity',item)
         recorded = {**config, 'record': {'run_key': f'run:{value.id}', 'project_id': str(project),
             'actor_id': str(actor_id), 'kind': 'test', 'title': value.task[:200]}}
-        turn = asyncio.create_task(agent(recorded,value.task,credentials=credentials,on_activity=on_activity,history=history))
+        turn = asyncio.create_task(agent(recorded,value.task,credentials=credentials,on_activity=on_activity,history=history,
+                                         turn_timeout_seconds=300))
         try:
             while not turn.done():
                 await asyncio.wait({turn},timeout=1)
@@ -398,7 +399,7 @@ def build_api(app_name, store):
                     for attempt in range(2):
                         try:
                             result = await agent(reviewer,json.dumps(review_task),credentials=credentials,
-                                                 timeout_seconds=240,output_type=TuningSuggestion)
+                                                 timeout_seconds=240,turn_timeout_seconds=240,output_type=TuningSuggestion)
                             proposal = result.final_output
                             break
                         except ModelBehaviorError:
