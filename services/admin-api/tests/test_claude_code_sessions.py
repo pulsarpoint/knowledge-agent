@@ -10,7 +10,8 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
-from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
+from knowledge_admin.claude_code_api import PROMPT_CHANGED
+from knowledge_admin.documents import SAME_DOCUMENT_NAME
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
 from test_repositories import HEADERS

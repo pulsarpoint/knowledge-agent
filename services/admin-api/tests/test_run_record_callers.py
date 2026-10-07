@@ -41,17 +41,3 @@ def test_board_task_record_includes_coordinator_specialists_and_summary(board_cl
     delegations = [row for row in rows if row['kind'] == 'tool_call' and row['payload']['name'].startswith('delegate_')]
     assert delegations and any(row['kind'] == 'tool_result' and row['payload']['name'].startswith('delegate_') for row in rows)
     assert '-secret' not in json.dumps([row['payload'] for row in rows])
-
-
-def test_documentation_runs_get_unique_records_per_job():
-    from uuid import UUID
-    from knowledge_admin.documentation_generation import with_record
-    job = {'id': UUID('11111111-1111-1111-1111-111111111111'), 'project_id': UUID('22222222-2222-2222-2222-222222222222'),
-           'requested_by': UUID('33333333-3333-3333-3333-333333333333')}
-    config = {'id': 'documentation-overview', 'name': 'Documentation: overview'}
-    first, second = with_record(config, job, 'overview: source inspection'), with_record(config, job, 'overview: writing')
-    assert 'record' not in config
-    assert first['record']['run_key'].startswith('doc:11111111-1111-1111-1111-111111111111:')
-    assert first['record']['run_key'] != second['record']['run_key']
-    assert first['record'] | {'run_key': None} == {'run_key': None, 'project_id': '22222222-2222-2222-2222-222222222222',
-        'actor_id': '33333333-3333-3333-3333-333333333333', 'kind': 'documentation', 'title': 'overview: source inspection'}

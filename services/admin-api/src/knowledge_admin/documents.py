@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
+SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
 
 
 class DocumentInput(BaseModel):
@@ -250,8 +251,8 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
     return None
 
 
-def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
-                  document_id: UUID | None = None, generation_id: UUID | None = None, folder: str | None = None) -> dict:
+def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput, document_id: UUID | None = None,
+                  folder: str | None = None) -> dict:
     """Save a complete immutable version within the caller's transaction.
 
     `folder` places a new document in a documentation folder; an existing document keeps its own folder."""
@@ -309,10 +310,10 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
         ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug,current_version_id=EXCLUDED.current_version_id,revision=EXCLUDED.revision''',
         (document_id,project,value.slug,folder,version_id,revision))
     conn.execute('''INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
-        tags,markdown,content_hash,source_snapshot,base_version_id,origin,created_by,generation_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        tags,markdown,content_hash,source_snapshot,base_version_id,origin,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (version_id,document_id,project,revision,value.title,value.description,value.purpose,value.audience,
-         value.tags,value.markdown,hashlib.sha256(value.markdown.encode('utf-8')).hexdigest(),Jsonb(snapshot),base,'generated' if generation_id is not None else 'manual',actor,generation_id))
+         value.tags,value.markdown,hashlib.sha256(value.markdown.encode('utf-8')).hexdigest(),Jsonb(snapshot),base,'manual',actor))
     # Fixed relation names, never identifiers supplied by an HTTP request.
     for table,column,ids in (
         ('document_code_projects','code_project_id',value.code_project_ids),
@@ -384,9 +385,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             row['current_version'] = conn.execute('SELECT * FROM ka.document_versions WHERE id=%s', (row['current_version_id'],)).fetchone()
             row['versions'] = conn.execute('''SELECT id,version,title,origin,base_version_id,content_hash,created_at
                 FROM ka.document_versions WHERE document_id=%s ORDER BY version DESC''', (document_id,)).fetchall()
-            row['workflows'] = conn.execute('''SELECT DISTINCT w.id,w.name FROM ka.document_versions v
-                JOIN ka.documentation_workflow_jobs link ON link.job_id=v.generation_id
-                JOIN ka.documentation_workflows w ON w.id=link.workflow_id WHERE v.document_id=%s ORDER BY w.name,w.id''', (document_id,)).fetchall()
             return row
 
     @router.get('/documents/{document_id}/bundle')
@@ -482,44 +480,5 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             except (OSError, ValueError) as error:
                 logger.warning('Could not remove the export of deleted document %s: %s', document_id, error)
         return {'id':document_id}
-
-    @router.get('/generations/{job_id}/api-analysis')
-    def api_analysis(job_id: UUID) -> dict:
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            if conn.execute('SELECT 1 FROM ka.documentation_generations WHERE job_id=%s AND project_id=%s', (job_id, project)).fetchone() is None:
-                raise HTTPException(404, 'Documentation generation not found')
-            inventory = conn.execute("SELECT data FROM ka.job_events WHERE job_id=%s AND event_type='api_inventory' ORDER BY id DESC LIMIT 1", (job_id,)).fetchone()
-            sections = conn.execute("SELECT data FROM ka.job_events WHERE job_id=%s AND event_type='api_section' ORDER BY id", (job_id,)).fetchall()
-            return {'inventory': inventory['data'] if inventory is not None else None, 'sections': [row['data'] for row in sections]}
-
-    @router.get('/generations')
-    def generations(offset: int = Query(default=0, ge=0), service_id: UUID | None = None,
-                    kind: str | None = Query(default=None, max_length=80), workflow_id: UUID | None = None,
-                    scope: Literal['service', 'environment', 'code_project'] | None = None) -> dict:
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
-            rows = conn.execute('''SELECT g.job_id,g.mode,g.instructions,g.created_at,j.status,j.error,j.result,
-                g.source_snapshot->'service_id' AS service_id, g.source_snapshot->'code_graph_hashes' AS code_graph_hashes,
-                g.source_snapshot->>'scope' AS scope, g.source_snapshot->>'document_name' AS document_name,
-                g.source_snapshot->>'folder' AS folder,
-                g.prompt_snapshot,
-                (SELECT workflow_id FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id LIMIT 1) AS workflow_id,
-                COALESCE((SELECT jsonb_agg(u.data ORDER BY u.id) FROM (
-                    SELECT DISTINCT ON (e.data->>'phase',e.data->>'step') e.id,e.data
-                    FROM ka.job_events e WHERE e.job_id=g.job_id AND e.event_type='token_usage'
-                    ORDER BY e.data->>'phase',e.data->>'step',e.id DESC
-                ) u), '[]'::jsonb) AS token_usage,
-                (SELECT count(*) FROM ka.document_versions v WHERE v.generation_id=g.job_id) AS document_count,
-                (SELECT message FROM ka.job_events e WHERE e.job_id=g.job_id AND e.event_type<>'token_usage' ORDER BY e.id DESC LIMIT 1) AS progress
-                FROM ka.documentation_generations g JOIN ka.jobs j ON j.id=g.job_id
-                WHERE g.project_id=%s AND (%s::uuid IS NULL OR g.source_snapshot->>'service_id'=%s)
-                AND (%s::uuid IS NULL OR EXISTS(SELECT 1 FROM ka.documentation_workflow_jobs WHERE job_id=g.job_id AND workflow_id=%s))
-                AND (%s::text IS NULL OR g.prompt_snapshot @> jsonb_build_array(jsonb_build_object('kind',%s::text)))
-                AND (%s::text IS NULL OR g.source_snapshot->>'scope'=%s)
-                ORDER BY g.created_at DESC,g.job_id LIMIT 50 OFFSET %s''', (project,service_id,str(service_id),workflow_id,workflow_id,kind,kind,scope,scope,offset)).fetchall()
-            return {'generations':rows}
 
     return router

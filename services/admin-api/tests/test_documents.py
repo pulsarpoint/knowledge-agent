@@ -140,11 +140,10 @@ def test_prompt_drafts_activation_disable_and_delete(store, tmp_path):
     assert client.delete(endpoint,headers=HEADERS,params={'revision':7}).status_code == 400
     assert client.delete(endpoint,headers=HEADERS,params={'revision':7,'confirmed':True}).status_code == 200
     assert client.get(endpoint,headers=HEADERS).status_code == 404
-    assert client.get('/api/documentation/generations',headers=HEADERS).json() == {'generations':[]}
 
 
 @pytest.mark.parametrize('method,path', [
-    ('GET','/documentation/resources'),('GET','/documentation/generations'),
+    ('GET','/documentation/resources'),
     ('GET','/documentation/documents'),('POST','/documentation/documents'),
     ('GET','/documentation/prompts'),('POST','/documentation/prompts'),
     ('GET','/documentation/documents/'+str(uuid4())),('PUT','/documentation/documents/'+str(uuid4())),

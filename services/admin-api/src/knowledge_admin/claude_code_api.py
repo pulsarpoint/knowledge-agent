@@ -19,8 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.claude_code import agent_system_prompt, close_idle, first_message
 from knowledge_admin.data_root import data_dir, data_folder, data_path, documentation_folder
-from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
-from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
@@ -29,6 +28,7 @@ NOT_CLAUDE = 'Select an enabled Claude model (Bedrock or Anthropic) from LLM Set
 NO_CONTEXT = 'Add at least one code project or folder as context'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
+PROMPT_CHANGED = 'The prompt changed. Reload the prompt before generating.'  # removed with the prompt field (Task 3)
 
 
 class SessionInput(BaseModel):
