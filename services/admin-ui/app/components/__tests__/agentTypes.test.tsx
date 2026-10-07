@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentDetailView from '../AgentDetailView';
+import AgentsView from '../AgentsView';
 import * as profiles from '../../lib/profiles';
 import * as llm from '../../lib/llm';
 import { Toaster } from '~/components/ui/sonner';
@@ -12,6 +13,7 @@ vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'
 vi.mock('../OperationsView', () => ({ default: ({ view }: { view: string }) => <div>{view === 'test' ? 'Native test chat' : 'Operations settings'}</div> }));
 vi.mock('../PromptsView', () => ({ default: () => <div>Prompt versions</div> }));
 vi.mock('../AgentInstructions', () => ({ default: () => null }));
+vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
 vi.mock('../AgentVersionsView', () => ({ default: ({ testable }: { testable?: boolean }) => <div>{testable === false ? 'Versions without Test vN' : 'Versions with Test vN'}</div> }));
 
 const writer: profiles.AgentProfile = { id: 'writer', name: 'Technical writer', description: '', when_to_use: '', enabled: true,
@@ -87,4 +89,25 @@ test('a native agent keeps its test chat and Test vN', async () => {
   open('/agents/search?view=test');
   expect(await screen.findByText('Native test chat')).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Start a session' })).toBeNull();
+});
+
+test('All agents shows the agent type and New agent opens one wizard', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
+    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', documents_enabled: true, model_name: 'GPT', prompt_title: 'Search', prompt_version: 2 },
+    { ...writer, model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+  render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
+  const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
+  expect(screen.getByRole('columnheader', { name: 'Agent type' })).toBeVisible();
+  expect(within(row).getByText('Claude Code')).toBeVisible();
+  expect(within(row).getByText('Claude on Bedrock')).toBeVisible();
+  expect(within(row).getByText('v1 · Built-in documentation writer')).toBeVisible();
+  const other = screen.getByRole('link', { name: 'Search agent' }).closest('tr')!;
+  expect(within(other).getByText('Native')).toBeVisible();
+  expect(within(other).getByText('Documents')).toBeVisible();
+  await user.type(screen.getByLabelText('Find agents'), 'claude code');
+  expect(screen.queryByRole('link', { name: 'Search agent' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'New agent' }));
+  expect(screen.getByText('Agent wizard')).toBeVisible();
+  expect(screen.queryByRole('tab')).toBeNull();
 });

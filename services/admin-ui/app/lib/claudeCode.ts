@@ -1,8 +1,6 @@
 import { request } from './api';
 import type { ModelProfile } from './llm';
 
-export const CLAUDE_CODE_SDK = 'Claude Code SDK';
-export const CLAUDE_CODE_TOOLS = 'Read, Grep, Glob, Bash';
 /** The server's Claude connection rule (knowledge_llm.claude_model). */
 export const claudeModel = (model: { provider: string; api_format: string; model: string }) =>
   model.api_format === 'native' && (model.provider === 'anthropic' || model.provider === 'bedrock' && model.model.includes('anthropic.claude'));
@@ -14,12 +12,6 @@ export const claudeCodeNotes: Partial<Record<string, string>> = {
 };
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
-
-export interface ClaudeCodeAgentInput { name: string; description: string; enabled?: boolean; revision?: number }
-export interface ClaudeCodeAgent { id: string; name: string; description: string; enabled: boolean; revision: number }
-export const createClaudeCodeAgent = (value: ClaudeCodeAgentInput) => request<{ id: string }>('/api/claude-code/agents', json('POST', value));
-export const saveClaudeCodeAgent = (id: string, value: ClaudeCodeAgentInput) =>
-  request<ClaudeCodeAgent>(`/api/claude-code/agents/${encodeURIComponent(id)}`, json('PUT', value));
 
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
 export const statusLabels: Record<SessionStatus, string> = {

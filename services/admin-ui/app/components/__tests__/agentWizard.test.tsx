@@ -17,7 +17,7 @@ const proposal: api.AgentProposal = {
 const options: api.WizardOptions = {
   default_model_id: 'model', prompt: 'Design a specialist.', schema: { type: 'object' },
   catalog: {
-    models: [{ id: 'model', name: 'Claude', model: 'claude-test', provider: 'bedrock' }],
+    models: [{ id: 'model', name: 'Claude', model: 'claude-test', provider: 'bedrock', api_format: 'native' }],
     code_projects: [{ id: 'repo', name: 'Payments', folder_paths: ['payments'], remote_url: null }],
     collections: [{ id: 'jira', name: 'jira-tickets', description: 'Jira tickets' }],
     servers: [{ id: 'server', name: 'Staging', description: '', hostname: 'staging.test', tags: [], username: 'operator', port: 22, allow_sudo: false, known_hosts: '', credential_id: 'key' }],
@@ -65,7 +65,7 @@ test('generates a reviewable proposal, edits resources and SSH overrides, then c
   fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Use evidence and cite sources.' } });
   await user.click(screen.getByRole('button', { name: 'Create agent' }));
   expect(api.createWizardAgent).toHaveBeenCalledTimes(1);
-  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Reviewed agent', all_repositories: true, repository_ids: [], system_prompt: 'Use evidence and cite sources.', servers: [expect.objectContaining({ instructions: 'Inspect logs only.', connection: expect.objectContaining({ username: 'observer', credential_id: 'key' }) })] }));
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Reviewed agent', runtime: 'openai', all_repositories: true, repository_ids: [], system_prompt: 'Use evidence and cite sources.', servers: [expect.objectContaining({ instructions: 'Inspect logs only.', connection: expect.objectContaining({ username: 'observer', credential_id: 'key' }) })] }));
   expect(created).toHaveBeenCalledWith('new-agent');
   expect(await screen.findByText('Agent Reviewed agent created')).toBeVisible();
 });
@@ -115,7 +115,32 @@ test('start blank opens an empty proposal without generating and can create with
   await user.click(screen.getByRole('tab', { name: 'Prompt' }));
   fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Answer carefully.' } });
   await user.click(screen.getByRole('button', { name: 'Create agent' }));
-  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Blank helper', system_prompt: 'Answer carefully.',
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Blank helper', runtime: 'openai', system_prompt: 'Answer carefully.',
     model_id: null, documents_enabled: false, ssh_enabled: false, collection_ids: [], servers: [] }));
   expect(created).toHaveBeenCalledWith('new-agent');
+});
+
+test('the Agent type choice filters models and is sent with the agent', async () => {
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
+    { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' },
+    { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' }] } });
+  const user = userEvent.setup();
+  render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={vi.fn()} /><Toaster /></MemoryRouter>);
+  await screen.findByLabelText('What should this agent do?');
+  await user.click(screen.getByRole('button', { name: 'Start blank' }));
+  expect(screen.getByRole('combobox', { name: 'Agent type' })).toHaveTextContent('Native');
+  await user.click(screen.getByRole('combobox', { name: 'Agent model' }));
+  await user.click(screen.getByRole('option', { name: /^GPT/ }));
+  await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
+  await user.click(screen.getByRole('option', { name: 'Claude Code' }));
+  expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('No model (choose later)');  // GPT does not fit
+  await user.click(screen.getByRole('combobox', { name: 'Agent model' }));
+  expect(screen.queryByRole('option', { name: /^GPT/ })).toBeNull();
+  await user.click(screen.getByRole('option', { name: /^Claude/ }));
+  await user.type(screen.getByLabelText('Agent name'), 'Writer');
+  await user.click(screen.getByRole('tab', { name: 'Prompt' }));
+  await user.type(screen.getByLabelText('System prompt'), 'Write documentation.');
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Writer', model_id: 'model',
+    runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'] }));
 });
