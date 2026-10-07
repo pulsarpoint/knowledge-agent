@@ -199,8 +199,13 @@ The form, top to bottom:
   folder it has not been given.
 - **The free folders and notes fields go away.**
 - **The draft is saved as a document,** as today.
-- **Existing documents and generation history stay** and remain viewable; only
-  starting the old modes is removed.
+- **Sessions become Generate documents.** **Docs → Generate documents** lists the
+  sessions (status, agent, tokens, saved document); **New** opens the form above and
+  submitting creates a session and opens it. The separate **Sessions** menu item goes
+  away, and session URLs move under `/documentation/generations`.
+- **The old one-shot generation is removed completely:** its page, API routes, worker
+  phases, tables (dropped in a migration, with their history) and any files it wrote
+  for runs. Saved documents stay in **Docs → Documents**.
 
 ## Delivery steps (each ships alone)
 
@@ -218,8 +223,9 @@ The form, top to bottom:
 3. **Native agents through the session API:** `agent-session-worker`, the
    `/api/agent-sessions` routes, and the Test tab on sessions for both types.
 4. **Documentation is generated only with an agent:** one form (agent, what to
-   document: code / environment / services / servers, instructions, name, folder); the old
-   modes, model and prompt fields are removed. Planned right after step 1.
+   document: code / environment / services / servers, instructions, name, folder);
+   sessions are renamed Generate documents; the old one-shot generation, its tables,
+   history and files are removed. Planned right after step 1.
 
 ## Errors
 
