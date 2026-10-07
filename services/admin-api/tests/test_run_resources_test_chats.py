@@ -8,8 +8,10 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_sessions import KEEPS_RESOURCES
+from knowledge_admin.knowledge_agents.config import NATIVE_ONLY
 from knowledge_admin.knowledge_agents.run_resources import FIXED
 from test_agent_runs import direct, events  # noqa: F401  (fixture)
+from test_agent_versions import draft
 from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
@@ -109,3 +111,81 @@ def test_a_suggestion_from_a_per_run_chat_drafts_the_whole_configuration(analyst
     assert 'run_resources' not in source['config']
     assert source['config']['code']['all_projects'] is True  # the agent's own selection, not one run's
     assert source['changes']['instructions'] == 'Be brief.'
+
+
+def review_of(store, session):
+    """A saved tuning suggestion for one conversation, made from the configuration it pinned."""
+    with store.connect() as conn:
+        row = conn.execute('SELECT actor_id,config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
+        return str(conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
+            VALUES (%s,%s,'Shorter',%s,'Be shorter.') RETURNING id''', (session, row['actor_id'], Jsonb({
+            'agent_config': row['config'], 'changes': {'system_prompt': None, 'instructions': 'Be brief.',
+                                                       'server_instructions': []}}))).fetchone()['id'])
+
+
+def test_a_versionless_per_run_chat_drafts_from_its_snapshot_with_the_working_selection(analyst, store):
+    a = analyst
+    session = events(a.client.post(a.path, headers=HEADERS, json={
+        'task': 'Where are the limits?', 'resources': {'code_project_ids': [a.app]}}))[0]['session_id']
+    with store.connect() as conn:
+        pinned = conn.execute('SELECT agent_version_id,config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
+    assert pinned['agent_version_id'] is None
+    published = draft(a.client, a.agent, 'Published instructions')
+    active = a.client.get(f'/api/agents/{a.agent}/versions', headers=HEADERS).json()['active_id']
+    assert a.client.post(f'/api/agents/{a.agent}/versions/{published["id"]}/activate', headers=HEADERS,
+                         json={'expected_active_id': active}).status_code == 200
+    working = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS).json()['config']
+    source = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS,
+                          params={'review_id': review_of(store, session)}).json()['config']
+    assert source['instructions'] == pinned['config']['instructions'] != 'Published instructions'
+    assert 'run_resources' not in source
+    for section in ('code', 'documents', 'ssh', 'services'):
+        assert source[section] == working[section], section
+    assert source['code']['all_projects'] is True
+
+
+def test_a_version_pinned_per_run_chat_drafts_with_that_versions_selection(analyst, store):
+    a = analyst
+    version = draft(a.client, a.agent, 'Pinned instructions')
+    with store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET all_repositories=false WHERE id=%s', (a.agent,))
+        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (a.agent, a.worker))
+    session = events(a.client.post(a.path, headers=HEADERS, json={
+        'task': 'Where are the limits?', 'version_id': version['id'],
+        'resources': {'code_project_ids': [a.app]}}))[0]['session_id']
+    source = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS,
+                          params={'review_id': review_of(store, session)}).json()['config']
+    snapshot = a.client.get(f'/api/agents/{a.agent}/config', headers=HEADERS, params={'version_id': version['id']}).json()
+    assert source['instructions'] == 'Pinned instructions'
+    assert source['code'] == snapshot['code'] and source['code']['all_projects'] is True
+    assert 'run_resources' not in source
+
+
+def test_a_refused_start_leaves_no_conversation_and_claude_code_agents_stay_native_only(analyst, store):
+    a = analyst
+    refused = a.client.post(a.path, headers=HEADERS, json={'task': 'x', 'resources': {'server_ids': [str(uuid4())]}})
+    assert refused.status_code == 400
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
+        assert conn.execute('SELECT count(*) AS n FROM ka.operations_runs').fetchone()['n'] == 0
+        conn.execute("UPDATE ka.agents SET runtime='claude_code',claude_code_tools='{Read}' WHERE id=%s", (a.agent,))
+    for path, body in ((a.path, {'task': 'x'}), (f'/api/agents/{a.agent}/sessions', {'title': 'Check', 'is_test': True})):
+        native = a.client.post(path, headers=HEADERS, json={**body, 'resources': {'server_ids': [str(uuid4())]}})
+        assert native.status_code == 409 and native.json()['error']['message'] == NATIVE_ONLY, native.text
+
+
+def test_a_session_created_with_resources_runs_its_first_message_with_them(analyst, store, responses_api):
+    a = analyst
+    created = a.client.post(f'/api/agents/{a.agent}/sessions', headers=HEADERS, json={
+        'title': 'Check', 'is_test': True, 'resources': {'code_project_ids': [a.worker]}})
+    assert created.status_code == 201, created.text
+    expected = {'code_project_ids': [a.worker], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
+    assert created.json()['run_resources'] == expected
+    first = events(a.client.post(a.path, headers=HEADERS, json={'task': 'Where?', 'session_id': created.json()['id']}))[-1]
+    assert first['status'] == 'completed', first
+    assert [p['id'] for p in first['context']['config']['code']['projects']] == [a.worker]
+    prompt = json.dumps(responses_api[1][-1]['body'])
+    assert f'{a.root}/worker' in prompt and f'{a.root}/app' not in prompt
+    with store.connect() as conn:
+        assert conn.execute('SELECT run_resources FROM ka.operations_runs WHERE id=%s', (first['id'],)).fetchone()[
+            'run_resources'] == expected

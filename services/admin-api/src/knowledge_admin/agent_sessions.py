@@ -135,6 +135,7 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                 config = saved['config']
         else:
             config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
+            require_native(config)
             config = await asyncio.to_thread(run_config,store,app_name,config,value.resources)
         require_native(config)
         require_run_resources(config)
@@ -303,6 +304,7 @@ def build_api(app_name, store):
         actor = request_actor(request)
         try:
             config = get_agent_config(agent_id, conninfo=db.conninfo, version_id=value.version_id)
+            require_native(config)
             with db.connect() as conn:
                 project = db.project(conn,app_name)
                 config = resolve(conn, project, config, value.resources)
