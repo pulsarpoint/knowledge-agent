@@ -50,6 +50,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const [reconnecting, setReconnecting] = useState(false);
   const activity = useRef<HTMLDivElement>(null);
   const anchor = useRef<number | null>(null);  // Activity's scroll height before an earlier page was added above
+  const loadingOlder = useRef<AbortController | null>(null);  // the earlier page in flight: one at a time, aborted on leaving
   const status = session?.status;
   const previousStatus = useRef(status);
   useEffect(() => {  // a new status answers the Stop request
@@ -97,7 +98,10 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
       source.addEventListener('closed', () => { setReconnecting(false); source.close(); });
       source.addEventListener('unavailable', () => setError('The session stream is unavailable. Reload the page.'));
     }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load the session activity'); });
-    return () => { controller.abort(); stream?.close(); if (frame) cancelAnimationFrame(frame); };
+    return () => {
+      controller.abort(); loadingOlder.current?.abort(); loadingOlder.current = null;
+      stream?.close(); if (frame) cancelAnimationFrame(frame);
+    };
   }, [sessionId]);
 
   useLayoutEffect(() => {
@@ -113,18 +117,31 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
 
   async function loadOlder() {
     const first = events[0];
-    if (!first || older !== 'more') return;
+    if (!first || older !== 'more' || loadingOlder.current) return;
+    const controller = new AbortController();
+    loadingOlder.current = controller;
     setOlder('loading');
     try {
-      const page = await getSessionHistory(sessionId, first.id);
+      const page = await getSessionHistory(sessionId, first.id, controller.signal);
+      if (controller.signal.aborted) return;
       anchor.current = activity.current?.scrollHeight ?? null;
       setEvents(current => [...page.events.filter(event => event.id < (current[0]?.id ?? Infinity)), ...current]);
       setOlder(page.has_more ? 'more' : 'start');
     } catch (e) {
+      if (controller.signal.aborted) return;
       setOlder('more');
       setError(e instanceof Error ? e.message : 'Could not load earlier activity');
+    } finally {
+      if (loadingOlder.current === controller) loadingOlder.current = null;
     }
   }
+  // After a page is shown: while Activity does not overflow and there is more history, there is nothing to scroll to
+  // the top with, so load the next earlier page. Runs on new events only, so a failed load is not retried in a loop.
+  const loaded = session !== null;
+  useEffect(() => {
+    const panel = activity.current;
+    if (panel && panel.clientHeight > 0 && panel.scrollHeight <= panel.clientHeight) void loadOlder();
+  }, [events, loaded]);  // eslint-disable-line react-hooks/exhaustive-deps
   function scrolled() {
     const panel = activity.current;
     if (!panel) return;

@@ -164,3 +164,61 @@ test('the session page has one page heading, the session title', async () => {
   // the back link, besides the sidebar's own Generate documents link
   expect(screen.getAllByRole('link', { name: 'Generate documents' }).map(link => link.getAttribute('href'))).toEqual(['/documentation/generations', '/documentation/generations']);
 });
+
+function panelSize(clientHeight: number) {  // the Activity panel's size, before it renders: each event is 100px tall
+  const restore = ['clientHeight', 'scrollHeight'].map(name => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const);
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true,
+    get() { return (this as HTMLElement).dataset.testid === 'activity-scroll' ? clientHeight : 0; } });
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true,
+    get() { return (this as HTMLElement).dataset.testid === 'activity-scroll' ? (this as HTMLElement).querySelectorAll('[data-event]').length * 100 : 0; } });
+  return () => restore.forEach(([name, descriptor]) => descriptor ? Object.defineProperty(HTMLElement.prototype, name, descriptor)
+    : delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name]);
+}
+
+test('a short history fills the Activity panel by loading earlier pages until it overflows or the beginning', async () => {
+  const restore = panelSize(450);
+  try {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url.endsWith('?before=150&limit=100')) return page([message(120)], true);
+      if (url.endsWith('?before=120&limit=100')) return page([message(90), message(91)], true);
+      if (url.endsWith('?limit=100')) return page([message(150), message(151)], true);
+      return Response.json({ ...detail, status: 'waiting', turns: 1, queued: 0 });
+    }));
+    render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+    expect(await screen.findByText('Message 90')).toBeVisible();  // 2 + 1 events do not fill 450px; 5 do
+    await act(async () => {});
+    expect(urls.filter(url => url.includes('/events/history'))).toEqual([
+      '/api/claude-code/sessions/s1/events/history?limit=100',
+      '/api/claude-code/sessions/s1/events/history?before=150&limit=100',
+      '/api/claude-code/sessions/s1/events/history?before=120&limit=100']);
+    expect(screen.queryByText('Beginning of the session')).toBeNull();
+  } finally { restore(); }
+});
+
+test('scrolling near the top again while an earlier page loads does not load it twice; leaving aborts the load', async () => {
+  const restore = panelSize(50);
+  try {
+    const older: { url: string; signal?: AbortSignal }[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('before=')) { older.push({ url, signal: init?.signal ?? undefined }); return new Promise<Response>(() => {}); }
+      if (url.includes('/events/history')) return Promise.resolve(page([message(150), message(151)], true));
+      return Promise.resolve(Response.json({ ...detail, status: 'waiting', turns: 1, queued: 0 }));
+    }));
+    const view = render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+    expect(await screen.findByText('Message 151')).toBeVisible();
+    const panel = screen.getByTestId('activity-scroll');
+    Object.defineProperty(panel, 'scrollTop', { configurable: true, writable: true, value: 0 });
+    act(() => {  // two scroll events before React renders the first load's state
+      fireEvent.scroll(panel);
+      fireEvent.scroll(panel);
+    });
+    await act(async () => {});
+    fireEvent.scroll(panel);
+    expect(older.map(item => item.url)).toEqual(['/api/claude-code/sessions/s1/events/history?before=150&limit=100']);
+    expect(older[0].signal?.aborted).toBe(false);
+    view.unmount();
+    expect(older[0].signal?.aborted).toBe(true);
+  } finally { restore(); }
+});
