@@ -153,10 +153,11 @@ selector are removed.
 The form, top to bottom:
 
 1. **Agent** (Claude Code agents until step 3, then either type).
-2. **What to document:** one or more of **Code**, **Environment** and **Servers**
-   (checkboxes). Each checked choice shows its picker:
+2. **What to document:** one or more of **Code**, **Environment**, **Services** and
+   **Servers** (checkboxes). Each checked choice shows its picker:
    - **Code:** one or more code projects;
    - **Environment:** one or more environments;
+   - **Services:** one or more services;
    - **Servers:** one or more servers.
    At least one item must be picked.
 3. **Instructions** (optional): extra instructions for this run.
@@ -170,6 +171,8 @@ The form, top to bottom:
   - Code projects become working folders (Claude Code) or code roots (native).
   - Environments are described as text: their servers, services, deployments and
     linked code projects. Linked code projects' folders are also working folders.
+  - Services are described as text: their deployments, servers and linked code
+    projects. Linked code projects' folders are also working folders.
   - Servers are described as text: name, address and description. Server access goes
     through the agent's own SSH configuration (step 2), never through this form.
 - **The free folders and notes fields go away.**
@@ -193,7 +196,7 @@ The form, top to bottom:
 3. **Native agents through the session API:** `agent-session-worker`, the
    `/api/agent-sessions` routes, and the Test tab on sessions for both types.
 4. **Documentation is generated only with an agent:** one form (agent, what to
-   document: code / environment / servers, instructions, name, folder); the old
+   document: code / environment / services / servers, instructions, name, folder); the old
    modes, model and prompt fields are removed. Planned right after step 1.
 
 ## Errors
