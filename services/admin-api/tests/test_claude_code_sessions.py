@@ -15,6 +15,7 @@ from knowledge_admin.documents import SAME_DOCUMENT_NAME
 from knowledge_admin.knowledge_agents.native_sessions import code_roots
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
+from test_operations import setup as ssh_setup
 from test_profiles import wizard_payload
 from test_repositories import HEADERS
 
@@ -486,7 +487,13 @@ def test_code_roots_add_the_session_folders_and_keep_a_switched_off_agents_proje
 
 def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_as_code_roots(sessions):
     client, data = sessions.client, sessions.data
-    agent = native_agent(client, model_id=sessions.claude, repositories_enabled=True, repository_ids=[sessions.worker])
+    ssh_server, ssh = ssh_setup(client)  # a saved private key
+    mcp = client.post('/api/mcp/servers', headers=HEADERS, json={
+        'name': 'Docs', 'url': 'http://mock.test/mcp', 'token': 'test-mcp-secret'}).json()
+    agent = native_agent(client, model_id=sessions.claude, repositories_enabled=True, repository_ids=[sessions.worker],
+                         ssh_enabled=True, mcp_enabled=True, mcp_server_ids=[mcp['id']], servers=[
+                             {'server_id': ssh_server['id'], 'instructions': None, 'skill_ids': None,
+                              'mcp_server_ids': None, 'connection': None}])
     session = start(sessions, agent_id=agent, environment_ids=[], service_ids=[])
     app, worker = f'{data}/code/app', f'{data}/code/worker'
     assert (session['runtime'], session['status'], session['agent_name'], session['model_name']) == (
@@ -507,7 +514,10 @@ def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_a
     assert pinned['code']['enabled'] is True and [(p['name'], p['folder_paths']) for p in pinned['code']['projects']] == [
         ('Payments worker', [worker]), ('Payments API', [app])]
     assert pinned['model']['api_key_ref']['id'] == sessions.claude  # a reference: nothing is decrypted here
-    assert 'bedrock-secret-token' not in json.dumps(pinned)
+    [pinned_ssh], [pinned_mcp] = pinned['ssh']['servers'], pinned['mcp']['servers']
+    assert pinned_ssh['private_key_ref']['id'] and pinned_mcp['bearer_token_ref']['id']  # references only
+    for secret in ('bedrock-secret-token', ssh['private_key'], 'test-mcp-secret'):
+        assert secret not in json.dumps(pinned)
     listed = client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
     assert [(s['id'], s['runtime']) for s in listed] == [(session['id'], 'openai')]
     # A native agent needs no working folder: servers only, without code projects of its own.
