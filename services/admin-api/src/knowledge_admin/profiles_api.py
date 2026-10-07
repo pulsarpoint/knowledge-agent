@@ -58,7 +58,7 @@ class ModelInput(BaseModel):
 
 
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
-WORKING_REFUSED = ('This agent is working right now. Stop its Claude Code sessions, runs and board tasks, '
+WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions, runs and board tasks, '
                    'or wait for them to finish, then delete it.')
 # Anything still in progress for the agent, including a board task whose team it is on.
 WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')

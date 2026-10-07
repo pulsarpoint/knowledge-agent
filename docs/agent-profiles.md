@@ -135,10 +135,10 @@ link), its Generate documents sessions (native and Claude Code) and queued input
 tasks with their subtasks and member rows. Tasks of other agents above them (such as the
 coordinator's task) and beside them stay, and so does the coordinator's own run record
 of a task it delegated to this agent (`board:<root task id>`). Saved documents are
-independent rows and stay. While the agent is working — a Claude Code session that is
+independent rows and stay. While the agent is working — a documentation session (native or Claude Code) that is
 `starting` or `working`, a `running` operations run, or a `queued` or `running` board
 task it owns or is a member of — the delete (with or without history) returns HTTP 409
-("This agent is working right now. Stop its Claude Code sessions, runs and board tasks,
+("This agent is working right now. Stop its documentation sessions, runs and board tasks,
 or wait for them to finish, then delete it.") and deletes nothing. The
 coordinator is still refused and the revision is still checked; the `agent.deleted`
 audit event records the deleted counts under `history`.

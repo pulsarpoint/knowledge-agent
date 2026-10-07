@@ -194,7 +194,7 @@ def test_a_working_agent_is_not_deleted(agents, store, working):
         refused = delete(client, target, **body)
         assert refused.status_code == 409
         assert refused.json()['error']['message'] == (
-            'This agent is working right now. Stop its Claude Code sessions, runs and board tasks, '
+            'This agent is working right now. Stop its documentation sessions, runs and board tasks, '
             'or wait for them to finish, then delete it.')
     history = client.get(f'/api/agents/{target}/history', headers=HEADERS).json()
     assert history == {'test_chats': 2, 'chats': 1, 'claude_code_sessions': 1, 'runs': 2,
