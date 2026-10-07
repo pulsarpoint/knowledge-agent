@@ -3,6 +3,7 @@
 import asyncio
 from agents import ModelBehaviorError
 import json
+from typing import Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -15,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, CLAUDE_CODE_TOOLS, ClaudeCodeTool, model_fits, normalize_tools
 from knowledge_admin.operations_store import SSHInput
 
 
@@ -88,6 +90,12 @@ class AgentProposal(BaseModel):
     mcp_server_ids: list[UUID] = Field(max_length=20)
     service_ids: list[UUID] = Field(max_length=100)
     servers: list[ServerProposal] = Field(max_length=100)
+
+
+class CreateInput(AgentProposal):
+    """A reviewed proposal plus the agent type. The administrator chooses the type; the designer never proposes it."""
+    runtime: Literal['openai', 'claude_code'] = 'openai'
+    claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
 
     @model_validator(mode='after')
     def consistent_selections(self):
@@ -231,18 +239,24 @@ def build_api(app_name, store):
             raise HTTPException(502, 'The model could not generate an agent. Check its connection in LLM Settings and retry.') from None
 
     @router.post('', status_code=201)
-    def create(value: AgentProposal, request: Request):
+    def create(value: CreateInput, request: Request):
         agent_id, prompt_id = str(uuid4()), uuid4()
         try:
             with database().connect() as conn:
                 project = store.project(conn, app_name)
-                validate_resources(value, inventory(conn, project))
+                catalog = inventory(conn, project)
+                validate_resources(value, catalog)
+                if value.runtime == 'claude_code' and value.model_id is not None:
+                    chosen = next(m for m in catalog['models'] if str(m['id']) == str(value.model_id))
+                    if not model_fits('claude_code', chosen):
+                        raise HTTPException(400, CHOOSE_CLAUDE)
                 actor = store.actor(conn, *request_actor(request))
-                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,
+                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
                     all_collections,all_repositories,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                     (agent_id,value.name,value.description,value.when_to_use,value.enabled,value.model_id,
+                     value.runtime,normalize_tools(value.claude_code_tools),
                      value.documents_enabled,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,
                      value.mcp_enabled,value.services_enabled,value.all_collections,value.all_repositories,
                      actor,actor))
@@ -275,7 +289,7 @@ def build_api(app_name, store):
                         for resource_id in ids or []:
                             conn.execute(f'INSERT INTO ka.{table}(config_id,project_id,{column}) VALUES (%s,%s,%s)', (config_id,project,resource_id))
                 conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                    VALUES (%s,%s,'agent.created','agent',%s)''', (project,actor,Jsonb({'agent_id':agent_id,'source':'wizard'})))
+                    VALUES (%s,%s,'agent.created','agent',%s)''', (project,actor,Jsonb({'agent_id':agent_id,'source':'wizard','runtime':value.runtime})))
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists. Open it from the list or choose another name.') from None
         except psycopg.errors.ForeignKeyViolation:
