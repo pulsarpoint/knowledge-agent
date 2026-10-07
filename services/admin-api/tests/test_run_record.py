@@ -116,3 +116,17 @@ def test_secrets_added_after_creation_are_redacted(captured):
     recorder.add('tool_result', {'output': 'value LATE-KEY'})
     recorder.flush()
     assert captured[0]['payload']['output'] == 'value [redacted]'
+
+
+def test_null_characters_are_removed_before_redaction(store):
+    """Postgres rejects U+0000 in jsonb: a tool output with a NUL byte must not fail the run, nor hide a key from redaction."""
+    run_record.configure(store, 'shop')
+    try:
+        recorder = RunRecorder(run_key='run:nul', project_id=None, agent_id='search', actor_id=None, secrets=['TOKEN123'])
+        recorder.add('tool_result', {'output': 'bin\x00ary TOK\x00EN123', 'ke\x00y': ['a\x00b']})
+        recorder.flush()
+        with store.connect() as conn:
+            [row] = conn.execute("SELECT payload FROM ka.agent_run_events WHERE run_key='run:nul'").fetchall()
+        assert row['payload'] == {'output': 'binary [redacted]', 'key': ['ab']}
+    finally:
+        run_record.configure(None, None)

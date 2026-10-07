@@ -45,10 +45,11 @@ class RunRecorder(RunHooks):
 
     def _clean(self, value: Any) -> Any:
         if isinstance(value, str):
-            text = redact(value, tuple(secret for secret in self._secrets if secret))
+            # Postgres rejects U+0000 in jsonb; it is removed before redaction so it cannot split a key.
+            text = redact(value.replace('\x00', ''), tuple(secret for secret in self._secrets if secret))
             return text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + TRUNCATED
         if isinstance(value, dict):
-            return {key: self._clean(item) for key, item in value.items()}
+            return {key.replace('\x00', '') if isinstance(key, str) else key: self._clean(item) for key, item in value.items()}
         if isinstance(value, list):
             return [self._clean(item) for item in value]
         return value

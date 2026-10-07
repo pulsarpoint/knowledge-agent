@@ -89,9 +89,15 @@ def build_options(session: dict[str, Any], model: RuntimeModel) -> dict[str, Any
     return options
 
 
+def clean_text(text: str, secrets: Iterable[str]) -> str:
+    """Text to store: without U+0000 (Postgres rejects it in text and jsonb), removed first so it cannot split a key,
+    then redacted."""
+    return redact(text.replace('\x00', ''), [secret for secret in secrets if secret])
+
+
 def safe_error(text: str, secrets: Iterable[str]) -> str:
     """A provider or CLI error for people: redacted, one line, at most 500 characters, with a hint."""
-    reason = ' '.join(redact(text or '', [secret for secret in secrets if secret]).split())[:500]
+    reason = ' '.join(clean_text(text or '', secrets).split())[:500]
     reason = reason or 'Claude Code stopped with an error.'
     lowered = reason.lower()
     hint = next((hint for needles, hint in HINTS if any(needle in lowered for needle in needles)), DEFAULT_HINT)
@@ -138,22 +144,23 @@ def result_error(result: Any) -> str:
 
 def _scrub(value: Any, secrets: list[str]) -> Any:
     if isinstance(value, str):
-        return redact(value, secrets)
+        return clean_text(value, secrets)
     if isinstance(value, dict):
-        return {key: _scrub(item, secrets) for key, item in value.items()}
+        return {_scrub(key, secrets) if isinstance(key, str) else key: _scrub(item, secrets) for key, item in value.items()}
     if isinstance(value, list | tuple):
         return [_scrub(item, secrets) for item in value]
     return value
 
 
 class _Redacting:
-    """Removes the connection's key from every event: Bash runs in the CLI environment, so `env` could print it."""
+    """Removes the connection keys and U+0000 from every event: Bash runs in the CLI environment, so `env` could print
+    the key, and a binary file can print NUL bytes."""
 
     def __init__(self, recorder, secrets: list[str]):
         self.recorder, self.secrets = recorder, secrets
 
     def add(self, kind: str, payload: dict) -> None:
-        self.recorder.add(kind, _scrub(payload, self.secrets) if self.secrets else payload)
+        self.recorder.add(kind, _scrub(payload, self.secrets))
 
 
 class Turn:
@@ -411,7 +418,8 @@ class SessionRunner:
 
     def finish_turn(self, number: int, status: str, message: str, turn: Turn) -> None:
         usage = turn.usage or {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'cost_usd': 0.0}
-        draft = redact(turn.draft, self.secrets) if status == 'waiting' and turn.draft.strip() else None
+        draft = clean_text(turn.draft, self.secrets)
+        draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:
             conn.execute("""UPDATE ka.agent_sessions_cc SET
                 status=CASE WHEN status='closed' THEN status ELSE %(status)s END,

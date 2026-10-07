@@ -177,3 +177,17 @@ def test_fakes_match_the_sdk_message_types():
         assert fake <= real, (name, fake - real)
     options = {field.name for field in dataclasses.fields(sdk.ClaudeAgentOptions)}
     assert set(worker.build_options(SESSION, BEDROCK)) | {'cli_path', 'stderr'} <= options
+
+
+def test_null_characters_never_reach_events_or_the_draft():
+    recorder = Recorder()
+    turn = worker.Turn(recorder, secrets=['sk-ant-secret'])
+    turn.add(AssistantMessage([ToolUseBlock('t1', 'Bash', {'command': 'cat a.bin\x00', 'k\x00': 1})]))
+    turn.add(UserMessage([ToolResultBlock('t1', 'ELF\x00\x00 sk-ant\x00-secret')]))
+    turn.add(AssistantMessage([TextBlock('# Doc\x00')]))
+    turn.add(ResultMessage('success', False, 's', result='# Doc\x00 sk-ant-sec\x00ret'))
+    assert '\\u0000' not in repr(recorder.events) and '\x00' not in repr(recorder.events)
+    result = next(payload for kind, payload in recorder.events if kind == 'tool_result')
+    assert result['output'] == 'ELF [redacted]'
+    assert worker.clean_text(turn.draft, ['sk-ant-secret']) == '# Doc [redacted]'
+    assert '\x00' not in worker.safe_error('boom\x00', [])

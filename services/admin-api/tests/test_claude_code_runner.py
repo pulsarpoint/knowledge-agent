@@ -226,6 +226,25 @@ def test_key_echoed_by_a_tool_result_is_never_stored(started):
     assert KEY not in json.dumps(events(store, sid))
 
 
+def test_null_characters_in_tool_output_and_draft_do_not_fail_the_turn(started):
+    sessions, sid = started
+    store = sessions.store
+    client = FakeClient([[AssistantMessage([ToolUseBlock('t1', 'Bash', {'command': 'head -c 64 app.bin'})]),
+                          UserMessage([ToolResultBlock('t1', 'ELF\x00\x01binary')]), done('# Binary\x00 files')]])
+
+    async def scenario():
+        runner = asyncio.create_task(worker.SessionRunner(store, claimed(sessions), client, poll=0.02).run())
+        row = await wait_for(store, sid, lambda s: s['status'] in ('waiting', 'failed') and s['turns'] == 1)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await asyncio.wait_for(runner, 5)
+        return row
+
+    row = asyncio.run(scenario())
+    assert (row['status'], row['draft']) == ('waiting', '# Binary files')
+    [result] = [e['payload'] for e in events(store, sid) if e['kind'] == 'tool_result']
+    assert result['output'] == 'ELF\x01binary'
+
+
 def test_idle_session_releases_its_client_and_resumes_on_the_next_message(started):
     sessions, sid = started
     store = sessions.store
