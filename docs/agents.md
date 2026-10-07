@@ -117,7 +117,7 @@ The specialist's **Versions** tab saves full configuration snapshots: prompt tex
 additional instructions, model settings, capabilities, resource selections, skills,
 MCP definitions and resolved SSH settings. First saving a draft preserves the
 current working setup as active version 1. Subsequent snapshots are drafts until
-explicit activation. Published snapshots remain available for rollback. Versions store `claude_code_tools`; the agent type always comes from the agent.
+explicit activation. Published snapshots remain available for rollback. Versions store `claude_code_tools`; the agent type always comes from the agent. The snapshot holds `resources`; versions saved before 0075 are fixed. A suggestion from a per-run test chat drafts from the configuration the conversation ran with, never from its narrowed lists.
 
 **Add feedback → Save as new version** opens an editor prefilled with proposed
 instruction replacements. It copies the configuration reviewed in that session,

@@ -13,7 +13,7 @@ inherited from the coordinator. Specialists share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, availability, model connection, additional instructions and required active system prompt |
+| General | Name, purpose, routing description, availability, Resources (Fixed / Per run), model connection, additional instructions and required active system prompt |
 | Skills | Enable skills; select one or more predefined skills from the library |
 | Documents | Enable document search; choose folders and whether to include descendants |
 | Git paths | Enable read-only Git access; choose repositories |
@@ -25,6 +25,8 @@ inherited from the coordinator. Specialists share these tabs:
 | Test | Continue a Agents SDK conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
 Capabilities are independent of the agent name. Code can enable SSH; SSH can enable Git or document search. Switching a capability off preserves its saved selections. Save the capability switch before editing its dependent SSH or MCP settings. The Skills tab saves its switch and selected skills together. New profiles start with no model and all capabilities off. Existing profiles keep their prior access and active prompts.
+
+**Resources.** A fixed agent always uses its selections. A per-run agent's selections are what a run may be given (All = any); each run passes `code_project_ids`, `collection_ids`, `server_ids` and `service_ids`, validated against them and narrowed into the run's configuration (`knowledge_agents/run_resources.py`); skills and MCP stay fixed. The coordinator is always fixed.
 
 An empty resource selection includes nothing. “All document folders” and “All Git repositories” are explicit options. Services provide descriptive context; they do not grant access to their servers or repositories. Skills are administrator-managed instructions. Server-specific instructions and skill/MCP selections are configured within SSH. A server without its own configuration uses the same agent’s instructions and selections. No configuration is inherited from another agent. SSH defaults remain on the shared server inventory. Each agent can override the complete SSH connection for a server; removing that override restores the server defaults. The server’s SSH-enabled flag is always enforced.
 
@@ -55,7 +57,7 @@ credential references, skills, MCP servers, services, model connections, and
 existing agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard asks for the **Agent type** (Native or Claude Code) first and shows it again on the review. `POST /api/agents/wizard/generate` accepts `runtime`: the designer's catalog then lists only models that fit that type, and a proposed model that does not fit is returned as `model_id: null`. The proposal schema itself does not include the type. `POST /api/agents/wizard` accepts `runtime` and `claude_code_tools`.
+The wizard asks for **Agent type** and **Resources** first (page 1) and shows them as one line on the review. `POST /api/agents/wizard/generate` accepts `runtime`: the designer's catalog then lists only models that fit that type, and a proposed model that does not fit is returned as `model_id: null`. The proposal schema itself does not include the type. `POST /api/agents/wizard` accepts `runtime`, `resources` (default `fixed`) and `claude_code_tools`.
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
@@ -99,10 +101,15 @@ Migration `0073_remove_documentation_generation` removes the one-shot generation
 
 Migration `0074_native_agent_sessions` adds `agent_sessions_cc.runtime`, `agent_config` and `history`; its down migration refuses while native sessions exist. Native agents' Generate documents sessions run in `agent-session-worker`.
 
+Migration `0075_agent_resources` adds `agents.resources` (`fixed` | `per_run`, default `fixed`) and `per_run_agent_is_not_the_coordinator`; its down migration refuses while per-run agents or per-run configuration versions exist. Migration `0076_run_resources` adds `run_resources` to `agent_sessions_cc`, `agent_sessions` and `operations_runs`; its down migration drops only these records.
+
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
-- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools`.
+- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools`, and `resources` (the coordinator: 400 `The coordinator uses fixed resources.`).
+- `GET /api/agents` returns `resources` and `accepts` (from the active version).
+- `GET /api/agents/{id}/run-resources?version_id=` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
+- `POST /api/agents/{id}/runs` and `POST /api/agents/{id}/sessions` accept `resources` with a new conversation only (follow-ups: 409); sessions and runs return `run_resources`.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model and applies the type's model rule.
 - `GET /api/agents/{id}/config` returns `runtime` and `claude_code_tools` for both types (`knowledge_admin.knowledge_agents.config.get_agent_config`).
 - Prompt APIs accept the agent ID.
