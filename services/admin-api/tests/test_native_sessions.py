@@ -196,7 +196,9 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.2)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
-    fake = FakeAgent([{'steps': [stubborn(started, ignored, release)], 'answer': 'never reached'},
+    late = [stubborn(started, ignored, release), llm(call('c9', 'shell_run', {'command': f'echo {KEY}'})),
+            tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]  # what it does after Stop
+    fake = FakeAgent([{'steps': late, 'answer': f'# {KEY}'},
                       {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
 
     async def scenario():
@@ -208,7 +210,7 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
         assert fake.running == 1  # the stubborn turn is still running; it changes nothing when it ends
         release.set()
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.2)
         assert fake.running == 0 and native_sessions._abandoned == set()
         await post(sessions, url + '/close')
         await asyncio.wait_for(runner, 5)
@@ -219,6 +221,11 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     assert session_row(store, sid)['history'] == [{'role': 'user', 'content': 'Continue.'},
                                                   {'role': 'assistant', 'content': '# Docs'}]
     assert 'did not end within' in caplog.text and str(sid) in caplog.text
+    recorded = events(store, sid)
+    turn1 = [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:1']
+    assert turn1 == ['start', 'input', 'instructions', 'end']  # nothing from the leftover, nothing after 'end'
+    stored = json.dumps(recorded) + json.dumps(session_row(store, sid), default=str) + caplog.text
+    assert KEY not in stored
 
 
 def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):

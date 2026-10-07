@@ -1,5 +1,6 @@
 """Complete, durable record of an agent run: instructions, input, reasoning, tool calls, outputs and answer."""
 
+import threading
 from collections.abc import Iterable
 from typing import Any
 
@@ -46,6 +47,8 @@ class RunRecorder(RunHooks):
         self._secrets = secrets  # read live: callers may add keys after the run starts
         self.events: list[dict[str, Any]] = []
         self.flushed = 0
+        self.closed = False  # close(): nothing more is added
+        self._lock = threading.Lock()  # one flush at a time
 
     def _clean(self, value: Any) -> Any:
         if isinstance(value, str):
@@ -59,25 +62,35 @@ class RunRecorder(RunHooks):
         return value
 
     def add(self, kind: str, payload: dict[str, Any]) -> None:
+        if self.closed:
+            return
         self.events.append({'run_key': self.run_key, 'seq': len(self.events) + 1, 'kind': kind,
                             'project_id': self.project_id, 'agent_id': self.agent_id, 'actor_id': self.actor_id,
                             'payload': self._clean(jsonable_encoder(payload))})
 
+    def close(self) -> None:
+        """The run has ended (its last event added): later add() calls, such as from work that outlived the run, are
+        ignored; flush() still writes what was added before."""
+        self.closed = True
+
     def flush(self) -> None:
-        pending = self.events[self.flushed:]
-        if not pending:
-            return
-        if _store is None:
-            raise RuntimeError('Run records are not configured')
-        _insert(_store, pending)
-        self.flushed = len(self.events)
+        with self._lock:
+            pending = self.events[self.flushed:]
+            if not pending:
+                return
+            if _store is None:
+                raise RuntimeError('Run records are not configured')
+            _insert(_store, pending)
+            self.flushed += len(pending)
 
     def flush_in(self, conn) -> None:
-        """flush() inside the caller's transaction, so the events commit (or roll back) with the caller's changes."""
-        pending = self.events[self.flushed:]
-        if pending:
-            _write(conn, _store, pending)
-            self.flushed = len(self.events)
+        """flush() inside the caller's transaction, so the events commit (or roll back) with the caller's changes.
+        `flushed` advances before the caller commits: a rollback only leaves a gap in seq."""
+        with self._lock:
+            pending = self.events[self.flushed:]
+            if pending:
+                _write(conn, _store, pending)
+                self.flushed += len(pending)
 
     async def on_agent_start(self, context, agent) -> None:
         instructions = agent.instructions if isinstance(agent.instructions, str) else '(generated at run time)'

@@ -106,13 +106,14 @@ class SessionEvents(RunHooks):
         self.recorder, self.secrets, self.first = recorder, secrets, first
         self.texts: list[str] = []
         self.calls = 0
+        self.closed = False  # the turn ended: a turn that outlived Stop records nothing more
         self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'total_tokens': 0, 'cost_usd': 0.0}
 
     async def _flush(self) -> None:
         await asyncio.to_thread(self.recorder.flush)
 
     async def on_agent_start(self, context, agent) -> None:
-        if not self.first:
+        if self.closed or not self.first:
             return
         self.first = False
         text = agent.instructions if isinstance(agent.instructions, str) else '(generated at run time)'
@@ -120,6 +121,8 @@ class SessionEvents(RunHooks):
         await self._flush()
 
     async def on_llm_end(self, context, agent, response) -> None:
+        if self.closed:
+            return
         for item in response.output:
             kind = getattr(item, 'type', None)
             if kind == 'reasoning':
@@ -146,6 +149,8 @@ class SessionEvents(RunHooks):
         await self._flush()
 
     async def on_tool_end(self, context, agent, tool, result) -> None:
+        if self.closed:
+            return
         output = clean_text(str(result), self.secrets)
         self.recorder.add('tool_result', {
             'name': tool.name, 'call_id': getattr(context, 'tool_call_id', None) or '',
@@ -208,10 +213,11 @@ class Comments:
         self.placed: list[tuple[int, dict]] = []  # (position in the SDK's input, comment item)
         self.ids: list[int] = []
         self.delivery: asyncio.Task | None = None
+        self.closed = False  # the turn ended: nothing more is delivered to it
 
     def _record(self, conn, inputs: list[dict]) -> None:
-        # Runs in a thread: safe, as the SDK is paused in this filter and settle() runs before further events.
-        # flush_in advances `flushed` before the caller commits; a rollback only leaves a gap in seq.
+        # Runs in a thread while the turn waits in this filter, so no hook adds events meanwhile; once the turn has
+        # ended (closed, settle() done), a turn that outlived Stop no longer delivers or records anything.
         for item in inputs:
             self.recorder.add('input', {'task': item['text'], 'comment': True})
         self.recorder.flush_in(conn)
@@ -219,6 +225,8 @@ class Comments:
 
     async def __call__(self, data: CallModelData) -> ModelInputData:
         model = data.model_data
+        if self.closed:
+            return model
         self.delivery = asyncio.ensure_future(asyncio.to_thread(self.runner.queued_comments, self.number, self._record))
         texts = await asyncio.shield(self.delivery)
         items = list(model.input)
@@ -262,13 +270,16 @@ class NativeRunner(shared.SessionRunner):
         return config, load_credentials(self.store, config), history
 
     async def run_turn(self, number: int, text: str) -> None:
+        # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
+        secrets: list[str] = []
+        self.secrets = secrets
         recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
-                               agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=self.secrets)
+                               agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=secrets)
         recorder.add('start', {'kind': 'native_session', 'title': self.session['title'], 'agent': self.session['agent_name'],
                                'turn': number})
         recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
-        events = SessionEvents(recorder, secrets=self.secrets, first=number == 1)
+        events = SessionEvents(recorder, secrets=secrets, first=number == 1)
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
@@ -276,29 +287,32 @@ class NativeRunner(shared.SessionRunner):
         try:
             try:
                 config, credentials, history = await asyncio.to_thread(self.load)
-                self.secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
+                secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
                 status, final = await self.drive(config, text, credentials, history, events, comments)
                 message = STOPPED if status == 'stopped' else ''
             except Exception as exc:
-                status, message = 'failed', failure(exc, self.secrets)
+                status, message = 'failed', failure(exc, secrets)
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
                 logger.warning('Agent session %s turn %s failed (%s)', self.id, number, type(exc).__name__)
+            events.closed = True
             if comments is not None:
+                comments.closed = True
                 await comments.settle()
             events.finish()
             recorder.add('end', {'status': END_STATUS[status]})
+            recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)
             if status != 'waiting' and comments is not None:
                 await asyncio.to_thread(self.return_comments, number, comments.ids)
-            commit = None if history is None else (lambda conn: history.commit(conn, self.secrets))
+            commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             await asyncio.to_thread(self.finish_turn, number, status, message, usage=events.usage, commit=commit,
-                                    draft=clean_text(events.draft(final), self.secrets))
+                                    draft=clean_text(events.draft(final), secrets))
         finally:
             if history is not None:
                 history.drop()
             credentials.clear()
-            self.secrets.clear()
+            self.secrets = []  # the worker forgets them; the turn's own list stays with what may still use it
 
     async def drive(self, config: dict, text: str, credentials: dict[str, str], history: HistorySession,
                     events: SessionEvents, comments: Comments) -> tuple[str, Any]:

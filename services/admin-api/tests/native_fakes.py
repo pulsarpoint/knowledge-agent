@@ -148,5 +148,4 @@ def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event)
                 await release.wait()
             except asyncio.CancelledError:
                 ignored.append('cancel')
-        raise RuntimeError('ended late')
     return step
