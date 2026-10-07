@@ -5,7 +5,6 @@ import pytest
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
-from knowledge_admin.agents import get_agent_config
 from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE
 from test_api import _client
 from test_repositories import HEADERS
@@ -49,8 +48,6 @@ def test_claude_code_agent_is_created_listed_renamed_and_deleted(writer):
 
 def test_claude_code_agents_are_hidden_from_openai_only_places(store, writer):
     client, agent_id = writer
-    with pytest.raises(ValueError, match='documentation sessions only'):
-        get_agent_config(agent_id, conninfo=store.conninfo)
     assert client.post(f'/api/agents/{agent_id}/sessions', headers=HEADERS, json={'title': 'Test', 'is_test': True}).status_code == 409
     assert client.get(f'/api/agents/{agent_id}/versions/source', headers=HEADERS).status_code == 409
     detail = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()

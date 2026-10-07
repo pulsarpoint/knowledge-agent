@@ -1,0 +1,71 @@
+"""One agent config for both agent types: the shape, the type and model rules, and the native-only guard."""
+from uuid import uuid4
+
+import pytest
+from knowledge_llm import ModelUnavailable
+from knowledge_llm.profiles import profile
+
+from knowledge_admin.agents import get_agent_config as agents_loader
+from knowledge_admin.knowledge_agents.config import (CLAUDE_CODE_TOOLS, NATIVE_ONLY, AgentConfig, get_agent_config,
+                                                     model_fits, normalize_tools, require_native)
+from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
+from test_repositories import HEADERS
+
+EMPTY_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
+
+
+def test_both_types_load_the_same_config_shape(store, saved_agent):
+    assert agents_loader is get_agent_config  # moved; existing imports keep working
+    native = get_agent_config('operations', conninfo=store.conninfo)
+    assert set(native) == AgentConfig.__required_keys__
+    assert (native['runtime'], native['claude_code_tools']) == ('openai', list(CLAUDE_CODE_TOOLS))
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET runtime='claude_code',claude_code_tools='{Read,Bash}' WHERE id='operations'")
+    claude = get_agent_config('operations', conninfo=store.conninfo)
+    assert (claude['runtime'], claude['claude_code_tools']) == ('claude_code', ['Read', 'Bash'])
+    shared = lambda config: {key: value for key, value in config.items() if key not in ('runtime', 'claude_code_tools')}
+    assert shared(claude) == shared(native)  # switching the type changes only the runtime
+
+
+def test_a_version_keeps_its_tools_and_follows_the_agent_type(store, saved_agent):
+    client = saved_agent[0]
+    source = client.get('/api/agents/operations/versions/source', headers=HEADERS).json()
+    created = client.post('/api/agents/operations/versions', headers=HEADERS, json={
+        'label': 'Before the switch', 'source_hash': source['source_hash'], 'changes': EMPTY_CHANGES})
+    assert created.status_code == 201, created.text
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET runtime='claude_code',claude_code_tools='{Read}' WHERE id='operations'")
+    version = get_agent_config('operations', conninfo=store.conninfo, version_id=created.json()['id'])
+    assert (version['runtime'], version['claude_code_tools']) == ('claude_code', list(CLAUDE_CODE_TOOLS))
+
+
+def test_model_rules_and_tool_names():
+    claude = {'provider': 'bedrock', 'api_format': 'native', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0'}
+    gpt = {'provider': 'openai', 'api_format': 'responses', 'model': 'gpt-5'}
+    chat = {'provider': 'openai', 'api_format': 'chat_completions', 'model': 'llama'}
+    embeddings = {'provider': 'openai', 'api_format': 'embeddings', 'model': 'text-embedding-3-small'}
+    assert model_fits('claude_code', claude) and not model_fits('claude_code', gpt)
+    assert model_fits('openai', claude) and model_fits('openai', gpt) and not model_fits('openai', chat)
+    assert model_fits('openai', chat, coordinator=True) and not model_fits('openai', embeddings, coordinator=True)
+    assert normalize_tools(['Bash', 'Read', 'Bash']) == ['Read', 'Bash'] and normalize_tools([]) == []
+    require_native({'runtime': 'openai'})
+    require_native({})  # sessions saved before 0072 have no runtime: native
+    with pytest.raises(ValueError, match='Claude Code sessions'):
+        require_native({'runtime': 'claude_code'})
+
+
+def test_claude_code_agents_stay_out_of_native_runs(store, saved_agent):
+    client = saved_agent[0]
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET runtime='claude_code' WHERE id='operations'")
+    created = client.post('/api/agents/operations/sessions', headers=HEADERS, json={'title': 'Test', 'is_test': True})
+    assert created.status_code == 409 and created.json()['error']['message'] == NATIVE_ONLY
+    run = client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Check the queue', 'is_test': True})
+    assert run.status_code == 409 and NATIVE_ONLY in run.text
+    board = client.post('/api/agent-board/tasks', headers=HEADERS,
+                        json={'id': str(uuid4()), 'task': 'Check the queue', 'subagent_ids': ['operations']})
+    assert board.status_code == 400 and 'Claude Code agents' in board.json()['error']['message']
+    with store.connect() as conn:
+        with pytest.raises(ModelUnavailable):
+            profile(conn, 'operations', runnable=True)
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0

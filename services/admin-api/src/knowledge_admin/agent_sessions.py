@@ -23,6 +23,7 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.agent_versions import TuningSuggestion
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agents import agent, get_agent_config, load_credentials
+from knowledge_admin.knowledge_agents.config import require_native
 
 
 class RunInput(BaseModel):
@@ -45,6 +46,7 @@ class SessionInput(BaseModel):
 def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UUID,
                    actor_id: UUID, config: dict[str, Any], title: str, is_test: bool) -> dict[str, Any]:
     """Create the same pinned agent session for a test or an admin live conversation."""
+    require_native(config)
     if not config['enabled']:
         raise ValueError('Agent is disabled.')
     if config['model'] is None or not config['model']['enabled']:
@@ -118,6 +120,7 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                 config = saved['config']
         else:
             config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
+        require_native(config)
         if not config['enabled']:
             raise ValueError('Agent is disabled.')
         if config['model'] is None or not config['model']['enabled']:

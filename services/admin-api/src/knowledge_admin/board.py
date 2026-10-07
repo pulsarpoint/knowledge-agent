@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_activity import SdkActivity, redact
 from knowledge_admin.agents import create_agent, get_agent_config, load_credentials
+from knowledge_admin.knowledge_agents.config import require_native
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.coordinator import coordinator
@@ -226,6 +227,7 @@ async def execute_task(store: RepositoryStore, task: dict[str, Any], slots: asyn
             tools = []
             for member in team:
                 config = await asyncio.to_thread(get_agent_config, member['agent_id'], conninfo=store.conninfo)
+                require_native(config)
                 keys = await asyncio.to_thread(load_credentials, store, config)
                 credentials.append(keys)
                 secrets.extend(keys.values())
