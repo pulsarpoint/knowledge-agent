@@ -143,11 +143,14 @@ class SessionRunner:
                 return None
             conn.execute("""UPDATE ka.agent_sessions_cc SET status='working',status_message='',turns=%s,
                 stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""", (number, self.id))
-            return number, '\n\n'.join(inputs)
+            return number, '\n\n'.join(item['text'] for item in inputs)
 
-    def queued_comments(self, number: int) -> list[str]:
+    def queued_comments(self, number: int,
+                        on_delivered: Callable[[Any, list[dict]], None] | None = None) -> list[str]:
         """Messages queued while turn `number` runs, marked delivered to that turn once; none when the session is closed,
-        no longer this worker's (lease) or not running that turn. For delivery inside a running turn."""
+        no longer this worker's (lease) or not running that turn. For delivery inside a running turn.
+        `on_delivered(conn, inputs)` (their id and text) runs in the same transaction, such as recording them, so a
+        message is never delivered without it."""
         with self.store.connect() as conn:
             row = conn.execute('''SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
                 FROM ka.agent_sessions_cc WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
@@ -156,9 +159,22 @@ class SessionRunner:
             inputs = self._deliver(conn, number)
             if inputs:
                 conn.execute('UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s', (self.id,))
-            return inputs
+                if on_delivered is not None:
+                    on_delivered(conn, inputs)
+            return [item['text'] for item in inputs]
 
-    def _deliver(self, conn, number: int) -> list[str]:
+    def return_comments(self, number: int, ids: list[int]) -> None:
+        """Comments delivered inside turn `number`, which did not complete: discarded when the user pressed Stop (as Stop
+        discards queued messages), otherwise queued again, so the next turn receives them."""
+        if not ids:
+            return
+        with self.store.connect() as conn:
+            conn.execute("""UPDATE ka.agent_session_inputs i SET turn=NULL,delivered_at=NULL,
+                status=CASE WHEN s.stop_requested_at IS NOT NULL THEN 'discarded' ELSE 'queued' END
+                FROM ka.agent_sessions_cc s WHERE s.id=i.session_id AND i.session_id=%s AND i.id=ANY(%s)
+                  AND i.status='delivered' AND i.turn=%s""", (self.id, ids, number))
+
+    def _deliver(self, conn, number: int) -> list[dict]:
         """Mark every queued message of this session delivered to turn `number`; the caller holds the session row lock
         and has checked the lease."""
         inputs = conn.execute("""SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
@@ -166,7 +182,7 @@ class SessionRunner:
         if inputs:
             conn.execute("""UPDATE ka.agent_session_inputs SET status='delivered',turn=%s,delivered_at=now()
                 WHERE id=ANY(%s)""", (number, [item['id'] for item in inputs]))
-        return [item['text'] for item in inputs]
+        return inputs
 
     async def run_turn(self, number: int, text: str) -> None:
         raise NotImplementedError

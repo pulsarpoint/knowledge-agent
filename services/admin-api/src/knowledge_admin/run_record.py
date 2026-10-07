@@ -24,13 +24,17 @@ def configure(store, app_name: str | None) -> None:
 
 def _insert(store, events: list[dict[str, Any]]) -> None:
     with store.connect() as conn:
-        project = None
-        for event in events:
-            if event['project_id'] is None:
-                project = project or store.project(conn, _app_name)
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (event['project_id'] or project, event['run_key'], event['seq'],
-                event['kind'], event['agent_id'], event['actor_id'], Jsonb(event['payload'])))
+        _write(conn, store, events)
+
+
+def _write(conn, store, events: list[dict[str, Any]]) -> None:
+    project = None
+    for event in events:
+        if event['project_id'] is None:
+            project = project or store.project(conn, _app_name)
+        conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (event['project_id'] or project, event['run_key'], event['seq'],
+            event['kind'], event['agent_id'], event['actor_id'], Jsonb(event['payload'])))
 
 
 class RunRecorder(RunHooks):
@@ -67,6 +71,13 @@ class RunRecorder(RunHooks):
             raise RuntimeError('Run records are not configured')
         _insert(_store, pending)
         self.flushed = len(self.events)
+
+    def flush_in(self, conn) -> None:
+        """flush() inside the caller's transaction, so the events commit (or roll back) with the caller's changes."""
+        pending = self.events[self.flushed:]
+        if pending:
+            _write(conn, _store, pending)
+            self.flushed = len(self.events)
 
     async def on_agent_start(self, context, agent) -> None:
         instructions = agent.instructions if isinstance(agent.instructions, str) else '(generated at run time)'

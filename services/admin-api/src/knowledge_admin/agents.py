@@ -12,6 +12,7 @@ from typing import Any
 import psycopg
 from agents import Agent, AgentOutputSchema, FunctionTool, ModelSettings, RunConfig, RunHooks, Runner, RunResult, RunResultStreaming, Session, trace
 from agents.mcp import MCPServerStreamableHttp
+from agents.run_config import CallModelInputFilter
 from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
@@ -37,7 +38,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                 on_usage: UsageCallback | None = None,
                 history: list[dict[str, Any]] | None = None, max_turns: int | None = 20,
                 max_output_tokens: int | None = None, stream: bool = True,
-                session: Session | None = None, hooks: RunHooks | None = None) -> RunResult | RunResultStreaming:
+                session: Session | None = None, hooks: RunHooks | None = None,
+                call_model_input_filter: CallModelInputFilter | None = None) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
     The caller resolves credentials and owns session locking and expiry. Only
@@ -51,7 +53,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
     With session (an Agents SDK Session, such as a Generate documents session's
     HistorySession) the SDK reads the earlier conversation from it and adds this turn's items to it; the caller then
     passes no history and does not stream, so every item has been added when the run returns. hooks receive the SDK
-    lifecycle too (a session's run events).
+    lifecycle too (a session's run events). call_model_input_filter (RunConfig) may change each model call's input,
+    such as a session's comments delivered while the turn runs.
     """
     if not task.strip() or timeout_seconds <= 0 or (turn_timeout_seconds is not None and turn_timeout_seconds <= 0) or (max_turns is not None and max_turns < 1) or (max_output_tokens is not None and max_output_tokens < 1):
         raise ValueError('Provide a task and positive execution limits.')
@@ -81,7 +84,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                 async with asyncio.timeout(turn_timeout_seconds), create_agent(config, credentials=credentials,
                         timeout_seconds=timeout_seconds, output_type=output_type) as assistant:
                     run_config = RunConfig(tracing={'include_task_and_turn_spans': False},
-                                           model_settings=ModelSettings(max_tokens=max_output_tokens))
+                                           model_settings=ModelSettings(max_tokens=max_output_tokens),
+                                           call_model_input_filter=call_model_input_filter)
                     if stream:
                         run = Runner.run_streamed(assistant, task_input, context=context, hooks=run_hooks,
                                                  max_turns=max_turns, run_config=run_config, session=session)
