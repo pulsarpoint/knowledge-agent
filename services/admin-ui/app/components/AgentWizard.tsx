@@ -15,6 +15,7 @@ import { Spinner } from '~/components/ui/spinner';
 import { Switch } from '~/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '~/components/ui/tabs';
 import { Textarea } from '~/components/ui/textarea';
+import { toast } from 'sonner';
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   const id = useId();
@@ -80,7 +81,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent(proposal); onCreated(saved.id); }
+    try { const saved = await createWizardAgent(proposal); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
   }

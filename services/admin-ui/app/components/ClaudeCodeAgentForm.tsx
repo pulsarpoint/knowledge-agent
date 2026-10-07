@@ -8,6 +8,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '~/components/ui
 import { Input } from '~/components/ui/input';
 import { Switch } from '~/components/ui/switch';
 import { Textarea } from '~/components/ui/textarea';
+import { toast } from 'sonner';
 
 /** A Claude Code agent is a registration: a name, a description and whether it can start sessions. Model, folders and
  * prompt come with each session. On the agent's page its name is the heading, so the card has none. */
@@ -23,8 +24,8 @@ export default function ClaudeCodeAgentForm({ agent, onSaved, onCancel }: {
     setBusy(true); setError('');
     try {
       const value = { name: name.trim(), description: description.trim() };
-      if (agent) onSaved(await saveClaudeCodeAgent(agent.id, { ...value, enabled, revision: agent.revision }));
-      else onSaved({ id: (await createClaudeCodeAgent(value)).id, ...value, enabled: true, revision: 1 });
+      if (agent) { const saved = await saveClaudeCodeAgent(agent.id, { ...value, enabled, revision: agent.revision }); toast.success(`Agent ${saved.name} saved`, { id: `agent-saved-${saved.id}` }); onSaved(saved); }
+      else { const created = { id: (await createClaudeCodeAgent(value)).id, ...value, enabled: true, revision: 1 }; toast.success(`Agent ${value.name} created`); onSaved(created); }
     } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not save the agent.'); }
     finally { setBusy(false); }
   }

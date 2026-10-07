@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import AgentWizard from '../AgentWizard';
 import * as api from '../../lib/agentWizard';
+import { Toaster } from '~/components/ui/sonner';
 
 vi.mock('../../lib/agentWizard', () => ({ getWizardOptions: vi.fn(), generateAgent: vi.fn(), createWizardAgent: vi.fn() }));
 const proposal: api.AgentProposal = {
@@ -32,7 +33,7 @@ beforeEach(() => {
 });
 async function open() {
   const user = userEvent.setup(); const created = vi.fn(); const close = vi.fn();
-  render(<MemoryRouter><AgentWizard onClose={close} onCreated={created} /></MemoryRouter>);
+  render(<MemoryRouter><AgentWizard onClose={close} onCreated={created} /><Toaster /></MemoryRouter>);
   await screen.findByLabelText('What should this agent do?');
   await user.type(screen.getByLabelText('What should this agent do?'), 'Investigate payment incidents.');
   return { user, created, close };
@@ -66,6 +67,7 @@ test('generates a reviewable proposal, edits resources and SSH overrides, then c
   expect(api.createWizardAgent).toHaveBeenCalledTimes(1);
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Reviewed agent', all_repositories: true, repository_ids: [], system_prompt: 'Use evidence and cite sources.', servers: [expect.objectContaining({ instructions: 'Inspect logs only.', connection: expect.objectContaining({ username: 'observer', credential_id: 'key' }) })] }));
   expect(created).toHaveBeenCalledWith('new-agent');
+  expect(await screen.findByText('Agent Reviewed agent created')).toBeVisible();
 });
 
 test('generation and save errors preserve role and proposal for retry', async () => {

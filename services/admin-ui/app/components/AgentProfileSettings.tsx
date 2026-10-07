@@ -9,6 +9,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet, FieldLegend 
 import { Input } from '~/components/ui/input';
 import { Textarea } from '~/components/ui/textarea';
 import { Switch } from '~/components/ui/switch';
+import { toast } from 'sonner';
 
 function ResourceSelection({ label, options, selected, onChange, disabled }: { label: string; options: { id: string; name: string; description?: string; enabled?: boolean }[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
   return <FieldSet disabled={disabled}><FieldLegend variant="label">{label}</FieldLegend><div className="max-h-60 overflow-auto rounded-md border p-3">
@@ -33,7 +34,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     if (skillsDirty && configurationDirty) { setBusy(false); return; }
-    try { const saved = skillsDirty ? await saveAgent(draft, draft.skill_ids) : await saveAgent(draft); setDraft(saved); setDirty(false); setSkillsDirty(false); onSaved(saved); setNotice('Agent configuration saved.'); }
+    try { const saved = skillsDirty ? await saveAgent(draft, draft.skill_ids) : await saveAgent(draft); setDraft(saved); setDirty(false); setSkillsDirty(false); onSaved(saved); toast.success('Agent configuration saved.', { id: 'agent-configuration-saved' }); }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not save this agent.'); }
     finally { setBusy(false); }
   }

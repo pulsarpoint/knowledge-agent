@@ -7,6 +7,7 @@ import { cn } from "~/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Toaster } from "~/components/ui/sonner";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader,
   SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
@@ -120,6 +121,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {!docsHistory && !sessionPage && <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>}
         {children}
       </main>
+      <Toaster position="bottom-right" />
     </SidebarInset>
   </SidebarProvider>;
 }

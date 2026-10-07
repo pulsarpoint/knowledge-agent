@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 import AgentsView from '../AgentsView';
 import AgentDetailView from '../AgentDetailView';
+import { Toaster } from '~/components/ui/sonner';
 
 const base = { when_to_use: '', enabled: true, is_coordinator: false, documents_enabled: false, repositories_enabled: false,
   ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false, documents_grounded: false, revision: 1,
@@ -29,7 +30,7 @@ function setup() {
 }
 function Detail() { const { id } = useParams(); return <AgentDetailView agentId={id!} />; }
 function app(path: string) {
-  return <MemoryRouter initialEntries={[path]}><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /></Routes></MemoryRouter>;
+  return <MemoryRouter initialEntries={[path]}><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /></Routes><Toaster /></MemoryRouter>;
 }
 
 test('All agents shows Claude Code agents with their badge and creates one from a name and description', async () => {
@@ -59,6 +60,7 @@ test('All agents shows Claude Code agents with their badge and creates one from 
   await waitFor(() => expect(calls.find(c => c.method === 'POST')).toEqual({
     url: '/api/claude-code/agents', method: 'POST', body: { name: 'Release notes writer', description: 'Writes release notes' } }));
   expect(await screen.findByRole('heading', { name: 'Release notes writer', level: 2 })).toBeVisible();
+  expect(await screen.findByText('Agent Release notes writer created')).toBeVisible();
 });
 
 test('a Claude Code agent page edits only its name and description', async () => {
@@ -75,6 +77,7 @@ test('a Claude Code agent page edits only its name and description', async () =>
   await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toEqual({
     url: '/api/claude-code/agents/writer', method: 'PUT', body: { name: 'Writer', description: 'Writes documentation', enabled: true, revision: 1 } }));
   expect(await screen.findByRole('heading', { name: 'Writer', level: 2 })).toBeVisible();
+  expect(await screen.findByText('Agent Writer saved')).toBeVisible();
 });
 
 test('a Claude Code agent page names the agent once and can disable it', async () => {
