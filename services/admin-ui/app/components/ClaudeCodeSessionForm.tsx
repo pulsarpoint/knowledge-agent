@@ -4,7 +4,8 @@ import { ApiError, getEnvironments, getServers, getServices } from '~/lib/api';
 import { createSession } from '~/lib/claudeCode';
 import { getCodeProjects } from '~/lib/codeProjects';
 import { defaultFolder, documentSlug, folderError, getDocumentationFolders } from '~/lib/documents';
-import { agentTypeLabel, getAgents, type AgentSummary } from '~/lib/profiles';
+import { agentTypeLabel, getAgents, getRunResourceOptions, type AgentSummary, type RunResourceKind, type RunResourceOptions } from '~/lib/profiles';
+import { getCollectionNames, type CollectionSummary } from '~/lib/rag';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
@@ -14,13 +15,22 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from '~/components/ui/skeleton';
 import { Textarea } from '~/components/ui/textarea';
 
-type Kind = 'code' | 'environments' | 'services' | 'servers';
+type Kind = 'code' | 'documents' | 'environments' | 'services' | 'servers';
 type Item = { id: string; name: string };
 type Data = { agents: AgentSummary[]; items: Record<Kind, Item[]>; folders: string[]; noModel: string };
 const KINDS: { kind: Kind; label: string; legend: string }[] = [
-  { kind: 'code', label: 'Code', legend: 'Code projects' }, { kind: 'environments', label: 'Environment', legend: 'Environments' },
+  { kind: 'code', label: 'Code', legend: 'Code projects' }, { kind: 'documents', label: 'Documents', legend: 'Collections' },
+  { kind: 'environments', label: 'Environment', legend: 'Environments' },
   { kind: 'services', label: 'Services', legend: 'Services' }, { kind: 'servers', label: 'Servers', legend: 'Servers' }];
-const NOTHING: Record<Kind, string[]> = { code: [], environments: [], services: [], servers: [] };
+const NOTHING: Record<Kind, string[]> = { code: [], documents: [], environments: [], services: [], servers: [] };
+/** The run resource kind a choice passes to a per-run agent; an environment brings its services and servers. */
+const RUN_KIND: Partial<Record<Kind, RunResourceKind>> = { code: 'code_projects', documents: 'collections', services: 'services', servers: 'servers' };
+const NOTES = {
+  fixed: 'This agent works with its own resources. What you choose is described in its first message.',
+  perRun: 'This agent works only with what you choose here, from what it accepts. Environments and services also bring their code projects and servers.',
+};
+const sourcesNote = (agent?: AgentSummary) => !agent ? 'Choose an agent to see how it uses what you choose here.'
+  : agent.resources === 'per_run' ? NOTES.perRun : NOTES.fixed;
 
 /** Docs → Generate documents → New: an agent, what to document, instructions, and the document's name and folder.
  * There is no model or prompt: the agent runs with its own. */
@@ -35,27 +45,52 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
   const [folderTouched, setFolderTouched] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [runOptions, setRunOptions] = useState<RunResourceOptions | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     // The documentation folder list only feeds suggestions: a failing request must not block the form.
-    Promise.all([getAgents(), getCodeProjects(), getEnvironments(), getServices(), getServers(),
+    // RAG being unavailable leaves Documents empty instead of blocking the form.
+    Promise.all([getAgents(), getCodeProjects(), getCollectionNames().catch(() => ({ collections: [] as CollectionSummary[] })), getEnvironments(), getServices(), getServers(),
       getDocumentationFolders().catch(() => ({ folders: [] as { folder: string }[] }))])
-      .then(([agents, projects, environments, services, servers, docFolders]) => {
+      .then(([agents, projects, collections, environments, services, servers, docFolders]) => {
         if (cancelled) return;
         // Both agent types; only agents that can run: enabled, with a model, not the board's coordinator.
         const usable = agents.agents.filter(agent => agent.enabled && !agent.is_coordinator);
         const listed = usable.filter(agent => agent.model_id);
         const noModel = usable.find(agent => agent.id === initialAgentId && !agent.model_id)?.name ?? '';
         setData({ agents: listed, noModel, folders: docFolders.folders.map(item => item.folder), items: {
-          code: projects.projects, environments: environments.environments, services: services.services,
+          code: projects.projects, documents: collections.collections.map(item => ({ id: item.id, name: item.name })), environments: environments.environments, services: services.services,
           servers: servers.servers.map(server => ({ id: server.id, name: `${server.name} (${server.hostname})` })) } });
         if (!listed.some(agent => agent.id === initialAgentId)) setAgentId('');
       }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load agents and what to document'); });
     return () => { cancelled = true; };
   }, [initialAgentId]);
 
-  const picked = (kind: Kind) => kinds.includes(kind) ? chosen[kind] : [];
+  const agent = data?.agents.find(item => item.id === agentId);
+  const perRun = agent?.resources === 'per_run';
+  useEffect(() => {
+    setRunOptions(null);
+    if (!agent || agent.resources !== 'per_run') return;
+    let live = true;
+    getRunResourceOptions(agent.id).then(value => { if (live) setRunOptions(value); })
+      .catch(e => { if (live) setError(e instanceof Error ? e.message : 'Could not load what this agent accepts'); });
+    return () => { live = false; };
+  }, [agent?.id, agent?.resources]);
+  /** What a choice offers: every item for a fixed agent; for a per-run agent only what it accepts (null: a kind it
+   * does not take). */
+  function offered(kind: Kind): Item[] | null {
+    const items = data?.items[kind] ?? [];
+    const runKind = RUN_KIND[kind];
+    if (!perRun || !runKind) return items;
+    const allowed = runOptions?.[runKind];
+    if (allowed === undefined) return [];  // still loading
+    return allowed === null ? null : items.filter(item => allowed.some(option => option.id === item.id));
+  }
+  const picked = (kind: Kind) => {
+    const items = offered(kind);
+    return kinds.includes(kind) && items ? chosen[kind].filter(id => items.some(item => item.id === id)) : [];
+  };
   const toggleKind = (kind: Kind, checked: boolean) => setKinds(current => checked ? [...current, kind] : current.filter(item => item !== kind));
   function toggle(kind: Kind, id: string, checked: boolean) {
     const next = checked ? [...chosen[kind], id] : chosen[kind].filter(item => item !== id);
@@ -65,16 +100,15 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
       setFolder(first ? defaultFolder(first.name) : 'docs');
     }
   }
-  const agent = data?.agents.find(item => item.id === agentId);
   const target = folder.trim();
   const badFolder = target ? folderError(target) : '';
-  const ready = Boolean(agent?.model_id && KINDS.some(({ kind }) => picked(kind).length > 0) && documentSlug(name) && target && !badFolder);
+  const ready = Boolean(agent?.model_id && (!perRun || runOptions) && KINDS.some(({ kind }) => picked(kind).length > 0) && documentSlug(name) && target && !badFolder);
 
   async function submit() {
     if (!ready || pending) return;
     setPending(true); setError('');
     try {
-      const session = await createSession({ agent_id: agentId, code_project_ids: picked('code'), environment_ids: picked('environments'),
+      const session = await createSession({ agent_id: agentId, code_project_ids: picked('code'), collection_ids: picked('documents'), environment_ids: picked('environments'),
         service_ids: picked('services'), server_ids: picked('servers'), instructions, document_name: name.trim(), folder: target });
       onCreated(session.id);
     } catch (e) {
@@ -82,8 +116,8 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
       setPending(false);
     }
   }
-  function check(id: string, label: string, checked: boolean, change: (checked: boolean) => void) {
-    return <Field key={id} orientation="horizontal"><Checkbox id={id} checked={checked} onCheckedChange={value => change(value === true)} />
+  function check(id: string, label: string, checked: boolean, change: (checked: boolean) => void, disabled = false) {
+    return <Field key={id} orientation="horizontal"><Checkbox id={id} disabled={disabled} checked={checked} onCheckedChange={value => change(value === true)} />
       <FieldContent><FieldLabel htmlFor={id}>{label}</FieldLabel></FieldContent></Field>;
   }
   if (!data) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-48 w-full" />;
@@ -99,14 +133,15 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
           : !agent && data.noModel ? `${data.noModel} has no model. Choose one on its General tab.`
           : `The agent works with its own model, prompt, instructions, skills and tools${agent?.model_name ? ` (${agent.model_name})` : ''}.`}</FieldDescription></Field>
       <FieldSet><FieldLegend>What to document</FieldLegend>
-        <FieldDescription>Code projects, and the code projects of the environments and services you choose, become the agent's read-only working folders (Claude Code) or code roots (Native). Environments, services and servers are described to the agent as text; this form gives no server access.</FieldDescription>
-        {KINDS.map(({ kind, label, legend }) => <div key={kind} className="flex flex-col gap-2">
-          {check(`what-${kind}`, label, kinds.includes(kind), value => toggleKind(kind, value))}
-          {kinds.includes(kind) && <FieldSet className="ml-6"><FieldLegend variant="label">{legend}</FieldLegend>
-            {data.items[kind].length === 0 && <FieldDescription>Nothing to choose yet.</FieldDescription>}
-            {data.items[kind].map(item => check(`generate-${kind}-${item.id}`, item.name, chosen[kind].includes(item.id), value => toggle(kind, item.id, value)))}
+        <FieldDescription>{sourcesNote(agent)}</FieldDescription>
+        {KINDS.map(({ kind, label, legend }) => { const items = offered(kind); return <div key={kind} className="flex flex-col gap-2">
+          {check(`what-${kind}`, label, kinds.includes(kind) && items !== null, value => toggleKind(kind, value), items === null)}
+          {items === null && <FieldDescription className="ml-6">This agent does not take {legend.toLowerCase()}.</FieldDescription>}
+          {kinds.includes(kind) && items !== null && <FieldSet className="ml-6"><FieldLegend variant="label">{legend}</FieldLegend>
+            {items.length === 0 && <FieldDescription>Nothing to choose yet.</FieldDescription>}
+            {items.map(item => check(`generate-${kind}-${item.id}`, item.name, chosen[kind].includes(item.id), value => toggle(kind, item.id, value)))}
           </FieldSet>}
-        </div>)}
+        </div>; })}
       </FieldSet>
       <Field><FieldLabel htmlFor="generate-instructions">Instructions</FieldLabel><Textarea id="generate-instructions" rows={3} maxLength={20000} value={instructions} onChange={e => setInstructions(e.target.value)} placeholder="Optional: extra instructions for this run" /></Field>
       <Field><FieldLabel htmlFor="generate-document-name">Document name</FieldLabel><Input id="generate-document-name" maxLength={240} value={name} onChange={e => setName(e.target.value)} placeholder="Payments – API reference" />
