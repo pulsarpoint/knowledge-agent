@@ -483,7 +483,10 @@ and activate a new version.
 
 Removing an agent that has history (test chats, chats, Claude Code sessions, runs or board tasks) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
-documents are kept. To keep the history, cancel and disable the agent instead.
+documents are kept, and so is the coordinator's own record of a board task it delegated to this agent. To keep the
+history, cancel and disable the agent instead. An agent that is working right now (a Claude Code session that is starting
+or working, a running run, or a queued or running board task it belongs to) cannot be removed; stop that work or wait for
+it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
 ### 4.12 Multi-agent board
