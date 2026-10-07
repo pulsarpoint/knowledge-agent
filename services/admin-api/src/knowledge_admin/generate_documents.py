@@ -81,13 +81,18 @@ def subjects(conn, project: UUID, value) -> dict:
         'servers': servers, 'instructions': value.instructions})
 
 
+def _flat(text: str) -> str:
+    """One line: a name or description cannot start a section of its own."""
+    return ' '.join(text.split())
+
+
 def _code(item: dict) -> str:
-    return f"{item['name']} ({', '.join(item['paths'])})" if item['paths'] else item['name']
+    return f"{_flat(item['name'])} ({', '.join(map(_flat, item['paths']))})" if item['paths'] else _flat(item['name'])
 
 
 def _line(name: str, description: str, parts: list[tuple[str, list[str]]]) -> str:
-    text = f'- {name}' + (f': {description.strip()}' if description.strip() else '')
-    details = [label + ', '.join(values) for label, values in parts if values]
+    text = f'- {_flat(name)}' + (f': {_flat(description)}' if _flat(description) else '')
+    details = [label + ', '.join(map(_flat, values)) for label, values in parts if values]
     return text + (' — ' + '; '.join(details) if details else '')
 
 
@@ -96,7 +101,8 @@ def first_message(context: dict[str, Any]) -> str:
     so that the answer becomes the draft."""
     sections = ['Document the following.']
     if context['code_projects']:
-        sections.append('## Code\n' + '\n'.join(f"- {p['name']} — {', '.join(p['paths'])}" for p in context['code_projects']))
+        sections.append('## Code\n' + '\n'.join(
+            f"- {_flat(p['name'])} — {', '.join(map(_flat, p['paths']))}" for p in context['code_projects']))
     if context['environments']:
         sections.append('## Environments\n' + '\n'.join(_line(e['name'], e['description'], [
             ('servers: ', e['servers']), ('services: ', e['services']), ('deployments: ', e['deployments']),
@@ -106,8 +112,7 @@ def first_message(context: dict[str, Any]) -> str:
             ('deployed on ', s['deployments']), ('code: ', [_code(p) for p in s['code_projects']])]) for s in context['services']))
     if context['servers']:
         sections.append('## Servers\n' + '\n'.join(
-            f"- {s['name']} ({s['hostname']})" + (f": {s['description'].strip()}" if s['description'].strip() else '')
-            for s in context['servers']))
+            _line(f"{s['name']} ({s['hostname']})", s['description'], []) for s in context['servers']))
     if context['instructions']:
         sections.append('## Instructions\n' + context['instructions'])
     sections.append(FINAL_ANSWER)
