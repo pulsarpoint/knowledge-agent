@@ -25,6 +25,7 @@ const agents = [
   { id: 'code', name: 'Code specialist', enabled: true, model_id: 'one', model_name: 'Model one', prompt_version: 1 },
   { id: 'search', name: 'Search specialist', enabled: true, model_id: 'two', model_name: 'Model two', prompt_version: 2 },
   { id: 'operations', name: 'Operations specialist', enabled: true, model_id: 'two', model_name: 'Model two', prompt_version: 2 },
+  { id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true, model_id: null, prompt_version: null },
   { id: 'off', name: 'Disabled agent', enabled: false, model_id: 'two', prompt_version: 1 },
 ];
 const child = {
@@ -63,6 +64,7 @@ test('submits one main task with a team and displays subagent and combined resul
   expect(screen.getByRole('checkbox', { name: 'Code specialist' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
   expect(screen.getByRole('checkbox', { name: 'Disabled agent' })).toBeDisabled();
+  expect(screen.queryByRole('checkbox', { name: 'Technical writer' })).toBeNull();
   await user.click(screen.getByRole('checkbox', { name: 'Search specialist' }));
   await user.click(screen.getByRole('checkbox', { name: 'Operations specialist' }));
   await user.click(screen.getByRole('button', { name: 'Start task' }));

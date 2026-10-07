@@ -49,7 +49,7 @@ export default function AgentBoardView() {
 
   useEffect(() => {
     let live = true;
-    Promise.all([getAgents(), getCoordinatorSettings()]).then(([data, settings]) => { if (live) { setAgents(data.agents.filter(agent => !agent.is_coordinator)); setCoordinator(settings); } })
+    Promise.all([getAgents(), getCoordinatorSettings()]).then(([data, settings]) => { if (live) { setAgents(data.agents.filter(agent => !agent.is_coordinator && agent.runtime !== 'claude_code')); setCoordinator(settings); } })
       .catch(reason => { if (live) setError(reason.message); });
     return () => { live = false; };
   }, [reload]);

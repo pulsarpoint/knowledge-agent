@@ -1,6 +1,7 @@
 import { request } from './api';
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean; is_coordinator: boolean;
+  runtime?: 'openai' | 'claude_code';
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   active_config_version_id?: string | null;
   revision: number; model_id: string | null; all_collections: boolean; all_repositories: boolean;
