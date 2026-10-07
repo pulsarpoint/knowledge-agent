@@ -57,6 +57,4 @@ The app defines `list_files`, `search_files`, `read_file`, `code_search`, `ast_g
 
 The Codex benchmark used shell commands: `rg`, `sqlite3 -readonly`, `nl`/`sed`, and small Python reads. These are different interfaces to the same basic inspection capabilities, not identical tool APIs.
 
-`generate_api_document` enables source tools and gives each endpoint agent graph locations rather than preloaded source bodies. Prefer the `code_graph` SDK operations to manual graph SQL. `shell_run` executes Bash and Python in the isolated worker with the selected paths. The shell has no network or credentials.
-
-For multiple endpoints, keep the system prompt and verified shared material stable, with the changing endpoint request afterward. Reuse earlier analysis only when it remains in the session or is accessible through explicit artifact references. Prompt wording alone does not preserve a session or configure provider caching.
+The one-shot generation that ran endpoint agents with this kind of prompt was removed (migration 0073). **Docs → Generate documents** now starts a Claude Code agent session that works in the chosen folders with its own prompt, instructions and skills. To use this workflow there, put its text in a Claude Code agent's instructions or a skill. Prefer the `code_graph` SDK operations to manual graph SQL.

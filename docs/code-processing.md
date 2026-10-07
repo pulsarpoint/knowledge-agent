@@ -30,7 +30,7 @@ The source mirror remains outside the code mount, and code is never compiled or
 executed. This works when the common selected folder is a Go module root;
 separate modules in disjoint selected folders still need separate module graphs
 for reliable import resolution. The pipeline version change invalidates old
-processing fingerprints: regenerate Phase 1 before generating new documentation.
+processing fingerprints: generate the graph again after upgrading.
 Existing graph snapshots and documents are retained.
 
 Agent graph queries use CodeGraph's public SDK through `query.cjs`. The SDK opens

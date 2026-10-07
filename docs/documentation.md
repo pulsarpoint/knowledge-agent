@@ -42,8 +42,8 @@ reusing version numbers. Whole-prompt deletion removes its versions. Enabled sta
 and active version are separate: a disabled prompt may retain its active version.
 
 These prompts are analysis/writing templates. Agent system prompts remain in the
-existing agent prompt system. Generation snapshots the exact selected prompt
-text and built-in step config, so later edits or deletions cannot change past run evidence.
+existing agent prompt system. Generate documents does not use them: its agent runs
+with its own prompt and instructions.
 
 Migration [41](../db/migrations/0041_app_docs_prompt.up.sql) seeds
 **Application documentation (Diátaxis)** as an enabled code-analysis template with
@@ -105,7 +105,7 @@ The session stores two snapshots. `prompt_snapshot` holds `system_prompt`, `clau
 never included.
 
 The first message is built from the context (`first_message` in `generate_documents.py`) and queued as the session's
-first input:
+first input. Names, descriptions and paths are collapsed to one line, so inventory text cannot start a section:
 
 ```
 Document the following.
@@ -134,4 +134,4 @@ Migration 0073 dropped `documentation_generations`, `documentation_workflows` an
 `documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
 export layout, read by `export_input`). Saved documents, versions and exports stay.
 
-The canonical content stays in PostgreSQL. Every save also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for code documentation phases. Renaming a slug removes the old folder's files; deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the save or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.
+The canonical content stays in PostgreSQL. Every save also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for a document written by a code documentation phase of the removed one-shot generation (its layout is kept in `documents.phase_metadata`). Renaming a slug removes the old folder's files; deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the save or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.
