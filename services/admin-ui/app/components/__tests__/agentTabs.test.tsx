@@ -255,7 +255,7 @@ test('agent removal requires confirmation and preserves the record on conflicts'
   await user.click(screen.getByRole('button', { name: 'Remove Payments code' }));
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
   expect(await screen.findByText('Agent has retained run history.')).toBeVisible();
-  expect(profiles.deleteAgent).toHaveBeenCalledWith('custom-code', 1);
+  expect(profiles.deleteAgent).toHaveBeenCalledWith('custom-code', 1, false);
   expect(screen.getByRole('alertdialog')).toBeVisible();
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
   expect(screen.queryByRole('button', { name: 'Remove Payments code' })).not.toBeInTheDocument();
@@ -292,4 +292,31 @@ test('a delete refused because history appeared meanwhile shows that history', a
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove agent' }));
   expect(await within(screen.getByRole('alertdialog')).findByText('1 chat, 1 run')).toBeVisible();
   expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete agent and history' })).toBeEnabled();
+});
+
+const WORKING = 'This agent is working right now. Stop its Claude Code sessions, runs and board tasks, or wait for them to finish, then delete it.';
+
+test('a delete refused because the agent is working says so and keeps the dialog open', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
+  render(app('/agents'));
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
+  await user.click(await within(screen.getByRole('alertdialog')).findByRole('button', { name: 'Delete agent and history' }));
+  expect(await within(screen.getByRole('alertdialog')).findByText(WORKING)).toBeVisible();
+  expect(screen.getByRole('alertdialog')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Remove Payments code', hidden: true })).toBeInTheDocument();
+});
+
+test('a working agent whose history appeared meanwhile keeps the working message next to the history', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 })
+    .mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
+  render(app('/agents'));
+  await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
+  await user.click(await within(screen.getByRole('alertdialog')).findByRole('button', { name: 'Remove agent' }));
+  const dialog = screen.getByRole('alertdialog');
+  expect(await within(dialog).findByText('1 Claude Code session')).toBeVisible();
+  expect(within(dialog).getByText(WORKING)).toBeVisible();
 });

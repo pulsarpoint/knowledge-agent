@@ -39,15 +39,14 @@ export default function AgentsView() {
     setBusy(true); setError('');
     const withHistory = Boolean(history);
     try {
-      if (withHistory) await deleteAgent(removing.id, removing.revision, true);
-      else await deleteAgent(removing.id, removing.revision);
+      await deleteAgent(removing.id, removing.revision, withHistory);
       setAgents(current => current?.filter(agent => agent.id !== removing.id));
       setRemoving(null);
       toast.success(withHistory ? `Agent ${removing.name} and its history deleted` : `Agent ${removing.name} removed`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not remove the agent.');
-      // History may have appeared since the dialog opened; show it so it can be deleted too.
-      if (!withHistory) await getAgentHistory(removing.id).then(value => { const found = describeHistory(value); if (found) { setHistory(found); setError(''); } }).catch(() => undefined);
+      // History may have appeared since the dialog opened; show it (next to the reason) so it can be deleted too.
+      if (!withHistory) await getAgentHistory(removing.id).then(value => { const found = describeHistory(value); if (found) setHistory(found); }).catch(() => undefined);
     }
     finally { setBusy(false); }
   }
