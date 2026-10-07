@@ -17,13 +17,18 @@ const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 
   draft: null, draft_turn: null, document_id: null, worker_active: false, queued: 1 };
 const detail = { ...state, id: 's1', title: 'Payments – API reference', document_name: 'Payments – API reference', folder: 'payments-api-docs',
   agent_id: 'writer', agent_name: 'Technical writer', model_id: 'claude', model_name: 'Claude on Bedrock', document_title: null,
-  prompt_snapshot: { id: 'p', name: 'Code analysis', version: 3, comments: '', system_prompt: 'You are an expert technical writer.' },
-  context_snapshot: { folders: [{ path: '/work/data/code/app', kind: 'code_project', name: 'Payments API' }], code_project_ids: ['repo'], servers: [], notes: '' },
+  prompt_snapshot: { system_prompt: 'You are an expert technical writer.', claude_code_tools: ['Read'], agent_version: null },
+  context_snapshot: { folders: [{ path: '/work/data/code/app', kind: 'code_project', name: 'Payments API', code_project_id: 'repo' }],
+    code_project_ids: ['repo'], instructions: '' },
   inputs: [], created_at: '2026-10-07T10:00:00Z', last_activity_at: '2026-10-07T10:00:00Z', closed_at: null };
+const message = (id: number) => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } });
+const page = (events: unknown[], has_more = false) => Response.json({ events, has_more });
+const opened = () => waitFor(() => { expect(Stream.instances).toHaveLength(1); return Stream.instances[0]; });
 
 test('the session page streams activity, sends messages, stops, saves the draft and closes', async () => {
   const posts: { url: string; body?: unknown }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/events/history')) return page([]);
     if (init?.method !== 'POST') return Response.json(detail);
     const body = init.body ? JSON.parse(init.body as string) : undefined;
     posts.push({ url, body });
@@ -37,8 +42,9 @@ test('the session page streams activity, sends messages, stops, saves the draft 
   render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Starting')).toBeVisible();
   expect(screen.getByText(/Waiting for the Claude Code worker/)).toBeVisible();
-  const [stream] = Stream.instances;
-  expect(stream.url).toBe('/api/claude-code/sessions/s1/events');
+  const stream = await opened();
+  expect(stream.url).toBe('/api/claude-code/sessions/s1/events?after=0');  // nothing yet: the stream starts at the beginning
+  expect(screen.getByText('Beginning of the session')).toBeVisible();
   act(() => {
     stream.emit('session', { ...state, status: 'working', turns: 1, worker_active: true, queued: 0 });
     stream.emit('run_event', { id: 1, turn: 1, seq: 3, kind: 'input', payload: { task: 'Document the payments API.' } });
@@ -87,12 +93,13 @@ test('the session page streams activity, sends messages, stops, saves the draft 
 
 test('a replayed batch of events is shown once and a stale session load does not undo the stream', async () => {
   let resolve: (response: Response) => void = () => {};
-  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(done => { resolve = done; })));
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/events/history') ? Promise.resolve(page([]))
+    : new Promise<Response>(done => { resolve = done; })));
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
   vi.stubGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle));
   render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
-  const [stream] = Stream.instances;
-  const batch = [1, 2, 3].map(id => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } }));
+  const stream = await opened();
+  const batch = [1, 2, 3].map(message);
   act(() => {
     stream.emit('session', { ...state, status: 'working', turns: 1, worker_active: true, queued: 0 });
     batch.forEach(event => stream.emit('run_event', event));
@@ -104,7 +111,7 @@ test('a replayed batch of events is shown once and a stale session load does not
   });
   expect(await screen.findByText('Reconnecting…')).toBeVisible();
   act(() => {
-    [...batch, { id: 4, turn: 1, seq: 4, kind: 'message', payload: { text: 'Message 4' } }].forEach(event => stream.emit('run_event', event));
+    [...batch, message(4)].forEach(event => stream.emit('run_event', event));
   });
   const activity = within(screen.getByRole('region', { name: 'Agent activity' }));
   expect(await activity.findByText('Message 4')).toBeVisible();
@@ -112,9 +119,45 @@ test('a replayed batch of events is shown once and a stale session load does not
   expect(screen.queryByText('Reconnecting…')).toBeNull();
 });
 
+test('opening shows the latest page, streams after its newest event and loads earlier events near the top', async () => {
+  const urls: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    urls.push(url);
+    if (url.endsWith('/events/history?before=150&limit=100')) return page([message(120)]);
+    if (url.endsWith('/events/history?limit=100')) return page([message(150), message(151)], true);
+    return Response.json({ ...detail, status: 'waiting', turns: 1, queued: 0 });
+  }));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByText('Message 151')).toBeVisible();
+  const stream = await opened();
+  expect(stream.url).toBe('/api/claude-code/sessions/s1/events?after=151');  // the stream continues after the newest
+  expect(screen.queryByText('Beginning of the session')).toBeNull();
+  const panel = screen.getByTestId('activity-scroll');
+  Object.defineProperty(panel, 'scrollHeight', { configurable: true, get: () => panel.querySelectorAll('[data-event]').length * 100 });
+  Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 50 });
+  Object.defineProperty(panel, 'scrollTop', { configurable: true, writable: true, value: 0 });
+  fireEvent.scroll(panel);  // near the top, away from the bottom
+  expect(await screen.findByText('Message 120')).toBeVisible();
+  expect(screen.getByText('Beginning of the session')).toBeVisible();
+  expect(panel.scrollTop).toBe(100);  // the earlier event went above: what was on screen stays in place
+  const history = () => urls.filter(url => url.includes('/events/history'));
+  expect(history()).toEqual(['/api/claude-code/sessions/s1/events/history?limit=100',
+    '/api/claude-code/sessions/s1/events/history?before=150&limit=100']);
+  panel.scrollTop = 0;
+  fireEvent.scroll(panel);  // the beginning is reached: nothing more to load
+  expect(history()).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Jump to latest' }));
+  expect(panel.scrollTop).toBe(300);
+  expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull();
+  act(() => stream.emit('run_event', message(152)));
+  expect(await screen.findByText('Message 152')).toBeVisible();
+  await waitFor(() => expect(panel.scrollTop).toBe(400));  // following the latest events again
+});
+
 test('the session page has one page heading, the session title', async () => {
   const { default: AdminLayout } = await import('../AdminLayout');
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/claude-code/') ? Response.json(detail) : Response.json({ is_admin: true })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
+    : url.startsWith('/api/claude-code/') ? Response.json(detail) : Response.json({ is_admin: true })));
   render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><ClaudeCodeSessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { closeSession, formatTokens, getSession, saveSessionDocument, sendMessage, sessionEventsUrl, statusLabels, stopSession,
-  type SavedDocument, type SessionDetail, type SessionEvent, type SessionState } from '~/lib/claudeCode';
+import { closeSession, formatTokens, getSession, getSessionHistory, saveSessionDocument, sendMessage, sessionEventsUrl, statusLabels,
+  stopSession, type SavedDocument, type SessionDetail, type SessionEvent, type SessionState } from '~/lib/claudeCode';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
 import Markdown from './Markdown';
 import { Alert, AlertDescription } from '~/components/ui/alert';
@@ -31,11 +31,16 @@ function EventLine({ event }: { event: SessionEvent }) {
 }
 
 const STOPPING = 'Stopping the current turn…';
+const NEAR_TOP = 80;  // px: scrolling this close to the top of Activity loads the previous page
+const NEAR_BOTTOM = 40;  // px: this close to the bottom, Activity follows new events
 
-/** One interactive Claude Code session: the live stream, messages, Stop, the draft, Save document and Close session. */
+/** One generation: the agent's activity (the latest page, earlier pages as you scroll up, live events after it),
+ * messages, Stop, the draft, Save document and Close. The page fits the screen; Activity and Draft scroll on their own. */
 export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [older, setOlder] = useState<'more' | 'loading' | 'start'>('more');
+  const [following, setFollowing] = useState(true);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -43,6 +48,8 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [reconnecting, setReconnecting] = useState(false);
+  const activity = useRef<HTMLDivElement>(null);
+  const anchor = useRef<number | null>(null);  // Activity's scroll height before an earlier page was added above
   const status = session?.status;
   const previousStatus = useRef(status);
   useEffect(() => {  // a new status answers the Stop request
@@ -52,37 +59,83 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
 
   useEffect(() => {
     const controller = new AbortController();
-    setSession(null); setEvents([]); setError(''); setReconnecting(false);
+    setSession(null); setEvents([]); setError(''); setReconnecting(false); setOlder('more'); setFollowing(true);
     let streamed: SessionState | null = null;  // newer than a page load that finishes after it
     getSession(sessionId, controller.signal).then(detail => setSession(streamed ? { ...detail, ...streamed } : detail))
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not open the session'); });
-    // Event ids increase: anything at or below the last one is a replay after a reconnect. New events are appended
-    // once per animation frame, so a long history replays in a few renders.
+    let stream: EventSource | null = null;
     let lastId = 0, frame = 0;
     let pending: SessionEvent[] = [];
     const flush = () => { frame = 0; const batch = pending; pending = []; setEvents(current => [...current, ...batch]); };
-    // Leaving the page closes only this stream; the session keeps running.
-    const stream = new EventSource(sessionEventsUrl(sessionId));
-    stream.addEventListener('run_event', e => {
-      setReconnecting(false);
-      const event = JSON.parse((e as MessageEvent).data) as SessionEvent;
-      if (event.id <= lastId) return;
-      lastId = event.id;
-      pending.push(event);
-      if (!frame) frame = requestAnimationFrame(flush);
-    });
-    stream.addEventListener('session', e => {
-      setReconnecting(false);
-      const next = JSON.parse((e as MessageEvent).data) as SessionState;
-      streamed = next;
-      setSession(current => current && { ...current, ...next });
-    });
-    stream.addEventListener('open', () => setReconnecting(false));
-    stream.addEventListener('error', () => { if (stream.readyState !== 2) setReconnecting(true); });
-    stream.addEventListener('closed', () => { setReconnecting(false); stream.close(); });
-    stream.addEventListener('unavailable', () => setError('The session stream is unavailable. Reload the page.'));
-    return () => { controller.abort(); stream.close(); if (frame) cancelAnimationFrame(frame); };
+    // The latest page first, then the live stream after its newest event: nothing is shown twice or skipped. Event ids
+    // increase, so anything at or below the last one is a replay after a reconnect. New events are appended once per
+    // animation frame, so a burst renders in a few frames.
+    getSessionHistory(sessionId, undefined, controller.signal).then(page => {
+      if (controller.signal.aborted) return;
+      lastId = page.events.length ? page.events[page.events.length - 1].id : 0;
+      setEvents(page.events);
+      setOlder(page.has_more ? 'more' : 'start');
+      // Leaving the page closes only this stream; the session keeps running.
+      const source = new EventSource(sessionEventsUrl(sessionId, lastId));
+      stream = source;
+      source.addEventListener('run_event', e => {
+        setReconnecting(false);
+        const event = JSON.parse((e as MessageEvent).data) as SessionEvent;
+        if (event.id <= lastId) return;
+        lastId = event.id;
+        pending.push(event);
+        if (!frame) frame = requestAnimationFrame(flush);
+      });
+      source.addEventListener('session', e => {
+        setReconnecting(false);
+        const next = JSON.parse((e as MessageEvent).data) as SessionState;
+        streamed = next;
+        setSession(current => current && { ...current, ...next });
+      });
+      source.addEventListener('open', () => setReconnecting(false));
+      source.addEventListener('error', () => { if (source.readyState !== 2) setReconnecting(true); });
+      source.addEventListener('closed', () => { setReconnecting(false); source.close(); });
+      source.addEventListener('unavailable', () => setError('The session stream is unavailable. Reload the page.'));
+    }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load the session activity'); });
+    return () => { controller.abort(); stream?.close(); if (frame) cancelAnimationFrame(frame); };
   }, [sessionId]);
+
+  useLayoutEffect(() => {
+    const panel = activity.current;
+    if (!panel) return;
+    if (anchor.current !== null) {  // an earlier page went above: keep what the reader was looking at in place
+      panel.scrollTop += panel.scrollHeight - anchor.current;
+      anchor.current = null;
+    } else if (following) {
+      panel.scrollTop = panel.scrollHeight;
+    }
+  }, [events, following]);
+
+  async function loadOlder() {
+    const first = events[0];
+    if (!first || older !== 'more') return;
+    setOlder('loading');
+    try {
+      const page = await getSessionHistory(sessionId, first.id);
+      anchor.current = activity.current?.scrollHeight ?? null;
+      setEvents(current => [...page.events.filter(event => event.id < (current[0]?.id ?? Infinity)), ...current]);
+      setOlder(page.has_more ? 'more' : 'start');
+    } catch (e) {
+      setOlder('more');
+      setError(e instanceof Error ? e.message : 'Could not load earlier activity');
+    }
+  }
+  function scrolled() {
+    const panel = activity.current;
+    if (!panel) return;
+    setFollowing(panel.scrollHeight - panel.scrollTop - panel.clientHeight <= NEAR_BOTTOM);
+    if (panel.scrollTop <= NEAR_TOP) void loadOlder();
+  }
+  function jump() {
+    setFollowing(true);
+    const panel = activity.current;
+    if (panel) panel.scrollTop = panel.scrollHeight;
+  }
 
   async function run(action: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
@@ -109,28 +162,42 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
 
   if (!session) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   const closed = session.status === 'closed';
-  return <div className="flex flex-col gap-5">
-    <Link className="underline" to="/documentation/generations">Generate documents</Link>
-    <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-semibold">{session.title}</h1>
-      <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
-    <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>
-    <p className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`}</p>
-    {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the Claude Code worker. The session starts when the worker is running.</AlertDescription></Alert>}
-    {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
-    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    {reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
-    {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
-    {saved && <Alert><AlertDescription>Saved as version {saved.revision} in {saved.folder}. <Link className="underline" to={`/documents/${saved.id}`}>Open document</Link>{saved.export_error ? ` ${saved.export_error}` : ''}</AlertDescription></Alert>}
-    <div className="grid gap-5 lg:grid-cols-2">
-      <section aria-label="Agent activity" className="flex min-w-0 flex-col gap-3 rounded-lg border p-4"><h2 className="font-semibold">Activity</h2>
-        {events.length === 0 && <p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}
-        {events.map(event => <EventLine key={event.id} event={event} />)}
-        {session.queued > 0 && <p className="text-sm text-muted-foreground">{session.queued} message{session.queued === 1 ? '' : 's'} queued</p>}</section>
-      <section aria-label="Draft" className="flex min-w-0 flex-col gap-3 rounded-lg border p-4"><h2 className="font-semibold">Draft{session.draft_turn ? ` · turn ${session.draft_turn}` : ''}</h2>
-        {session.draft ? <Markdown content={session.draft} /> : <p className="text-sm text-muted-foreground">The draft appears when the agent finishes a turn.</p>}</section>
+  // Header 4rem + main padding 3rem: the page never grows past the screen, so the message box stays visible.
+  return <div className="flex h-[calc(100dvh-7rem)] min-h-[36rem] flex-col gap-3">
+    <div className="flex shrink-0 flex-col gap-2">
+      <Link className="underline" to="/documentation/generations">Generate documents</Link>
+      <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-semibold">{session.title}</h1>
+        <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
+      <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>
+      <p className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`}</p>
+      {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the Claude Code worker. The session starts when the worker is running.</AlertDescription></Alert>}
+      {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
+      {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
+      {saved && <Alert><AlertDescription>Saved as version {saved.revision} in {saved.folder}. <Link className="underline" to={`/documents/${saved.id}`}>Open document</Link>{saved.export_error ? ` ${saved.export_error}` : ''}</AlertDescription></Alert>}
     </div>
-    <form className="flex flex-col gap-3" onSubmit={e => { e.preventDefault(); void send(); }}>
-      <Field><FieldLabel htmlFor="session-message">Message</FieldLabel><Textarea id="session-message" rows={3} maxLength={20000} disabled={closed} value={message} onChange={e => setMessage(e.target.value)} placeholder="For example: shorten the API section" /></Field>
+    <div className="grid min-h-0 flex-1 grid-rows-2 gap-3 lg:grid-cols-2 lg:grid-rows-1">
+      <section aria-label="Agent activity" className="flex min-h-0 min-w-0 flex-col rounded-lg border">
+        <h2 className="shrink-0 border-b px-4 py-2 font-semibold">Activity</h2>
+        <div ref={activity} data-testid="activity-scroll" onScroll={scrolled} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          {older === 'start' && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
+          {older === 'loading' && <p role="status" className="text-center text-xs text-muted-foreground">Loading earlier activity…</p>}
+          {events.length === 0 && <p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}
+          {events.map(event => <div key={event.id} data-event><EventLine event={event} /></div>)}
+          {session.queued > 0 && <p className="text-sm text-muted-foreground">{session.queued} message{session.queued === 1 ? '' : 's'} queued</p>}
+        </div>
+        {!following && <div className="shrink-0 border-t p-2 text-center"><Button type="button" size="sm" variant="secondary" onClick={jump}>Jump to latest</Button></div>}
+      </section>
+      <section aria-label="Draft" className="flex min-h-0 min-w-0 flex-col rounded-lg border">
+        <h2 className="shrink-0 border-b px-4 py-2 font-semibold">Draft{session.draft_turn ? ` · turn ${session.draft_turn}` : ''}</h2>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {session.draft ? <Markdown content={session.draft} /> : <p className="text-sm text-muted-foreground">The draft appears when the agent finishes a turn.</p>}
+        </div>
+      </section>
+    </div>
+    <form className="flex shrink-0 flex-col gap-2" onSubmit={e => { e.preventDefault(); void send(); }}>
+      <Field><FieldLabel htmlFor="session-message">Message</FieldLabel><Textarea id="session-message" rows={2} maxLength={20000} disabled={closed} value={message} onChange={e => setMessage(e.target.value)} placeholder="For example: shorten the API section" /></Field>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={busy || closed || !message.trim()}>Send message</Button>
         <Button type="button" variant="outline" disabled={busy || session.status !== 'working'} onClick={() => void stop()}>Stop</Button>

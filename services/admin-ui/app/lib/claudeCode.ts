@@ -46,7 +46,12 @@ const session = (id: string) => `/api/claude-code/sessions/${encodeURIComponent(
 export const createSession = (value: SessionInput) => request<SessionDetail>('/api/claude-code/sessions', json('POST', value));
 export const getSessions = (offset = 0, signal?: AbortSignal) => request<{ sessions: SessionSummary[] }>(`/api/claude-code/sessions?offset=${offset}`, { signal });
 export const getSession = (id: string, signal?: AbortSignal) => request<SessionDetail>(session(id), { signal });
-export const sessionEventsUrl = (id: string) => `${session(id)}/events`;
+/** Events per page; a session page opens with the latest page and loads earlier pages as you scroll up. */
+export const HISTORY_PAGE = 100;
+/** The live stream after an event id (0: from the beginning); on a reconnect the browser resumes from the last id. */
+export const sessionEventsUrl = (id: string, after = 0) => `${session(id)}/events?after=${after}`;
+export const getSessionHistory = (id: string, before?: number, signal?: AbortSignal) =>
+  request<{ events: SessionEvent[]; has_more: boolean }>(`${session(id)}/events/history?${before ? `before=${before}&` : ''}limit=${HISTORY_PAGE}`, { signal });
 export const sendMessage = (id: string, text: string) => request<{ seq: number; status: 'queued'; working: boolean }>(`${session(id)}/messages`, json('POST', { text }));
 export const stopSession = (id: string) => request<{ id: string; discarded: number }>(`${session(id)}/stop`, { method: 'POST' });
 export const closeSession = (id: string) => request<{ id: string }>(`${session(id)}/close`, { method: 'POST' });
