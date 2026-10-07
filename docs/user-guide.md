@@ -456,7 +456,7 @@ saved but runs only after you choose one on its General tab.
 | **Services** | Pick services whose descriptions are added to the agent's context |
 | **Prompts** | System prompt versions: new draft, edit draft, **Set active**, delete inactive versions |
 | **Versions** | Snapshot the whole configuration as a version; **Test vN**, **Copy as draft**, **Activate vN** |
-| **Test** | Native: chat with the agent. Claude Code: **Start a session** opens New documentation → With an agent with the agent and its model |
+| **Test** | Native: chat with the agent. Claude Code: **Start a session** opens New documentation → With an agent, with this agent and its model selected |
 
 > **Working configuration vs. active version.** Once an agent has an active
 > configuration version, edits in the tabs change the *working configuration* only.
