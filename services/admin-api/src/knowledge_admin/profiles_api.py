@@ -141,12 +141,22 @@ def build_api(app_name, store):
     def listing():
         with database().connect() as conn:
             rows = conn.execute('''SELECT a.*,m.name AS model_name,v.title AS prompt_title,v.version AS prompt_version,
-                saved.config AS version_config,saved.version AS config_version
+                saved.config AS version_config,saved.version AS config_version,
+                (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
+                    WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
+                (SELECT count(*) FROM ka.agent_collections x JOIN ka.rag_collections c ON c.id=x.collection_id
+                    WHERE x.agent_id=a.id AND c.deleted_at IS NULL)::int AS collection_count,
+                (SELECT count(*) FROM ka.operations_servers x WHERE x.agent=a.id)::int AS server_count,
+                (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
                 LEFT JOIN ka.agent_prompts p ON p.agent=a.id LEFT JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id
                 LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
                 ORDER BY a.is_coordinator DESC,a.created_at,a.id''').fetchall()
             for row in rows:
+                code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
+                limits = {'code': 'any' if row['all_repositories'] else code_count,
+                          'documents': 'any' if row['all_collections'] else collection_count,
+                          'servers': row.pop('server_count'), 'services': row.pop('service_count')}
                 config = row.pop('version_config')
                 if config is not None:
                     row['resources'] = config.get('resources', 'fixed')  # versions saved before 0075 are fixed
@@ -159,6 +169,14 @@ def build_api(app_name, store):
                     row['prompt_version'] = config['system_prompt']['version']
                     for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
                         row[flag] = config[capability]['enabled']
+                    limits = {'code': 'any' if config['code'].get('all_projects') else len(config['code']['projects']),
+                              'documents': 'any' if config['documents'].get('all_collections')
+                              else len(config['documents'].get('collections', [])),
+                              'servers': len(config['ssh']['servers']), 'services': len(config['services']['items'])}
+                enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
+                           'servers': row['ssh_enabled'], 'services': row['services_enabled']}
+                row['accepts'] = ([{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
+                                  if row['resources'] == 'per_run' else [])
             return {'agents': rows}
 
     @router.get('/{agent_id}')

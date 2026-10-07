@@ -8,6 +8,18 @@ export const AGENT_TYPE_HELP: Record<AgentRuntime, string> = {
 };
 export type AgentResources = 'fixed' | 'per_run';
 export const RESOURCE_MODES: [AgentResources, string][] = [['fixed', 'Fixed'], ['per_run', 'Per run']];
+export interface ResourceLimit { kind: 'code' | 'documents' | 'servers' | 'services'; limit: number | 'any' }
+/** "Fixed", or what a per-run agent accepts: "Per run · code (any) · servers (2)". */
+export const resourcesSummary = (agent: { resources?: AgentResources; accepts?: ResourceLimit[] }) =>
+  agent.resources !== 'per_run' ? 'Fixed'
+    : agent.accepts?.length ? ['Per run', ...agent.accepts.map(({ kind, limit }) => `${kind} (${limit})`)].join(' · ') : 'Per run · nothing';
+/** Notes on the capability tabs of a per-run agent: its selections are what callers may pass. */
+export const PER_RUN_NOTES: Partial<Record<string, string>> = {
+  git: 'Per run: callers may pass any of the code projects selected here. All code projects = any code project.',
+  documents: 'Per run: callers may pass any of the collections selected here. All collections = any collection.',
+  ssh: 'Per run: callers may pass any of the servers selected here. Their instructions and connection overrides still apply.',
+  services: 'Per run: callers may pass any of the services selected here.',
+};
 export const resourcesLabel = (mode?: AgentResources) => mode === 'per_run' ? 'Per run' : 'Fixed';
 export const RESOURCES_HELP: Record<AgentResources, string> = {
   fixed: 'Always works with the resources selected in its tabs.',
@@ -33,7 +45,7 @@ export interface AgentProfile {
   collection_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
   active_prompt: { id: string; title: string; version: number } | null;
 }
-export interface AgentSummary extends AgentProfile { config_version?: number | null; model_name: string | null; prompt_title: string | null; prompt_version: number | null }
+export interface AgentSummary extends AgentProfile { accepts?: ResourceLimit[]; config_version?: number | null; model_name: string | null; prompt_title: string | null; prompt_version: number | null }
 export interface AgentOptions {
   collections: { id: string; name: string; description: string }[];
   repositories: { id: string; name: string }[];

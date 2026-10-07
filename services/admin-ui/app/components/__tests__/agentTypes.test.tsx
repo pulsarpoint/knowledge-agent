@@ -141,6 +141,26 @@ test('All agents shows how each agent gets its resources', async () => {
   render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
   const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
   expect(screen.getByRole('columnheader', { name: 'Resources' })).toBeVisible();
-  expect(within(row).getByText('Per run')).toBeVisible();
+  expect(within(row).getByText('Per run · nothing')).toBeVisible();
   expect(within(screen.getByRole('link', { name: 'Search agent' }).closest('tr')!).getByText('Fixed')).toBeVisible();
+});
+
+test('the list says what a per-run agent accepts', async () => {
+  vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
+    { ...writer, resources: 'per_run', accepts: [{ kind: 'code', limit: 'any' }, { kind: 'servers', limit: 2 }],
+      model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+  render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
+  const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
+  expect(within(row).getByText('Per run · code (any) · servers (2)')).toBeVisible();
+});
+
+test('capability tabs of a per-run agent say what callers may pass', async () => {
+  vi.mocked(profiles.getAgent).mockImplementation(async id => ({ ...structuredClone(writer), id, runtime: 'openai', model_id: 'gpt', resources: 'per_run' }));
+  const user = userEvent.setup();
+  open('/agents/search?view=git');
+  expect(await screen.findByText('Per run: callers may pass any of the code projects selected here. All code projects = any code project.')).toBeVisible();
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  expect(screen.getByText(/^Per run: callers may pass any of the servers selected here/)).toBeVisible();
+  await user.click(screen.getByRole('tab', { name: 'Skills' }));
+  expect(screen.queryByText(/^Per run:/)).toBeNull();
 });

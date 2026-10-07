@@ -134,3 +134,22 @@ def test_a_per_run_agent_never_runs_with_its_whole_selection(store, saved_agent)
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
 
+
+
+def test_the_list_says_what_a_per_run_agent_accepts(store, saved_agent):
+    client = saved_agent[0]
+    assert listed(client)['operations']['accepts'] == []  # fixed
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
+    assert listed(client)['operations']['accepts'] == [
+        {'kind': 'code', 'limit': 1}, {'kind': 'documents', 'limit': 1}, {'kind': 'servers', 'limit': 1},
+        {'kind': 'services', 'limit': 1}]
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET all_repositories=true,ssh_enabled=false WHERE id='operations'")
+        conn.execute("DELETE FROM ka.agent_repositories WHERE agent_id='operations'")
+    expected = [{'kind': 'code', 'limit': 'any'}, {'kind': 'documents', 'limit': 1}, {'kind': 'services', 'limit': 1}]
+    assert listed(client)['operations']['accepts'] == expected
+    new_version(client, 'Code, documents and services')  # activates "Initial configuration": the active version decides
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET documents_enabled=false,services_enabled=false WHERE id='operations'")
+    assert listed(client)['operations']['accepts'] == expected
