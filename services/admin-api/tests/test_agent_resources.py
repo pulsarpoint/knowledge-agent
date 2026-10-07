@@ -136,19 +136,6 @@ def test_a_per_run_agent_never_runs_with_its_whole_selection(store, saved_agent)
             profile(conn, 'operations', runnable=True)
 
 
-def test_test_chats_refuse_per_run_agents_until_runs_pass_resources(store, saved_agent):
-    """Replaced in Task 4, when test chats pass run resources."""
-    client = saved_agent[0]
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
-    chat = client.post('/api/agents/operations/sessions', headers=HEADERS, json={'title': 'Test', 'is_test': True})
-    assert chat.status_code == 409 and chat.json()['error']['message'] == NO_RUN_RESOURCES
-    run_ = client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Check the queue', 'is_test': True})
-    assert run_.status_code == 409 and NO_RUN_RESOURCES in run_.text
-    with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
-
-
 def test_generate_documents_refuses_per_run_agents_until_runs_pass_resources(sessions):
     """Replaced in Task 5, when Generate documents passes run resources."""
     with sessions.store.connect() as conn:

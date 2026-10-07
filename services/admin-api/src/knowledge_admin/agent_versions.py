@@ -77,11 +77,18 @@ def build_api(app_name, store):
         changes = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
         suggestion = ''
         if review_id is not None:
-            row = conn.execute('''SELECT r.context,r.suggestion FROM ka.agent_session_reviews r
+            row = conn.execute('''SELECT r.context,r.suggestion,s.agent_version_id FROM ka.agent_session_reviews r
                 JOIN ka.agent_sessions s ON s.id=r.session_id WHERE r.id=%s AND s.agent=%s''', (review_id,agent_id)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Suggestion not found for this agent.')
             config = row['context']['agent_config']
+            if 'run_resources' in config:
+                # A per-run conversation pinned one run's resources: draft from the configuration it ran with,
+                # never from the narrowed lists.
+                try:
+                    config = get_agent_config(agent_id, conninfo=store.conninfo, version_id=row['agent_version_id'])
+                except (LookupError, ValueError) as exc:
+                    raise HTTPException(409, str(exc)) from None
             changes = row['context'].get('changes', changes)
             suggestion = row['suggestion']
         else:

@@ -24,6 +24,9 @@ from knowledge_admin.agent_versions import TuningSuggestion
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agents import agent, get_agent_config, load_credentials
 from knowledge_admin.knowledge_agents.config import require_native, require_run_resources
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
+
+KEEPS_RESOURCES = 'A conversation keeps the resources it started with. Start a new session to change them.'
 
 
 class RunInput(BaseModel):
@@ -33,6 +36,7 @@ class RunInput(BaseModel):
     version_id: UUID | None = None
     is_test: bool | None = Field(default=None, strict=True)
     task: str = Field(min_length=1, max_length=20000)
+    resources: RunResources | None = None  # only with a new conversation
 
 
 class SessionInput(BaseModel):
@@ -41,6 +45,7 @@ class SessionInput(BaseModel):
     title: str = Field(default='New conversation', min_length=1, max_length=200)
     version_id: UUID | None = None
     is_test: bool = Field(default=False, strict=True)
+    resources: RunResources | None = None
 
 
 def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UUID,
@@ -53,11 +58,18 @@ def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UU
     if config['model'] is None or not config['model']['enabled']:
         raise ValueError('Select an enabled model in this agent’s General tab.')
     return conn.execute('''INSERT INTO ka.agent_sessions
-        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,
+        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test,run_resources)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,
         last_activity_at+idle_timeout AS expires_at,config->'config_version' AS config_version''',
         (session_id,project_id,config['id'],actor_id,title,Jsonb(config),
-         config.get('config_version',{}).get('id'),is_test)).fetchone()
+         config.get('config_version',{}).get('id'),is_test,
+         Jsonb(config['run_resources']) if 'run_resources' in config else None)).fetchone()
+
+
+def run_config(store, app_name: str, config: dict[str, Any], resources: RunResources | None) -> dict[str, Any]:
+    """The configuration a new conversation pins: a per-run agent's narrowed to the resources it was given."""
+    with store.connect() as conn:
+        return resolve(conn, store.project(conn, app_name), config, resources)
 
 
 class ReviewInput(BaseModel):
@@ -118,9 +130,12 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                     raise HTTPException(409,'A session cannot change agent versions. Start a new session.')
                 if value.is_test is not None and value.is_test != saved['is_test']:
                     raise HTTPException(409,'A session cannot switch between test and live. Start a new session.')
+                if value.resources is not None:
+                    raise HTTPException(409,KEEPS_RESOURCES)
                 config = saved['config']
         else:
             config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
+            config = await asyncio.to_thread(run_config,store,app_name,config,value.resources)
         require_native(config)
         require_run_resources(config)
         if not config['enabled']:
@@ -130,6 +145,8 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
         credentials = await asyncio.to_thread(load_credentials,store,config)
     except LookupError as exc:
         raise HTTPException(404,str(exc)) from exc
+    except RunResourceError as exc:
+        raise HTTPException(400,str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(409,str(exc)) from exc
     except InvalidTag as exc:
@@ -161,9 +178,10 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                 if saved['status'] != 'active':
                     raise HTTPException(409,'This session is closed or expired. Start a new session.')
             history = saved['history']
-            row = setup.execute('''INSERT INTO ka.operations_runs(id,session_id,project_id,actor_id,agent,task,context)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
-                (value.id,session_id,project,actor_id,agent_id,redact(value.task,credentials.values()),Jsonb(context))).fetchone()
+            row = setup.execute('''INSERT INTO ka.operations_runs(id,session_id,project_id,actor_id,agent,task,context,run_resources)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
+                (value.id,session_id,project,actor_id,agent_id,redact(value.task,credentials.values()),Jsonb(context),
+                 Jsonb(config['run_resources']) if 'run_resources' in config else None)).fetchone()
             setup.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s',(session_id,))
         row.update(actor_email=actor[1],commands=[])
     except BaseException:
@@ -286,8 +304,12 @@ def build_api(app_name, store):
         try:
             config = get_agent_config(agent_id, conninfo=db.conninfo, version_id=value.version_id)
             with db.connect() as conn:
-                saved = create_session(conn, session_id=value.id, project_id=db.project(conn,app_name),
+                project = db.project(conn,app_name)
+                config = resolve(conn, project, config, value.resources)
+                saved = create_session(conn, session_id=value.id, project_id=project,
                     actor_id=db.actor(conn,*actor), config=config, title=value.title, is_test=value.is_test)
+        except RunResourceError as exc:
+            raise HTTPException(400,str(exc)) from exc
         except LookupError as exc:
             raise HTTPException(404,str(exc)) from exc
         except ValueError as exc:

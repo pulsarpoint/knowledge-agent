@@ -10,7 +10,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run
+from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 
 
 class ProfileInput(BaseModel):
@@ -174,6 +175,21 @@ def build_api(app_name, store):
             raise HTTPException(404, 'Agent not found') from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
+
+    @router.get('/{agent_id}/run-resources')
+    def run_resources(agent_id: str, response: Response, version_id: UUID | None = None):
+        """What a caller may pass to one run of a per-run agent: the Test tab picker and Generate documents."""
+        response.headers['Cache-Control'] = 'no-store'
+        try:
+            config = get_agent_config(agent_id, conninfo=database().conninfo, version_id=version_id)
+        except LookupError:
+            raise HTTPException(404, 'Agent not found') from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        if not per_run(config):
+            return {'resources': 'fixed'}
+        with database().connect() as conn:
+            return {'resources': 'per_run', **run_resource_options(conn, store.project(conn, app_name), config)}
 
     @router.get('/{agent_id}/options')
     def options(agent_id: str):
