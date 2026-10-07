@@ -230,3 +230,61 @@ it('a per-run agent waits for its resource options before the first message can 
   expect(await screen.findByRole('region', { name: 'Resources for this run' })).toBeVisible();
   expect(screen.queryByText('Loading the resources for this run…')).toBeNull();
 });
+
+it('a reopened conversation shows the resources it started with, whatever the agent uses now', async () => {
+  vi.mocked(api.getAgentSession).mockResolvedValue({ ...structuredClone(conversation),
+    config: { id: 'custom', code: { projects: [{ id: 'repo', name: 'Payments API' }] }, run_resources: ONLY_REPO } });
+  renderPage('?view=test&session_id=session-1');  // the agent is fixed now
+  expect(await screen.findByLabelText('Resources for this run')).toHaveTextContent('Resources for this run: Payments API');
+});
+
+it('a fixed conversation shows no run resources, even if the agent is per-run now', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage('?view=test&session_id=session-1');
+  await screen.findByText('Initial answer');
+  await waitFor(() => expect(getRunResourceOptions).toHaveBeenCalled());
+  expect(screen.queryByLabelText('Resources for this run')).toBeNull();
+});
+
+it('a choice the reloaded options no longer offer is not sent, and the options stay visible while reloading', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  const view = (revision: number) => <MemoryRouter initialEntries={['?view=test']}><AgentTestView agentId="custom" agentName="Custom agent" available ready dirty={false} active revision={revision} /></MemoryRouter>;
+  const { rerender } = render(view(1));
+  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments worker' }));
+  let resolve!: (value: RunResourceOptions) => void;
+  vi.mocked(getRunResourceOptions).mockReturnValue(new Promise(done => { resolve = done; }));
+  rerender(view(2));
+  expect(screen.getByRole('region', { name: 'Resources for this run' })).toBeVisible();
+  await act(async () => resolve({ ...structuredClone(ANALYST), code_projects: [{ id: 'repo', name: 'Payments API' }] }));
+  await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Payments worker' })).toBeNull());
+  vi.mocked(api.startOperationsRun).mockResolvedValue(undefined);
+  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
+  await waitFor(() => expect(api.startOperationsRun).toHaveBeenCalled());
+  expect(vi.mocked(api.startOperationsRun).mock.calls[0][6]).toEqual(ONLY_REPO);
+});
+
+it('says when nothing is chosen for the run', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
+  const note = 'Nothing chosen: the agent’s tools will have nothing to work on';
+  expect(within(picker).getByText(note)).toBeVisible();
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
+  expect(within(picker).queryByText(note)).toBeNull();
+});
+
+it('blocks the first message until the run resource options load, with a retry', async () => {
+  vi.mocked(getRunResourceOptions).mockRejectedValueOnce(new Error('Options unavailable')).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Too early' } });
+  expect(await screen.findByRole('button', { name: 'Retry' })).toBeVisible();
+  expect(screen.getAllByText('Options unavailable').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('region', { name: 'Resources for this run' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
+});
