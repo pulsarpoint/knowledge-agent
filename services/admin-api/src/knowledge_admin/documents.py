@@ -131,23 +131,14 @@ def export_document(document: dict, *, phase_metadata: dict | None = None) -> st
 
 
 def export_input(conn, document_id: UUID) -> dict | None:
-    """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata."""
-    row = conn.execute('''SELECT d.slug, d.folder, d.revision, d.project_id, v.markdown, v.source_snapshot, v.generation_id
+    """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata (a
+    document written by a service phase keeps exporting into its phase folder)."""
+    row = conn.execute('''SELECT d.slug, d.folder, d.revision, d.phase_metadata, v.markdown, v.source_snapshot
         FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s''', (document_id,)).fetchone()
     if row is None:
         return None
-    phase_metadata = None
-    generation_id = row['generation_id']
-    if generation_id is None:  # A manual edit keeps the phase layout of the latest generated version.
-        latest = conn.execute('SELECT generation_id FROM ka.document_versions WHERE document_id=%s AND generation_id IS NOT NULL ORDER BY version DESC LIMIT 1', (document_id,)).fetchone()
-        generation_id = latest['generation_id'] if latest else None
-    if generation_id is not None:
-        job = conn.execute('SELECT result FROM ka.jobs WHERE id=%s AND project_id=%s', (generation_id, row['project_id'])).fetchone()
-        if job is not None and job['result']:
-            phase_metadata = job['result'].get('phase_metadata') or job['result'].get('overview_metadata')
     commits = {item['id']: item['git_commit'] for item in row['source_snapshot']['code_projects'] if item.get('git_commit')}
-    if phase_metadata is not None:
-        phase_metadata = {**phase_metadata, 'source_commits': commits}
+    phase_metadata = {**row['phase_metadata'], 'source_commits': commits} if row['phase_metadata'] else None
     return {'slug': row['slug'], 'folder': row['folder'], 'markdown': row['markdown'], 'revision': row['revision'],
             'source_commits': commits, 'phase_metadata': phase_metadata}
 

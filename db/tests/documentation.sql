@@ -21,8 +21,8 @@ VALUES (:'version',:'doc',:'project',1,'Runbook','Example','runbook','both','# T
 SET CONSTRAINTS ALL IMMEDIATE;
 SELECT pg_temp.assert_true((SELECT title='Runbook' FROM document_details WHERE id=:'doc'), 'document has a required version and canonical Markdown');
 SELECT pg_temp.assert_true(to_regclass('ka.document_sets') IS NULL AND to_regclass('ka.rag_generations') IS NULL, 'obsolete document and RAG pipeline tables are retired');
-INSERT INTO jobs(project_id,kind) VALUES (:'project','documentation_generate') RETURNING id AS job \gset
-INSERT INTO documentation_generations(job_id,project_id,mode,instructions,agent_snapshot,prompt_snapshot,source_snapshot)
-VALUES (:'job',:'project','create','Write a runbook','{}','[]','{}');
-SELECT pg_temp.assert_true((SELECT count(*)=1 FROM documentation_generations WHERE job_id=:'job'), 'generation jobs support multiple document outputs without document sets');
+SELECT pg_temp.assert_true(to_regclass('ka.documentation_generations') IS NULL
+    AND to_regclass('ka.documentation_workflows') IS NULL, 'the one-shot documentation generation is retired');
+SELECT pg_temp.assert_true((SELECT pg_get_constraintdef(oid) NOT LIKE '%documentation_generate%' FROM pg_constraint
+    WHERE conname='jobs_kind_check' AND conrelid='ka.jobs'::regclass), 'jobs no longer accept documentation generation');
 ROLLBACK;
