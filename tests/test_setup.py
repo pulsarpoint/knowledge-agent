@@ -340,7 +340,7 @@ class SetupTests(unittest.TestCase):
                              [("bind", data, "/work/data", True), ("volume", "claude-code-home", "/home/claude", False)])
             self.assertTrue(worker["read_only"])
             self.assertEqual(worker["cap_drop"], ["ALL"])
-            self.assertEqual(sorted(worker["cap_add"]), ["SETGID", "SETUID"])
+            self.assertEqual(sorted(worker["cap_add"]), ["CHOWN", "SETGID", "SETUID"])  # no CAP_DAC_*
             self.assertEqual(worker["entrypoint"], ["/services/admin-api/.venv/bin/knowledge-claude-code-worker"])
             self.assertNotIn("ports", worker)
             self.assertEqual(set(worker["networks"]), {"claude-code"})  # postgres only: not admin-api or the others

@@ -18,12 +18,18 @@ COPY packages/llm-settings /packages/llm-settings
 COPY services/admin-api /services/admin-api
 RUN uv sync --frozen --no-dev
 RUN mkdir -p /work/agent-workspaces
-# Claude Code runs as this unprivileged user (knowledge-claude-cli drops to it); /home/claude is the only writable
-# mount of the claude-code-worker container. The CLI comes bundled in the claude-agent-sdk wheel (no Node.js).
-# Files under DATA_ROOT must be readable by uid 1001 (e.g. world-readable, or group-readable with gid 1001).
-RUN useradd --uid 1001 --user-group --home-dir /home/claude --create-home --shell /usr/sbin/nologin claude \
-    && install -d -o claude -g claude -m 700 /home/claude/tmp \
-    && chmod 700 /home/claude \
+# Claude Code runs as one unprivileged user per worker slot, claude1..claude8 (uids 1001-1008, group claude, gid 1001):
+# a session's CLI cannot read another session's environment or files. knowledge-claude-cli drops to the slot's user and
+# gives it the session's own HOME, /home/claude/sessions/<session id> (0700); /home/claude is the only writable mount
+# of the claude-code-worker container and belongs to root (0711). The CLI comes bundled in the claude-agent-sdk wheel
+# (no Node.js). Files under DATA_ROOT must be readable by the claude users (world-readable, or group-readable by gid 1001).
+RUN groupadd --gid 1001 claude \
+    && for slot in 1 2 3 4 5 6 7 8; do \
+        useradd --uid "$((1000 + slot))" --gid claude --no-create-home --home-dir /home/claude --shell /usr/sbin/nologin "claude$slot"; \
+    done \
+    && install -d -o root -g root -m 711 /home/claude /home/claude/sessions \
+    && install -d -o root -g root -m 700 /home/claude/tmp \
+    && test "$(/services/admin-api/.venv/bin/python -c 'from knowledge_admin.claude_code_cli import MAX_SLOTS; print(MAX_SLOTS)')" = 8 \
     && test -x "$(/services/admin-api/.venv/bin/python -c 'import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude")')"
 EXPOSE 8766
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "knowledge-admin"]

@@ -219,14 +219,16 @@ services:
     # only writable mount. It needs the internet for Bedrock or Anthropic, so Bash can reach the internet too (accepted).
     # Bash must not reach the other services (admin-api trusts the proxy's user headers): the worker is only on the
     # claude-code network, shared with postgres alone.
-    # It runs as root to hold its secrets; the CLI runs as the claude user (knowledge-claude-cli), hence SETUID/SETGID.
-    # The claude user is uid 1001: files under DATA_ROOT must be readable by it (world-readable, or group 1001).
+    # It runs as root to hold its secrets; each session's CLI runs as the user of its worker slot (claude1..claude8,
+    # uids 1001-1008, group 1001) via knowledge-claude-cli, hence SETUID/SETGID, and CHOWN to give the session's HOME
+    # (/home/claude/sessions/<id>) to that user. Files under DATA_ROOT must be readable by them (world-readable, or
+    # group-readable by gid 1001). At most 8 sessions run at once (CLAUDE_CODE_MAX_SESSIONS, default 4).
     networks: [claude-code]
     entrypoint: [/services/admin-api/.venv/bin/knowledge-claude-code-worker]
     command: []
     read_only: true
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID]
+    cap_add: [SETUID, SETGID, CHOWN]
     security_opt: ["no-new-privileges:true"]
     dns_search: ${DOCKER_DNS_SEARCH:-.}
     volumes:

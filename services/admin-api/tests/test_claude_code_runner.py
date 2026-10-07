@@ -381,17 +381,20 @@ def test_worker_strips_database_and_encryption_secrets_from_its_environment(monk
     assert os.environ['PGHOST'] == 'postgres'
 
 
-def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(monkeypatch):
+HOME = '/home/claude/sessions/0b5d2c3e-1f2a-4b5c-8d9e-0f1a2b3c4d5e'
+
+
+def test_cli_wrapper_drops_to_the_slot_user_before_running_the_bundled_cli(monkeypatch):
     calls = []
 
     class FakeOs:
-        def __init__(self, uid: int, keep_gid: bool = False):
+        def __init__(self, uid: int, keep_gid: bool = False, **env):
             self.uid, self.gid, self.keep_gid = uid, uid, keep_gid
-            self.environ = {**PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'FOO_SECRET': 'planted',
+            self.environ = {**PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': HOME, 'LC_ALL': 'C.UTF-8', 'FOO_SECRET': 'planted',
                             'PGPASSWORD': 'db-secret', 'CREDENTIAL_ENCRYPTION_KEY': 'encryption-key', 'PGHOST': 'postgres',
                             'AUTH_ISSUER_URL': 'http://auth', 'AWS_BEARER_TOKEN_BEDROCK': KEY, 'AWS_REGION': 'eu-central-1',
-                            'CLAUDE_CODE_USE_BEDROCK': '1', 'CLAUDE_CODE_ENTRYPOINT': 'sdk-py',
-                            'CLAUDE_AGENT_SDK_VERSION': '0.1', 'ANTHROPIC_SMALL_FAST_MODEL': 'm'}
+                            'CLAUDE_CODE_USE_BEDROCK': '1', 'CLAUDE_CODE_ENTRYPOINT': 'sdk-py', 'TMPDIR': '/tmp',
+                            'CLAUDE_AGENT_SDK_VERSION': '0.1', 'ANTHROPIC_SMALL_FAST_MODEL': 'm', 'KNOWLEDGE_CLAUDE_SLOT': '2', **env}
 
         def getuid(self):
             return self.uid
@@ -411,23 +414,35 @@ def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(mon
             calls.append(('setuid', uid))
             self.uid = uid
 
+        def kill(self, pid, sig):
+            calls.append(('kill', pid, sig, self.uid))
+
         def execve(self, path, argv, env):
             calls.append(('execve', path, argv, env))
 
-    claude = SimpleNamespace(pw_uid=1001, pw_gid=1001)
-    monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: claude if name == 'claude' else None)
+    slot = SimpleNamespace(pw_uid=1002, pw_gid=1001)
+    monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: slot if name == 'claude2' else None)
     monkeypatch.setattr(cli, 'bundled_cli', lambda: '/venv/claude_agent_sdk/_bundled/claude')
+    monkeypatch.setattr(cli, 'prepare_home', lambda home, uid, gid, os_module: calls.append(('home', home, uid, gid)))
     cli.main(['--output-format', 'stream-json'], os_module=FakeOs(0))
-    assert calls == [('setgroups', []), ('setgid', 1001), ('setuid', 1001),
+    assert calls == [('home', HOME, 1002, 1001), ('setgroups', []), ('setgid', 1001), ('setuid', 1002),
+                     ('kill', -1, cli.signal.SIGKILL, 1002),  # leftovers of an earlier session in this slot, never as root
                      ('execve', '/venv/claude_agent_sdk/_bundled/claude',
                       ['/venv/claude_agent_sdk/_bundled/claude', '--output-format', 'stream-json'], {
-                          **PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': '/home/claude', 'LC_ALL': 'C.UTF-8', 'AWS_BEARER_TOKEN_BEDROCK': KEY,
-                          'AWS_REGION': 'eu-central-1', 'CLAUDE_CODE_USE_BEDROCK': '1', 'CLAUDE_CODE_ENTRYPOINT': 'sdk-py',
-                          'CLAUDE_AGENT_SDK_VERSION': '0.1', 'ANTHROPIC_SMALL_FAST_MODEL': 'm'})]  # only the allowlist
-    with pytest.raises(SystemExit):  # neither root nor claude: refuse instead of running as another user
+                          **PROXY_AND_CA, 'PATH': '/usr/bin', 'HOME': HOME, 'TMPDIR': HOME + '/tmp', 'LC_ALL': 'C.UTF-8',
+                          'AWS_BEARER_TOKEN_BEDROCK': KEY, 'AWS_REGION': 'eu-central-1', 'CLAUDE_CODE_USE_BEDROCK': '1',
+                          'CLAUDE_CODE_ENTRYPOINT': 'sdk-py', 'CLAUDE_AGENT_SDK_VERSION': '0.1',
+                          'ANTHROPIC_SMALL_FAST_MODEL': 'm'})]  # only the allowlist, without the slot
+    with pytest.raises(SystemExit):  # neither root nor the slot user: refuse instead of running as another user
         cli.main([], os_module=FakeOs(501))
     with pytest.raises(SystemExit, match='group'):  # the gid did not change: refuse
         cli.main([], os_module=FakeOs(0, keep_gid=True))
+    for env in ({'KNOWLEDGE_CLAUDE_SLOT': ''}, {'KNOWLEDGE_CLAUDE_SLOT': '9'}, {'KNOWLEDGE_CLAUDE_SLOT': '0'},
+                {'HOME': '/home/claude'}, {'HOME': '/home/claude/sessions/../x'}, {'HOME': '/root'}):
+        calls.clear()
+        with pytest.raises(SystemExit, match='slot|HOME'):
+            cli.main([], os_module=FakeOs(0, **env))
+        assert calls == []
     monkeypatch.setattr(cli.pwd, 'getpwnam', lambda name: SimpleNamespace(pw_uid=0, pw_gid=0))
     with pytest.raises(SystemExit):
         cli.main([], os_module=FakeOs(0))
@@ -435,5 +450,68 @@ def test_cli_wrapper_drops_to_the_claude_user_before_running_the_bundled_cli(mon
     def missing(name):
         raise KeyError(name)
     monkeypatch.setattr(cli.pwd, 'getpwnam', missing)
-    with pytest.raises(SystemExit, match='The claude user does not exist'):
+    with pytest.raises(SystemExit, match='The claude2 user does not exist'):
         cli.main([], os_module=FakeOs(0))
+
+
+def test_concurrent_sessions_run_in_different_slots_and_keep_their_home(started):
+    sessions, first = started
+    second = UUID(start(sessions)['id'])
+    store = sessions.store
+    clients: list[FakeClient] = []
+
+    def factory(options):
+        client = FakeClient([[done('# Draft')], [done('# Again')]])
+        clients.append(client)
+        return client(options)
+
+    async def scenario():
+        stopped = asyncio.Event()
+        serving = asyncio.create_task(worker.serve(store, factory, stopped=stopped, worker_id='worker-1', limit=20, poll=0.02,
+                                                   idle_release=0.2))
+        for sid in (first, second):
+            await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await wait_for(store, first, lambda s: s['worker_id'] is None)  # idle: its slot is free again
+        await post(sessions, f'/api/claude-code/sessions/{first}/messages', {'text': 'Again'})
+        await wait_for(store, first, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
+        stopped.set()
+        await asyncio.wait_for(serving, 5)
+
+    asyncio.run(scenario())
+    envs = [client.options[0]['env'] for client in clients]
+    assert sorted(env['HOME'] for env in envs[:2]) == sorted(f'/home/claude/sessions/{sid}' for sid in (first, second))
+    assert envs[2]['HOME'] == f'/home/claude/sessions/{first}'  # the transcript stays with the session in any slot
+    assert envs[0]['KNOWLEDGE_CLAUDE_SLOT'] != envs[1]['KNOWLEDGE_CLAUDE_SLOT']  # one uid per running session
+    assert {env['KNOWLEDGE_CLAUDE_SLOT'] for env in envs} <= {str(n) for n in range(1, 9)}  # at most 8 slots
+    assert clients[2].options[0]['resume'] == 'cli-session'
+
+
+def test_every_enabled_claude_connection_key_is_redacted(started):
+    sessions, sid = started
+    store, client_api = sessions.store, sessions.client
+    other = 'sk-ant-other-connection'
+    created = client_api.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Claude API', 'provider': 'anthropic', 'model': 'claude-sonnet-4-5', 'api_format': 'native',
+        'base_url': 'https://api.anthropic.com', 'api_key': other})
+    assert created.status_code == 201, created.text
+    client = FakeClient([[AssistantMessage([ToolUseBlock('t1', 'Bash', {'command': 'cat /proc/*/environ'})]),
+                          UserMessage([ToolResultBlock('t1', f'AWS_BEARER_TOKEN_BEDROCK={KEY} ANTHROPIC_API_KEY={other}')]),
+                          done(f'# Keys {other}')],
+                         [RuntimeError(f'failed with {other}')]])
+
+    async def scenario():
+        runner = asyncio.create_task(worker.SessionRunner(store, claimed(sessions), client, poll=0.02).run())
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/messages', {'text': 'Again'})
+        failed = await wait_for(store, sid, lambda s: s['status'] == 'failed' and s['turns'] == 2)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await asyncio.wait_for(runner, 5)
+        return failed
+
+    failed = asyncio.run(scenario())
+    row = session_row(store, sid)
+    stored = json.dumps(events(store, sid)) + json.dumps([row, failed], default=str)
+    assert KEY not in stored and other not in stored
+    assert row['draft'] == '# Keys [redacted]' and failed['status_message'].startswith('RuntimeError: failed with [redacted]')
+    [result] = [e['payload'] for e in events(store, sid) if e['kind'] == 'tool_result']
+    assert result['output'] == 'AWS_BEARER_TOKEN_BEDROCK=[redacted] ANTHROPIC_API_KEY=[redacted]'

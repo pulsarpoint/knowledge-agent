@@ -655,9 +655,13 @@ provider error, such as a missing Bedrock inference profile, shows the provider'
 without credentials plus a hint; "Waiting for the Claude Code worker…" when the worker is
 not running; a folder that no longer exists is refused when starting.
 
-Security: the model key is passed only to the Claude Code process and is redacted from
-all stored events. Residual risk: Bash in the session could read the key from the CLI
-process, so use a key with limited scope and spend.
+Security: the model key is passed only to the session's Claude Code process. Every
+enabled Claude connection's key is redacted from stored events, drafts and error
+messages. Each running session's Claude Code process runs as its own user, so one
+session cannot read another session's process or files, and the agent can reach only
+the internet and the database host, not the other services. Residual risk: Bash in the
+session can read the session's own key from its Claude Code process, so use a key with
+limited scope and spend.
 
 ### 4.14 Documents and documentation prompts
 

@@ -15,7 +15,8 @@ BEDROCK = RuntimeModel(id=uuid4(), name='Claude', provider='bedrock', model='eu.
                        api_format='native', base_url=None, aws_region='eu-central-1', api_key='bedrock-secret-token')
 ANTHROPIC = RuntimeModel(id=uuid4(), name='Claude API', provider='anthropic', model='claude-sonnet-4-5', api_format='native',
                          base_url='https://api.anthropic.com/v1', aws_region=None, api_key='sk-ant-secret')
-SESSION = {'context_snapshot': {'folders': [
+SESSION_ID = '0b5d2c3e-1f2a-4b5c-8d9e-0f1a2b3c4d5e'
+SESSION = {'id': SESSION_ID, 'context_snapshot': {'folders': [
                {'path': '/work/data/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': 'p'},
                {'path': '/work/data/jira', 'kind': 'folder', 'name': 'jira'}]},
            'prompt_snapshot': {'system_prompt': SYSTEM_PROMPT}, 'claude_session_id': None}
@@ -40,7 +41,8 @@ def test_options_allow_only_read_tools_and_bash_in_the_chosen_folders(monkeypatc
 
 def test_credentials_reach_only_the_cli_environment():
     assert worker.build_options(SESSION, BEDROCK)['env'] == {
-        **worker.BASE_ENV, 'CLAUDE_CODE_USE_BEDROCK': '1', 'AWS_REGION': 'eu-central-1',
+        **worker.BASE_ENV, 'HOME': f'/home/claude/sessions/{SESSION_ID}', 'TMPDIR': f'/home/claude/sessions/{SESSION_ID}/tmp',
+        'KNOWLEDGE_CLAUDE_SLOT': '1', 'CLAUDE_CODE_USE_BEDROCK': '1', 'AWS_REGION': 'eu-central-1',
         'AWS_BEARER_TOKEN_BEDROCK': 'bedrock-secret-token', 'ANTHROPIC_MODEL': BEDROCK.model,
         'ANTHROPIC_DEFAULT_HAIKU_MODEL': BEDROCK.model, 'ANTHROPIC_SMALL_FAST_MODEL': BEDROCK.model}
     env = worker.build_options(SESSION, ANTHROPIC)['env']
@@ -48,10 +50,15 @@ def test_credentials_reach_only_the_cli_environment():
             env['ANTHROPIC_SMALL_FAST_MODEL']) == (
         'sk-ant-secret', 'https://api.anthropic.com', 'claude-sonnet-4-5', 'claude-sonnet-4-5', 'claude-sonnet-4-5')
     assert 'CLAUDE_CODE_USE_BEDROCK' not in env and 'AWS_BEARER_TOKEN_BEDROCK' not in env
-    assert worker.BASE_ENV == {'HOME': '/home/claude', 'TMPDIR': '/home/claude/tmp', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+    assert worker.BASE_ENV == {'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                                'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
                                'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1',
                                'SHELL': '/bin/bash'}
+    slot = worker.build_options(SESSION, BEDROCK, 3)['env']
+    assert (slot['KNOWLEDGE_CLAUDE_SLOT'], slot['HOME']) == ('3', f'/home/claude/sessions/{SESSION_ID}')  # HOME is the session's
+    for bad in (0, 9):
+        with pytest.raises(ValueError):
+            worker.build_options(SESSION, BEDROCK, bad)
     options = worker.build_options(SESSION, BEDROCK)
     assert 'bedrock-secret-token' not in repr({key: value for key, value in options.items() if key != 'env'})
     for model in (replace(BEDROCK, model='amazon.nova-pro-v1:0'), replace(ANTHROPIC, api_key=None),
@@ -191,3 +198,51 @@ def test_null_characters_never_reach_events_or_the_draft():
     assert result['output'] == 'ELF [redacted]'
     assert worker.clean_text(turn.draft, ['sk-ant-secret']) == '# Doc [redacted]'
     assert '\x00' not in worker.safe_error('boom\x00', [])
+
+
+def test_session_home_is_handed_to_the_slot_user_without_following_links(tmp_path):
+    """own_tree needs only CAP_CHOWN: each directory is root's before it is listed, then the slot user's after."""
+    from knowledge_admin import claude_code_cli as cli
+    home = tmp_path / 'home'
+    (home / '.claude/projects/app').mkdir(parents=True)
+    (home / '.claude/projects/app/session.jsonl').write_text('{}')
+    (home / 'link').symlink_to('/etc')
+    (tmp_path / 'outside').write_text('x')
+    (home / 'hard').hardlink_to(tmp_path / 'outside')
+    calls = []
+
+    class Os:
+        lstat, listdir, mkdir = staticmethod(__import__('os').lstat), staticmethod(__import__('os').listdir), None
+
+        @staticmethod
+        def lchown(path, uid, gid):
+            calls.append(('chown', path.removeprefix(str(home)) or '/', uid))
+
+        @staticmethod
+        def chmod(path, mode):
+            calls.append(('chmod', path.removeprefix(str(home)) or '/', mode))
+
+    cli.own_tree(str(home), 1003, 1001, Os)
+    owned = {path for kind, path, uid in calls if kind == 'chown' and uid == 1003}
+    assert owned == {'/', '/.claude', '/.claude/projects', '/.claude/projects/app', '/.claude/projects/app/session.jsonl', '/link'}
+    assert '/hard' not in {path for _, path, _ in calls}  # another hard link: never handed over
+    for folder in ('/', '/.claude', '/.claude/projects', '/.claude/projects/app'):
+        root, mode, given = calls.index(('chown', folder, 0)), calls.index(('chmod', folder, 0o700)), calls.index(('chown', folder, 1003))
+        assert root < mode < given
+        children = [i for i, (kind, path, uid) in enumerate(calls) if path.startswith(folder.rstrip('/') + '/') and path != folder]
+        assert all(mode < i < given for i in children), folder
+    assert ('chmod', '/link', 0o700) not in calls
+
+
+def test_home_root_belongs_to_root_and_hides_what_an_earlier_image_left(tmp_path, monkeypatch):
+    import os
+    root = tmp_path / 'claude'
+    (root / '.claude').mkdir(parents=True)
+    owners = []
+    monkeypatch.setattr(os, 'lchown', lambda path, uid, gid: owners.append((path.removeprefix(str(root)), uid, gid)))
+    worker.prepare_home_root(str(root))
+    assert (root / 'sessions').is_dir()
+    assert ('', 0, 0) in owners and ('/sessions', 0, 0) in owners and ('/.claude', 0, 0) in owners
+    assert oct((root / 'sessions').stat().st_mode & 0o777) == oct(0o711) and oct(root.stat().st_mode & 0o777) == oct(0o711)
+    assert oct((root / '.claude').stat().st_mode & 0o777) == oct(0o700)
+    assert oct((root / 'tmp').stat().st_mode & 0o777) == oct(0o700)  # the worker's TMPDIR

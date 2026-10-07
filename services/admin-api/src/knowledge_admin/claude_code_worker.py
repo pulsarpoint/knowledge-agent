@@ -25,6 +25,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin import run_record
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.claude_code import ALLOWED_TOOLS, DISALLOWED_TOOLS, close_idle
+from knowledge_admin.claude_code_cli import HOME_ROOT, MAX_SLOTS, SESSION_HOMES, SLOT_ENV
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import RunRecorder
 
@@ -34,7 +35,7 @@ PREVIEW_LINES = 20
 MAX_PREVIEW_CHARS = 2000
 MAX_TOOL_OUTPUT = 64 * 1024
 TOOL_TRUNCATED = '… [truncated]'
-BASE_ENV = {'HOME': '/home/claude', 'TMPDIR': '/home/claude/tmp', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+BASE_ENV = {'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
             'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1', 'SHELL': '/bin/bash'}
 HINTS = (
@@ -74,14 +75,23 @@ def credential_env(model: RuntimeModel) -> dict[str, str]:
     return env
 
 
-def build_options(session: dict[str, Any], model: RuntimeModel) -> dict[str, Any]:
+def session_env(session_id, slot: int) -> dict[str, str]:
+    """The session's own HOME (its CLI transcript lives there, for resume in any slot) and the slot whose user runs it."""
+    if not 1 <= slot <= MAX_SLOTS:
+        raise ValueError(f'Worker slots are 1 to {MAX_SLOTS}')
+    home = f'{SESSION_HOMES}/{UUID(str(session_id))}'
+    return {'HOME': home, 'TMPDIR': f'{home}/tmp', SLOT_ENV: str(slot)}
+
+
+def build_options(session: dict[str, Any], model: RuntimeModel, slot: int = 1) -> dict[str, Any]:
     """Keyword arguments for ClaudeAgentOptions: fixed read-only tools plus Bash, the chosen folders, no limits."""
     folders = [folder['path'] for folder in session['context_snapshot']['folders']]
     options = {
         'system_prompt': {'type': 'preset', 'preset': 'claude_code', 'append': session['prompt_snapshot']['system_prompt']},
         'tools': list(ALLOWED_TOOLS), 'allowed_tools': list(ALLOWED_TOOLS), 'disallowed_tools': list(DISALLOWED_TOOLS),
         'permission_mode': 'dontAsk', 'setting_sources': [], 'skills': [], 'mcp_servers': {}, 'strict_mcp_config': True,
-        'cwd': folders[0], 'add_dirs': folders, 'model': model.model, 'env': {**BASE_ENV, **credential_env(model)},
+        'cwd': folders[0], 'add_dirs': folders, 'model': model.model,
+        'env': {**BASE_ENV, **session_env(session['id'], slot), **credential_env(model)},
         'resume': session['claude_session_id'],
     }
     if os.environ.get('CLAUDE_CODE_CLI'):
@@ -263,9 +273,9 @@ class SessionRunner:
     been idle for `idle_release` seconds. This task connects, sends and interrupts; a child task reads responses."""
 
     def __init__(self, store: RepositoryStore, session: dict, client_factory=sdk_client, *, poll: float = 1.0,
-                 idle_release: float = IDLE_RELEASE_SECONDS):
+                 idle_release: float = IDLE_RELEASE_SECONDS, slot: int = 1):
         self.store, self.session, self.client_factory = store, session, client_factory
-        self.id, self.worker_id = session['id'], session['worker_id']
+        self.id, self.worker_id, self.slot = session['id'], session['worker_id'], slot
         self.poll, self.idle_release = poll, idle_release
         self.secrets: list[str] = []
         self.stack: AsyncExitStack | None = None
@@ -377,12 +387,12 @@ class SessionRunner:
     async def connect(self) -> None:
         if self.client is not None:
             return
-        model, session = await asyncio.to_thread(self.load)
-        self.secrets[:] = [model.api_key] if model.api_key else []
+        model, session, keys = await asyncio.to_thread(self.load)
+        self.secrets[:] = list(dict.fromkeys(key for key in [model.api_key, *keys] if key))
         missing = next((f['path'] for f in session['context_snapshot']['folders'] if not Path(f['path']).is_dir()), None)
         if missing is not None:
             raise ValueError(f'The folder {missing} no longer exists. Start a new session without it.')
-        options = build_options(session, model)
+        options = build_options(session, model, self.slot)
         options['stderr'] = self.stderr.append
         stack = AsyncExitStack()
         try:
@@ -392,15 +402,24 @@ class SessionRunner:
             raise
         self.stack = stack
 
-    def load(self) -> tuple[RuntimeModel, dict]:
+    def load(self) -> tuple[RuntimeModel, dict, list[str]]:
+        """The session's model, its snapshots and the keys of every enabled Claude connection: each is redacted from
+        events, drafts and errors, not only the session's own key."""
         with self.store.connect() as conn:
             row = conn.execute('SELECT * FROM ka.llm_models WHERE id=%s', (self.session['model_id'],)).fetchone()
-            session = conn.execute('''SELECT context_snapshot,prompt_snapshot,claude_session_id FROM ka.agent_sessions_cc
+            session = conn.execute('''SELECT id,context_snapshot,prompt_snapshot,claude_session_id FROM ka.agent_sessions_cc
                 WHERE id=%s''', (self.id,)).fetchone()
+            others = conn.execute('''SELECT * FROM ka.llm_models WHERE enabled AND api_key_ciphertext IS NOT NULL
+                AND id<>%s''', (self.session['model_id'],)).fetchall()
         if row is None or not row['enabled']:
             raise ValueError('The session model is disabled or was removed. Enable it in LLM Settings.')
+        keys = []
+        for other in others:
+            if claude_model(other['provider'], other['api_format'], other['model']):
+                with suppress(InvalidTag, ValueError):
+                    keys.append(decode_model(other, self.store.cipher).api_key)
         try:
-            return decode_model(row, self.store.cipher), session
+            return decode_model(row, self.store.cipher), session, keys
         except InvalidTag:
             raise ValueError('The model key could not be decrypted. Save it again in LLM Settings.') from None
 
@@ -442,15 +461,22 @@ class SessionRunner:
 
 async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: asyncio.Event, worker_id: str | None = None,
                 limit: int | None = None, poll: float = 1.0, idle_release: float = IDLE_RELEASE_SECONDS) -> None:
-    """Claim sessions and run one task per session until `stopped` is set; leases are renewed every poll."""
+    """Claim sessions and run one task per session until `stopped` is set; leases are renewed every poll. Each running
+    session holds one slot (its own uid for the CLI) until its task ends; a later turn may run in any free slot."""
     worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}'
     limit = limit or int(os.environ.get('CLAUDE_CODE_MAX_SESSIONS', '4'))
+    if limit > MAX_SLOTS:
+        logger.warning('CLAUDE_CODE_MAX_SESSIONS is %s; this worker runs at most %s sessions', limit, MAX_SLOTS)
+        limit = MAX_SLOTS
     active: dict[UUID, asyncio.Task] = {}
+    slots: dict[UUID, int] = {}
+    free_slots = list(range(1, limit + 1))
     try:
         while not stopped.is_set():
             for session_id, task in list(active.items()):
                 if task.done():
                     del active[session_id]
+                    free_slots.append(slots.pop(session_id))
                     if not task.cancelled() and task.exception() is not None:
                         logger.warning('Claude Code session %s ended with %s', session_id, type(task.exception()).__name__)
             try:
@@ -461,7 +487,9 @@ async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: a
             for session in claimed:
                 if session['previous'] == 'working' and not session['queued']:
                     continue  # its interrupted turn is recorded; claim released it until a message arrives
-                runner = SessionRunner(store, session, client_factory, poll=poll, idle_release=idle_release)
+                slots[session['id']] = free_slots.pop(0)
+                runner = SessionRunner(store, session, client_factory, poll=poll, idle_release=idle_release,
+                                       slot=slots[session['id']])
                 active[session['id']] = asyncio.create_task(runner.run())
             with suppress(TimeoutError):
                 await asyncio.wait_for(stopped.wait(), poll)
@@ -478,9 +506,32 @@ def secrets_from_environment() -> tuple[bytes, str]:
     return key, make_conninfo('', password=password) if password else ''
 
 
+def prepare_home_root(root: str = HOME_ROOT) -> None:
+    """/home/claude and its sessions folder belong to root, traversable but not listable (0711): a slot user reaches
+    only its session's own 0700 folder. /home/claude/tmp is the worker's (root's, 0700). Fixes a volume created by an
+    earlier image, where the single claude user owned /home/claude."""
+    for path in (root, f'{root}/sessions'):
+        os.makedirs(path, mode=0o711, exist_ok=True)
+        info = os.lstat(path)
+        if info.st_uid != 0 or info.st_gid != 0:
+            os.lchown(path, 0, 0)
+        os.chmod(path, 0o711)
+        if path == root:  # the worker's own TMPDIR; what an earlier image's single claude user left is no slot user's
+            os.makedirs(f'{root}/tmp', mode=0o700, exist_ok=True)
+            for name in os.listdir(root):
+                entry = f'{root}/{name}'
+                if name != 'sessions' and os.lstat(entry).st_uid != 0:
+                    os.lchown(entry, 0, 0)
+                    if not os.path.islink(entry):
+                        os.chmod(entry, 0o700)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
     key, conninfo = secrets_from_environment()
+    prepare_home_root()
+    # The SDK's version probe would start the CLI wrapper without a slot; the bundled CLI is the SDK's own version.
+    os.environ['CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK'] = '1'
     store = RepositoryStore(conninfo, key, os.environ['AUTH_ISSUER_URL'])
     run_record.configure(store, None)
 
