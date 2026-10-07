@@ -43,6 +43,8 @@ services:
       POSTGRES_DB: knowledge_agent
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
     ports: ["127.0.0.1:${POSTGRES_PORT:-5438}:5432"]
+    # claude-code-worker reaches only postgres, on its own network (see that service).
+    networks: [default, claude-code]
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../db:/workspace/db:ro
@@ -214,9 +216,12 @@ services:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
     # Interactive documentation sessions with the Claude Agent SDK. DATA_ROOT is read-only and the CLI's home is the
-    # only writable mount. It needs the network for Bedrock or Anthropic, so Bash can reach the network too (accepted).
+    # only writable mount. It needs the internet for Bedrock or Anthropic, so Bash can reach the internet too (accepted).
+    # Bash must not reach the other services (admin-api trusts the proxy's user headers): the worker is only on the
+    # claude-code network, shared with postgres alone.
     # It runs as root to hold its secrets; the CLI runs as the claude user (knowledge-claude-cli), hence SETUID/SETGID.
     # The claude user is uid 1001: files under DATA_ROOT must be readable by it (world-readable, or group 1001).
+    networks: [claude-code]
     entrypoint: [/services/admin-api/.venv/bin/knowledge-claude-code-worker]
     command: []
     read_only: true
@@ -232,6 +237,7 @@ services:
       HOME: /home/claude
       TMPDIR: /home/claude/tmp
       CLAUDE_CODE_CLI: /services/admin-api/.venv/bin/knowledge-claude-cli
+      CLAUDE_CODE_MAX_SESSIONS: ${CLAUDE_CODE_MAX_SESSIONS:-4}
       PGHOST: postgres
       PGDATABASE: knowledge_agent
       PGUSER: knowledge_agent
@@ -400,6 +406,8 @@ services:
 networks:
   agent-shell:
     internal: true
+  # claude-code-worker and postgres only; not internal, so the worker keeps internet egress for the model provider.
+  claude-code: {}
   jira-test:
     internal: true
 

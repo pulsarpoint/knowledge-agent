@@ -343,7 +343,8 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(sorted(worker["cap_add"]), ["SETGID", "SETUID"])
             self.assertEqual(worker["entrypoint"], ["/services/admin-api/.venv/bin/knowledge-claude-code-worker"])
             self.assertNotIn("ports", worker)
-            self.assertEqual(set(worker.get("networks", {"default": None})), {"default"})
+            self.assertEqual(set(worker["networks"]), {"claude-code"})  # postgres only: not admin-api or the others
+            self.assertIn("claude-code", config["services"]["postgres"]["networks"])
             env = worker["environment"]
             self.assertEqual(env["CLAUDE_CODE_CLI"], "/services/admin-api/.venv/bin/knowledge-claude-cli")
             self.assertEqual((env["HOME"], env["TMPDIR"], env["DATA_ROOT_DIR"], env["CODE_ROOT"]),
@@ -351,5 +352,6 @@ class SetupTests(unittest.TestCase):
             for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL"):
                 self.assertIn(name, env)
             self.assertNotIn("AGENT_SHELL_URL", env)
+            self.assertEqual(env["CLAUDE_CODE_MAX_SESSIONS"], "4")
             self.assertIn("claude-code-home", config["volumes"])
 
