@@ -219,7 +219,7 @@ def build_api(app_name, store):
                     try:
                         result = await agent(config, json.dumps(task),
                             credentials={model_id: model.api_key} if model.api_key else {}, timeout_seconds=240,
-                            output_type=AgentProposal)
+                            turn_timeout_seconds=240, output_type=AgentProposal)
                         proposal = result.final_output
                         validate_resources(proposal, catalog)
                         if proposal.model_id is not None and not any(

@@ -18,7 +18,7 @@ FOLDERS = {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDE
            "GENERATED_DOCS_FOLDER": "generated-documents", "JIRA_FOLDER": "jira"}
 WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "shell-worker": [],
            "admin-api": ["CODE_FOLDER", "CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"],
-           "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"], "claude-code-worker": []}
+           "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"], "claude-code-worker": [], "agent-session-worker": []}
 
 
 def folder(variable: str) -> str:
@@ -38,7 +38,7 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
     compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
     assert compose["name"] == "knowledge-agent-v3"
     services = compose["services"]
-    assert set(services) == {"postgres", "migrate", "rag", "keycloak", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "shell-worker", "claude-code-worker"}
+    assert set(services) == {"postgres", "migrate", "rag", "keycloak", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "shell-worker", "claude-code-worker", "agent-session-worker"}
     assert services["admin-api"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert services["migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     for service in services.values():

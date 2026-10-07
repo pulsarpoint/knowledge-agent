@@ -89,17 +89,22 @@ confirmation and navigation with unsaved edits.
 
 ## Generate documents
 
-**Docs → Generate documents** starts a Claude Code agent session; the agent writes one document. The agent runs with
-its own model, prompt, instructions, skills and Claude Code tools; the form has no model or prompt field.
+**Docs → Generate documents** starts an agent session (native or Claude Code); the agent writes one document. The agent runs with
+its own model, prompt, instructions, skills and tools; the form has no model or prompt field.
 
 `POST /api/claude-code/sessions` takes eight fields: `agent_id`, `code_project_ids`, `environment_ids`, `service_ids`,
 `server_ids`, `instructions`, `document_name` and `folder`. At least one code project, environment, service or server is
-required. Refusals (400): `NOTHING_CHOSEN` (nothing chosen), `NO_FOLDER` (Claude Code needs at least one working folder:
-code projects, or environments or services linked to code projects, or an agent with code projects), `AGENT_MODEL` (the
-agent has no enabled Claude model), and unknown or unavailable ids ("Select available ...", "Select an enabled Claude
-Code agent.").
+required. Refusals (400): `NOTHING_CHOSEN` (nothing chosen), `NO_FOLDER` (Claude Code agents only: at least one working
+folder: code projects, or environments or services linked to code projects, or an agent with code projects), `AGENT_MODEL`
+("The agent has no enabled model for its agent type…": Claude Code needs a Claude connection, native a Responses or Claude
+connection), `NO_AGENT` ("Select an enabled agent.": unknown, disabled or the coordinator), and unknown or unavailable ids
+("Select available ...").
 
-The session stores two snapshots. `prompt_snapshot` holds `system_prompt`, `claude_code_tools` and `agent_version`.
+The session stores two snapshots and a `runtime` (`openai` | `claude_code`). `prompt_snapshot` holds `system_prompt` and
+`agent_version`, plus `claude_code_tools` for Claude Code. Native sessions also store `agent_config` (the agent's config pinned
+at creation, with the working folders as code roots via `native_sessions.code_roots`; credential references only) and
+`history` (Agents SDK items of successful turns, redacted); listing and detail return `runtime`, never `agent_config` or
+`history`.
 `context_snapshot` holds the chosen `code_projects`, `environments`, `services`, `servers` and `instructions`, plus
 `folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
 never included.
@@ -125,6 +130,17 @@ Focus on the public API.
 When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
 later message, reply again with the complete updated document.
 ```
+
+**Native turns.** `agent-session-worker` claims native sessions (`session_worker.claim(…, 'openai')`), decrypts the pinned
+config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,
+max_turns=None, turn_timeout_seconds=None, call_model_input_filter=Comments)` and writes the same events as Claude Code
+turns under `cc:<session>:<turn>` (`start.kind = native_session`). There is no turn time or model-call limit; each model request and MCP connection keeps its
+300 s timeout. Comments queued during a turn are delivered inside it before the next model call (an `input` event). Stop
+ends the turn as stopped within about 30 seconds after it is pressed; after that the turn starts no new model request or tool
+call (a request or command already running cannot be recalled), and comments delivered to a stopped turn are discarded;
+a message sent after Stop is not delivered to the stopped turn and starts the next one.
+After a failure or a lost worker they go to the next turn. The turn's history is committed in the transaction that records
+the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used (every turn sees the whole conversation).
 
 `GET /api/claude-code/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a

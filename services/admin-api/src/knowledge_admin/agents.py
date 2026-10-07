@@ -10,8 +10,9 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import psycopg
-from agents import Agent, AgentOutputSchema, FunctionTool, ModelSettings, RunConfig, Runner, RunResult, RunResultStreaming, trace
+from agents import Agent, AgentOutputSchema, FunctionTool, ModelSettings, RunConfig, RunHooks, Runner, RunResult, RunResultStreaming, Session, trace
 from agents.mcp import MCPServerStreamableHttp
+from agents.run_config import CallModelInputFilter
 from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
@@ -32,48 +33,64 @@ from knowledge_admin.knowledge_agents.config import get_agent_config  # noqa: F4
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
-                timeout_seconds: float = 300, output_type: type[BaseModel] | None = None,
+                timeout_seconds: float = 300, turn_timeout_seconds: float | None = None, output_type: type[BaseModel] | None = None,
                 on_activity: ActivityCallback | None = None,
                 on_usage: UsageCallback | None = None,
                 history: list[dict[str, Any]] | None = None, max_turns: int | None = 20,
-                max_output_tokens: int | None = None, stream: bool = True) -> RunResult | RunResultStreaming:
+                max_output_tokens: int | None = None, stream: bool = True,
+                session: Session | None = None, hooks: RunHooks | None = None,
+                call_model_input_filter: CallModelInputFilter | None = None) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
     The caller resolves credentials and owns session locking and expiry. Only
     enabled tools and resource instructions are sent to the model. Keys stay in
     backend context. The caller supplies complete SDK history and persists
     run.to_input_list() after a successful turn.
-    """
-    if not task.strip() or timeout_seconds <= 0 or (max_turns is not None and max_turns < 1) or (max_output_tokens is not None and max_output_tokens < 1):
-        raise ValueError('Provide a task and positive execution limits.')
 
-    task_input = [*(history or []), {'role': 'user', 'content': task}]
+    timeout_seconds limits each model request and MCP connection; turn_timeout_seconds limits the whole run (None: no
+    limit) and max_turns its model calls (None: no limit).
+
+    With session (an Agents SDK Session, such as a Generate documents session's
+    HistorySession) the SDK reads the earlier conversation from it and adds this turn's items to it; the caller then
+    passes no history and does not stream, so every item has been added when the run returns. hooks receive the SDK
+    lifecycle too (a session's run events). call_model_input_filter (RunConfig) may change each model call's input,
+    such as a session's comments delivered while the turn runs.
+    """
+    if not task.strip() or timeout_seconds <= 0 or (turn_timeout_seconds is not None and turn_timeout_seconds <= 0) or (max_turns is not None and max_turns < 1) or (max_output_tokens is not None and max_output_tokens < 1):
+        raise ValueError('Provide a task and positive execution limits.')
+    if session is not None and (history or stream):
+        raise ValueError('Run a session turn without history and without streaming.')
+
+    task_input = task if session is not None else [*(history or []), {'role': 'user', 'content': task}]
     with TemporaryDirectory(prefix='knowledge-agent-work-', dir=os.environ.get('AGENT_WORKSPACE_ROOT')) as directory:
         workspace = Path(directory).resolve()
         if os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
             os.chown(workspace, 1000, 1000)  # The unprivileged shell-worker user owns its scratch files.
         context = {'config': config, 'credentials': credentials, 'workspace': workspace,
                    'shell_enabled': config['code']['enabled'] or config['documents']['enabled']}
-        activity = SdkActivity(credentials.values(), on_activity, on_usage)
+        # A snapshot: redaction keeps working when the caller clears `credentials` (a session turn after Stop).
+        secrets = tuple(value for value in credentials.values() if value)
+        activity = SdkActivity(secrets, on_activity, on_usage)
         record = config.get('record')
         recorder = None
         if record:
             recorder = RunRecorder(run_key=record['run_key'], project_id=record.get('project_id'),
-                agent_id=config['id'], actor_id=record.get('actor_id'), secrets=credentials.values())
+                agent_id=config['id'], actor_id=record.get('actor_id'), secrets=secrets)
             recorder.add('start', {'kind': record.get('kind', 'run'), 'title': record.get('title', task[:200]),
                                    'agent': config['name']})
             recorder.add('input', {'task': task, 'history': history or []})
-        hooks = CompositeHooks(activity, recorder) if recorder else activity
+        run_hooks = CompositeHooks(activity, recorder, hooks) if recorder or hooks else activity
         status = 'failed'
-        with trace_secrets(credentials.values()), trace(redact(config['name'], credentials.values())):
+        with trace_secrets(secrets), trace(redact(config['name'], secrets)):
             try:
-                async with asyncio.timeout(timeout_seconds), create_agent(config, credentials=credentials,
+                async with asyncio.timeout(turn_timeout_seconds), create_agent(config, credentials=credentials,
                         timeout_seconds=timeout_seconds, output_type=output_type) as assistant:
                     run_config = RunConfig(tracing={'include_task_and_turn_spans': False},
-                                           model_settings=ModelSettings(max_tokens=max_output_tokens))
+                                           model_settings=ModelSettings(max_tokens=max_output_tokens),
+                                           call_model_input_filter=call_model_input_filter)
                     if stream:
-                        run = Runner.run_streamed(assistant, task_input, context=context, hooks=hooks,
-                                                 max_turns=max_turns, run_config=run_config)
+                        run = Runner.run_streamed(assistant, task_input, context=context, hooks=run_hooks,
+                                                 max_turns=max_turns, run_config=run_config, session=session)
                         try:
                             async for event in run.stream_events():
                                 await activity.notify(event)
@@ -85,8 +102,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                             except (Exception, asyncio.CancelledError):
                                 pass
                     else:
-                        run = await Runner.run(assistant, task_input, context=context, hooks=hooks,
-                                               max_turns=max_turns, run_config=run_config)
+                        run = await Runner.run(assistant, task_input, context=context, hooks=run_hooks,
+                                               max_turns=max_turns, run_config=run_config, session=session)
                     final = run.final_output.model_dump_json() if isinstance(run.final_output, BaseModel) else str(run.final_output)
                     final = redact(final, activity.secrets)
                     run.final_output = output_type.model_validate_json(final) if output_type is not None else final

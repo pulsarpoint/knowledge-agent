@@ -43,6 +43,10 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   the slot is reused (SysV IPC objects are not removed: an accepted residual). At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
   Files under `DATA_ROOT` must be readable by the claude users: world-readable, or
   group-readable by gid 1001.
+- `agent-session-worker` runs native agents' **Generate documents** sessions with the native runtime. It is on `default`
+  (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
+  and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
+  Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds.
 - Phoenix has its own authenticated UI and volume. The admin API exports
   OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
 - Each service receives an explicit subset of environment variables. The complete
@@ -282,3 +286,13 @@ Back up the database first: rolling 0073 back restores only the empty tables, no
 `documents.phase_metadata`, so a document written by a service phase re-exports to `<slug>/` instead of
 `services/<service>/<phase>/`; applying 0073 again does not bring the phase folders back.
 
+## Upgrading to native agent sessions
+
+Generate documents now also runs native agents. After pulling this version on an existing installation:
+
+1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0074 adds three columns to
+   `agent_sessions_cc` (`runtime`, `agent_config`, `history`); existing sessions are Claude Code sessions.
+2. Start the new service:
+   `docker compose --env-file .env -f deploy/compose.yaml up -d agent-session-worker`
+
+Rolling 0074 back refuses while native sessions exist: delete them first.

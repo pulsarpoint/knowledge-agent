@@ -141,6 +141,16 @@ lease. Isolation:
   connection's key is redacted from run events, drafts and error messages, and NUL
   characters are removed before storing.
 
+## Agent session worker
+
+Native Generate documents sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
+claimed with the same lease code as `claude-code-worker` (`knowledge_agents/session_worker.py`: claims per agent type,
+queued messages delivered once per turn, Stop, idle release after 5 minutes, interrupted turns failed on reclaim). Native
+turns have no time or model-call limit (each model request and MCP connection keeps a 300 s timeout); Stop always ends a
+turn within about 30 seconds. Networks `default` and `agent-shell` (no access to the `claude-code` network); `DATA_ROOT` read-only;
+`agent-workspaces` for tool scratch space shared with `shell-worker`; Agents SDK traces go to Phoenix as for native runs in
+`admin-api`. History uses an Agents SDK `Session` (`knowledge_agents/history.py`) backed by `agent_sessions_cc.history`.
+
 ## Code projects and Git synchronization
 
 `ka.repositories` now represents code projects: a name and description, optional

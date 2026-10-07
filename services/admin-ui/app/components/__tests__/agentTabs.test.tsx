@@ -294,7 +294,7 @@ test('a delete refused because history appeared meanwhile shows that history', a
   expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete agent and history' })).toBeEnabled();
 });
 
-const WORKING = 'This agent is working right now. Stop its Claude Code sessions, runs and board tasks, or wait for them to finish, then delete it.';
+const WORKING = 'This agent is working right now. Stop its documentation sessions, runs and board tasks, or wait for them to finish, then delete it.';
 
 test('a delete refused because the agent is working says so and keeps the dialog open', async () => {
   const user = userEvent.setup();

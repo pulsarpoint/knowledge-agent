@@ -63,7 +63,7 @@ test('the session page streams activity, sends messages, stops, saves the draft 
   expect(screen.getByRole('button', { name: 'Save document' })).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Also cover retries.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(await screen.findByText(/^Queued\./)).toBeVisible();
+  expect(await screen.findByText('Queued. The agent gets your message when it finishes its current response.')).toBeVisible();
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
   await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/stop'));
@@ -221,4 +221,25 @@ test('scrolling near the top again while an earlier page loads does not load it 
     view.unmount();
     expect(older[0].signal?.aborted).toBe(true);
   } finally { restore(); }
+});
+
+test('a native session waits for the agent session worker', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json({ ...detail, runtime: 'openai' })));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByText('Waiting for the agent session worker. The session starts when the worker is running.')).toBeVisible();
+  expect(screen.queryByText(/Claude Code worker/)).toBeNull();
+});
+
+test('a comment to a working native session reaches the agent at its next step', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/events/history')) return page([]);
+    if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
+    return Response.json({ ...detail, runtime: 'openai', status: 'working', worker_active: true });
+  }));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  const box = await screen.findByLabelText('Message');
+  expect(box).toBeEnabled();  // the message box stays usable while the agent works
+  fireEvent.change(box, { target: { value: 'Also cover retries' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
 });

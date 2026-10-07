@@ -305,7 +305,7 @@ def test_timeout_and_cancel_clean_provider_and_preserve_history(config, monkeypa
             finally:
                 stopped.set()
         monkeypatch.setattr('agents.extensions.models.litellm_model.litellm.acompletion',slow)
-        pending=asyncio.create_task(agent(config,'Wait.',credentials={'model-key':'key'},timeout_seconds=2,history=history))
+        pending=asyncio.create_task(agent(config,'Wait.',credentials={'model-key':'key'},timeout_seconds=2,turn_timeout_seconds=2,history=history))
         await started.wait()
         if cancel:
             pending.cancel()

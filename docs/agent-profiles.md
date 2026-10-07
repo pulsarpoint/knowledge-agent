@@ -97,6 +97,8 @@ Migration `0072_knowledge_agents_config` lifts the 0070 registration rule, adds 
 
 Migration `0073_remove_documentation_generation` removes the one-shot generation (tables, job kind, history and `doc:*` run records), adds `documents.phase_metadata`, and its down migration restores the empty schema only. The Claude Code Test tab links to `/documentation/generations/new?agent=<id>`.
 
+Migration `0074_native_agent_sessions` adds `agent_sessions_cc.runtime`, `agent_config` and `history`; its down migration refuses while native sessions exist. Native agents' Generate documents sessions run in `agent-session-worker`.
+
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
@@ -129,14 +131,14 @@ tasks — exactly the rows the delete removes). With
 (`agent_run_events` with keys `run:<run id>`, `cc:<session id>:<turn>` and
 `board:<task id>` of those rows only), its runs and their SSH commands, its chats and
 their reviews (configuration versions made from a review keep the version and lose the
-link), its Claude Code sessions and queued inputs, its board memberships and its board
+link), its Generate documents sessions (native and Claude Code) and queued inputs, its board memberships and its board
 tasks with their subtasks and member rows. Tasks of other agents above them (such as the
 coordinator's task) and beside them stay, and so does the coordinator's own run record
 of a task it delegated to this agent (`board:<root task id>`). Saved documents are
-independent rows and stay. While the agent is working — a Claude Code session that is
+independent rows and stay. While the agent is working — a documentation session (native or Claude Code) that is
 `starting` or `working`, a `running` operations run, or a `queued` or `running` board
 task it owns or is a member of — the delete (with or without history) returns HTTP 409
-("This agent is working right now. Stop its Claude Code sessions, runs and board tasks,
+("This agent is working right now. Stop its documentation sessions, runs and board tasks,
 or wait for them to finish, then delete it.") and deletes nothing. The
 coordinator is still refused and the revision is still checked; the `agent.deleted`
 audit event records the deleted counts under `history`.
