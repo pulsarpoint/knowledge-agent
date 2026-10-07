@@ -133,11 +133,12 @@ later message, reply again with the complete updated document.
 
 **Native turns.** `agent-session-worker` claims native sessions (`session_worker.claim(…, 'openai')`), decrypts the pinned
 config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,
-max_turns=None, turn_timeout_seconds=None)` and writes the same events as Claude Code turns under `cc:<session>:<turn>`
-(`start.kind = native_session`). There is no turn time or model-call limit; each model request and MCP connection keeps its
+max_turns=None, turn_timeout_seconds=None, call_model_input_filter=Comments)` and writes the same events as Claude Code
+turns under `cc:<session>:<turn>` (`start.kind = native_session`). There is no turn time or model-call limit; each model request and MCP connection keeps its
 300 s timeout. Comments queued during a turn are delivered inside it before the next model call (an `input` event). Stop
-ends the turn as stopped at the latest 30 s after it is pressed; after that the turn starts no new model request or tool
-call (a request or command already running cannot be recalled), and comments delivered to a stopped turn are discarded.
+ends the turn as stopped within about 30 seconds after it is pressed; after that the turn starts no new model request or tool
+call (a request or command already running cannot be recalled), and comments delivered to a stopped turn are discarded;
+a message sent after Stop is not delivered to the stopped turn and starts the next one.
 After a failure or a lost worker they go to the next turn. The turn's history is committed in the transaction that records
 the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used (every turn sees the whole conversation).
 

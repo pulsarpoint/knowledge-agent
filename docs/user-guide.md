@@ -582,12 +582,13 @@ visible. Activity follows new events at the bottom; after you scroll up it stops
 Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning of the session**.
 It also shows tokens in/out/cached and a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
 
-- **Send message**: while a native agent works, the message box stays enabled ("Queued. Your comment reaches the agent at its
-  next step.") and the comment reaches the agent at its next step in the same turn. A Claude Code agent receives it after its
-  current response. After a turn it starts a new turn in the same conversation.
-- **Stop**: always ends the turn: it is recorded as stopped at the latest 30 seconds after Stop, and after that it cannot start
+- **Send message**: the message box stays enabled while the agent works, for both agent types. A native agent receives
+  the comment at its next step in the same turn ("Queued. Your comment reaches the agent at its next step."); a Claude Code
+  agent receives it after its current response ("Queued. The agent gets your message when it finishes its current
+  response."). Sent between turns, a message starts a new turn in the same conversation.
+- **Stop**: always ends the turn: it is recorded as stopped within about 30 seconds of Stop, and after that it cannot start
   new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
-  discarded when the turn is stopped; after a failure or a lost worker they go to the next turn.
+  discarded when the turn is stopped (a message sent after Stop starts the next turn); after a failure or a lost worker they go to the next turn.
 - **Draft**: each finished turn's final answer, as Markdown.
 - **Save document**: a versioned document in the folder, linked to the code projects and exported to
   `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name in the same folder asks **Save a new version?**; the
@@ -596,10 +597,10 @@ It also shows tokens in/out/cached and a status: Starting, Working, Waiting for 
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
 
-Errors: "The agent has no enabled model for its agent type. Choose one on its General tab."; "Choose at least one code project,
+Errors: "Select an enabled agent."; "The agent has no enabled model for its agent type. Choose one on its General tab."; "Choose at least one code project,
 environment, service or server to document."; "Claude Code needs at least one working folder…"; a provider error, such as
 a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the Claude
-Code worker…" when the worker is not running; a folder that no longer exists is refused when starting.
+Code worker…" (Claude Code) or "Waiting for the agent session worker…" (native) when the worker is not running; a folder that no longer exists is refused when starting.
 
 Security: the model key is passed only to the session's Claude Code process. Every enabled Claude connection's key is
 redacted from stored events, drafts and error messages. Each running session's Claude Code process runs as its own user,
@@ -661,7 +662,7 @@ the summary in one record) and Generate documents sessions. Each record shows, i
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Agent test**, **Board task** and **Claude Code** and **Native session** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
+characters. The run type filter offers **Agent test**, **Board task**, **Claude Code** and **Native session** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
 an agent's Test tab, from a board task, and from each Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
 
