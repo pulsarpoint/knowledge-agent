@@ -36,6 +36,20 @@ def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
     return text
 
 
+def tool_failed(detail: str) -> bool:
+    """A tool result reported as failed: the SDK's error text, or JSON with error, isError, timed_out or a non-zero
+    exit_code."""
+    failed = detail.startswith('An error occurred while running the tool')
+    try:
+        output = json.loads(detail)
+    except (ValueError, TypeError):
+        output = None
+    if isinstance(output, dict):
+        failed = failed or bool(output.get('error') or output.get('isError') or output.get('timed_out'))
+        failed = failed or output.get('exit_code', 0) not in (0, None)
+    return failed
+
+
 class SdkActivity(RunHooks):
     """Publish Agents SDK messages and tool lifecycle events to the UI."""
 
@@ -61,14 +75,7 @@ class SdkActivity(RunHooks):
     async def on_tool_end(self, context, agent, tool, result: object) -> None:
         key = context.tool_call_id
         detail = str(result)
-        failed = detail.startswith('An error occurred while running the tool')
-        try:
-            output = json.loads(detail)
-        except (ValueError, TypeError):
-            output = None
-        if isinstance(output, dict):
-            failed = failed or bool(output.get('error') or output.get('isError') or output.get('timed_out'))
-            failed = failed or output.get('exit_code', 0) not in (0, None)
+        failed = tool_failed(detail)
         self.items[key]['detail'] = detail
         self.items[key]['status'] = 'failed' if failed else 'completed'
         await self.publish(key)
