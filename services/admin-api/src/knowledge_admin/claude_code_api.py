@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import time
 from pathlib import Path, PurePosixPath
 from uuid import UUID, uuid4
 
@@ -16,10 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.claude_code import SYSTEM_PROMPT, close_idle, first_message
-from knowledge_admin.data_root import data_folder, data_path, documentation_folder
+from knowledge_admin.data_root import data_dir, data_folder, data_path, documentation_folder
 from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.storage import storage_path
 
 AGENT_FIELDS = 'id,name,description,runtime,enabled,revision'
 
@@ -113,9 +115,23 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     return row
 
 
+def inside_data_root(path: str) -> None:
+    """The storage rule for a working folder: inside DATA_ROOT, and no part of it is a symbolic link."""
+    refused = HTTPException(400, f'The folder {path} is a symbolic link or outside DATA_ROOT. Remove it from the context.')
+    container = PurePosixPath(path)
+    if not container.is_relative_to(data_dir()) or container == data_dir():
+        raise refused
+    try:
+        storage_path('data', container.relative_to(data_dir()).as_posix())
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            raise
+        raise refused from None
+
+
 def session_context(conn, project: UUID, value: SessionInput) -> dict:
     """Working folders as container paths (code project folders in the chosen order, then DATA_ROOT folders), servers
-    as text and the notes. Every folder must exist now."""
+    as text and the notes. Every folder must exist now, inside DATA_ROOT, without a symbolic link on the way."""
     code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
     if value.code_project_ids and (not code_root.is_absolute() or '..' in code_root.parts):
         raise HTTPException(503, 'CODE_ROOT must be an absolute mounted path')
@@ -140,6 +156,7 @@ def session_context(conn, project: UUID, value: SessionInput) -> dict:
         seen.add(item['path'])
         if not Path(item['path']).is_dir():
             raise HTTPException(400, f"The folder {item['path']} does not exist. Remove it from the context.")
+        inside_data_root(item['path'])
         folders.append(item)
     servers = conn.execute('''SELECT id,name,hostname,description FROM ka.servers WHERE project_id=%s AND id=ANY(%s)
         ORDER BY lower(name),id''', (project, value.server_ids)).fetchall()
@@ -150,6 +167,8 @@ def session_context(conn, project: UUID, value: SessionInput) -> dict:
 
 
 STREAM_POLL_SECONDS = 1.0
+DEFAULT_KEEPALIVE_SECONDS = 15.0
+KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
 STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
@@ -269,12 +288,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
+            close_idle(conn)
             return session_detail(conn, db.project(conn, app_name), session_id)
 
     @router.post('/sessions/{session_id}/messages', status_code=202)
     def send(session_id: UUID, value: MessageInput, request: Request) -> dict:
         db = database()
         with db.connect() as conn:
+            close_idle(conn)
             row = locked(conn, db.project(conn, app_name), session_id)
             if row['status'] == 'closed':
                 raise HTTPException(409, CLOSED)
@@ -363,30 +384,36 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         async def stream():
             # Poll by event id over this session's turn keys (cc:<session>:<turn>) and the session row; leaving the
             # page closes only this subscriber.
-            position, state = start_after, None
+            position, state, quiet_since = start_after, None, time.monotonic()
             try:
-                async with await psycopg.AsyncConnection.connect(db.conninfo, autocommit=True, row_factory=dict_row) as conn:
+                async with await psycopg.AsyncConnection.connect(db.conninfo, autocommit=True, row_factory=dict_row,
+                                                                 connect_timeout=5) as conn:
                     while True:
                         current = await (await conn.execute(STATE, (session_id,))).fetchone()
+                        if current is None:  # the session was removed
+                            yield 'event: closed\ndata: {}\n\n'
+                            return
                         keys = [f'cc:{session_id}:{turn}' for turn in range(1, current['turns'] + 1)]
                         rows = await (await conn.execute('''SELECT id,run_key,seq,kind,payload,created_at
                             FROM ka.agent_run_events WHERE run_key=ANY(%s) AND id>%s ORDER BY id LIMIT 500''',
                             (keys, position))).fetchall()
                         for row in rows:
-                            position = row['id']
+                            position, quiet_since = row['id'], time.monotonic()
                             yield f'id: {position}\nevent: run_event\ndata: {json.dumps(jsonable_encoder(stream_event(row)))}\n\n'
                         if len(rows) == 500:
                             continue
                         public = jsonable_encoder(current)
                         if public != state:
-                            state = public
+                            state, quiet_since = public, time.monotonic()
                             yield f'event: session\ndata: {json.dumps(public)}\n\n'
                         if current['status'] == 'closed':
                             yield 'event: closed\ndata: {}\n\n'
                             return
                         if await request.is_disconnected():
                             return
-                        yield ': keepalive\n\n'
+                        if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
+                            quiet_since = time.monotonic()
+                            yield ': keepalive\n\n'
                         await asyncio.sleep(STREAM_POLL_SECONDS)
             except psycopg.Error:
                 yield 'event: unavailable\ndata: {}\n\n'

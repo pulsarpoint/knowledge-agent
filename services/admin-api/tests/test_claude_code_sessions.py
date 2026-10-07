@@ -270,3 +270,63 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     overview = client.get(f"/api/documentation/documents/{created['id']}", headers=HEADERS).json()
     assert (overview['purpose'], overview['code_project_ids']) == ('explanation', [])
     assert client.post(url + '/document', json={}).status_code == 403
+
+
+def test_symlinked_folders_and_folders_outside_data_root_are_refused(sessions, tmp_path):
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (sessions.data / 'linked').symlink_to(outside)
+    (sessions.data / 'jira-link').symlink_to(sessions.data / 'jira')  # inside DATA_ROOT, but still a link
+    (sessions.data / 'code/app-link').symlink_to(outside)
+    for change in ({'code_project_ids': [], 'folders': ['linked']}, {'code_project_ids': [], 'folders': ['jira-link']},
+                   {'code_project_ids': [], 'folders': ['jira-link/..']}):
+        response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
+        assert response.status_code == 400, (change, response.text)
+    with sessions.store.connect() as conn:
+        conn.execute("UPDATE ka.code_project_folders SET path='app-link' WHERE code_project_id=%s", (sessions.repo,))
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'folders': []})
+    assert response.status_code == 400 and 'symbolic link' in response.json()['error']['message']
+    with sessions.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+
+
+def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
+    sid = start(sessions)['id']
+    url = f'/api/claude-code/sessions/{sid}'
+    with sessions.store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (sid,))
+    detail = sessions.client.get(url, headers=HEADERS).json()
+    assert (detail['status'], detail['status_message']) == ('closed', IDLE_CLOSED)
+    other = start(sessions)['id']
+    with sessions.store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (other,))
+    sent = sessions.client.post(f'/api/claude-code/sessions/{other}/messages', headers=HEADERS, json={'text': 'Hello?'})
+    assert sent.status_code == 409 and sent.json()['error']['message'] == 'This session is closed. Start a new session.'
+
+
+def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(sessions, monkeypatch):
+    monkeypatch.setattr(claude_code_api, 'STREAM_POLL_SECONDS', 0.02)
+    monkeypatch.setattr(claude_code_api, 'KEEPALIVE_SECONDS', 60)
+    connected = []
+    original = claude_code_api.psycopg.AsyncConnection.connect
+
+    async def connect(*args, **kwargs):
+        connected.append(kwargs.get('connect_timeout'))
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(claude_code_api.psycopg.AsyncConnection, 'connect', connect)
+    sid = start(sessions)['id']
+
+    def remove():
+        time.sleep(0.3)
+        with sessions.store.connect() as conn:
+            conn.execute('DELETE FROM ka.agent_session_inputs WHERE session_id=%s', (sid,))
+            conn.execute('DELETE FROM ka.agent_sessions_cc WHERE id=%s', (sid,))
+
+    thread = threading.Thread(target=remove)
+    thread.start()
+    response = sessions.client.get(f'/api/claude-code/sessions/{sid}/events', headers=HEADERS)
+    thread.join()
+    assert parse(response.text)[-1]['event'] == 'closed'
+    assert ': keepalive' not in response.text  # well under KEEPALIVE_SECONDS
+    assert connected == [5]
+    assert claude_code_api.KEEPALIVE_SECONDS == 60 and 10 <= claude_code_api.DEFAULT_KEEPALIVE_SECONDS <= 20
