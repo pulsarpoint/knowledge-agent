@@ -77,7 +77,13 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph) · documentation-worker (doc generation)
+               claude-code-worker (interactive documentation sessions)
 ```
+
+`claude-code-worker` runs the Claude Agent SDK with its bundled Claude Code CLI. It reads
+`DATA_ROOT` read-only, needs network access to Bedrock or the Anthropic API, and its home
+volume `claude-code-home` is its only writable mount. It runs as user `claude` (uid 1001),
+so the files under `DATA_ROOT` that sessions should read must be readable by uid 1001.
 
 All ports bind to `127.0.0.1` only. Internal services have no host ports.
 
@@ -220,7 +226,7 @@ General conventions throughout the admin app:
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers |
 | Code | Projects · Code graphs |
-| Docs | Documents · Prompts · Generate documents · Folders |
+| Docs | Documents · Prompts · Generate documents · Sessions · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
@@ -545,6 +551,15 @@ uses the new settings — until then the card lists "active version vN predates 
 settings" and the Reader replies "The assistant's configuration isn't allowed in the
 Reader."
 
+**Claude Code agents.** **All agents** shows them with a **Claude Code SDK** badge.
+**New Claude Code agent** asks only for a name and a description, and the agent page edits
+only those. The model, folders, prompt and context are chosen per session (see
+[5.13](#513-documentation-generation), **With an agent**). Tools are fixed: Read, Grep, Glob
+and Bash, in their own container with `DATA_ROOT` read-only. Bash can reach the network.
+There is no Edit/Write, no MCP and no sub-agents, and there are no turn, time or cost
+limits. Claude Code agents never appear as the Reader assistant, on the multi-agent board
+or in test chats.
+
 Agents with sessions or board history cannot be removed — disable them instead.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
@@ -668,6 +683,54 @@ edited meanwhile); and a folder or document whose export folder would overlap an
 document's export at any level, for example folder `a/b` when folder `a` holds a document
 `b` (choose another folder or name).
 
+**With an agent (interactive).** **New documentation** → **With an agent** starts a
+Claude Code session in which you watch the agent work and steer it. Form fields:
+
+- **Agent**: a Claude Code agent.
+- **Model** (required): Claude connections only. Bedrock models need inference-profile IDs
+  with a region prefix, such as `eu.anthropic.claude-…` (also `us.` or `global.`); the
+  Anthropic API is the other option.
+- **Prompt**: any active documentation prompt.
+- **Context**: code projects, folders under `DATA_ROOT` (**Choose a folder**), servers as
+  name/address/description text, and notes.
+- **Comments**, **Document name** and **Documentation folder** (default
+  `<first-project>-docs`, or `docs`).
+
+**Generate** opens the session page.
+
+What the agent gets: the built-in system prompt, "You are an expert technical writer. You
+explore the provided folders and context to write accurate documentation; everything you
+state must be grounded in what you read.", and one message with the prompt, the comments
+and the context (folders as absolute container paths; the first folder is its working
+directory). There is no SSH and there are no server credentials.
+
+The session page shows live activity: messages, thinking, and tool calls with the path,
+pattern or command and the first lines of output. It also shows tokens in/out/cached and
+a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
+
+- **Send message**: while the agent is working, the message is queued and delivered when
+  the current response finishes. After a turn it starts a new turn in the same conversation.
+- **Stop**: interrupts the turn and drops queued messages.
+- **Draft**: each finished turn's final answer, as Markdown.
+- **Save document**: a versioned document in the folder, linked to the code projects and
+  exported to `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name asks **Save
+  a new version?**. Nothing is saved automatically.
+- **Close session**.
+
+Leaving the page does not stop a session. A session that is idle for 5 minutes is paused
+(its Claude Code process is stopped) and resumes on your next message; one idle for 24
+hours is closed and keeps its history. Every turn is an agent run in **Activity → Agent
+runs** (`cc:<session>:<turn>`).
+
+Errors: "Select an enabled Claude model (Bedrock or Anthropic) from LLM Settings."; a
+provider error, such as a missing Bedrock inference profile, shows the provider's reason
+without credentials plus a hint; "Waiting for the Claude Code worker…" when the worker is
+not running; a folder that no longer exists is refused when starting.
+
+Security: the model key is passed only to the Claude Code process and is redacted from
+all stored events. Residual risk: Bash in the session could read the key from the CLI
+process, so use a key with limited scope and spend.
+
 ### 5.14 Documents and documentation prompts
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
@@ -692,6 +755,10 @@ a parent folder), each linking to its collection. **Index in RAG → Collections
 RAG's New collection with the folder selected. Opening a folder lists its documents
 (title, code project, last generated), each opening in Documents. Editing a folder
 document keeps it in its folder.
+
+**Sessions** (`/documentation/sessions`) — Claude Code documentation sessions with status,
+agent, model, tokens, document and last activity. **New session** opens the **With an
+agent** form.
 
 **Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
 generation. Saving changed text creates a draft version; **Activate vN** makes it the
@@ -792,6 +859,15 @@ folder) → **Refresh** it or let Auto-sync pick it up.
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
 
+### H. Write documentation interactively with Claude Code
+
+1. **Agents** → **New Claude Code agent** (name and description).
+2. **Docs → Generate documents** → **New documentation** → **With an agent** → fill in the
+   form → **Generate**.
+3. Follow the stream and send a message such as "shorten the API section".
+4. **Save document**.
+5. **Docs → Folders** → **Index in RAG → Collections**.
+
 ---
 
 ## 7. Operations
@@ -807,6 +883,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; not what the Reader shows) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
+| `CLAUDE_CODE_MAX_SESSIONS` | Running Claude Code processes per `claude-code-worker` (default 4) |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
@@ -887,6 +964,11 @@ before exposing it beyond localhost.
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and
 Services add context only — no tools.
+
+**Claude Code agents** use Read, Grep, Glob and Bash as user `claude` (uid 1001) in
+`claude-code-worker`, with `DATA_ROOT` read-only and `setting_sources=[]` (no `.claude/`
+settings, hooks or CLAUDE.md from the folders). The model key exists only in the CLI
+environment.
 
 **Treat SSH access with care**: an agent with SSH enabled can change the server.
 Use a dedicated low-privilege user, keep **Allow sudo to root** off unless needed,
