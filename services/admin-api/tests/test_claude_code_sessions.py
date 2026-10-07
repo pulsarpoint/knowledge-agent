@@ -10,10 +10,12 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
-from knowledge_admin.claude_code_api import AGENT_MODEL, NO_FOLDER, NOTHING_CHOSEN
+from knowledge_admin.claude_code_api import AGENT_MODEL, NO_AGENT, NO_FOLDER, NOTHING_CHOSEN
 from knowledge_admin.documents import SAME_DOCUMENT_NAME
+from knowledge_admin.knowledge_agents.native_sessions import code_roots
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
+from test_profiles import wizard_payload
 from test_repositories import HEADERS
 
 
@@ -81,6 +83,7 @@ def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
     data = sessions.data
     assert (session['status'], session['turns'], session['title'], session['folder'], session['agent_name'], session['model_name']) == (
         'starting', 0, 'Payments – API reference', 'payments-api-docs', 'Technical writer', 'Claude')
+    assert session['runtime'] == 'claude_code' and 'agent_config' not in session and 'history' not in session
     app, worker = f'{data}/code/app', f'{data}/code/worker'
     context = session['context_snapshot']
     assert context['folders'] == [  # chosen first, then linked through the environment and the service, once each
@@ -147,7 +150,7 @@ def test_a_removed_folder_or_disabled_agent_refuses_the_session(sessions):
     assert refused(sessions).startswith(f"The folder {sessions.data}/code/app of the code project Payments API does not exist.")
     with sessions.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (sessions.agent,))
-    assert refused(sessions) == 'Select an enabled Claude Code agent.'
+    assert refused(sessions) == NO_AGENT
     with sessions.store.connect() as conn:  # an enabled agent with a disabled Claude model is refused as well
         conn.execute('UPDATE ka.agents SET enabled=true WHERE id=%s', (sessions.agent,))
         conn.execute('UPDATE ka.llm_models SET enabled=false WHERE id=%s', (sessions.claude,))
@@ -454,3 +457,85 @@ def test_session_uses_the_active_version_tools_and_code_projects(sessions):
     assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and snapshot['agent_version']['id'] == active
     assert session['context_snapshot']['folders'] == [
         {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
+
+
+def native_agent(client, name: str = 'Native writer', **change) -> str:
+    """Create a native agent as New agent → Agent type: Native does."""
+    body = wizard_payload(name, description='', when_to_use='', system_prompt='You document systems.', runtime='openai')
+    response = client.post('/api/agents/wizard', headers=HEADERS, json={**body, **change})
+    assert response.status_code == 201, response.text
+    return response.json()['id']
+
+
+def test_code_roots_add_the_session_folders_and_keep_a_switched_off_agents_projects_out():
+    config = {'name': 'Writer', 'code': {'enabled': False, 'all_projects': True, 'projects': [
+        {'id': 'own', 'name': 'Own', 'description': 'Its own', 'folder_paths': ['/c/own']}]}}
+    folders = [{'path': '/c/app', 'kind': 'code_project', 'name': 'App', 'code_project_id': 'app'},
+               {'path': '/c/app-2', 'kind': 'code_project', 'name': 'App', 'code_project_id': 'app'},
+               {'path': '/c/own', 'kind': 'code_project', 'name': 'Own', 'code_project_id': 'own'}]
+    pinned = code_roots(config, folders)
+    assert pinned['code'] == {'enabled': True, 'all_projects': False, 'projects': [
+        {'id': 'app', 'name': 'App', 'description': 'Chosen for this session.', 'folder_paths': ['/c/app', '/c/app-2']},
+        {'id': 'own', 'name': 'Own', 'description': 'Chosen for this session.', 'folder_paths': ['/c/own']}]}
+    assert config['code']['enabled'] is False  # the agent's config is not changed
+    switched_on = {**config, 'code': {**config['code'], 'enabled': True}}
+    assert [(p['id'], p['folder_paths']) for p in code_roots(switched_on, folders)['code']['projects']] == [
+        ('own', ['/c/own']), ('app', ['/c/app', '/c/app-2'])]  # its own folder is not added twice
+    assert code_roots(config, []) == config  # no folders: Code projects stays off
+
+
+def test_native_agents_start_sessions_with_their_config_and_the_chosen_folders_as_code_roots(sessions):
+    client, data = sessions.client, sessions.data
+    agent = native_agent(client, model_id=sessions.claude, repositories_enabled=True, repository_ids=[sessions.worker])
+    session = start(sessions, agent_id=agent, environment_ids=[], service_ids=[])
+    app, worker = f'{data}/code/app', f'{data}/code/worker'
+    assert (session['runtime'], session['status'], session['agent_name'], session['model_name']) == (
+        'openai', 'starting', 'Native writer', 'Claude')
+    assert [f['path'] for f in session['context_snapshot']['folders']] == [app, worker]  # chosen, then its own
+    assert set(session['prompt_snapshot']) == {'system_prompt', 'agent_version'}  # no Claude Code tools
+    assert session['prompt_snapshot']['system_prompt'].startswith('You document systems.')
+    assert session['inputs'][0]['text'].startswith(f'Document the following.\n\n## Code\n- Payments API — {app}')
+    serialized = json.dumps(session)
+    for hidden in ('agent_config', 'history', 'api_key_ref', 'bedrock-secret-token'):
+        assert hidden not in serialized
+    with sessions.store.connect() as conn:
+        row = conn.execute('SELECT runtime,agent_config,history FROM ka.agent_sessions_cc WHERE id=%s',
+                           (session['id'],)).fetchone()
+    assert (row['runtime'], row['history']) == ('openai', [])
+    pinned = row['agent_config']
+    assert (pinned['id'], pinned['runtime'], pinned['model']['id']) == (agent, 'openai', sessions.claude)
+    assert pinned['code']['enabled'] is True and [(p['name'], p['folder_paths']) for p in pinned['code']['projects']] == [
+        ('Payments worker', [worker]), ('Payments API', [app])]
+    assert pinned['model']['api_key_ref']['id'] == sessions.claude  # a reference: nothing is decrypted here
+    assert 'bedrock-secret-token' not in json.dumps(pinned)
+    listed = client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
+    assert [(s['id'], s['runtime']) for s in listed] == [(session['id'], 'openai')]
+    # A native agent needs no working folder: servers only, without code projects of its own.
+    plain = native_agent(client, 'Server writer', model_id=sessions.gpt)
+    servers_only = start(sessions, agent_id=plain, code_project_ids=[], environment_ids=[], service_ids=[])
+    assert servers_only['context_snapshot']['folders'] == []
+    with sessions.store.connect() as conn:
+        code = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
+                            (servers_only['id'],)).fetchone()['agent_config']['code']
+    assert (code['enabled'], code['projects']) == (False, [])
+
+
+def test_native_sessions_need_an_enabled_agent_whose_model_fits_its_type(sessions):
+    client = sessions.client
+    agent = native_agent(client, model_id=sessions.gpt)
+    chat = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Chat', 'provider': 'openai', 'model': 'gpt-4o', 'api_format': 'chat_completions',
+        'base_url': 'http://model.test/v1'}).json()['id']
+    with sessions.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET model_id=%s WHERE id=%s', (chat, agent))
+    assert refused(sessions, agent_id=agent) == AGENT_MODEL  # Chat Completions does not fit native agents
+    with sessions.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET model_id=%s,enabled=false WHERE id=%s', (sessions.gpt, agent))
+    assert refused(sessions, agent_id=agent) == NO_AGENT
+    assert refused(sessions, agent_id='coordinator') == NO_AGENT
+    claude_code = claude_code_agent(client, 'GPT writer', model_id=sessions.claude)
+    with sessions.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET model_id=%s WHERE id=%s', (sessions.gpt, claude_code))
+    assert refused(sessions, agent_id=claude_code) == AGENT_MODEL  # Claude Code needs a Claude connection
+    with sessions.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0

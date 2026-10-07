@@ -1,5 +1,6 @@
-"""Interactive Claude Code documentation sessions: create, list, detail, send, stop,
-close, the event stream and saving the draft as a document."""
+"""Generate documents sessions for both agent types: create, list, detail, send, stop, close, the event stream
+and saving the draft as a document. Claude Code turns run in claude-code-worker, native turns in
+agent-session-worker."""
 import asyncio
 import json
 import time
@@ -10,7 +11,6 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from knowledge_llm import claude_model
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -20,14 +20,16 @@ from knowledge_admin.claude_code import agent_system_prompt, close_idle
 from knowledge_admin.data_root import data_dir, documentation_folder
 from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.generate_documents import first_message, subjects
-from knowledge_admin.knowledge_agents.config import get_agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
+from knowledge_admin.knowledge_agents.native_sessions import code_roots
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
 
 NOTHING_CHOSEN = 'Choose at least one code project, environment, service or server to document.'
 NO_FOLDER = ('Claude Code needs at least one working folder: choose code projects, or environments or services with '
              'code projects, or give the agent code projects.')
-AGENT_MODEL = 'The agent has no enabled Claude model. Choose one on its General tab.'
+NO_AGENT = 'Select an enabled agent.'
+AGENT_MODEL = 'The agent has no enabled model for its agent type. Choose one on its General tab.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
@@ -78,7 +80,7 @@ class MessageInput(BaseModel):
 
 
 def _select(extra: str = '') -> str:
-    return f"""SELECT s.id,s.title,s.agent_id,a.name AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
+    return f"""SELECT s.id,s.title,s.runtime,s.agent_id,a.name AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
         s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
         (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
@@ -114,10 +116,11 @@ def inside_data_root(path: str) -> None:
         raise refused from None
 
 
-def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict]) -> dict:
+def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict], *, needs_folder: bool = True) -> dict:
     """What to document (generate_documents.subjects) plus the working folders: the chosen code projects, the code
     projects of the chosen environments and services, then the agent's own code projects, each folder once. Every
-    folder must exist now, inside DATA_ROOT, without a symbolic link on the way."""
+    folder must exist now, inside DATA_ROOT, without a symbolic link on the way. Claude Code needs at least one folder
+    (its working directory); native agents do not."""
     context = subjects(conn, project, value)
     candidates = [(path, item, False) for item in context['code_projects'] for path in item['paths']]
     candidates += [(path, item, False) for group in ('environments', 'services') for subject in context[group]
@@ -136,7 +139,7 @@ def session_context(conn, project: UUID, value: SessionInput, agent_projects: li
                                 "Check the code project's folders.")
         inside_data_root(path)
         folders.append({'path': path, 'kind': 'code_project', 'name': item['name'], 'code_project_id': item['id']})
-    if not folders:
+    if not folders and needs_folder:
         raise HTTPException(400, NO_FOLDER)
     return {**context, 'folders': folders, 'code_project_ids': [item['id'] for item in context['code_projects']]}
 
@@ -189,9 +192,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
-            agent = conn.execute('SELECT id,enabled,runtime FROM ka.agents WHERE id=%s FOR SHARE', (value.agent_id,)).fetchone()
-            if agent is None or agent['runtime'] != 'claude_code' or not agent['enabled']:
-                raise HTTPException(400, 'Select an enabled Claude Code agent.')
+            agent = conn.execute('SELECT id,enabled,runtime,is_coordinator FROM ka.agents WHERE id=%s FOR SHARE',
+                                 (value.agent_id,)).fetchone()
+            if agent is None or agent['is_coordinator'] or not agent['enabled']:
+                raise HTTPException(400, NO_AGENT)
             try:  # the agent's saved config: its active version, or its working settings before the first version
                 config = get_agent_config(agent['id'], conninfo=db.conninfo)
             except (LookupError, ValueError) as exc:
@@ -199,20 +203,24 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             model_id = (config['model'] or {}).get('id')  # the agent's own model; the form has none
             model = conn.execute('SELECT id,provider,model,api_format,enabled FROM ka.llm_models WHERE id=%s FOR SHARE',
                                  (model_id,)).fetchone() if model_id else None
-            if model is None or not model['enabled'] or not claude_model(model['provider'], model['api_format'], model['model']):
+            if model is None or not model['enabled'] or not model_fits(agent['runtime'], model):
                 raise HTTPException(400, AGENT_MODEL)
-            context = session_context(conn, project, value, config['code']['projects'] if config['code']['enabled'] else [])
-            snapshot = jsonable_encoder({'system_prompt': agent_system_prompt(config),
-                                         'claude_code_tools': config['claude_code_tools'],
-                                         'agent_version': config.get('config_version')})
+            claude_code = agent['runtime'] == 'claude_code'
+            context = session_context(conn, project, value, config['code']['projects'] if config['code']['enabled'] else [],
+                                      needs_folder=claude_code)
+            snapshot = {'system_prompt': agent_system_prompt(config), 'agent_version': config.get('config_version')}
+            if claude_code:
+                snapshot['claude_code_tools'] = config['claude_code_tools']
+            # Native turns run with this config (credential references only); the worker decrypts per turn.
+            pinned = None if claude_code else Jsonb(jsonable_encoder(code_roots(config, context['folders'])))
             session_id = uuid4()
             conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-                context_snapshot,document_name,folder) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (session_id, project, agent['id'], actor, model['id'], value.document_name, Jsonb(snapshot), Jsonb(context),
-                 value.document_name, value.folder))
+                context_snapshot,document_name,folder,runtime,agent_config) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (session_id, project, agent['id'], actor, model['id'], value.document_name, Jsonb(jsonable_encoder(snapshot)),
+                 Jsonb(context), value.document_name, value.folder, agent['runtime'], pinned))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, first_message(context)))
-            audit(conn, actor, 'claude_code.session.created', 'agent_session', {'agent_id': agent['id']}, session_id)
+            audit(conn, actor, 'claude_code.session.created', 'agent_session', {'agent_id': agent['id'], 'runtime': agent['runtime']}, session_id)
             return session_detail(conn, project, session_id)
 
     @router.get('/sessions')
