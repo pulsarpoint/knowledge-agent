@@ -194,3 +194,12 @@ def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder
     assert rebase_code_path('/work/code-index/x') == '/work/code-index/x'
     graph = load_code_graph({**project, 'folder_paths': ['/work/code/app']}, source_hash)
     assert graph['folder_paths'] == [str(root / 'app')]
+
+
+def test_loading_a_graph_that_was_never_generated_asks_to_generate_it(tmp_path, monkeypatch):
+    (tmp_path / 'code/app').mkdir(parents=True)
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'code'))
+    monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
+    with pytest.raises(CodeProcessingError) as raised:
+        load_code_graph({'id': str(uuid4()), 'name': 'App', 'folder_paths': ['app']})
+    assert str(raised.value) == 'No code graph yet. Generate the graph in Code projects first.'

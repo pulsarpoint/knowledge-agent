@@ -169,7 +169,7 @@ def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
     directory = index_directory(project['id'])
     manifest = directory / 'manifest.json'
     if not manifest.is_file():
-        raise CodeProcessingError('Generate and inspect the code graph in Phase 1 before generating documentation.')
+        raise CodeProcessingError('No code graph yet. Generate the graph in Code projects first.')
     saved = json.loads(manifest.read_text())
     current = source_inventory(project)
     if saved['source_hash'] != current['source_hash'] or expected_hash != saved['source_hash']:
