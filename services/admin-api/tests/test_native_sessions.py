@@ -232,6 +232,38 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     assert KEY not in stored
 
 
+def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_starts_the_next(native, monkeypatch):
+    """While a turn that ignores cancellation is in its Stop grace, a model call it still makes gets no message sent
+    after Stop: the message stays queued and becomes the next turn's task."""
+    sessions, sid = native
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
+    started, ignored, release = asyncio.Event(), [], asyncio.Event()
+    fake = FakeAgent([{'steps': [stubborn(started, ignored, release), llm(message('Late'))], 'answer': 'Late'},
+                      {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        await asyncio.wait_for(started.wait(), 5)
+        assert (await post(sessions, url + '/stop')).status_code == 202
+        for _ in range(250):  # the runner has seen Stop and is waiting out the grace
+            if ignored:
+                break
+            await asyncio.sleep(0.02)
+        assert ignored and session_row(store, sid)['status'] == 'working'
+        await post(sessions, url + '/messages', {'text': 'Continue.'})
+        release.set()  # the stopped turn makes one more model call
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+
+    asyncio.run(scenario())
+    first, second = fake.calls
+    assert first['inputs'] == [[{'role': 'user', 'content': first['task']}]]  # no comment in the stopped turn
+    assert second['task'] == 'Continue.' and second['history'] == []
+    assert inputs(store, sid)[1:] == [('Continue.', 'delivered', 2)]
+
+
 def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     sessions, sid = native
     store, url = sessions.store, f'/api/claude-code/sessions/{sid}'

@@ -148,13 +148,15 @@ class SessionRunner:
     def queued_comments(self, number: int,
                         on_delivered: Callable[[Any, list[dict]], None] | None = None) -> list[str]:
         """Messages queued while turn `number` runs, marked delivered to that turn once; none when the session is closed,
-        no longer this worker's (lease) or not running that turn. For delivery inside a running turn.
+        no longer this worker's (lease), not running that turn, or the user pressed Stop (a message sent after Stop stays
+        queued and becomes the next turn). For delivery inside a running turn.
         `on_delivered(conn, inputs)` (their id and text) runs in the same transaction, such as recording them, so a
         message is never delivered without it."""
         with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
+            row = conn.execute('''SELECT status,turns,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
                 FROM ka.agent_sessions_cc WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
-            if row is None or row['status'] != 'working' or row['turns'] != number or not row['owned']:
+            if (row is None or row['status'] != 'working' or row['turns'] != number or not row['owned']
+                    or row['stop_requested_at'] is not None):
                 return []
             inputs = self._deliver(conn, number)
             if inputs:
