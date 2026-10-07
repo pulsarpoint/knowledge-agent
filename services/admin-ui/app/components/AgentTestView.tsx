@@ -3,19 +3,29 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Plus, X } from 'lucide-react';
 import Conversation, { type ConversationMessage } from '@knowledge-agent/chat-ui/conversation';
-import { getAgentConfig } from '../lib/profiles';
+import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_KINDS, type RunResourceOptions, type RunResourcesInput } from '../lib/profiles';
 import { cancelOperationsRun, closeAgentSession, getAgentSession, getAgentSessions, getOperationsRun, getOperationsRuns, reviewAgentSession, startOperationsRun, type AgentConversation, type AgentSession, type OperationsRun, type RunSummary, type RunUsage } from '../lib/operations';
 import Markdown from './Markdown';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import { Separator } from './ui/separator';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from './ui/field';
 import { Spinner } from './ui/spinner';
 import GroundingSources from './GroundingSources';
 import { Textarea } from './ui/textarea';
+
+/** The names of what a per-run conversation was given, from its pinned configuration. */
+function runSummary(config: Record<string, unknown>) {
+  const listed = (section: string, list: string) =>
+    ((config[section] as Record<string, unknown> | undefined)?.[list] as { name: string }[] | undefined) ?? [];
+  const names = [...listed('code', 'projects'), ...listed('documents', 'collections'), ...listed('ssh', 'servers'),
+    ...listed('services', 'items')].map(item => item.name);
+  return names.length ? names.join(', ') : 'nothing';
+}
 
 export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number }) {
   const [params, setParams] = useSearchParams();
@@ -37,6 +47,10 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const showConfig = panel === 'config';
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configError, setConfigError] = useState('');
+  const [runOptions, setRunOptions] = useState<RunResourceOptions | null>(null);
+  const [runOptionsFailed, setRunOptionsFailed] = useState(false);
+  const [runResources, setRunResources] = useState<RunResourcesInput>(NO_RUN_RESOURCES);
+  const perRun = runOptions?.resources === 'per_run';
   const request = useRef<AbortController | null>(null);
   const running = streaming || conversation?.runs.some(run => run.status === 'running') === true || legacy?.status === 'running';
   useEffect(() => () => { request.current?.abort(); }, [agentId]);
@@ -46,6 +60,12 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
     setHistory(recent.runs); setSessions(saved.sessions);
   }
   useEffect(() => { void refreshHistory().catch(reason => setError(reason.message)); }, [agentId]);
+  useEffect(() => {
+    let live = true; setRunOptions(null); setRunOptionsFailed(false);
+    getRunResourceOptions(agentId, versionId ?? undefined).then(value => { if (live) setRunOptions(value); })
+      .catch(reason => { if (live) { setRunOptionsFailed(true); setError(reason instanceof Error ? reason.message : 'Could not load the resources for this run.'); } });
+    return () => { live = false; };
+  }, [agentId, versionId, revision]);
   useEffect(() => {
     if (!sessionId) { setConversation(null); return; }
     if (streaming) return;
@@ -71,7 +91,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   }, [showConfig, agentId, active, dirty, revision, versionId, conversation]);
 
   function selectSession(id: string | null) {
-    setConversation(null); setLegacy(null); setError(''); setNotice(''); setTask(''); setComment(''); setFeedbackRunId(null); setPanel(null);
+    setConversation(null); setLegacy(null); setError(''); setRunResources(NO_RUN_RESOURCES); setNotice(''); setTask(''); setComment(''); setFeedbackRunId(null); setPanel(null);
     setParams(current => { current.set('view','test'); if (id) { current.set('session_id',id); current.delete('version_id'); } else current.delete('session_id'); return current; });
   }
   async function act(action: () => Promise<void>) {
@@ -102,7 +122,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           if (event.event === 'started') setTask('');
           setHistory(current => [run, ...current.filter(item => item.id !== run.id)].slice(0,50));
         }
-      }, sessionId ?? undefined, sessionId ? undefined : versionId ?? undefined);
+      }, sessionId ?? undefined, sessionId ? undefined : versionId ?? undefined, !sessionId && perRun ? runResources : undefined);
       await refreshHistory();
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not run the agent.');
@@ -114,6 +134,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const blockReason = !available ? 'This agent is disabled. Enable it in General to run a task.' : !ready ? 'Loading agent configuration…'
     : dirty ? 'Save or discard changes in the configuration tabs before starting a task.'
     : sessionId && conversation?.id !== sessionId ? 'Loading conversation…'
+    : !sessionId && !runOptions && !runOptionsFailed ? 'Loading the resources for this run…'
     : conversation && conversation.status !== 'active' ? 'This session is closed or expired. Start a new session to continue.'
     : running ? null
     : busy ? 'Please wait for the current operation to finish.'
@@ -196,6 +217,23 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       {missingUsage > 0 && <p className="text-xs text-muted-foreground">Usage was not recorded for {missingUsage} {missingUsage === 1 ? 'turn' : 'turns'}.{recordedUsage.length > 0 ? ' Totals are partial.' : ''}</p>}
       {running && <p role="status" className="text-xs text-muted-foreground">Current reply’s usage is pending.</p>}
     </section>}
+    {perRun && !sessionId && <section aria-label="Resources for this run" className="flex flex-col gap-3 rounded-lg border p-3">
+      <div><p className="text-sm font-medium">Resources for this run</p>
+        <p className="text-xs text-muted-foreground">This agent works only with what you choose here. The choice is fixed for the conversation, like its configuration.</p></div>
+      {RUN_RESOURCE_KINDS.map(([option, key, legend]) => {
+        const items = runOptions?.[option];
+        if (!items) return null;  // a kind the agent does not use
+        return <FieldSet key={key}><FieldLegend variant="label">{legend}</FieldLegend>
+          {items.length === 0 && <FieldDescription>None allowed. Choose them in the agent’s tabs.</FieldDescription>}
+          {items.map(item => <Field key={item.id} orientation="horizontal">
+            <Checkbox id={`run-${key}-${item.id}`} disabled={busy || streaming} checked={runResources[key].includes(item.id)}
+              onCheckedChange={checked => setRunResources(current => ({ ...current,
+                [key]: checked ? [...current[key], item.id] : current[key].filter(id => id !== item.id) }))} />
+            <FieldLabel htmlFor={`run-${key}-${item.id}`}>{item.name}</FieldLabel></Field>)}
+        </FieldSet>;
+      })}
+    </section>}
+    {perRun && conversation && <p aria-label="Resources for this run" className="text-xs text-muted-foreground">Resources for this run: {runSummary(conversation.config)}</p>}
     {sessionId && !conversation && !error && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Loading conversation…</p>}
     <Conversation key={sessionId ?? legacy?.id ?? 'new'} messages={messages}
       className="h-[calc(100dvh-22rem)] min-h-96"
@@ -216,7 +254,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           <SheetDescription>{panel === 'history' ? 'Reopen a session to continue chatting. Closed conversations remain available to read.' : panel === 'config' ? 'The configuration for this conversation and your next message. Secrets are credential references.' : 'Optional feedback for the reviewer. It uses the full conversation and agent configuration; changes are never applied automatically.'}</SheetDescription>
         </SheetHeader>
         <div className="mt-6 flex flex-col gap-6">
-          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify({prompt:task,config},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
+          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(conversation || !perRun ? {prompt:task,config} : {prompt:task,config,run_resources:runResources},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
           {panel === 'history' && <>
             <h3 className="text-sm font-medium">Sessions</h3>
             {sessions.length ? sessions.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">

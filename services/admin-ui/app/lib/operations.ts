@@ -1,4 +1,5 @@
 import type { MCPServer } from './mcp';
+import type { RunResourcesInput } from './profiles';
 import { ApiError, request } from './api';
 import { parseSse } from './sse';
 export interface SSHServer {
@@ -32,8 +33,8 @@ export const saveOperationsSettings = (s: OperationsSettings, agentId = "operati
 const runsPath = (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/runs`;
 export const getOperationsRuns = (agentId = "operations") => request<{ runs: RunSummary[] }>(runsPath(agentId));
 export const getOperationsRun = (id: string, agentId = "operations") => request<OperationsRun>(`${runsPath(agentId)}/${id}`);
-export async function startOperationsRun(task: string, agentId: string, signal: AbortSignal, onEvent: (event: RunEvent) => void, sessionId?: string, versionId?: string) {
-  const response = await fetch(runsPath(agentId), { ...json('POST', { id: crypto.randomUUID(), task, session_id: sessionId, version_id: versionId, is_test: true }), signal });
+export async function startOperationsRun(task: string, agentId: string, signal: AbortSignal, onEvent: (event: RunEvent) => void, sessionId?: string, versionId?: string, resources?: RunResourcesInput) {
+  const response = await fetch(runsPath(agentId), { ...json('POST', { id: crypto.randomUUID(), task, session_id: sessionId, version_id: versionId, is_test: true, ...(resources ? { resources } : {}) }), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new ApiError(body?.error?.message ?? `Could not start the agent (${response.status}).`, response.status);

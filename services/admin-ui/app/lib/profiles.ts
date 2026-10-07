@@ -13,6 +13,15 @@ export const RESOURCES_HELP: Record<AgentResources, string> = {
   fixed: 'Always works with the resources selected in its tabs.',
   per_run: 'Each run says what to work on: callers pass code projects, collections, servers or services from those selected in its tabs.',
 };
+export interface RunResourceItem { id: string; name: string }
+export type RunResourceKind = 'code_projects' | 'collections' | 'servers' | 'services';
+/** What a caller may pass to one run of a per-run agent; null: a kind the agent does not use. */
+export type RunResourceOptions = { resources: AgentResources } & Partial<Record<RunResourceKind, RunResourceItem[] | null>>;
+export interface RunResourcesInput { code_project_ids: string[]; collection_ids: string[]; server_ids: string[]; service_ids: string[] }
+export const NO_RUN_RESOURCES: RunResourcesInput = { code_project_ids: [], collection_ids: [], server_ids: [], service_ids: [] };
+export const RUN_RESOURCE_KINDS: [RunResourceKind, keyof RunResourcesInput, string][] = [
+  ['code_projects', 'code_project_ids', 'Code projects'], ['collections', 'collection_ids', 'Collections'],
+  ['servers', 'server_ids', 'Servers'], ['services', 'service_ids', 'Services']];
 export const CLAUDE_CODE_TOOL_NAMES = ['Read', 'Grep', 'Glob', 'Bash'] as const;
 export type ClaudeCodeTool = typeof CLAUDE_CODE_TOOL_NAMES[number];
 export interface AgentProfile {
@@ -37,6 +46,8 @@ export const getAgents = () => request<{ agents: AgentSummary[] }>('/api/agents'
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string, versionId?: string) => request<Record<string, unknown>>(path(id) + '/config' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
+export const getRunResourceOptions = (id: string, versionId?: string) =>
+  request<RunResourceOptions>(path(id) + '/run-resources' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
   const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, runtime, claude_code_tools, resources } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,
