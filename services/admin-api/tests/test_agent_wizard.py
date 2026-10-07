@@ -250,3 +250,32 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
     assert result.status_code == 200 and result.json()['proposal'] == proposal
     assert len(calls) == 2
     assert any('not both' in e['message'] for e in calls[1]['correction']['errors'])
+
+
+def test_claude_code_generation_offers_only_claude_models_and_clears_another(store, wizard, monkeypatch):
+    client, catalog, proposal, _ = wizard
+    with store.connect() as conn:
+        actor = conn.execute('SELECT created_by FROM ka.llm_models LIMIT 1').fetchone()['created_by']
+        gpt = str(conn.execute("""INSERT INTO ka.llm_models(name,provider,model,api_format,base_url,api_key_ciphertext,created_by,updated_by)
+            VALUES ('GPT','openai','gpt-test','responses','https://api.openai.com/v1',%s,%s,%s) RETURNING id""", (b'\x00', actor, actor)).fetchone()['id'])
+    tasks = []
+    async def run(config, task, **kwargs):
+        tasks.append(json.loads(task))
+        return SimpleNamespace(final_output=AgentProposal.model_validate({**proposal, 'model_id': gpt}))
+    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+
+    native = client.post('/api/agents/wizard/generate', headers=HEADERS,
+                         json={'role': 'Payments', 'model_id': proposal['model_id']})
+    assert native.status_code == 200, native.text
+    assert gpt in {m['id'] for m in tasks[0]['catalog']['models']}
+    assert native.json()['proposal']['model_id'] == gpt
+
+    claude = client.post('/api/agents/wizard/generate', headers=HEADERS,
+                         json={'role': 'Payments', 'model_id': proposal['model_id'], 'runtime': 'claude_code'})
+    assert claude.status_code == 200, claude.text
+    assert {m['id'] for m in tasks[1]['catalog']['models']} == {proposal['model_id']}
+    assert tasks[1]['agent_type'] == 'claude_code'
+    assert claude.json()['proposal']['model_id'] is None  # a non-Claude proposal is cleared, not refused
+
+    assert client.post('/api/agents/wizard/generate', headers=HEADERS,
+                       json={'role': 'Payments', 'model_id': proposal['model_id'], 'runtime': 'other'}).status_code in (400, 422)

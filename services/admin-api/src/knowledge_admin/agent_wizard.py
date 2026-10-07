@@ -118,6 +118,7 @@ class GenerateInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     role: str = Field(min_length=1, max_length=20000)
     model_id: UUID
+    runtime: Literal['openai', 'claude_code'] = 'openai'
 
 
 def inventory(conn, project):
@@ -208,8 +209,10 @@ def build_api(app_name, store):
                 'mcp': {'enabled': False, 'servers': []}, 'services': {'enabled': False, 'items': []},
         }
         schema = AgentProposal.model_json_schema()
-        task = jsonable_encoder({'role': value.role, 'generation_model_id': model_id,
-                                 'catalog': catalog, 'output_schema': schema})
+        # The designer chooses the agent's model only among models that fit the chosen agent type.
+        offered = {**catalog, 'models': [m for m in catalog['models'] if model_fits(value.runtime, m)]}
+        task = jsonable_encoder({'role': value.role, 'agent_type': value.runtime, 'generation_model_id': model_id,
+                                 'catalog': offered, 'output_schema': schema})
         try:
             async with asyncio.timeout(240):
                 for attempt in range(2):
@@ -219,6 +222,9 @@ def build_api(app_name, store):
                             output_type=AgentProposal)
                         proposal = result.final_output
                         validate_resources(proposal, catalog)
+                        if proposal.model_id is not None and not any(
+                                m['id'] == proposal.model_id for m in offered['models']):
+                            proposal = proposal.model_copy(update={'model_id': None})  # the administrator picks one
                         return {'proposal': proposal}
                     except (ModelBehaviorError, ValidationError, HTTPException) as exc:
                         if attempt == 1:

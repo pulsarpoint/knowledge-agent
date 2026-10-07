@@ -70,18 +70,19 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     setRuntime(next);
     if (next === 'claude_code' && proposal?.model_id && !catalog?.models.some(m => m.id === proposal.model_id && claudeModel(m))) edit({ model_id: null });
   }
+  const agentType = <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>;
   function edit(value: Partial<AgentProposal>) { setProposal(current => current ? { ...current, ...value } : current); }
   function editServer(id: string, value: Partial<WizardServer>) {
     if (proposal) edit({ servers: proposal.servers.map(server => server.server_id === id ? { ...server, ...value } : server) });
   }
   async function generate() {
     setBusy('generate'); setError('');
-    try { const data = await generateAgent(role, model); setProposal(data.proposal); setStep('review'); setTab('general'); }
+    try { const data = await generateAgent(role, model, runtime); setProposal(data.proposal); setStep('review'); setTab('general'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not generate an agent.'); }
     finally { setBusy(null); }
   }
   function startBlank() {
-    setError(''); setProposal(blankProposal(model || null)); setStep('review'); setTab('general');
+    setError(''); setProposal(blankProposal(agentModels.some(m => m.id === model) ? model : null)); setStep('review'); setTab('general');
   }
   async function create() {
     if (!proposal) return;
@@ -101,6 +102,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     {error && <Alert variant="destructive"><AlertDescription>{error}{!options && <Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button>}</AlertDescription></Alert>}
     {!options || !catalog ? <Skeleton className="h-48 w-full" /> : <fieldset disabled={busy !== null} className="min-w-0">
       {step === 'describe' ? <FieldGroup>
+        {agentType}
         <Field><FieldLabel htmlFor="wizard-role">What should this agent do?</FieldLabel>
           <Textarea id="wizard-role" autoFocus rows={5} maxLength={20000} value={role} onChange={e => setRole(e.target.value)} placeholder="Create a payments investigator that reads the payments code and runbooks, checks staging logs over SSH, and explains failures with evidence. Do not allow sudo." />
           <FieldDescription>Describe its role, expected output, resources, and any restrictions. Do not include passwords or private keys.</FieldDescription></Field>
@@ -112,12 +114,12 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
         <FieldSet><FieldLegend>Available context</FieldLegend><FieldDescription>The model receives resource names, descriptions, folder paths, and saved credential references. Private keys and tokens are excluded. It designs the agent without accessing these resources.</FieldDescription>
           <div className="flex flex-wrap gap-2">{([['Code projects', catalog.code_projects.length], ['Collections', catalog.collections.length], ['SSH servers', catalog.servers.length], ['Skills', catalog.skills.length], ['MCP servers', catalog.mcp_servers.length], ['Services', catalog.services.length]] as const).map(([label, count]) => <Badge key={label} variant="secondary">{count} {label}</Badge>)}</div>
           <Button type="button" variant="outline" className="w-fit" onClick={() => setShowContext(!showContext)}>{showContext ? 'Hide design context' : 'Show design context'}</Button>
-          {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, generation_model_id: model, catalog, output_schema: options.schema } }, null, 2)} /></Field>}
+          {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, agent_type: runtime, generation_model_id: model, catalog: { ...catalog, models: agentModels }, output_schema: options.schema } }, null, 2)} /></Field>}
         </FieldSet>
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services']].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
-          <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>
+          {agentType}
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>

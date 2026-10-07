@@ -55,7 +55,7 @@ credential references, skills, MCP servers, services, model connections, and
 existing agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard's review has an **Agent type** choice (Native or Claude Code); the generation schema does not include it. `POST /api/agents/wizard` accepts `runtime` and `claude_code_tools`.
+The wizard asks for the **Agent type** (Native or Claude Code) first and shows it again on the review. `POST /api/agents/wizard/generate` accepts `runtime`: the designer's catalog then lists only models that fit that type, and a proposed model that does not fit is returned as `model_id: null`. The proposal schema itself does not include the type. `POST /api/agents/wizard` accepts `runtime` and `claude_code_tools`.
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
