@@ -431,7 +431,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 `/agents` lists agents with **Agent type**, capabilities, model, active system prompt and status.
 
-**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. The review **General** tab starts with **Agent type** (Native or Claude Code):
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first field is **Agent type** (Native or Claude Code). For Claude Code, the generator may only propose a Claude model (a different one is cleared so you can choose), and **Start blank** keeps the generator model only when it is a Claude model. The review **General** tab shows the type again and you can still change it:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.

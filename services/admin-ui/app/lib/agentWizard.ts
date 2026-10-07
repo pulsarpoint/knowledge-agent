@@ -31,8 +31,9 @@ export interface WizardOptions {
 }
 export type NewAgent = AgentProposal & { runtime: AgentRuntime; claude_code_tools: ClaudeCodeTool[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
-export const generateAgent = (role: string, model_id: string) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id }),
+/** The designer proposes the agent's model only among models that fit the chosen agent type. */
+export const generateAgent = (role: string, model_id: string, runtime: AgentRuntime) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id, runtime }),
 });
 export const createWizardAgent = (value: NewAgent) => request<{ id: string }>('/api/agents/wizard', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),

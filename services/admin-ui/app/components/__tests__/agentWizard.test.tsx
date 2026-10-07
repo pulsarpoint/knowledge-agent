@@ -45,7 +45,7 @@ test('generates a reviewable proposal, edits resources and SSH overrides, then c
   expect((screen.getByLabelText('Generation prompt, configuration schema, and resource catalog') as HTMLTextAreaElement).value).toContain('Design a specialist.');
   await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
   await screen.findByLabelText('Agent name');
-  expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'model');
+  expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'model', 'openai');
   expect(api.createWizardAgent).not.toHaveBeenCalled();
   await user.clear(screen.getByLabelText('Agent name')); await user.type(screen.getByLabelText('Agent name'), 'Reviewed agent');
   await user.click(screen.getByRole('tab', { name: 'Documents' }));
@@ -143,4 +143,30 @@ test('the Agent type choice filters models and is sent with the agent', async ()
   await user.click(screen.getByRole('button', { name: 'Create agent' }));
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Writer', model_id: 'model',
     runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'] }));
+});
+
+test('step 1 starts with the Agent type, which shapes the proposal and a blank start', async () => {
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: 'gpt', catalog: { ...structuredClone(options.catalog), models: [
+    { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' },
+    { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' }] } });
+  const { user } = await open();
+  const fields = screen.getAllByRole('combobox').map(box => box.getAttribute('id'));
+  expect(fields[0]).toBe('wizard-agent-type');
+  expect(screen.getByRole('combobox', { name: 'Agent type' })).toHaveTextContent('Native');
+  await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
+  await user.click(screen.getByRole('option', { name: 'Claude Code' }));
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'gpt', 'claude_code');
+  expect(await screen.findByRole('combobox', { name: 'Agent type' })).toHaveTextContent('Claude Code');
+});
+
+test('a blank Claude Code agent does not take a non-Claude generator model', async () => {
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: 'gpt', catalog: { ...structuredClone(options.catalog), models: [
+    { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' }] } });
+  const user = userEvent.setup();
+  render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={vi.fn()} /></MemoryRouter>);
+  await user.click(await screen.findByRole('combobox', { name: 'Agent type' }));
+  await user.click(screen.getByRole('option', { name: 'Claude Code' }));
+  await user.click(screen.getByRole('button', { name: 'Start blank' }));
+  expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('No model (choose later)');
 });
