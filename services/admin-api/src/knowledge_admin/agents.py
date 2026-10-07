@@ -68,18 +68,20 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
             os.chown(workspace, 1000, 1000)  # The unprivileged shell-worker user owns its scratch files.
         context = {'config': config, 'credentials': credentials, 'workspace': workspace,
                    'shell_enabled': config['code']['enabled'] or config['documents']['enabled']}
-        activity = SdkActivity(credentials.values(), on_activity, on_usage)
+        # A snapshot: redaction keeps working when the caller clears `credentials` (a session turn after Stop).
+        secrets = tuple(value for value in credentials.values() if value)
+        activity = SdkActivity(secrets, on_activity, on_usage)
         record = config.get('record')
         recorder = None
         if record:
             recorder = RunRecorder(run_key=record['run_key'], project_id=record.get('project_id'),
-                agent_id=config['id'], actor_id=record.get('actor_id'), secrets=credentials.values())
+                agent_id=config['id'], actor_id=record.get('actor_id'), secrets=secrets)
             recorder.add('start', {'kind': record.get('kind', 'run'), 'title': record.get('title', task[:200]),
                                    'agent': config['name']})
             recorder.add('input', {'task': task, 'history': history or []})
         run_hooks = CompositeHooks(activity, recorder, hooks) if recorder or hooks else activity
         status = 'failed'
-        with trace_secrets(credentials.values()), trace(redact(config['name'], credentials.values())):
+        with trace_secrets(secrets), trace(redact(config['name'], secrets)):
             try:
                 async with asyncio.timeout(turn_timeout_seconds), create_agent(config, credentials=credentials,
                         timeout_seconds=timeout_seconds, output_type=output_type) as assistant:

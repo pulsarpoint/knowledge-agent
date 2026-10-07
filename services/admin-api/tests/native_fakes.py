@@ -72,7 +72,8 @@ class FakeAgent:
                        call_model_input_filter, stream):
         index = len(self.calls)
         record = {'config': config, 'task': task, 'credentials': dict(credentials), 'history': await session.get_items(),
-                  'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream, 'inputs': []}
+                  'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream, 'inputs': [],
+                  'tools': []}
         self.calls.append(record)
         self.running += 1
         try:
@@ -115,11 +116,14 @@ def tool(call_id: str, name: str, output: str, *, started: asyncio.Event | None 
          gate: asyncio.Event | None = None):
     """A tool call's result; with `gate`, a slow tool that has `started` and runs until the gate opens."""
     async def step(turn: Turn):
+        context, function = SimpleNamespace(tool_call_id=call_id), SimpleNamespace(name=name)
+        await turn.hooks.on_tool_start(context, turn.writer, function)  # as the SDK, before the tool runs
+        turn.record['tools'].append(call_id)
         if started is not None:
             started.set()
         if gate is not None:
             await gate.wait()
-        await turn.hooks.on_tool_end(SimpleNamespace(tool_call_id=call_id), turn.writer, SimpleNamespace(name=name), output)
+        await turn.hooks.on_tool_end(context, turn.writer, function, output)
         turn.items.append({'type': 'function_call_output', 'call_id': call_id, 'output': output})
     return step
 

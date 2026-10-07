@@ -106,7 +106,7 @@ class SessionEvents(RunHooks):
         self.recorder, self.secrets, self.first = recorder, secrets, first
         self.texts: list[str] = []
         self.calls = 0
-        self.closed = False  # the turn ended: a turn that outlived Stop records nothing more
+        self.closed = False  # the turn ended: a turn that outlived Stop records nothing more and starts no tool call
         self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'total_tokens': 0, 'cost_usd': 0.0}
 
     async def _flush(self) -> None:
@@ -147,6 +147,12 @@ class SessionEvents(RunHooks):
         self.usage['total_tokens'] += int(usage.total_tokens or 0)
         self.calls += 1
         await self._flush()
+
+    async def on_tool_start(self, context, agent, tool) -> None:
+        # The SDK calls this before the tool runs: a turn that outlived Stop starts no new tool call (shell_run,
+        # ssh_run, MCP, file and code tools). A call already running at Stop cannot be recalled.
+        if self.closed:
+            raise asyncio.CancelledError
 
     async def on_tool_end(self, context, agent, tool, result) -> None:
         if self.closed:
@@ -225,8 +231,8 @@ class Comments:
 
     async def __call__(self, data: CallModelData) -> ModelInputData:
         model = data.model_data
-        if self.closed:
-            return model
+        if self.closed:  # a turn that outlived Stop starts no new model request (one already sent cannot be recalled)
+            raise asyncio.CancelledError
         self.delivery = asyncio.ensure_future(asyncio.to_thread(self.runner.queued_comments, self.number, self._record))
         texts = await asyncio.shield(self.delivery)
         items = list(model.input)
@@ -296,6 +302,7 @@ class NativeRunner(shared.SessionRunner):
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
                 logger.warning('Agent session %s turn %s failed (%s)', self.id, number, type(exc).__name__)
             events.closed = True
+            credentials.clear()  # a turn that outlived Stop cannot use them for new connections (such as ssh_run)
             if comments is not None:
                 comments.closed = True
                 await comments.settle()

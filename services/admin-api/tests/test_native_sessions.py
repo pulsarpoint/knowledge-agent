@@ -191,13 +191,16 @@ def test_stop_ends_the_turn_wherever_it_is_and_leaves_nothing_running(native, wh
     assert [e['payload']['status'] for e in events(store, sid) if e['kind'] == 'end'] == ['stopped', 'completed']
 
 
-def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, monkeypatch, caplog):
+@pytest.mark.parametrize('attempt', ['tool', 'model'])
+def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, monkeypatch, caplog, attempt):
+    """After Stop and the grace, the turn left running starts no tool call and no model request, and records
+    nothing."""
     sessions, sid = native
     store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.2)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
-    late = [stubborn(started, ignored, release), llm(call('c9', 'shell_run', {'command': f'echo {KEY}'})),
-            tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]  # what it does after Stop
+    after = [tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]
+    late = [stubborn(started, ignored, release), *(after if attempt == 'tool' else after[::-1])]  # after Stop
     fake = FakeAgent([{'steps': late, 'answer': f'# {KEY}'},
                       {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
 
@@ -221,6 +224,7 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     assert session_row(store, sid)['history'] == [{'role': 'user', 'content': 'Continue.'},
                                                   {'role': 'assistant', 'content': '# Docs'}]
     assert 'did not end within' in caplog.text and str(sid) in caplog.text
+    assert (fake.calls[0]['tools'], fake.calls[0]['inputs']) == ([], [])  # neither started
     recorded = events(store, sid)
     turn1 = [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:1']
     assert turn1 == ['start', 'input', 'instructions', 'end']  # nothing from the leftover, nothing after 'end'
