@@ -9,7 +9,7 @@ prompt versions. Its execution routes use `/api/agent-board/tasks`.
 Specialist **Test** conversations run the selected agent directly using the official
 Agents SDK. It loads the saved active prompt, model, enabled capabilities, resource
 selections and SSH overrides, then decrypts only their required credentials.
-The coordinator is not involved in a direct test.
+The coordinator is not involved in a direct test. Test chats, live runs and the board refuse Claude Code agents with `Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
 
 - `POST /api/agents/{id}/runs` accepts a task, optional UUID request
   ID, optional `session_id`, and optional `version_id` and `is_test` for a new conversation. The first message creates a session; follow-ups
@@ -117,7 +117,7 @@ The specialist's **Versions** tab saves full configuration snapshots: prompt tex
 additional instructions, model settings, capabilities, resource selections, skills,
 MCP definitions and resolved SSH settings. First saving a draft preserves the
 current working setup as active version 1. Subsequent snapshots are drafts until
-explicit activation. Published snapshots remain available for rollback.
+explicit activation. Published snapshots remain available for rollback. Versions store `claude_code_tools`; the agent type always comes from the agent.
 
 **Add feedback → Save as new version** opens an editor prefilled with proposed
 instruction replacements. It copies the configuration reviewed in that session,
