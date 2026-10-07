@@ -26,7 +26,8 @@ export interface SessionSummary {
 }
 export interface SessionDetail extends SessionSummary {
   document_name: string; draft: string | null; draft_turn: number | null; model_id: string;
-  prompt_snapshot: { id: string; name: string; version: number; comments: string; system_prompt: string };
+  prompt_snapshot: { id: string; name: string; version: number; comments: string; system_prompt: string;
+    claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };
   context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; servers: { id: string; name: string; hostname: string; description: string }[]; notes: string };
   inputs: { seq: number; text: string; status: 'queued' | 'delivered' | 'discarded'; turn: number | null; created_at: string }[];
 }
@@ -34,7 +35,7 @@ export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'tu
   | 'cost_usd' | 'draft' | 'draft_turn' | 'document_id' | 'worker_active' | 'queued'>;
 export interface SessionEvent { id: number; turn: number; seq: number; kind: string; payload: Record<string, unknown>; created_at: string }
 export interface SessionInput {
-  agent_id: string; model_id: string; prompt_id: string; prompt_version_id: string; comments: string;
+  agent_id: string; model_id?: string; prompt_id: string; prompt_version_id: string; comments: string;
   code_project_ids: string[]; folders: string[]; server_ids: string[]; notes: string; document_name: string; folder: string;
 }
 export interface SavedDocument { id: string; revision: number; version_id: string; folder: string; output_folder: string | null; export_error: string | null }

@@ -20,10 +20,10 @@ import { Textarea } from '~/components/ui/textarea';
 type Data = { agents: AgentSummary[]; models: ModelProfile[]; prompts: DocumentationPrompt[]; projects: CodeProject[]; servers: ServerAsset[]; folders: string[] };
 
 /** An interactive session: a Claude Code agent, a Claude model, a prompt, context and the document to write. */
-export default function ClaudeCodeSessionForm({ onCreated }: { onCreated: (id: string) => void }) {
+export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }: { onCreated: (id: string) => void; initialAgentId?: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [reload, setReload] = useState(0);
-  const [agentId, setAgentId] = useState('');
+  const [agentId, setAgentId] = useState(initialAgentId);
   const [modelId, setModelId] = useState('');
   const [promptId, setPromptId] = useState('');
   const [projectIds, setProjectIds] = useState<string[]>([]);
@@ -46,14 +46,23 @@ export default function ClaudeCodeSessionForm({ onCreated }: { onCreated: (id: s
       getDocumentationFolders().catch(() => ({ folders: [] as { folder: string }[] }))]).then(([agents, llm, prompts, projects, servers, docFolders]) => {
       if (cancelled) return;
       const models = llm.models.filter(model => model.enabled && claudeModel(model));
-      setData({ agents: agents.agents.filter(agent => agent.runtime === 'claude_code' && agent.enabled), models,
+      const claudeAgents = agents.agents.filter(agent => agent.runtime === 'claude_code' && agent.enabled);
+      setData({ agents: claudeAgents, models,
         prompts: prompts.prompts.filter(prompt => prompt.enabled && prompt.active_version_id), projects: projects.projects,
         servers: servers.servers, folders: docFolders.folders.map(item => item.folder) });
-      if (models.length === 1) setModelId(models[0].id);
+      const preset = claudeAgents.find(agent => agent.id === initialAgentId);
+      if (!preset) setAgentId('');
+      const agentModel = models.find(model => model.id === preset?.model_id);
+      if (agentModel) setModelId(agentModel.id); else if (models.length === 1) setModelId(models[0].id);
     }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load agents, models and context'); });
     return () => { cancelled = true; };
   }, [reload]);
 
+  function chooseAgent(id: string) {
+    setAgentId(id);
+    const agentModel = data?.models.find(model => model.id === data.agents.find(agent => agent.id === id)?.model_id);
+    if (agentModel) setModelId(agentModel.id);
+  }
   function toggleProject(id: string, checked: boolean) {
     const next = checked ? [...projectIds, id] : projectIds.filter(item => item !== id);
     setProjectIds(next);
@@ -92,10 +101,10 @@ export default function ClaudeCodeSessionForm({ onCreated }: { onCreated: (id: s
   if (!data) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-48 w-full" />;
   return <form className="flex flex-col gap-5" onSubmit={e => { e.preventDefault(); void submit(); }}>
     <fieldset disabled={pending} className="flex min-w-0 flex-col gap-5">
-      {choose('Agent', 'session-agent', agentId, data.agents, setAgentId)}
-      {data.agents.length === 0 && <FieldDescription>Create a Claude Code agent in Agents → New Claude Code agent.</FieldDescription>}
+      {choose('Agent', 'session-agent', agentId, data.agents, chooseAgent)}
+      {data.agents.length === 0 && <FieldDescription>Create one in Agents → New agent with Agent type Claude Code.</FieldDescription>}
       {choose('Model', 'session-model', modelId, data.models, setModelId)}
-      <FieldDescription>Claude connections only: Bedrock inference profiles (eu.anthropic.claude-…) or the Anthropic API, from LLM Settings.</FieldDescription>
+      <FieldDescription>Defaults to the agent’s model. Claude connections only: Bedrock inference profiles (eu.anthropic.claude-…) or the Anthropic API, from LLM Settings.</FieldDescription>
       {choose('Prompt', 'session-prompt', promptId, data.prompts, setPromptId)}
       <FieldSet><FieldLegend>Context</FieldLegend>
         <FieldDescription>Code project folders and folders under DATA_ROOT become the agent's read-only working folders; the first one is its working directory. Servers and notes are passed as text: the agent has no server access.</FieldDescription>
