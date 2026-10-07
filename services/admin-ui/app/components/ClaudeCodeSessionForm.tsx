@@ -74,7 +74,10 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
   const target = folder.trim();
   const badFolder = target ? folderError(target) : '';
   const picked = normalizeFolder(folderValue);
-  const ready = Boolean(agentId && modelId && prompt?.active_version_id && (projectIds.length || folders.length)
+  // The agent's own code projects are working folders too, so it needs no run folders.
+  const agent = data?.agents.find(item => item.id === agentId);
+  const agentProjects = Boolean(agent?.repositories_enabled && (agent.all_repositories || agent.repository_ids?.length));
+  const ready = Boolean(agentId && modelId && prompt?.active_version_id && (projectIds.length || folders.length || agentProjects)
     && documentSlug(name) && target && !badFolder);
 
   async function submit() {

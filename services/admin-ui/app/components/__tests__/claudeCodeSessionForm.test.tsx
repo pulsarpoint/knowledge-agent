@@ -12,6 +12,12 @@ const bodies: Record<string, unknown> = {
     assignments: { search_model_id: null, code_model_id: null, revision: 1 } },
   '/api/agents': { agents: [{ id: 'api-writer', name: 'API writer', runtime: 'claude_code', enabled: true, model_id: 'claude' },
     { id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true },
+    { id: 'code-writer', name: 'Code writer', runtime: 'claude_code', enabled: true, model_id: 'claude',
+      repositories_enabled: true, all_repositories: false, repository_ids: ['repo'] },
+    { id: 'all-code-writer', name: 'All code writer', runtime: 'claude_code', enabled: true, model_id: 'claude',
+      repositories_enabled: true, all_repositories: true, repository_ids: [] },
+    { id: 'off-code-writer', name: 'Off code writer', runtime: 'claude_code', enabled: true, model_id: 'claude',
+      repositories_enabled: false, all_repositories: false, repository_ids: ['repo'] },
     { id: 'retired', name: 'Retired writer', runtime: 'claude_code', enabled: false },
     { id: 'search', name: 'Search agent', runtime: 'openai', enabled: true }] },
   '/api/documentation/prompts': { prompts: [
@@ -104,4 +110,19 @@ test('choosing an agent selects its model; an unknown agent in the link is ignor
   expect(await screen.findByLabelText('Agent')).toHaveTextContent('Select…');
   await select('Agent', 'API writer');
   expect(screen.getByLabelText('Model')).toHaveTextContent('Claude on Bedrock');
+});
+
+test('an agent with code projects needs no run folders: its projects are the working folders', async () => {
+  const posts = setup();
+  await select('Prompt', 'Deployment and service operations');
+  fireEvent.change(await screen.findByLabelText('Document name'), { target: { value: 'Payments' } });
+  await select('Agent', 'Off code writer');  // code projects switched off: run folders are still needed
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  await select('Agent', 'All code writer');
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled();
+  await select('Agent', 'Code writer');
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+  expect(await screen.findByText('Session page')).toBeVisible();
+  expect(posts).toEqual([expect.objectContaining({ agent_id: 'code-writer', model_id: 'claude', code_project_ids: [], folders: [] })]);
 });
