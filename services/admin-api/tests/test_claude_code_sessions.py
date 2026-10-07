@@ -366,3 +366,30 @@ def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projec
     (data / 'code/app').rmdir()
     gone = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
     assert gone.status_code == 400 and "of the agent's code project Payments API does not exist" in gone.json()['error']['message']
+
+
+def test_session_uses_the_active_version_tools_and_code_projects(sessions):
+    from test_profiles import update
+    client, data = sessions.client, sessions.data
+    agent = claude_code_agent(client, 'Versioned writer', model_id=sessions.claude, repositories_enabled=True,
+                              repository_ids=[sessions.repo], claude_code_tools=['Grep', 'Read'])
+    path = f'/api/agents/{agent}/versions'
+    source = client.get(path + '/source', headers=HEADERS).json()
+    draft = client.post(path, headers=HEADERS, json={'label': 'Draft', 'source_hash': source['source_hash'],
+                        'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
+    assert draft.status_code == 201, draft.text
+    active = client.get(path, headers=HEADERS).json()['active_id']  # the initial configuration
+    # Working settings changed after the version was saved do not reach the session.
+    profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
+    changed = update(client, profile, repositories_enabled=False, repository_ids=[], claude_code_tools=['Bash'])
+    assert changed.status_code == 200, changed.text
+    body = {key: value for key, value in sessions.body.items() if key != 'model_id'}
+    response = client.post('/api/claude-code/sessions', headers=HEADERS,
+                           json={**body, 'agent_id': agent, 'code_project_ids': [], 'folders': []})
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session['model_name'] == 'Claude'
+    snapshot = session['prompt_snapshot']
+    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and snapshot['agent_version']['id'] == active
+    assert session['context_snapshot']['folders'] == [
+        {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]

@@ -128,3 +128,45 @@ def test_claude_code_agent_without_sessions_is_deleted_with_its_prompt(store, wr
     assert deleted.status_code == 204, deleted.text
     with store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_prompt_versions WHERE agent=%s', (agent_id,)).fetchone()['n'] == 0
+
+
+def test_the_version_model_must_fit_the_agent_type(store, tmp_path, monkeypatch):
+    for variable in ('CODE_ROOT', 'DATA_ROOT_DIR'):
+        monkeypatch.setenv(variable, str(tmp_path.resolve()))
+    client = _client(tmp_path, repository_store=store)
+    claude, gpt = models(client)
+    native = create(client, 'Versioned helper')
+    path = f"/api/agents/{native['id']}/versions"
+
+    def set_model(model_id):
+        profile = client.get(f"/api/agents/{native['id']}", headers=HEADERS).json()
+        saved = client.put(f"/api/agents/{native['id']}/model", headers=HEADERS,
+                           json={'revision': profile['revision'], 'model_id': model_id})
+        assert saved.status_code == 200, saved.text
+        return saved.json()
+
+    def draft(label):
+        source = client.get(path + '/source', headers=HEADERS).json()
+        created = client.post(path, headers=HEADERS, json={'label': label, 'source_hash': source['source_hash'],
+            'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
+        assert created.status_code == 201, created.text
+        return created.json()['id']
+
+    def activate(version_id):
+        active = client.get(path, headers=HEADERS).json()['active_id']
+        return client.post(f'{path}/{version_id}/activate', headers=HEADERS, json={'expected_active_id': active})
+
+    set_model(gpt)
+    draft('GPT draft')  # the initial configuration (GPT) becomes the active version
+    gpt_version = client.get(path, headers=HEADERS).json()['active_id']
+    profile = set_model(claude)
+    # The working model is Claude, but the active version still runs GPT.
+    refused = update(client, profile, runtime='claude_code')
+    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
+    claude_version = draft('Claude draft')
+    assert activate(claude_version).status_code == 200
+    switched = update(client, client.get(f"/api/agents/{native['id']}", headers=HEADERS).json(), runtime='claude_code')
+    assert switched.status_code == 200, switched.text
+    refused = activate(gpt_version)
+    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
+    assert client.get(path, headers=HEADERS).json()['active_id'] == claude_version

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import get_agent_config
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, model_fits
 
 
 class ServerInstructions(BaseModel):
@@ -63,7 +64,7 @@ def build_api(app_name, store):
         return store
 
     def owner(conn, agent_id, *, lock=False):
-        row = conn.execute('SELECT id,is_coordinator,active_config_version_id,next_config_version FROM ka.agents WHERE id=%s' + (' FOR UPDATE' if lock else ''), (agent_id,)).fetchone()
+        row = conn.execute('SELECT id,is_coordinator,runtime,active_config_version_id,next_config_version FROM ka.agents WHERE id=%s' + (' FOR UPDATE' if lock else ''), (agent_id,)).fetchone()
         if row is None:
             raise HTTPException(404, 'Agent not found.')
         if row['is_coordinator']:
@@ -167,6 +168,9 @@ def build_api(app_name, store):
             config = version['config']
             if not config['system_prompt']['content'].strip() or config['model'] is None:
                 raise HTTPException(409, 'A system prompt and model are required before activation.')
+            if not model_fits(row['runtime'], config['model']):
+                raise HTTPException(400, CHOOSE_CLAUDE if row['runtime'] == 'claude_code'
+                                    else 'Choose an enabled model compatible with this agent.')
             conn.execute('UPDATE ka.agent_versions SET published_at=coalesce(published_at,now()) WHERE id=%s', (version_id,))
             conn.execute('UPDATE ka.agents SET active_config_version_id=%s WHERE id=%s', (version_id,agent_id))
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

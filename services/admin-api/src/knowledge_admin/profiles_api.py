@@ -157,6 +157,12 @@ def build_api(app_name, store):
                                                (old['model_id'],)).fetchone()
                         if not model_fits('claude_code', current):
                             raise HTTPException(400, CHOOSE_CLAUDE)
+                    if runtime == 'claude_code':
+                        # The active version runs with its own stored model.
+                        active = conn.execute('''SELECT v.config->'model' AS model FROM ka.agents a
+                            JOIN ka.agent_versions v ON v.id=a.active_config_version_id WHERE a.id=%s''', (agent_id,)).fetchone()
+                        if active is not None and active['model'] is not None and not model_fits('claude_code', active['model']):
+                            raise HTTPException(400, CHOOSE_CLAUDE)
                 tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
                 actor = audit(conn, request, agent_id, 'agent.updated')
