@@ -42,8 +42,14 @@ test('All agents shows Claude Code agents with their badge and creates one from 
   expect(within(row).getByText('Built in')).toBeVisible();
   const other = screen.getByRole('link', { name: 'Search agent' }).closest('tr')!;
   expect(within(other).queryByText('Claude Code SDK')).toBeNull();
-  expect(screen.getByRole('button', { name: 'New Agent Wizard' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'New Claude Code agent' }));
+  expect(screen.queryByRole('button', { name: 'New Claude Code agent' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
+  expect(screen.getByRole('button', { name: 'New agent' })).toBeDisabled();
+  const tabs = screen.getAllByRole('tab').map(tab => tab.textContent);
+  expect(tabs).toEqual(['Generic agent', 'Claude Code']);
+  expect(screen.getByRole('tab', { name: 'Generic agent' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Claude Code' }));
+  expect(screen.getByRole('tab', { name: 'Claude Code' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByLabelText(/Model/)).toBeNull();
   expect(screen.queryByLabelText(/Instructions/)).toBeNull();
   expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled();

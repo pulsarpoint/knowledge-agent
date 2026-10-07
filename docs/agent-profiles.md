@@ -45,9 +45,9 @@ Prompt versions belong to one profile. Creating an agent requires an explicit, n
 The default IDs `search`, `code`, and `operations` preserve existing integrations.
 Every agent has its own configuration; no parent agent is introduced.
 
-## New Agent Wizard
+## New agent → Generic agent
 
-Agents → New Agent Wizard designs a specialist from a role description. Choose
+Agents → New agent → Generic agent designs a specialist from a role description. Choose
 an enabled model connection, then generate a proposal with the official Agents SDK.
 The designer receives the agent JSON schema and current resource metadata:
 code projects and their mapped folders, document folders, SSH servers and saved

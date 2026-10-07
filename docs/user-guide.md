@@ -432,7 +432,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 `/agents` lists agents with capabilities, model, active system prompt and status.
 
-**Create an agent** with the **New Agent Wizard** (the only way to create agents):
+**Create an agent** with **New agent** (the only way to create agents). It opens one panel with two tabs: **Generic agent** (the wizard below) and **Claude Code** (name and description). On the **Generic agent** tab:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
@@ -481,7 +481,7 @@ active configuration version, runs keep using that version's snapshot until you 
 and activate a new version.
 
 **Claude Code agents.** **All agents** shows them with a **Claude Code SDK** badge.
-**New Claude Code agent** asks only for a name and a description, and the agent page edits
+**New agent → Claude Code** asks only for a name and a description, and the agent page edits
 only those. The model, folders, prompt and context are chosen per session (see
 [4.13](#413-documentation-generation), **With an agent**). Tools are fixed: Read, Grep, Glob
 and Bash, in their own container with `DATA_ROOT` read-only. Bash can reach the network.
@@ -760,7 +760,7 @@ Records are kept until deleted; only administrators can see them.
 
 ### D. Build and test an operations agent
 
-1. **Agents → New Agent Wizard** (generate a proposal or **Start blank**).
+1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect **View activity**.
 4. Use **Add feedback → Suggest improvements**, then **Versions → Save draft → Activate**.
@@ -785,7 +785,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ### H. Write documentation interactively with Claude Code
 
-1. **Agents** → **New Claude Code agent** (name and description).
+1. **Agents → New agent → Claude Code** (name and description).
 2. **Docs → Generate documents** → **New documentation** → **With an agent** → fill in the
    form → **Generate**.
 3. Follow the stream and send a message such as "shorten the API section".
