@@ -102,7 +102,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
 
 def inside_data_root(path: str) -> None:
     """The storage rule for a working folder: inside DATA_ROOT, and no part of it is a symbolic link."""
-    refused = HTTPException(400, f'The folder {path} is a symbolic link or outside DATA_ROOT. Remove it from the context.')
+    refused = HTTPException(400, f"The folder {path} is a symbolic link or outside DATA_ROOT. Check the code project's folders.")
     container = PurePosixPath(path)
     if not container.is_relative_to(data_dir()) or container == data_dir():
         raise refused

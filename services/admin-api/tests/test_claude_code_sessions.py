@@ -348,7 +348,8 @@ def test_symlinked_code_folders_are_refused(sessions, tmp_path):
     (sessions.data / 'code/app-link').symlink_to(outside)
     with sessions.store.connect() as conn:
         conn.execute("UPDATE ka.code_project_folders SET path='app-link' WHERE code_project_id=%s", (sessions.repo,))
-    assert 'symbolic link' in refused(sessions)
+    assert refused(sessions) == (f'The folder {sessions.data}/code/app-link is a symbolic link or outside DATA_ROOT. '
+                                 "Check the code project's folders.")
     with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
