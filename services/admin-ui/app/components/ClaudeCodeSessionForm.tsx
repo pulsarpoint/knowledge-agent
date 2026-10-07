@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { ApiError, getEnvironments, getServers, getServices } from '~/lib/api';
 import { createSession } from '~/lib/claudeCode';
 import { getCodeProjects } from '~/lib/codeProjects';
@@ -114,4 +115,11 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <Button type="submit" className="self-start" disabled={pending || !ready}>{pending ? 'Starting…' : 'Generate'}</Button>
   </form>;
+}
+
+/** Docs → Generate documents → New. ?agent=<id> (an agent's Test tab) preselects the agent; Generate opens the session. */
+export function NewGeneration() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  return <ClaudeCodeSessionForm initialAgentId={params.get('agent') ?? ''} onCreated={id => navigate(`/documentation/generations/${id}`)} />;
 }

@@ -115,7 +115,9 @@ test('a replayed batch of events is shown once and a stale session load does not
 test('the session page has one page heading, the session title', async () => {
   const { default: AdminLayout } = await import('../AdminLayout');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/claude-code/') ? Response.json(detail) : Response.json({ is_admin: true })));
-  render(<MemoryRouter initialEntries={['/documentation/sessions/s1']}><AdminLayout><ClaudeCodeSessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><ClaudeCodeSessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  // the back link, besides the sidebar's own Generate documents link
+  expect(screen.getAllByRole('link', { name: 'Generate documents' }).map(link => link.getAttribute('href'))).toEqual(['/documentation/generations', '/documentation/generations']);
 });

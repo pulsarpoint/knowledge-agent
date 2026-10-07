@@ -3,7 +3,6 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 import RunsView from '../RunsView';
 import RunRecordView from '../RunRecordView';
-import DocumentationGenerationsView from '../DocumentationGenerationsView';
 
 afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -51,11 +50,4 @@ test('run record shows the full timeline', async () => {
   expect(screen.getByText('{"query":"retries"}')).toBeInTheDocument();
   expect(screen.getByText(/LONG OUTPUT x{5000}/)).toBeInTheDocument();
   expect(screen.getByText('Three retries [1].')).toBeInTheDocument();
-});
-
-test('documentation history links each job to its run records', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => json({ generations: [{ job_id: 'j1', instructions: 'Write docs', mode: 'create', status: 'succeeded', created_at: '2026-10-04T10:00:00Z', document_count: 0, result: {} }] })));
-  render(<MemoryRouter><DocumentationGenerationsView /></MemoryRouter>);
-  const row = (await screen.findByText('Write docs')).closest('tr')!;
-  expect(within(row).getByRole('link', { name: 'Run records' })).toHaveAttribute('href', '/activity/runs?key_prefix=doc%3Aj1%3A');
 });

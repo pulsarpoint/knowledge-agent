@@ -73,7 +73,6 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
-    {document?.workflows?.map(workflow => <Button key={workflow.id} asChild variant="outline" className="self-start"><Link to={`/documentation/generations/${workflow.id}`}>View phases / regenerate · {workflow.name}</Link></Button>)}
     {error && !confirmDelete && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
     <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">

@@ -1,8 +1,7 @@
-import { useParams } from 'react-router';
-import AdminLayout from '../components/AdminLayout';
-import ClaudeCodeSessionView from '../components/ClaudeCodeSessionView';
+import { Navigate, useParams } from 'react-router';
 
+/** A session link from before Generate documents: the same session under its new address. */
 export default function Page() {
   const { sessionId } = useParams();
-  return <AdminLayout><ClaudeCodeSessionView key={sessionId} sessionId={sessionId!} /></AdminLayout>;
+  return <Navigate replace to={`/documentation/generations/${encodeURIComponent(sessionId ?? '')}`} />;
 }

@@ -1,12 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
-import { NewDocumentationWorkflow } from '../DocumentationWorkflowView';
+import { NewGeneration } from '../ClaudeCodeSessionForm';
 
 afterEach(() => vi.unstubAllGlobals());
 const NO_FOLDER = 'Claude Code needs at least one working folder: choose code projects, or environments or services with code projects, or give the agent code projects.';
 const bodies: Record<string, unknown> = {
-  '/api/llm': { models: [], assignments: { search_model_id: null, code_model_id: null, revision: 1 } },
   '/api/agents': { agents: [
     { id: 'api-writer', name: 'API writer', runtime: 'claude_code', enabled: true, model_id: 'claude', model_name: 'Claude on Bedrock' },
     { id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true, model_id: 'claude', model_name: 'Claude on Bedrock' },
@@ -20,7 +19,7 @@ const bodies: Record<string, unknown> = {
   '/api/documentation/folders': { generated_folder: 'generated-documents', folders: [] },
 };
 
-function setup(error?: string, path = '/documentation/generations/new?scope=agent') {
+function setup(error?: string, path = '/documentation/generations/new') {
   const posts: unknown[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/api/claude-code/sessions' && init?.method === 'POST') {
@@ -30,8 +29,8 @@ function setup(error?: string, path = '/documentation/generations/new?scope=agen
     return Response.json(bodies[url] ?? {});
   }));
   render(<MemoryRouter initialEntries={[path]}><Routes>
-    <Route path="/documentation/generations/new" element={<NewDocumentationWorkflow />} />
-    <Route path="/documentation/sessions/:sessionId" element={<div>Session page</div>} />
+    <Route path="/documentation/generations/new" element={<NewGeneration />} />
+    <Route path="/documentation/generations/:sessionId" element={<div>Session page</div>} />
   </Routes></MemoryRouter>);
   return posts;
 }
@@ -84,7 +83,7 @@ test('an unchecked choice sends none of its items; a bad folder blocks Generate;
 });
 
 test('the Test tab link preselects the agent; an agent without a model cannot generate', async () => {
-  setup(undefined, '/documentation/generations/new?scope=agent&agent=no-model');
+  setup(undefined, '/documentation/generations/new?agent=no-model');
   expect(await screen.findByLabelText('Agent')).toHaveTextContent('Unfinished writer');
   expect(screen.getByText('This agent has no model. Choose a Claude model on its General tab.')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'Payments' } });
@@ -95,6 +94,6 @@ test('the Test tab link preselects the agent; an agent without a model cannot ge
 });
 
 test('an unknown agent in the link is ignored', async () => {
-  setup(undefined, '/documentation/generations/new?scope=agent&agent=missing');
+  setup(undefined, '/documentation/generations/new?agent=missing');
   expect(await screen.findByLabelText('Agent')).toHaveTextContent('Select…');
 });

@@ -110,7 +110,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   if (!session) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   const closed = session.status === 'closed';
   return <div className="flex flex-col gap-5">
-    <Link className="underline" to="/documentation/sessions">Sessions</Link>
+    <Link className="underline" to="/documentation/generations">Generate documents</Link>
     <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-semibold">{session.title}</h1>
       <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
     <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>

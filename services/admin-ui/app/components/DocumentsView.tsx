@@ -36,7 +36,7 @@ export default function DocumentsView() {
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{total} documents</p><div className="flex gap-2">
       <Button variant="outline" disabled={loading} onClick={() => setRefresh((n) => n + 1)}><RefreshCw data-icon="inline-start" />Refresh</Button>
-      <Button asChild variant="outline"><Link to="/documentation/generations">Generate documentation</Link></Button>
+      <Button asChild variant="outline"><Link to="/documentation/generations">Generate documents</Link></Button>
       <Button asChild><Link to="/documents/new"><Plus data-icon="inline-start" />Create document</Link></Button>
     </div></div>
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

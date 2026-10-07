@@ -1,6 +1,6 @@
-import AdminLayout from '../components/AdminLayout';
-import ClaudeCodeSessionsView from '../components/ClaudeCodeSessionsView';
+import { Navigate } from 'react-router';
 
+/** Sessions moved to Docs → Generate documents. */
 export default function Page() {
-  return <AdminLayout><ClaudeCodeSessionsView /></AdminLayout>;
+  return <Navigate replace to="/documentation/generations" />;
 }
