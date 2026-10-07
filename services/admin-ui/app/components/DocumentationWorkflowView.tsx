@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { createDocumentationWorkflow, getDocumentationWorkflow, getDocumentationWorkflows, type DocumentationWorkflow } from '~/lib/documents';
 import { getServices, getEnvironments } from '~/lib/api';
 import { getLlmSettings, codeCompatible } from '~/lib/llm';
+import ClaudeCodeSessionForm from './ClaudeCodeSessionForm';
 import CodeProjectDocumentationForm from './CodeProjectDocumentationForm';
 import DocumentationGenerationForm from './DocumentationGenerationForm';
 import DocumentationGenerationsView from './DocumentationGenerationsView';
@@ -43,8 +44,9 @@ export function DocumentationWorkflowsView() {
 
 export function NewDocumentationWorkflow() {
   const navigate=useNavigate();
+  const [params]=useSearchParams();
   const [data,setData]=useState<{services:{id:string;name:string}[];environments:{id:string;name:string}[];models:{id:string;name:string}[]} | null>(null);
-  const [scope,setScope]=useState<'service'|'environment'|'code_project'>('service');
+  const [scope,setScope]=useState<'service'|'environment'|'code_project'|'agent'>(params.get('scope')==='agent'?'agent':'service');
   const [subject,setSubject]=useState('');
   const [model,setModel]=useState('');
   const [busy,setBusy]=useState(false);
@@ -57,18 +59,19 @@ export function NewDocumentationWorkflow() {
   function choose(label:string,value:string,items:{id:string;name:string}[],change:(value:string)=>void) {
     return <Field><FieldLabel htmlFor={`workflow-${label}`}>{label}</FieldLabel><Select value={value} onValueChange={change}><SelectTrigger id={`workflow-${label}`}><SelectValue placeholder="Select…" /></SelectTrigger><SelectContent><SelectGroup>{items.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>;
   }
-  return <div className="flex max-w-2xl flex-col gap-5"><form className="flex flex-col gap-5" onSubmit={async e => {e.preventDefault();if (scope === 'code_project') return;setBusy(true);setError('');try {
+  return <div className="flex max-w-2xl flex-col gap-5"><form className="flex flex-col gap-5" onSubmit={async e => {e.preventDefault();if (scope === 'code_project' || scope === 'agent') return;setBusy(true);setError('');try {
     const row=await createDocumentationWorkflow({scope:scope as 'service' | 'environment',model_id:model,service_id:scope==='service'?subject:null,environment_id:scope==='environment'?subject:null});
     navigate(`/documentation/generations/${row.id}`);
   } catch(e) {setError(e instanceof Error?e.message:'Could not create workflow');} finally {setBusy(false);} }}>
     <Link className="underline" to="/documentation/generations">Documentation workflows</Link><h1 className="text-2xl font-semibold">New documentation</h1>
-    <p>{scope==='code_project'?'Generate one document for a code project with a prompt you choose and save it into a documentation folder.':'First create a saved workflow. Source selection, prompts and each generation attempt will belong to its permanent URL.'}</p>
-    {data ? <fieldset disabled={busy}><FieldGroup>{choose('Scope',scope,[{id:'service',name:'Service'},{id:'environment',name:'Whole environment'},{id:'code_project',name:'Code project'}],v=>{setScope(v as typeof scope);setSubject('');})}
-      {scope!=='code_project'&&choose(scope==='service'?'Service':'Environment',subject,scope==='service'?data.services:data.environments,setSubject)}{choose('Model',model,data.models,setModel)}</FieldGroup></fieldset> : <Skeleton className="h-40" />}
+    <p>{scope==='agent'?'An agent explores the folders and context you choose and writes a draft. Follow it live, send it messages, then save the draft as a document.':scope==='code_project'?'Generate one document for a code project with a prompt you choose and save it into a documentation folder.':'First create a saved workflow. Source selection, prompts and each generation attempt will belong to its permanent URL.'}</p>
+    {data ? <fieldset disabled={busy}><FieldGroup>{choose('Scope',scope,[{id:'service',name:'Service'},{id:'environment',name:'Whole environment'},{id:'code_project',name:'Code project'},{id:'agent',name:'With an agent'}],v=>{setScope(v as typeof scope);setSubject('');})}
+      {(scope==='service'||scope==='environment')&&choose(scope==='service'?'Service':'Environment',subject,scope==='service'?data.services:data.environments,setSubject)}{scope!=='agent'&&choose('Model',model,data.models,setModel)}</FieldGroup></fieldset> : <Skeleton className="h-40" />}
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    {scope!=='code_project'&&<Button type="submit" className="self-start" disabled={busy||!subject||!model}>{busy?'Creating…':'Create workflow'}</Button>}
+    {(scope==='service'||scope==='environment')&&<Button type="submit" className="self-start" disabled={busy||!subject||!model}>{busy?'Creating…':'Create workflow'}</Button>}
   </form>
   {scope==='code_project' && data && <CodeProjectDocumentationForm modelId={model} onQueued={() => navigate('/documentation/generations')} />}
+  {scope==='agent' && data && <ClaudeCodeSessionForm onCreated={id => navigate(`/documentation/sessions/${id}`)} />}
   </div>;
 }
 
