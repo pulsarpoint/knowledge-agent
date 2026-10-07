@@ -137,3 +137,16 @@ def hang(where: str, started: asyncio.Event, cancelled: list[str]):
             cancelled.append(where)
             raise
     return step
+
+
+def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event):
+    """Work that ignores cancellation (a tool that swallows CancelledError and keeps going) until `release` is set."""
+    async def step(turn: Turn):
+        started.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                ignored.append('cancel')
+        raise RuntimeError('ended late')
+    return step

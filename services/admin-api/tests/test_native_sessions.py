@@ -12,7 +12,7 @@ from agents.run_config import ModelInputData
 from psycopg.types.json import Jsonb
 
 from claude_code_fakes import FakeClient
-from native_fakes import FakeAgent, call, hang, llm, message, tool
+from native_fakes import FakeAgent, call, hang, llm, message, stubborn, tool
 from knowledge_admin import claude_code_worker, run_record
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents import native_sessions
@@ -191,6 +191,36 @@ def test_stop_ends_the_turn_wherever_it_is_and_leaves_nothing_running(native, wh
     assert [e['payload']['status'] for e in events(store, sid) if e['kind'] == 'end'] == ['stopped', 'completed']
 
 
+def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, monkeypatch, caplog):
+    sessions, sid = native
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.2)
+    started, ignored, release = asyncio.Event(), [], asyncio.Event()
+    fake = FakeAgent([{'steps': [stubborn(started, ignored, release)], 'answer': 'never reached'},
+                      {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        await asyncio.wait_for(started.wait(), 5)
+        assert (await post(sessions, url + '/stop')).status_code == 202
+        stopped = await wait_for(store, sid, lambda s: s['status'] == 'stopped', timeout=2)
+        await post(sessions, url + '/messages', {'text': 'Continue.'})  # the session stays usable
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
+        assert fake.running == 1  # the stubborn turn is still running; it changes nothing when it ends
+        release.set()
+        await asyncio.sleep(0.05)
+        assert fake.running == 0 and native_sessions._abandoned == set()
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+        return stopped
+
+    stopped = asyncio.run(scenario())
+    assert stopped['status_message'] == shared.STOPPED and ignored
+    assert session_row(store, sid)['history'] == [{'role': 'user', 'content': 'Continue.'},
+                                                  {'role': 'assistant', 'content': '# Docs'}]
+    assert 'did not end within' in caplog.text and str(sid) in caplog.text
+
+
 def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     sessions, sid = native
     store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
@@ -283,6 +313,23 @@ def test_a_comment_delivered_to_a_turn_the_user_stopped_is_discarded_like_queued
     assert fake.calls[0]['inputs'][1][-1] == comment('Also cover retries.') and len(fake.calls) == 1
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'discarded', None)]
     assert session_row(store, sid)['turns'] == 1
+
+
+def test_returned_comments_are_queued_again_only_into_an_open_session_without_stop(native):
+    sessions, sid = native
+    store = sessions.store
+    runner = native_sessions.NativeRunner(store, claimed(store), FakeAgent([]))
+    assert runner.next_turn()[0] == 1
+    url = f'/api/claude-code/sessions/{sid}'
+    for text in ('One', 'Two'):
+        sessions.client.post(url + '/messages', headers=HEADERS, json={'text': text})
+    ids = []
+    runner.queued_comments(1, on_delivered=lambda conn, rows: ids.extend(r['id'] for r in rows))
+    runner.return_comments(1, ids[:1])  # failed turn, open session: queued again
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+    runner.return_comments(1, ids[1:])  # closed session: discarded
+    assert inputs(store, sid)[1:] == [('One', 'queued', None), ('Two', 'discarded', None)]
 
 
 def test_comments_are_marked_delivered_only_with_their_input_event(native):

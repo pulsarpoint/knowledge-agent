@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 UNREADABLE = 'A configured credential could not be decrypted. Save it again in administration.'
 COMMENT = 'Comment from the user while you work: '
+STOP_GRACE_SECONDS = 30.0  # as claude_code_worker.INTERRUPT_GRACE_SECONDS
+_abandoned: set[asyncio.Task] = set()  # turns that ignored cancellation, kept referenced until they end
 
 
 def code_roots(config: dict[str, Any], folders: list[dict[str, Any]]) -> dict[str, Any]:
@@ -174,12 +176,25 @@ def failure(exc: BaseException, secrets: Iterable[str]) -> str:
     return f'Agent execution failed ({type(exc).__name__}). Check the model connection and agent resources.'
 
 
-async def _cancel(task: asyncio.Task) -> None:
-    """Cancel a turn and wait until agent() has closed its model and MCP connections."""
-    task.cancel()
-    await asyncio.wait({task})
+def _retrieve(task: asyncio.Task) -> None:
+    _abandoned.discard(task)
     if not task.cancelled():
         task.exception()  # retrieved: a stopped turn's error does not matter
+
+
+async def _cancel(task: asyncio.Task, session_id) -> None:
+    """Cancel a turn and wait until agent() has closed its model and MCP connections, at most STOP_GRACE_SECONDS: Stop
+    always ends the turn. A turn still running then is left to end by itself; its history is dropped and finish_turn
+    commits none for a stopped turn, so it cannot change the session."""
+    task.cancel()
+    await asyncio.wait({task}, timeout=STOP_GRACE_SECONDS)
+    if task.done():
+        _retrieve(task)
+        return
+    logger.warning('Agent session %s turn did not end within %ss of Stop; it is left to end', session_id,
+                   STOP_GRACE_SECONDS)
+    _abandoned.add(task)
+    task.add_done_callback(_retrieve)
 
 
 class Comments:
@@ -195,6 +210,8 @@ class Comments:
         self.delivery: asyncio.Task | None = None
 
     def _record(self, conn, inputs: list[dict]) -> None:
+        # Runs in a thread: safe, as the SDK is paused in this filter and settle() runs before further events.
+        # flush_in advances `flushed` before the caller commits; a rollback only leaves a gap in seq.
         for item in inputs:
             self.recorder.add('input', {'task': item['text'], 'comment': True})
         self.recorder.flush_in(conn)
@@ -295,12 +312,12 @@ class NativeRunner(shared.SessionRunner):
             while not turn.done():
                 await asyncio.wait({turn}, timeout=self.poll)
                 if not turn.done() and await asyncio.to_thread(self.stop_requested):
-                    await _cancel(turn)
+                    await _cancel(turn, self.id)
                     return 'stopped', None
             return 'waiting', turn.result().final_output  # raises the turn's error
         finally:
             if not turn.done():
-                await _cancel(turn)
+                await _cancel(turn, self.id)
 
 
 async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,

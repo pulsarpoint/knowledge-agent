@@ -87,7 +87,7 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int,
             if row['previous'] == 'working' and not row['queued']:  # failed now; it needs a worker only for a message
                 conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
                              (row['id'], worker_id))
-            if row['previous'] == 'working' and row['turns'] > 0:
+            if row['previous'] == 'working' and row['turns'] > 0:  # comments delivered inside it stay delivered
                 key = run_key(row['id'], row['turns'])
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
                     conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
@@ -165,12 +165,13 @@ class SessionRunner:
 
     def return_comments(self, number: int, ids: list[int]) -> None:
         """Comments delivered inside turn `number`, which did not complete: discarded when the user pressed Stop (as Stop
-        discards queued messages), otherwise queued again, so the next turn receives them."""
+        discards queued messages) or the session is closed, otherwise queued again, so the next turn receives them.
+        No lease check, on purpose: the comments belong to this turn, whichever worker holds the session now."""
         if not ids:
             return
         with self.store.connect() as conn:
             conn.execute("""UPDATE ka.agent_session_inputs i SET turn=NULL,delivered_at=NULL,
-                status=CASE WHEN s.stop_requested_at IS NOT NULL THEN 'discarded' ELSE 'queued' END
+                status=CASE WHEN s.stop_requested_at IS NOT NULL OR s.status='closed' THEN 'discarded' ELSE 'queued' END
                 FROM ka.agent_sessions_cc s WHERE s.id=i.session_id AND i.session_id=%s AND i.id=ANY(%s)
                   AND i.status='delivered' AND i.turn=%s""", (self.id, ids, number))
 
