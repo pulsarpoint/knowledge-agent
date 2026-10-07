@@ -1,4 +1,4 @@
-"""Claude Code sessions: fixed tools, the built-in system prompt, the first message and idle closing (admin-api and worker)."""
+"""Claude Code sessions: fixed tools, the built-in system prompt, the final-answer rule and idle closing (admin-api and worker)."""
 from typing import Any
 
 from knowledge_admin.knowledge_agents.config import CLAUDE_CODE_TOOLS
@@ -11,23 +11,6 @@ DISALLOWED_TOOLS = ('Edit', 'Write', 'NotebookEdit', 'Agent', 'Task', 'Skill', '
 FINAL_ANSWER = ('When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. '
                 'After each later message, reply again with the complete updated document.')
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
-
-
-def first_message(prompt: str, comments: str, context: dict[str, Any]) -> str:
-    """The one message that starts a session: the prompt, this run's comments and the context section."""
-    parts = [prompt.strip()]
-    if comments.strip():
-        parts.append('## Comments for this run\n\n' + comments.strip())
-    lines = ['## Context', '', 'Working folders (read-only; the first one is your working directory):']
-    lines += [f"- {f['path']}" + (f" (code project {f['name']})" if f['kind'] == 'code_project' else '') for f in context['folders']]
-    if context['servers']:
-        lines += ['', 'Servers (for reference only; you have no access to them):']
-        lines += [f"- {s['name']} ({s['hostname']})" + (f": {s['description']}" if s['description'] else '') for s in context['servers']]
-    if context['notes'].strip():
-        lines += ['', 'Notes:', '', context['notes'].strip()]
-    parts.append('\n'.join(lines))
-    parts.append(FINAL_ANSWER)
-    return '\n\n'.join(parts)
 
 
 def agent_system_prompt(config: dict[str, Any]) -> str:
