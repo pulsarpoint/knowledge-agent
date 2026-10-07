@@ -76,10 +76,10 @@ def build_api(app_name, store):
             JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id WHERE p.agent=%s''', (agent_id,)).fetchone()
         return row
 
-    def audit(conn, request, agent_id, action):
+    def audit(conn, request, agent_id, action, **details):
         actor = store.actor(conn, *request_actor(request))
         conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb({'agent_id': agent_id})))
+            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb({'agent_id': agent_id, **details})))
         return actor
 
     @router.get('')
@@ -165,7 +165,8 @@ def build_api(app_name, store):
                             raise HTTPException(400, CHOOSE_CLAUDE)
                 tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
-                actor = audit(conn, request, agent_id, 'agent.updated')
+                switch = {'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}
+                actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
                     skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
                     if len(skills) != len(value.skill_ids):

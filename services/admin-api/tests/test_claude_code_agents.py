@@ -188,3 +188,22 @@ def test_a_model_used_by_a_claude_code_agent_stays_a_claude_model(store, writer)
         'name': 'Claude Sonnet', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
         'api_format': 'native', 'aws_region': 'eu-central-1', 'revision': revision})
     assert renamed.status_code == 200, renamed.text
+
+
+def test_a_type_switch_is_audited(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    claude, _ = models(client)
+    native = create(client, 'Audited helper')
+    native = client.put(f"/api/agents/{native['id']}/model", headers=HEADERS,
+                        json={'revision': native['revision'], 'model_id': claude}).json()
+
+    def last_update():
+        with store.connect() as conn:
+            return conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.updated' AND details->>'agent_id'=%s
+                ORDER BY created_at DESC,id DESC LIMIT 1""", (native['id'],)).fetchone()['details']
+
+    edited = update(client, native, description='No type change')
+    assert edited.status_code == 200 and last_update() == {'agent_id': native['id']}
+    switched = update(client, edited.json(), runtime='claude_code')
+    assert switched.status_code == 200, switched.text
+    assert last_update() == {'agent_id': native['id'], 'runtime': {'from': 'openai', 'to': 'claude_code'}}
