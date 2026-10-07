@@ -278,3 +278,7 @@ Docs → Generate documents now runs a Claude Code agent; the one-shot generatio
 3. Documentation agents need a Claude model and a documentation prompt of their own
    (Docs → Prompts holds the earlier prompts to copy from).
 
+Back up the database first: rolling 0073 back restores only the empty tables, not the deleted history. It also drops
+`documents.phase_metadata`, so a document written by a service phase re-exports to `<slug>/` instead of
+`services/<service>/<phase>/`; applying 0073 again does not bring the phase folders back.
+

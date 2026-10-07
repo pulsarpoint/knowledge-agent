@@ -3,7 +3,8 @@ SET search_path = ka, public;
 
 -- 0073 removed the one-shot generation with its history, which does not come back. This restores its empty schema so
 -- that earlier migrations can roll back. Versions written by a removed run keep their generation_id, so the restored
--- foreign key leaves existing rows unchecked.
+-- foreign key leaves existing rows unchecked. Dropping documents.phase_metadata loses the service phase layout: those
+-- documents re-export to <slug>/, and applying 0073 again does not restore it.
 ALTER TABLE documents DROP COLUMN phase_metadata;
 ALTER TABLE jobs DROP CONSTRAINT jobs_kind_check, DROP CONSTRAINT jobs_check, DROP CONSTRAINT jobs_check1;
 ALTER TABLE jobs ADD CONSTRAINT jobs_kind_check CHECK (kind IN

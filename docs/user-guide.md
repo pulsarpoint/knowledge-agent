@@ -588,7 +588,8 @@ process, so use a key with limited scope and spend.
 
 **Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
 and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
-exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect.
+exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect. Bookmarks of old generations
+(`/documentation/generations/<id>`) open a page that shows "Session not found".
 
 ### 4.14 Documents and documentation prompts
 
