@@ -481,7 +481,12 @@ and activate a new version.
 
 **Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, prompt versions, versions). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the active prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats or on the multi-agent board. Agents created before this release got the built-in documentation prompt as prompt version 1.
 
-Agents with sessions or board history cannot be removed — disable them instead.
+Removing an agent that has history (test chats, chats, Claude Code sessions, runs or board tasks) lists that
+history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
+documents are kept, and so is the coordinator's own record of a board task it delegated to this agent. To keep the
+history, cancel and disable the agent instead. An agent that is working right now (a Claude Code session that is starting
+or working, a running run, or a queued or running board task it belongs to) cannot be removed; stop that work or wait for
+it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
 ### 4.12 Multi-agent board

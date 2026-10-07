@@ -110,12 +110,13 @@ def test_claude_code_agent_with_retained_sessions_cannot_be_deleted(store, write
     _, gpt = models(client)
     with store.connect() as conn:
         conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,document_name,folder) SELECT %s,p.id,%s,(SELECT id FROM ka.principals LIMIT 1),%s,'Payments',
-            '{}','{}','Payments','payments' FROM ka.projects p WHERE p.archived_at IS NULL''', (uuid4(), agent_id, gpt))
+            context_snapshot,document_name,folder,status) SELECT %s,p.id,%s,(SELECT id FROM ka.principals LIMIT 1),%s,
+            'Payments','{}','{}','Payments','payments','stopped' FROM ka.projects p WHERE p.archived_at IS NULL''',
+            (uuid4(), agent_id, gpt))
     detail = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
     deleted = client.request('DELETE', f'/api/agents/{agent_id}', headers=HEADERS,
                              json={'revision': detail['revision'], 'confirmed': True})
-    assert deleted.status_code == 409 and 'retained sessions' in deleted.json()['error']['message']
+    assert deleted.status_code == 409 and 'Delete it with its history' in deleted.json()['error']['message']
     with store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,)).fetchone()['n'] == 1
 

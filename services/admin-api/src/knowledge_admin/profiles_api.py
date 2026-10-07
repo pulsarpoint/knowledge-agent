@@ -48,12 +48,64 @@ class DeleteInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=1, strict=True)
     confirmed: Literal[True]
+    with_history: bool = Field(default=False, strict=True)
 
 
 class ModelInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=1, strict=True)
     model_id: UUID | None
+
+
+HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
+WORKING_REFUSED = ('This agent is working right now. Stop its Claude Code sessions, runs and board tasks, '
+                   'or wait for them to finish, then delete it.')
+# Anything still in progress for the agent, including a board task whose team it is on.
+WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')
+    UNION ALL SELECT 1 FROM ka.operations_runs WHERE agent=%(a)s AND status='running'
+    UNION ALL SELECT 1 FROM ka.agent_board_tasks t WHERE t.status IN ('queued','running')
+        AND (t.agent_id=%(a)s OR EXISTS (SELECT 1 FROM ka.agent_board_members m WHERE m.task_id=t.id AND m.agent_id=%(a)s))
+    LIMIT 1'''
+
+# Board tasks assigned to the agent and every task below them; tasks of other agents above them stay.
+BOARD_TASKS = '''WITH RECURSIVE tree AS (SELECT id FROM ka.agent_board_tasks WHERE agent_id=%s
+    UNION SELECT t.id FROM ka.agent_board_tasks t JOIN tree ON t.parent_id=tree.id) SELECT id FROM tree'''
+
+
+def agent_history(conn, agent_id) -> tuple[dict[str, int], list]:
+    """What deleting the agent with its history removes, and its board subtree; saved documents are not part of it."""
+    tasks = [row['id'] for row in conn.execute(BOARD_TASKS, (agent_id,))]
+    counts = conn.execute('''SELECT
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND is_test)::int AS test_chats,
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND NOT is_test)::int AS chats,
+        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s)::int AS claude_code_sessions,
+        (SELECT count(*) FROM ka.operations_runs WHERE agent=%(agent)s)::int AS runs,
+        cardinality(%(tasks)s::uuid[]) AS board_tasks,
+        (SELECT count(*) FROM ka.agent_board_members
+            WHERE agent_id=%(agent)s OR task_id=ANY(%(tasks)s::uuid[]))::int AS board_memberships''',
+        {'agent': agent_id, 'tasks': tasks}).fetchone()
+    return counts, tasks
+
+
+def delete_history(conn, agent_id, tasks) -> None:
+    """Remove the agent's sessions, runs, board subtree (tasks) and their run records, children before their parents."""
+    # Run records have no foreign keys; their keys are run:<run id>, cc:<session id>:<turn> and board:<task id>.
+    conn.execute('''DELETE FROM ka.agent_run_events WHERE run_key IN (
+        SELECT 'run:' || id FROM ka.operations_runs WHERE agent=%s
+        UNION ALL SELECT 'board:' || id FROM unnest(%s::uuid[]) AS id)
+        OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (
+            SELECT id::text FROM ka.agent_sessions_cc WHERE agent_id=%s))''', (agent_id, tasks, agent_id))
+    conn.execute('''DELETE FROM ka.operations_commands WHERE run_id IN (
+        SELECT id FROM ka.operations_runs WHERE agent=%s)''', (agent_id,))
+    conn.execute('DELETE FROM ka.operations_runs WHERE agent=%s', (agent_id,))
+    reviews = 'SELECT v.id FROM ka.agent_session_reviews v JOIN ka.agent_sessions s ON s.id=v.session_id WHERE s.agent=%s'
+    conn.execute(f'UPDATE ka.agent_versions SET source_review_id=NULL WHERE source_review_id IN ({reviews})', (agent_id,))
+    conn.execute(f'DELETE FROM ka.agent_session_reviews WHERE id IN ({reviews})', (agent_id,))
+    conn.execute('DELETE FROM ka.agent_sessions WHERE agent=%s', (agent_id,))
+    conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))  # queued inputs cascade
+    conn.execute('DELETE FROM ka.agent_board_members WHERE agent_id=%s OR task_id=ANY(%s)', (agent_id, tasks))
+    # One statement: the parent_id references are checked once it has removed the whole subtree.
+    conn.execute('DELETE FROM ka.agent_board_tasks WHERE id=ANY(%s)', (tasks,))
 
 
 def build_api(app_name, store):
@@ -194,6 +246,12 @@ def build_api(app_name, store):
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
 
+    @router.get('/{agent_id}/history')
+    def history(agent_id: str):
+        with database().connect() as conn:
+            read(conn, agent_id)
+            return agent_history(conn, agent_id)[0]
+
     @router.delete('/{agent_id}', status_code=204)
     def delete(agent_id: str, value: DeleteInput, request: Request):
         with database().connect() as conn:
@@ -204,14 +262,15 @@ def build_api(app_name, store):
                 raise HTTPException(409, 'The coordinator cannot be removed.')
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Reload before deleting.')
-            if conn.execute('''SELECT 1 FROM ka.operations_runs WHERE agent=%s
-                UNION ALL SELECT 1 FROM ka.agent_board_tasks WHERE agent_id=%s
-                UNION ALL SELECT 1 FROM ka.agent_board_members WHERE agent_id=%s
-                UNION ALL SELECT 1 FROM ka.agent_sessions WHERE agent=%s
-                UNION ALL SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%s LIMIT 1''', (agent_id,agent_id,agent_id,agent_id,agent_id)).fetchone():
-                raise HTTPException(409, 'This agent has retained sessions or run history. Disable it to preserve that history.')
+            if conn.execute(WORKING, {'a': agent_id}).fetchone():
+                raise HTTPException(409, WORKING_REFUSED)
+            history, tasks = agent_history(conn, agent_id)
+            if any(history.values()):
+                if not value.with_history:
+                    raise HTTPException(409, HISTORY_REFUSED)
+                delete_history(conn, agent_id, tasks)
             conn.execute('SELECT agent FROM ka.agent_prompts WHERE agent=%s FOR UPDATE', (agent_id,))
-            audit(conn, request, agent_id, 'agent.deleted')
+            audit(conn, request, agent_id, 'agent.deleted', **({'history': history} if any(history.values()) else {}))
             credentials = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)).fetchall()
             for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents'):
                 conn.execute(f'DELETE FROM ka.{table} WHERE agent_id=%s', (agent_id,))

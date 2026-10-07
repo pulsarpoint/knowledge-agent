@@ -139,6 +139,13 @@ networks. Catalog tools therefore run in a separate service.
     It uses the same claim, lease, queue and event code, and runs turns with the
     native runtime and the catalog tools directly.
   - **Claude Code** sessions keep running in `claude-code-worker`.
+- **Native history uses the SDK's `Session` interface:** a small `Session` implementation backed
+  by `ka.agent_sessions` replaces the hand-written load/save of `history`.
+  - `get_items()` reads the saved history; `add_items()` only buffers in memory.
+  - The buffer is committed, redacted with the run's known credentials, in the same transaction
+    as the successful turn, and dropped when the turn fails, is cancelled or times out, so a failed
+    turn never leaves partial items.
+  - This makes `SessionSettings(limit=…)` and SDK compaction available for long conversations.
 - **Events:** both workers emit the same event kinds (input, message, reasoning,
   tool_call, tool_result, usage, error, end) under one run key format `session:<id>:<turn>`.
 - **Test tabs:** the agent Test tab and the existing test chats move onto sessions in

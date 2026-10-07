@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { startOperationsRun, cancelOperationsRun, getAgentSessions } from '../operations';
-import { deleteAgent } from '../profiles';
+import { deleteAgent, describeHistory, getAgentHistory } from '../profiles';
 afterEach(() => vi.unstubAllGlobals());
 
 test('execution clients preserve structured access errors', async () => {
@@ -46,4 +46,17 @@ test('agent deletion sends revision and explicit confirmation and accepts 204', 
   vi.stubGlobal('fetch', fetchMock);
   await expect(deleteAgent('custom', 3)).resolves.toBeUndefined();
   expect(fetchMock).toHaveBeenCalledWith('/api/agents/custom', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ revision: 3, confirmed: true }) }));
+});
+
+test('an agent is deleted with its history only when asked, and its history reads as a short list', async () => {
+  const fetchMock = vi.fn(async (url: string) => url.endsWith('/history')
+    ? Response.json({ test_chats: 2, chats: 0, claude_code_sessions: 1, runs: 1, board_tasks: 0, board_memberships: 3 })
+    : new Response(null, { status: 204 }));
+  vi.stubGlobal('fetch', fetchMock);
+  await deleteAgent('custom', 3, true);
+  expect(fetchMock).toHaveBeenCalledWith('/api/agents/custom', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ revision: 3, confirmed: true, with_history: true }) }));
+  const history = await getAgentHistory('custom');
+  expect(fetchMock.mock.lastCall?.[0]).toBe('/api/agents/custom/history');
+  expect(describeHistory(history)).toBe('2 test chats, 1 Claude Code session, 1 run, 3 board memberships');
+  expect(describeHistory({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 })).toBe('');
 });

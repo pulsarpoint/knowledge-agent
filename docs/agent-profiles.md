@@ -116,7 +116,30 @@ omitted replacement secrets preserve saved credentials.
 `DELETE /api/agents/{id}` accepts `{"revision": 1, "confirmed": true}`. The UI
 asks for confirmation. Deletion removes only the agent's settings, prompt versions,
 and resource joins. Shared models, skills, servers, repositories and documents
-remain. An agent with retained run history returns HTTP 409 instead of erasing it.
+remain. An agent with sessions or run history returns HTTP 409 ("Delete it with its
+history, or disable it to keep the history.") unless the body also has
+`"with_history": true`.
+
+`GET /api/agents/{id}/history` returns what that would delete:
+`{"test_chats", "chats", "claude_code_sessions", "runs", "board_tasks", "board_memberships"}`
+(`board_tasks` counts the tasks assigned to the agent and all tasks below them;
+`board_memberships` counts the agent's own member rows plus the member rows of those
+tasks — exactly the rows the delete removes). With
+`with_history` the same transaction first deletes the agent's run records
+(`agent_run_events` with keys `run:<run id>`, `cc:<session id>:<turn>` and
+`board:<task id>` of those rows only), its runs and their SSH commands, its chats and
+their reviews (configuration versions made from a review keep the version and lose the
+link), its Claude Code sessions and queued inputs, its board memberships and its board
+tasks with their subtasks and member rows. Tasks of other agents above them (such as the
+coordinator's task) and beside them stay, and so does the coordinator's own run record
+of a task it delegated to this agent (`board:<root task id>`). Saved documents are
+independent rows and stay. While the agent is working — a Claude Code session that is
+`starting` or `working`, a `running` operations run, or a `queued` or `running` board
+task it owns or is a member of — the delete (with or without history) returns HTTP 409
+("This agent is working right now. Stop its Claude Code sessions, runs and board tasks,
+or wait for them to finish, then delete it.") and deletes nothing. The
+coordinator is still refused and the revision is still checked; the `agent.deleted`
+audit event records the deleted counts under `history`.
 Migration 0025 permits atomic agent/prompt deletion and preserves the legacy model
 assignment projection when a default agent is removed.
 
