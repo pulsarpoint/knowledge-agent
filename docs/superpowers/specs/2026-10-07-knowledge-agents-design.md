@@ -175,6 +175,28 @@ The form, top to bottom:
     projects. Linked code projects' folders are also working folders.
   - Servers are described as text: name, address and description. Server access goes
     through the agent's own SSH configuration (step 2), never through this form.
+- **The form's only product is that message.** It is a normal first message to the
+  agent, so it is exactly what a user could have typed. Example:
+
+  ```
+  Document the following.
+
+  ## Code
+  - Payments API — /work/data/code/payments-api
+
+  ## Services
+  - Payments — deployed on prod-1 (production); code: Payments API
+
+  ## Servers
+  - prod-1 (10.0.0.5): Payments host
+
+  ## Instructions
+  Focus on the public API.
+  ```
+
+  The only thing it adds besides the message is read access to the listed code folders
+  (Claude Code working folders, native code roots), because an agent cannot read a
+  folder it has not been given.
 - **The free folders and notes fields go away.**
 - **The draft is saved as a document,** as today.
 - **Existing documents and generation history stay** and remain viewable; only
