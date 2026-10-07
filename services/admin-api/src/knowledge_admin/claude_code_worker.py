@@ -18,26 +18,23 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import psycopg
 from cryptography.exceptions import InvalidTag
 from knowledge_llm import RuntimeModel, claude_model, decode_model
 from psycopg.conninfo import make_conninfo
-from psycopg.types.json import Jsonb
 
 from knowledge_admin import run_record
-from knowledge_admin.agent_activity import redact
-from knowledge_admin.claude_code import ALLOWED_TOOLS, DISALLOWED_TOOLS, close_idle
+from knowledge_admin.claude_code import ALLOWED_TOOLS, DISALLOWED_TOOLS
 from knowledge_admin import claude_code_cli as cli
 from knowledge_admin.claude_code_cli import HOME_ROOT, MAX_SLOTS, SESSION_HOMES, SLOT_ENV
+from knowledge_admin.knowledge_agents import session_worker as shared
+from knowledge_admin.knowledge_agents.session_worker import (  # noqa: F401  (Claude Code names kept for callers)
+    CLOSED, END_STATUS, IDLE_RELEASE_SECONDS, INTERRUPTED, LEASE_SECONDS, LOST, MAX_PREVIEW_CHARS, MAX_TOOL_OUTPUT,
+    PREVIEW_LINES, STOPPED, TOOL_TRUNCATED, capped, clean_text, run_key, scrub as _scrub)
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import RunRecorder
 
 logger = logging.getLogger(__name__)
 
-PREVIEW_LINES = 20
-MAX_PREVIEW_CHARS = 2000
-MAX_TOOL_OUTPUT = 64 * 1024
-TOOL_TRUNCATED = '… [truncated]'
 BASE_ENV = {'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'DISABLE_AUTOUPDATER': '1', 'DISABLE_TELEMETRY': '1', 'DISABLE_ERROR_REPORTING': '1',
             'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1', 'SHELL': '/bin/bash'}
@@ -48,14 +45,7 @@ HINTS = (
     (('403', '401', 'accessdenied', 'authentication'), 'Check the key and model access of this connection in LLM Settings.'),
 )
 DEFAULT_HINT = 'Check the model connection in LLM Settings, then send a message to retry.'
-LEASE_SECONDS = 60
-IDLE_RELEASE_SECONDS = 300.0
 INTERRUPT_GRACE_SECONDS = 30.0
-STOPPED = 'Stopped. Send a message to continue.'
-INTERRUPTED = 'The worker restarted during this turn. Send a message to continue.'
-END_STATUS = {'waiting': 'completed', 'stopped': 'stopped', 'failed': 'failed'}
-CLOSED = object()
-LOST = object()  # another worker holds the session now: stop without further writes
 
 
 def credential_env(model: RuntimeModel) -> dict[str, str]:
@@ -110,12 +100,6 @@ def build_options(session: dict[str, Any], model: RuntimeModel, slot: int = 1) -
     return options
 
 
-def clean_text(text: str, secrets: Iterable[str]) -> str:
-    """Text to store: without U+0000 (Postgres rejects it in text and jsonb), removed first so it cannot split a key,
-    then redacted."""
-    return redact(text.replace('\x00', ''), [secret for secret in secrets if secret])
-
-
 def safe_error(text: str, secrets: Iterable[str]) -> str:
     """A provider or CLI error for people: redacted, one line, at most 500 characters, with a hint."""
     reason = ' '.join(clean_text(text or '', secrets).split())[:500]
@@ -131,10 +115,6 @@ def result_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     return '\n'.join(item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text')
-
-
-def capped(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:limit] + TOOL_TRUNCATED
 
 
 def tool_summary(name: str, arguments: dict[str, Any]) -> str:
@@ -161,16 +141,6 @@ def result_error(result: Any) -> str:
     if result is None:
         return 'Claude Code ended the turn without a result.'
     return ' '.join(part for part in [result.result or '', *(getattr(result, 'errors', None) or [])] if part)
-
-
-def _scrub(value: Any, secrets: list[str]) -> Any:
-    if isinstance(value, str):
-        return clean_text(value, secrets)
-    if isinstance(value, dict):
-        return {_scrub(key, secrets) if isinstance(key, str) else key: _scrub(item, secrets) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_scrub(item, secrets) for item in value]
-    return value
 
 
 class _Redacting:
@@ -243,100 +213,26 @@ def sdk_client(options: dict[str, Any]):
 
 
 def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int) -> list[dict]:
-    """Close idle sessions, renew this worker's leases, then claim sessions that need a worker: a queued message, or a
-    turn left `working` by a worker that stopped (that turn is recorded as failed)."""
-    with store.connect() as conn:
-        close_idle(conn)
-        conn.execute("""UPDATE ka.agent_sessions_cc SET lease_expires_at=now()+%s*interval '1 second'
-            WHERE worker_id=%s AND id=ANY(%s::uuid[]) AND status<>'closed'""", (LEASE_SECONDS, worker_id, active))
-        if free <= 0:
-            return []
-        rows = conn.execute("""WITH picked AS (
-                SELECT s.id,s.status AS previous FROM ka.agent_sessions_cc s
-                WHERE s.status<>'closed' AND (s.lease_expires_at IS NULL OR s.lease_expires_at<now())
-                  AND NOT s.id=ANY(%s::uuid[])
-                  AND (s.status='working' OR EXISTS (SELECT 1 FROM ka.agent_session_inputs i
-                       WHERE i.session_id=s.id AND i.status='queued'))
-                ORDER BY s.created_at,s.id LIMIT %s FOR UPDATE OF s SKIP LOCKED)
-            UPDATE ka.agent_sessions_cc s SET worker_id=%s,lease_expires_at=now()+%s*interval '1 second',
-                status=CASE WHEN s.status='working' THEN 'failed' ELSE s.status END,
-                status_message=CASE WHEN s.status='working' THEN %s ELSE s.status_message END,
-                stop_requested_at=CASE WHEN s.status='working' THEN NULL ELSE s.stop_requested_at END
-            FROM picked WHERE s.id=picked.id
-            RETURNING s.*,picked.previous,(SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id) AS agent_name,
-                EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued""",
-            (active, free, worker_id, LEASE_SECONDS, INTERRUPTED)).fetchall()
-        for row in rows:
-            if row['previous'] == 'working' and not row['queued']:  # failed now; it needs a worker only for a message
-                conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
-                             (row['id'], worker_id))
-            if row['previous'] == 'working' and row['turns'] > 0:
-                key = f"cc:{row['id']}:{row['turns']}"
-                for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
-                    conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                        SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
-                        (row['project_id'], key, kind, row['agent_id'], row['actor_id'], Jsonb(payload), key))
-    return rows
+    """Claude Code sessions only (session_worker.claim)."""
+    return shared.claim(store, worker_id, active, free, 'claude_code')
 
 
-class SessionRunner:
-    """One session in one asyncio task: one client, created on the first turn and kept until the session closes or has
-    been idle for `idle_release` seconds. This task connects, sends and interrupts; a child task reads responses."""
+class SessionRunner(shared.SessionRunner):
+    """One Claude Code session in one asyncio task: one client, created on the first turn and kept until the session
+    closes or has been idle for `idle_release` seconds. This task connects, sends and interrupts; a child task reads
+    responses. Claiming, queued messages, Stop and finishing a turn are shared (session_worker)."""
 
     def __init__(self, store: RepositoryStore, session: dict, client_factory=sdk_client, *, poll: float = 1.0,
                  idle_release: float = IDLE_RELEASE_SECONDS, slot: int = 1):
-        self.store, self.session, self.client_factory = store, session, client_factory
-        self.id, self.worker_id, self.slot = session['id'], session['worker_id'], slot
-        self.poll, self.idle_release = poll, idle_release
-        self.secrets: list[str] = []
+        super().__init__(store, session, poll=poll, idle_release=idle_release, slot=slot)
+        self.client_factory = client_factory
         self.stack: AsyncExitStack | None = None
         self.client = None
         self.stderr: deque[str] = deque(maxlen=20)
 
-    async def run(self) -> None:
-        idle_since = time.monotonic()
-        try:
-            while True:
-                turn = await asyncio.to_thread(self.next_turn)
-                if turn is CLOSED or turn is LOST:
-                    return
-                if turn is None:
-                    if time.monotonic() - idle_since >= self.idle_release:
-                        return
-                    await asyncio.sleep(self.poll)
-                    continue
-                await self.run_turn(*turn)
-                idle_since = time.monotonic()
-        finally:
-            await self.disconnect()
-            self.secrets.clear()
-            with suppress(psycopg.Error):
-                await asyncio.to_thread(self.release)
-
-    def next_turn(self):
-        """Deliver every queued message as the next turn, once; CLOSED when the session is closed, LOST when this worker
-        no longer holds its lease."""
-        with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions_cc WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
-            if row is None or row['status'] == 'closed':
-                return CLOSED
-            if not row['owned']:
-                return LOST
-            inputs = conn.execute("""SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
-                ORDER BY seq""", (self.id,)).fetchall()
-            if not inputs:
-                return None
-            number = row['turns'] + 1
-            conn.execute("""UPDATE ka.agent_session_inputs SET status='delivered',turn=%s,delivered_at=now()
-                WHERE id=ANY(%s)""", (number, [item['id'] for item in inputs]))
-            conn.execute("""UPDATE ka.agent_sessions_cc SET status='working',status_message='',turns=%s,
-                stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""", (number, self.id))
-            return number, '\n\n'.join(item['text'] for item in inputs)
-
     async def run_turn(self, number: int, text: str) -> None:
         self.stderr.clear()
-        recorder = RunRecorder(run_key=f'cc:{self.id}:{number}', project_id=str(self.session['project_id']),
+        recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
                                agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=self.secrets)
         recorder.add('start', {'kind': 'claude_code', 'title': self.session['title'], 'agent': self.session['agent_name'],
                                'turn': number})
@@ -388,7 +284,8 @@ class SessionRunner:
                 consumer.cancel()
         recorder.add('end', {'status': END_STATUS[status]})
         await asyncio.to_thread(recorder.flush)
-        await asyncio.to_thread(self.finish_turn, number, status, message, turn)
+        await asyncio.to_thread(self.finish_turn, number, status, message, draft=clean_text(turn.draft, self.secrets),
+                                usage=turn.usage, claude_session_id=turn.session_id)
 
     async def consume(self, turn: Turn, recorder: RunRecorder) -> None:
         async for message in self.client.receive_response():
@@ -440,81 +337,21 @@ class SessionRunner:
             with suppress(Exception):
                 await stack.aclose()
 
-    def stop_requested(self) -> bool:
-        with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions_cc WHERE id=%s''', (self.worker_id, self.id)).fetchone()
-        return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None or not row['owned']
-
-    def finish_turn(self, number: int, status: str, message: str, turn: Turn) -> None:
-        usage = turn.usage or {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'cost_usd': 0.0}
-        draft = clean_text(turn.draft, self.secrets)
-        draft = draft if status == 'waiting' and draft.strip() else None
-        with self.store.connect() as conn:
-            conn.execute("""UPDATE ka.agent_sessions_cc SET
-                status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
-                status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
-                draft=coalesce(%(draft)s::text, draft),
-                draft_turn=CASE WHEN %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
-                claude_session_id=coalesce(%(cli)s::text, claude_session_id),
-                input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
-                cached_tokens=cached_tokens+%(cached)s, cost_usd=cost_usd+%(cost)s::numeric,
-                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s""",
-                {'status': status, 'message': message, 'draft': draft, 'turn': number, 'cli': turn.session_id,
-                 'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'cost': usage['cost_usd'], 'id': self.id, 'worker': self.worker_id})
-
-    def release(self) -> None:
-        with self.store.connect() as conn:
-            conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
-                         (self.id, self.worker_id))
-
 
 async def serve(store: RepositoryStore, client_factory=sdk_client, *, stopped: asyncio.Event, worker_id: str | None = None,
                 limit: int | None = None, poll: float = 1.0, idle_release: float = IDLE_RELEASE_SECONDS) -> None:
-    """Claim sessions and run one task per session until `stopped` is set; leases are renewed every poll. Each running
-    session holds one slot (its own uid for the CLI) until its task ends; a later turn may run in any free slot."""
+    """Run Claude Code sessions (session_worker.serve). Each running session holds one slot (its own uid for the CLI);
+    a later turn may run in any free slot. A slot is cleared (reclaim_slot) before it is used again."""
     worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}'
     limit = limit or int(os.environ.get('CLAUDE_CODE_MAX_SESSIONS', '4'))
     if limit > MAX_SLOTS:
         logger.warning('CLAUDE_CODE_MAX_SESSIONS is %s; this worker runs at most %s sessions', limit, MAX_SLOTS)
         limit = MAX_SLOTS
-    active: dict[UUID, asyncio.Task] = {}
-    slots: dict[UUID, int] = {}
-    free_slots = list(range(1, limit + 1))
-    try:
-        while not stopped.is_set():
-            for session_id, task in list(active.items()):
-                if task.done():
-                    del active[session_id]
-                    slot = slots.pop(session_id)
-                    try:  # nothing of this session stays readable by the next session in this slot
-                        await asyncio.to_thread(reclaim_slot, session_id, slot)
-                    except Exception as exc:
-                        logger.warning('Claude Code slot %s is kept out of use: it could not be cleared (%s)',
-                                       slot, type(exc).__name__)
-                    else:
-                        free_slots.append(slot)
-                    if not task.cancelled() and task.exception() is not None:
-                        logger.warning('Claude Code session %s ended with %s', session_id, type(task.exception()).__name__)
-            try:
-                claimed = await asyncio.to_thread(claim, store, worker_id, list(active), len(free_slots))
-            except psycopg.Error as exc:
-                logger.warning('Claude Code worker database unavailable (%s); retrying', type(exc).__name__)
-                claimed = []
-            for session in claimed:
-                if session['previous'] == 'working' and not session['queued']:
-                    continue  # its interrupted turn is recorded; claim released it until a message arrives
-                slots[session['id']] = free_slots.pop(0)
-                runner = SessionRunner(store, session, client_factory, poll=poll, idle_release=idle_release,
-                                       slot=slots[session['id']])
-                active[session['id']] = asyncio.create_task(runner.run())
-            with suppress(TimeoutError):
-                await asyncio.wait_for(stopped.wait(), poll)
-    finally:
-        for task in active.values():
-            task.cancel()
-        await asyncio.gather(*active.values(), return_exceptions=True)
+    await shared.serve(
+        store, lambda session, slot: SessionRunner(store, session, client_factory, poll=poll, idle_release=idle_release,
+                                                   slot=slot),
+        runtime='claude_code', label='Claude Code', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll,
+        reclaim=lambda session_id, slot: reclaim_slot(session_id, slot))  # looked up per call: tests replace it
 
 
 def secrets_from_environment() -> tuple[bytes, str]:
