@@ -170,3 +170,21 @@ def test_the_version_model_must_fit_the_agent_type(store, tmp_path, monkeypatch)
     refused = activate(gpt_version)
     assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
     assert client.get(path, headers=HEADERS).json()['active_id'] == claude_version
+
+
+def test_a_model_used_by_a_claude_code_agent_stays_a_claude_model(store, writer):
+    client, agent_id = writer
+    claude, _ = models(client)
+    profile = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
+    saved = client.put(f'/api/agents/{agent_id}/model', headers=HEADERS, json={'revision': profile['revision'], 'model_id': claude})
+    assert saved.status_code == 200, saved.text
+    with store.connect() as conn:
+        revision = conn.execute('SELECT revision FROM ka.llm_models WHERE id=%s', (claude,)).fetchone()['revision']
+    gpt = {'name': 'Claude', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
+           'base_url': 'http://model.test/v1', 'api_key': 'openai-secret', 'revision': revision}
+    refused = client.put(f'/api/llm/models/{claude}', headers=HEADERS, json=gpt)
+    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
+    renamed = client.put(f'/api/llm/models/{claude}', headers=HEADERS, json={
+        'name': 'Claude Sonnet', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'api_format': 'native', 'aws_region': 'eu-central-1', 'revision': revision})
+    assert renamed.status_code == 200, renamed.text
