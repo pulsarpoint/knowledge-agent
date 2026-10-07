@@ -144,6 +144,7 @@ def session_context(conn, project: UUID, value: SessionInput, agent_projects: li
 STREAM_POLL_SECONDS = 1.0
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
+HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
 STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
@@ -311,6 +312,25 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 discard(conn, session_id)
                 audit(conn, actor, 'claude_code.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
+
+    @router.get('/sessions/{session_id}/events/history')
+    def history(session_id: UUID, response: Response, before: int | None = Query(None, ge=1),
+                limit: int = Query(HISTORY_LIMIT, ge=1, le=500)) -> dict:
+        """A page of the session's events, oldest first: the latest page, or the page before an event id. Each event is
+        what the stream sends (a tool result keeps its preview; the full output stays in the run record)."""
+        response.headers['Cache-Control'] = 'no-store'
+        db = database()
+        with db.connect() as conn:
+            row = conn.execute('SELECT turns FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
+                               (session_id, db.project(conn, app_name))).fetchone()
+            if row is None:
+                raise HTTPException(404, 'Session not found.')
+            keys = [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
+            rows = conn.execute('''SELECT id,run_key,seq,kind,payload,created_at FROM ka.agent_run_events
+                WHERE run_key=ANY(%s) AND (%s::bigint IS NULL OR id<%s) ORDER BY id DESC LIMIT %s''',
+                (keys, before, before, limit + 1)).fetchall()
+        return jsonable_encoder({'events': [stream_event(item) for item in reversed(rows[:limit])],
+                                 'has_more': len(rows) > limit})
 
     @router.get('/sessions/{session_id}/events')
     async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):

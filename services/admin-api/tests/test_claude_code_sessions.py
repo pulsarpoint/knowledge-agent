@@ -267,6 +267,38 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkey
     assert client.get(f'/api/claude-code/sessions/{sid}/events').status_code == 403
 
 
+def test_event_history_pages_backwards_like_the_stream(sessions):
+    client, store = sessions.client, sessions.store
+    sid = start(sessions)['id']
+    other = start(sessions)['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=2 WHERE id=ANY(%s::uuid[])", ([sid, other],))
+        for seq in (1, 2, 3):
+            record(conn, sid, 1, seq, 'message', {'text': f'one {seq}'})
+        record(conn, other, 1, 1, 'message', {'text': 'another session'})
+        record(conn, sid, 2, 1, 'tool_result', {'name': 'Read', 'output': 'the whole file body', 'preview': 'line'})
+        record(conn, sid, 2, 2, 'message', {'text': 'two 2'})
+    url = f'/api/claude-code/sessions/{sid}/events/history'
+    latest = client.get(url + '?limit=2', headers=HEADERS)
+    assert latest.status_code == 200 and latest.headers['cache-control'] == 'no-store'
+    page = latest.json()
+    assert [(e['turn'], e['seq'], e['kind']) for e in page['events']] == [(2, 1, 'tool_result'), (2, 2, 'message')]
+    assert page['has_more'] is True
+    assert page['events'][0]['payload'] == {'name': 'Read', 'preview': 'line'}  # redacted like the stream
+    assert 'the whole file body' not in latest.text
+    older = client.get(f"{url}?before={page['events'][0]['id']}&limit=2", headers=HEADERS).json()
+    assert [e['payload']['text'] for e in older['events']] == ['one 2', 'one 3'] and older['has_more'] is True
+    first = client.get(f"{url}?before={older['events'][0]['id']}&limit=2", headers=HEADERS).json()
+    assert [e['payload']['text'] for e in first['events']] == ['one 1'] and first['has_more'] is False
+    default = client.get(url, headers=HEADERS).json()  # the latest 100: the whole session here, never another one's
+    assert [e['seq'] for e in default['events']] == [1, 2, 3, 1, 2] and default['has_more'] is False
+    assert all(e['id'] == r['id'] for e, r in zip(default['events'][-2:], page['events']))
+    for bad in ('?limit=0', '?limit=501', '?before=0', '?before=x'):
+        assert client.get(url + bad, headers=HEADERS).status_code == 400, bad
+    assert client.get(f'/api/claude-code/sessions/{uuid4()}/events/history', headers=HEADERS).status_code == 404
+    assert client.get(url).status_code == 403
+
+
 def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the_folder(sessions):
     client, store = sessions.client, sessions.store
     sid = start(sessions)['id']
