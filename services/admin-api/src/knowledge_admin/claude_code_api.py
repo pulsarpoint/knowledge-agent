@@ -20,14 +20,16 @@ from knowledge_admin.claude_code import agent_system_prompt, close_idle
 from knowledge_admin.data_root import data_dir, documentation_folder
 from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.generate_documents import first_message, subjects
-from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
-from knowledge_admin.knowledge_agents.native_sessions import code_roots
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
 
-NOTHING_CHOSEN = 'Choose at least one code project, environment, service or server to document.'
+NOTHING_CHOSEN = 'Choose at least one code project, collection, environment, service or server to document.'
 NO_FOLDER = ('Claude Code needs at least one working folder: choose code projects, or environments or services with '
              'code projects, or give the agent code projects.')
+NO_RUN_FOLDER = ('Claude Code needs at least one working folder: choose code projects, or environments or services '
+                 'with code projects, that this agent accepts.')
 NO_AGENT = 'Select an enabled agent.'
 AGENT_MODEL = 'The agent has no enabled model for its agent type. Choose one on its General tab.'
 CLOSED = 'This session is closed. Start a new session.'
@@ -39,6 +41,7 @@ class SessionInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     agent_id: str = Field(min_length=1, max_length=100)
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    collection_ids: list[UUID] = Field(default_factory=list, max_length=50)
     environment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     service_ids: list[UUID] = Field(default_factory=list, max_length=50)
     server_ids: list[UUID] = Field(default_factory=list, max_length=50)
@@ -55,9 +58,10 @@ class SessionInput(BaseModel):
         if not document_slug(self.document_name):
             raise ValueError('Use letters or digits in the document name')
         self.folder = documentation_folder(self.folder)
-        for name in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids'):
+        for name in ('code_project_ids', 'collection_ids', 'environment_ids', 'service_ids', 'server_ids'):
             setattr(self, name, list(dict.fromkeys(getattr(self, name))))
-        if not (self.code_project_ids or self.environment_ids or self.service_ids or self.server_ids):
+        if not (self.code_project_ids or self.collection_ids or self.environment_ids or self.service_ids
+                or self.server_ids):
             raise ValueError(NOTHING_CHOSEN)
         return self
 
@@ -90,7 +94,7 @@ def _select(extra: str = '') -> str:
 
 
 SUMMARY = _select()
-DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id')
+DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources')
 
 
 def session_detail(conn, project: UUID, session_id: UUID) -> dict:
@@ -116,16 +120,20 @@ def inside_data_root(path: str) -> None:
         raise refused from None
 
 
-def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict], *, needs_folder: bool = True) -> dict:
-    """What to document (generate_documents.subjects) plus the working folders: the chosen code projects, the code
-    projects of the chosen environments and services, then the agent's own code projects, each folder once. Every
+def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict], *, needs_folder: bool = True,
+                    chosen: bool = True, agents_own: bool = True) -> dict:
+    """What to document (generate_documents.subjects) plus the folders the agent reads, each folder once. With `chosen`
+    (fixed Claude Code agents) the chosen code projects and those of the chosen environments and services come first;
+    then `agent_projects`: the agent's own code projects (`agents_own`) or a per-run agent's run code projects. Every
     folder must exist now, inside DATA_ROOT, without a symbolic link on the way. Claude Code needs at least one folder
     (its working directory); native agents do not."""
     context = subjects(conn, project, value)
-    candidates = [(path, item, False) for item in context['code_projects'] for path in item['paths']]
-    candidates += [(path, item, False) for group in ('environments', 'services') for subject in context[group]
-                   for item in subject['code_projects'] for path in item['paths']]
-    candidates += [(path, {'id': str(item['id']), 'name': item['name']}, True)
+    candidates = []
+    if chosen:
+        candidates += [(path, item, False) for item in context['code_projects'] for path in item['paths']]
+        candidates += [(path, item, False) for group in ('environments', 'services') for subject in context[group]
+                       for item in subject['code_projects'] for path in item['paths']]
+    candidates += [(path, {'id': str(item['id']), 'name': item['name']}, agents_own)
                    for item in agent_projects for path in item['folder_paths']]
     folders, seen = [], set()
     for path, item, from_agent in candidates:
@@ -140,7 +148,7 @@ def session_context(conn, project: UUID, value: SessionInput, agent_projects: li
         inside_data_root(path)
         folders.append({'path': path, 'kind': 'code_project', 'name': item['name'], 'code_project_id': item['id']})
     if not folders and needs_folder:
-        raise HTTPException(400, NO_FOLDER)
+        raise HTTPException(400, NO_FOLDER if agents_own else NO_RUN_FOLDER)
     return {**context, 'folders': folders, 'code_project_ids': [item['id'] for item in context['code_projects']]}
 
 
@@ -206,18 +214,29 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if model is None or not model['enabled'] or not model_fits(agent['runtime'], model):
                 raise HTTPException(400, AGENT_MODEL)
             claude_code = agent['runtime'] == 'claude_code'
-            context = session_context(conn, project, value, config['code']['projects'] if config['code']['enabled'] else [],
-                                      needs_folder=claude_code)
+            given = per_run(config)
+            try:  # per-run agents: the form's sources are the run's resources; fixed agents keep their own
+                effective = resolve(conn, project, config, RunResources(
+                    code_project_ids=value.code_project_ids, collection_ids=value.collection_ids,
+                    server_ids=value.server_ids, service_ids=value.service_ids) if given else None,
+                    environment_ids=value.environment_ids if given else ())
+            except RunResourceError as exc:
+                raise HTTPException(400, str(exc)) from None
+            readable = effective['code']['projects'] if effective['code']['enabled'] else []
+            context = session_context(conn, project, value, readable, needs_folder=claude_code,
+                                      chosen=claude_code and not given, agents_own=not given)
             snapshot = {'system_prompt': agent_system_prompt(config), 'agent_version': config.get('config_version')}
             if claude_code:
                 snapshot['claude_code_tools'] = config['claude_code_tools']
             # Native turns run with this config (credential references only); the worker decrypts per turn.
-            pinned = None if claude_code else Jsonb(jsonable_encoder(code_roots(config, context['folders'])))
+            pinned = None if claude_code else Jsonb(jsonable_encoder(effective))
             session_id = uuid4()
             conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-                context_snapshot,document_name,folder,runtime,agent_config) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                context_snapshot,document_name,folder,runtime,agent_config,run_resources)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (session_id, project, agent['id'], actor, model['id'], value.document_name, Jsonb(jsonable_encoder(snapshot)),
-                 Jsonb(context), value.document_name, value.folder, agent['runtime'], pinned))
+                 Jsonb(context), value.document_name, value.folder, agent['runtime'], pinned,
+                 Jsonb(effective['run_resources']) if given else None))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, first_message(context)))
             audit(conn, actor, 'claude_code.session.created', 'agent_session', {'agent_id': agent['id'], 'runtime': agent['runtime']}, session_id)

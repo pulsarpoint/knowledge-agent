@@ -3,9 +3,9 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import AgentTestView from '../AgentTestView';
 import * as api from '../../lib/operations';
-import { getAgentConfig } from '../../lib/profiles';
+import { getAgentConfig, getRunResourceOptions, type RunResourceOptions } from '../../lib/profiles';
 vi.mock('../../lib/operations');
-vi.mock('../../lib/profiles');
+vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgentConfig: vi.fn(), getRunResourceOptions: vi.fn() }));
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
 const run: api.OperationsRun = { id:'run-1',session_id:'session-1',task:'Initial question',status:'completed',created_at:'2026-09-11T12:00:00Z',actor_email:'admin@test',answer:'Initial answer',error:'',progress:'',commands:[],context:{servers:[],model_name:'Model',prompt:{version:1},config:{id:'custom'}} };
@@ -18,6 +18,7 @@ beforeEach(()=>{
   vi.mocked(api.getAgentSessions).mockResolvedValue({sessions:[]});
   vi.mocked(api.getAgentSession).mockResolvedValue(structuredClone(conversation));
   vi.mocked(getAgentConfig).mockResolvedValue({id:'custom'});
+  vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
 });
 
 it('creates a session URL on the first message and sends follow-ups to the same session',async()=>{
@@ -33,6 +34,7 @@ it('creates a session URL on the first message and sends follow-ups to the same 
   });
   renderPage();
   fireEvent.change(screen.getByLabelText('Task'),{target:{value:'First message'}});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Run task'})).toBeEnabled());  // after the run resource options load
   fireEvent.click(screen.getByRole('button',{name:'Run task'}));
   expect(await screen.findByText('Answer 1')).toBeVisible();
   expect(screen.getByLabelText('URL')).toHaveTextContent('session_id=session-1');
@@ -109,8 +111,10 @@ it('sends the selected version for a new test',async()=>{
   renderPage('?view=test&version_id=v2');
   expect(await screen.findByText('Agent v2 · Experiment')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Try the draft'}});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Run task'})).toBeEnabled());
+  expect(getRunResourceOptions).toHaveBeenCalledWith('custom','v2');
   fireEvent.click(screen.getByRole('button',{name:'Run task'}));
-  await waitFor(()=>expect(api.startOperationsRun).toHaveBeenCalledWith('Try the draft','custom',expect.any(AbortSignal),expect.any(Function),undefined,'v2'));
+  await waitFor(()=>expect(api.startOperationsRun).toHaveBeenCalledWith('Try the draft','custom',expect.any(AbortSignal),expect.any(Function),undefined,'v2',undefined));
 });
 
 it('totals recorded session usage across turns without double-counting cache or reasoning',async()=>{
@@ -171,4 +175,58 @@ it('links every reply to its full run record',async()=>{
   renderPage('?view=test&session_id=session-1');
   await screen.findByText('Initial answer');
   expect(screen.getByRole('link',{name:'Full record'})).toHaveAttribute('href','/activity/runs/run%3Arun-1');
+});
+
+const ANALYST: RunResourceOptions = { resources: 'per_run', collections: null, servers: [], services: null,
+  code_projects: [{ id: 'repo', name: 'Payments API' }, { id: 'worker', name: 'Payments worker' }] };
+const ONLY_REPO = { code_project_ids: ['repo'], collection_ids: [], server_ids: [], service_ids: [] };
+
+it('a per-run agent picks the resources for the run and shows them in the configuration', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
+  expect(within(picker).queryByText('Collections')).toBeNull();  // a kind the agent does not use
+  expect(within(picker).getByText('None allowed. Choose them in the agent’s tabs.')).toBeVisible();  // servers
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
+  const shown = await screen.findByLabelText('Agent configuration');
+  expect(JSON.parse(shown.textContent!).run_resources).toEqual(ONLY_REPO);
+});
+
+it('the chosen resources start the conversation once and stay with it', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  const saved = structuredClone(conversation); saved.runs = [];
+  saved.config = { id: 'custom', code: { projects: [{ id: 'repo', name: 'Payments API' }] }, run_resources: ONLY_REPO };
+  vi.mocked(api.getAgentSession).mockImplementation(async () => structuredClone(saved));
+  vi.mocked(api.startOperationsRun).mockImplementation(async (task, _agentId, _signal, onEvent) => {
+    const result = { ...run, id: `run-${saved.runs.length + 1}`, task, answer: `Answer ${saved.runs.length + 1}`,
+      context: { ...run.context, config: saved.config } };
+    onEvent({ event: 'started', data: { ...result, status: 'running', answer: '' } });
+    saved.runs.push(result);
+    onEvent({ event: 'completed', data: result });
+  });
+  renderPage();
+  fireEvent.click(within(await screen.findByRole('region', { name: 'Resources for this run' })).getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
+  expect(await screen.findByText('Answer 1')).toBeVisible();
+  expect(vi.mocked(api.startOperationsRun).mock.calls[0][6]).toEqual(ONLY_REPO);
+  expect(screen.queryByRole('region', { name: 'Resources for this run' })).toBeNull();  // fixed for the conversation
+  expect(screen.getByLabelText('Resources for this run')).toHaveTextContent('Resources for this run: Payments API');
+  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'And the callers?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(await screen.findByText('Answer 2')).toBeVisible();
+  expect(vi.mocked(api.startOperationsRun).mock.calls[1][6]).toBeUndefined();  // follow-ups never pass resources
+});
+
+it('a per-run agent waits for its resource options before the first message can be sent', async () => {
+  let resolve!: (value: RunResourceOptions) => void;
+  vi.mocked(getRunResourceOptions).mockReturnValue(new Promise(done => { resolve = done; }));
+  renderPage();
+  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Too early' } });
+  expect(screen.getByText('Loading the resources for this run…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+  await act(async () => resolve(structuredClone(ANALYST)));
+  expect(await screen.findByRole('region', { name: 'Resources for this run' })).toBeVisible();
+  expect(screen.queryByText('Loading the resources for this run…')).toBeNull();
 });

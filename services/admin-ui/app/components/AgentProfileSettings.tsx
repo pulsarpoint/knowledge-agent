@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
-import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentRuntime } from '../lib/profiles';
+import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources, type AgentRuntime } from '../lib/profiles';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -52,6 +52,13 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
           <SelectTrigger id="agent-type"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
         <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>}
+      {profile.is_coordinator ? <Field><FieldLabel>Resources</FieldLabel><p className="text-sm">Fixed</p>
+        <FieldDescription>The coordinator works through the specialists it delegates to.</FieldDescription></Field>
+        : <Field><FieldLabel htmlFor="agent-resources">Resources</FieldLabel>
+        <Select value={draft.resources ?? 'fixed'} disabled={busy} onValueChange={value => change({ resources: value as AgentResources })}>
+          <SelectTrigger id="agent-resources"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
+        <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>}
       {profile.is_coordinator ? <FieldDescription>The coordinator is always enabled.</FieldDescription> : <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>}
       </FieldGroup></div>
       {view === 'general' && draft.runtime === 'claude_code' && <FieldSet className="rounded-lg border p-4"><FieldLegend>Claude Code tools</FieldLegend>

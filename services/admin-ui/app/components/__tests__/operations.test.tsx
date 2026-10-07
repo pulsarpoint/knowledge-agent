@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OperationsView from '../OperationsView';
 import ServerSSHForm from '../ServerSSHForm';
 import * as api from '../../lib/operations';
-import { getAgentConfig, type AgentProfile } from '../../lib/profiles';
+import { getAgentConfig, getRunResourceOptions, type AgentProfile } from '../../lib/profiles';
 vi.mock('../../lib/operations');
 vi.mock('../../lib/profiles');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.mocked(api.getOperationsSettings).mockResolvedValue({ settings, configs: [], mcp_servers: [], servers: [server, { ...server, id: 'server-2', name: 'Disabled', ssh_allowed: false }], skills: [{ id: 'skill-1', name: 'service-checks', description: 'Verify services', enabled: true }] });
   vi.mocked(api.getOperationsRuns).mockResolvedValue({ runs: [] });
   vi.mocked(api.getAgentSessions).mockResolvedValue({ sessions: [] });
+  vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
   vi.mocked(api.getSSH).mockResolvedValue(server);
   vi.mocked(getAgentConfig).mockResolvedValue({ id: 'operations', system_prompt: { content: 'Use the saved system prompt.', version: 2 }, ssh: { enabled: true, servers: [] } });
 });

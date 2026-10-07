@@ -1,6 +1,6 @@
 import { request } from './api';
 import type { ModelProfile } from './llm';
-import type { AgentRuntime } from './profiles';
+import type { AgentRuntime, RunResourcesInput } from './profiles';
 
 /** The server's Claude connection rule (knowledge_llm.claude_model). */
 export const claudeModel = (model: { provider: string; api_format: string; model: string }) =>
@@ -33,6 +33,8 @@ export interface SessionDetail extends SessionSummary {
   prompt_snapshot: { system_prompt: string; claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };
   /** What to document and the working folders (earlier sessions hold servers and notes instead of the new keys). */
   context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; instructions?: string };
+  /** What a per-run agent was given for this session (null: an agent with fixed resources). */
+  run_resources?: RunResourcesInput | null;
   inputs: { seq: number; text: string; status: 'queued' | 'delivered' | 'discarded'; turn: number | null; created_at: string }[];
 }
 export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'turns' | 'input_tokens' | 'output_tokens' | 'cached_tokens'
@@ -40,7 +42,7 @@ export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'tu
 export interface SessionEvent { id: number; turn: number; seq: number; kind: string; payload: Record<string, unknown>; created_at: string }
 /** Docs → Generate documents → New: the agent runs with its own model, prompt, instructions, skills and tools. */
 export interface SessionInput {
-  agent_id: string; code_project_ids: string[]; environment_ids: string[]; service_ids: string[]; server_ids: string[];
+  agent_id: string; code_project_ids: string[]; collection_ids: string[]; environment_ids: string[]; service_ids: string[]; server_ids: string[];
   instructions: string; document_name: string; folder: string;
 }
 export interface SavedDocument { id: string; revision: number; version_id: string; folder: string; output_folder: string | null; export_error: string | null }

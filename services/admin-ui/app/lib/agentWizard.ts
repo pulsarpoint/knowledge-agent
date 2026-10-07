@@ -1,5 +1,5 @@
 import { request } from './api';
-import type { AgentRuntime, ClaudeCodeTool } from './profiles';
+import type { AgentResources, AgentRuntime, ClaudeCodeTool } from './profiles';
 
 export interface WizardResource { id: string; name: string; description?: string }
 export interface WizardConnection {
@@ -29,7 +29,7 @@ export interface WizardOptions {
     services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];
   };
 }
-export type NewAgent = AgentProposal & { runtime: AgentRuntime; claude_code_tools: ClaudeCodeTool[] };
+export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
 /** The designer proposes the agent's model only among models that fit the chosen agent type. */
 export const generateAgent = (role: string, model_id: string, runtime: AgentRuntime) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {

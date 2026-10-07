@@ -10,7 +10,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run
+from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 
 
 class ProfileInput(BaseModel):
@@ -35,6 +36,7 @@ class ProfileInput(BaseModel):
     services_enabled: bool = Field(strict=True)
     runtime: Literal['openai', 'claude_code'] | None = None  # None keeps the agent type
     claude_code_tools: list[ClaudeCodeTool] | None = Field(default=None, max_length=8)  # None keeps the saved tools
+    resources: Literal['fixed', 'per_run'] | None = None  # None keeps the setting
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
@@ -60,6 +62,7 @@ class ModelInput(BaseModel):
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
 WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions, runs and board tasks, '
                    'or wait for them to finish, then delete it.')
+COORDINATOR_FIXED = 'The coordinator uses fixed resources.'
 # Anything still in progress for the agent, including a board task whose team it is on.
 WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')
     UNION ALL SELECT 1 FROM ka.operations_runs WHERE agent=%(a)s AND status='running'
@@ -138,14 +141,25 @@ def build_api(app_name, store):
     def listing():
         with database().connect() as conn:
             rows = conn.execute('''SELECT a.*,m.name AS model_name,v.title AS prompt_title,v.version AS prompt_version,
-                saved.config AS version_config,saved.version AS config_version
+                saved.config AS version_config,saved.version AS config_version,
+                (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
+                    WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
+                (SELECT count(*) FROM ka.agent_collections x JOIN ka.rag_collections c ON c.id=x.collection_id
+                    WHERE x.agent_id=a.id AND c.deleted_at IS NULL)::int AS collection_count,
+                (SELECT count(*) FROM ka.operations_servers x WHERE x.agent=a.id)::int AS server_count,
+                (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
                 LEFT JOIN ka.agent_prompts p ON p.agent=a.id LEFT JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id
                 LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
                 ORDER BY a.is_coordinator DESC,a.created_at,a.id''').fetchall()
             for row in rows:
+                code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
+                limits = {'code': 'any' if row['all_repositories'] else code_count,
+                          'documents': 'any' if row['all_collections'] else collection_count,
+                          'servers': row.pop('server_count'), 'services': row.pop('service_count')}
                 config = row.pop('version_config')
                 if config is not None:
+                    row['resources'] = config.get('resources', 'fixed')  # versions saved before 0075 are fixed
                     row['claude_code_tools'] = config.get('claude_code_tools', row['claude_code_tools'])
                     for key in ('name','description','when_to_use'):
                         row[key] = config[key]
@@ -155,6 +169,14 @@ def build_api(app_name, store):
                     row['prompt_version'] = config['system_prompt']['version']
                     for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
                         row[flag] = config[capability]['enabled']
+                    limits = {'code': 'any' if config['code'].get('all_projects') else len(config['code']['projects']),
+                              'documents': 'any' if config['documents'].get('all_collections')
+                              else len(config['documents'].get('collections', [])),
+                              'servers': len(config['ssh']['servers']), 'services': len(config['services']['items'])}
+                enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
+                           'servers': row['ssh_enabled'], 'services': row['services_enabled']}
+                row['accepts'] = ([{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
+                                  if row['resources'] == 'per_run' else [])
             return {'agents': rows}
 
     @router.get('/{agent_id}')
@@ -171,6 +193,21 @@ def build_api(app_name, store):
             raise HTTPException(404, 'Agent not found') from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
+
+    @router.get('/{agent_id}/run-resources')
+    def run_resources(agent_id: str, response: Response, version_id: UUID | None = None):
+        """What a caller may pass to one run of a per-run agent: the Test tab picker and Generate documents."""
+        response.headers['Cache-Control'] = 'no-store'
+        try:
+            config = get_agent_config(agent_id, conninfo=database().conninfo, version_id=version_id)
+        except LookupError:
+            raise HTTPException(404, 'Agent not found') from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        if not per_run(config):
+            return {'resources': 'fixed'}
+        with database().connect() as conn:
+            return {'resources': 'per_run', **run_resource_options(conn, store.project(conn, app_name), config)}
 
     @router.get('/{agent_id}/options')
     def options(agent_id: str):
@@ -201,6 +238,9 @@ def build_api(app_name, store):
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 runtime = value.runtime or old['runtime']
+                resources = value.resources or old['resources']
+                if old['is_coordinator'] and resources != 'fixed':
+                    raise HTTPException(400, COORDINATOR_FIXED)
                 if runtime != old['runtime']:
                     if old['is_coordinator']:
                         raise HTTPException(400, 'The coordinator runs on the native runtime.')
@@ -217,7 +257,8 @@ def build_api(app_name, store):
                             raise HTTPException(400, CHOOSE_CLAUDE)
                 tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
-                switch = {'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}
+                switch = {**({'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}),
+                          **({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {})}
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
                     skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
@@ -240,8 +281,8 @@ def build_api(app_name, store):
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,resources=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,resources,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

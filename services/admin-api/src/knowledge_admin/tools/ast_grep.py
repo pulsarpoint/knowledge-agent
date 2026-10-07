@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools import AgentContext, require_given
 from knowledge_admin.tools.files import _path
 
 
@@ -79,6 +79,7 @@ async def ast_grep(ctx: RunContextWrapper[AgentContext], path: str, language: st
     """
     if not ctx.context['config']['code']['enabled']:
         raise ValueError('Code access is disabled.')
+    require_given(ctx.context['config'], 'code')
     if (pattern is None) == (rule is None):
         raise ValueError('Supply exactly one pattern or rule.')
     query = pattern if pattern is not None else rule

@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from '../lib/agentWizard';
-import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, type AgentRuntime } from '../lib/profiles';
+import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, agentTypeLabel, resourcesLabel, type AgentResources, type AgentRuntime } from '../lib/profiles';
 import { claudeModel } from '~/lib/claudeCode';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -54,6 +54,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [showContext, setShowContext] = useState(false);
   const [reload, setReload] = useState(0);
   const [runtime, setRuntime] = useState<AgentRuntime>('openai');
+  const [resources, setResources] = useState<AgentResources>('fixed');
   useEffect(() => {
     let live = true;
     getWizardOptions().then(data => {
@@ -71,6 +72,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     if (next === 'claude_code' && proposal?.model_id && !catalog?.models.some(m => m.id === proposal.model_id && claudeModel(m))) edit({ model_id: null });
   }
   const agentType = <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>;
+  const resourcesField = <Field><FieldLabel htmlFor="wizard-resources">Resources</FieldLabel><Select value={resources} onValueChange={value => setResources(value as AgentResources)}><SelectTrigger id="wizard-resources"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{RESOURCES_HELP[resources]}</FieldDescription></Field>;
   function edit(value: Partial<AgentProposal>) { setProposal(current => current ? { ...current, ...value } : current); }
   function editServer(id: string, value: Partial<WizardServer>) {
     if (proposal) edit({ servers: proposal.servers.map(server => server.server_id === id ? { ...server, ...value } : server) });
@@ -90,7 +92,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent({ ...proposal, runtime, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES] }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
+    try { const saved = await createWizardAgent({ ...proposal, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES] }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
   }
@@ -102,7 +104,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     {error && <Alert variant="destructive"><AlertDescription>{error}{!options && <Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button>}</AlertDescription></Alert>}
     {!options || !catalog ? <Skeleton className="h-48 w-full" /> : <fieldset disabled={busy !== null} className="min-w-0">
       {step === 'describe' ? <FieldGroup>
-        {agentType}
+        <div className="grid gap-4 sm:grid-cols-2">{agentType}{resourcesField}</div>
         <Field><FieldLabel htmlFor="wizard-role">What should this agent do?</FieldLabel>
           <Textarea id="wizard-role" autoFocus rows={5} maxLength={20000} value={role} onChange={e => setRole(e.target.value)} placeholder="Create a payments investigator that reads the payments code and runbooks, checks staging logs over SSH, and explains failures with evidence. Do not allow sudo." />
           <FieldDescription>Describe its role, expected output, resources, and any restrictions. Do not include passwords or private keys.</FieldDescription></Field>
@@ -119,7 +121,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services']].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
-          {agentType}
+          <p className="text-sm" aria-label="Agent type and resources"><span className="font-medium">{agentTypeLabel(runtime)} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>

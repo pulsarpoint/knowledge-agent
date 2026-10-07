@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
-import { getAgent, type AgentProfile } from '../lib/profiles';
+import { PER_RUN_NOTES, getAgent, type AgentProfile } from '../lib/profiles';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -40,6 +40,7 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
         <div className="overflow-x-auto"><TabsList aria-label="Agent sections" className="w-max">{sections.map(section => <TabsTrigger key={section} value={section}>{({ git: 'Code projects', ssh: 'SSH', mcp: 'MCP' } as Record<string,string>)[section] ?? section[0].toUpperCase()+section.slice(1)}</TabsTrigger>)}</TabsList></div>
         <TabsContent value={view} forceMount className="flex flex-col gap-6">
           {claudeCode && claudeCodeNotes[view] && <Alert><AlertDescription>{claudeCodeNotes[view]}</AlertDescription></Alert>}
+          {profile.resources === 'per_run' && PER_RUN_NOTES[view] && <Alert><AlertDescription>{PER_RUN_NOTES[view]}</AlertDescription></Alert>}
           {!profile.is_coordinator && profile.active_config_version_id && !['test','versions'].includes(view) && <Alert><AlertDescription>These tabs edit the working configuration. Save a draft in <Link className="underline" to="?view=versions">Versions</Link>, then activate it to use these changes in new runs.</AlertDescription></Alert>}
           {view === 'versions' && <AgentVersionsView agentId={agentId} dirty={profileDirty || configurationDirty} onChanged={() => setReload(n => n + 1)} testable={!claudeCode} />}
           <div hidden={['test','prompts','versions'].includes(view)}><AgentProfileSettings key={reload} profile={profile} view={view} onSaved={setProfile} onDirtyChange={setProfileDirty} configurationDirty={configurationDirty} /></div>

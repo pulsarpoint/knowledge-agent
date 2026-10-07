@@ -50,6 +50,10 @@ class DraftInput(BaseModel):
     changes: InstructionChanges
 
 
+# The configuration sections a per-run conversation narrows to its run resources.
+RESOURCE_SECTIONS = ('code', 'documents', 'ssh', 'services')
+
+
 class ActivateInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     expected_active_id: UUID | None
@@ -77,11 +81,21 @@ def build_api(app_name, store):
         changes = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
         suggestion = ''
         if review_id is not None:
-            row = conn.execute('''SELECT r.context,r.suggestion FROM ka.agent_session_reviews r
+            row = conn.execute('''SELECT r.context,r.suggestion,s.agent_version_id FROM ka.agent_session_reviews r
                 JOIN ka.agent_sessions s ON s.id=r.session_id WHERE r.id=%s AND s.agent=%s''', (review_id,agent_id)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Suggestion not found for this agent.')
             config = row['context']['agent_config']
+            if 'run_resources' in config:
+                # A per-run conversation pinned one run's resources: draft from the configuration it ran with, with
+                # the narrowed resource lists replaced by the agent's own selection from the same source.
+                try:
+                    own = get_agent_config(agent_id, conninfo=store.conninfo, version_id=row['agent_version_id'],
+                                           working_copy=row['agent_version_id'] is None)
+                except (LookupError, ValueError) as exc:
+                    raise HTTPException(409, str(exc)) from None
+                config = {key: value for key, value in config.items() if key != 'run_resources'}
+                config.update({section: own[section] for section in RESOURCE_SECTIONS})
             changes = row['context'].get('changes', changes)
             suggestion = row['suggestion']
         else:

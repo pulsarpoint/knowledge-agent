@@ -10,7 +10,7 @@ from typing import Literal
 from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools import AgentContext, require_given
 
 
 @function_tool
@@ -47,6 +47,7 @@ async def code_graph(ctx: RunContextWrapper[AgentContext], project_id: str,
     config = ctx.context['config']
     if not config['enabled'] or not config['code']['enabled']:
         raise ValueError('Code access is disabled.')
+    require_given(config, 'code')
     graph = next((g for g in config['code'].get('graphs', []) if g['id'] == project_id), None)
     if graph is None:
         raise ValueError('Choose a configured code graph project.')

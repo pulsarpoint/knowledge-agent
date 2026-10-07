@@ -8,7 +8,8 @@ from agents import RunContextWrapper, function_tool
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.collections import document_collections
 from knowledge_admin.grounding import empty_state
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.knowledge_agents.config import per_run
+from knowledge_admin.tools import AgentContext, require_given
 
 RAG_TRANSPORT: httpx.AsyncBaseTransport | None = None
 MAX_DOCUMENT_BYTES = 65536
@@ -19,11 +20,12 @@ def _state(context: AgentContext) -> dict[str, Any]:
 
 
 def _allowed(config: dict[str, Any]) -> list[str] | None:
-    """Collection names the agent may use; None means every collection."""
+    """Collection names the agent may use; None means every collection (never for a per-run run)."""
     if not config['enabled'] or not config['documents']['enabled']:
         raise ValueError('Document search is not enabled for this agent.')
+    require_given(config, 'documents')
     everything, items = document_collections(config)
-    return None if everything else sorted({item['name'] for item in items})
+    return None if everything and not per_run(config) else sorted({item['name'] for item in items})
 
 
 def _client() -> httpx.AsyncClient:

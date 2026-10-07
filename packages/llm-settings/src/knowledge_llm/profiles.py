@@ -11,6 +11,8 @@ def profile(conn, agent_id: str, *, runnable: bool = False) -> dict:
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and row.get('runtime', 'openai') != 'openai':
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
+    if runnable and row.get('resources', 'fixed') != 'fixed':  # per-run agents run only with their run's resources
+        raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and not row['enabled']:
         raise ModelUnavailable('This agent is disabled. Enable it in its settings before running a task.')
     row['collections'] = [r['name'] for r in conn.execute('''SELECT c.name FROM ka.agent_collections a
