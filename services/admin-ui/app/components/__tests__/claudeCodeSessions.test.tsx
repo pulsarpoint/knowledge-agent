@@ -10,13 +10,13 @@ const row = { id: 's1', title: 'Payments – API reference', agent_id: 'writer',
   document_id: 'doc', document_title: 'Payments API reference.md', folder: 'payments-api-docs', worker_active: true, queued: 0,
   created_at: '2026-10-07T10:00:00Z', last_activity_at: '2026-10-07T11:00:00Z', closed_at: null };
 
-test('Docs → Sessions lists sessions with status, agent, tokens and document', async () => {
+test('Docs → Generate documents lists generations with status, agent, tokens and document', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/claude-code/sessions')
     ? Response.json({ sessions: [row, { ...row, id: 's2', title: 'Jira overview', status: 'closed', document_id: null, document_title: null }] })
     : Response.json({ is_admin: true })));
-  render(<MemoryRouter initialEntries={['/documentation/sessions']}><AdminLayout><ClaudeCodeSessionsView /></AdminLayout></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/documentation/generations']}><AdminLayout><ClaudeCodeSessionsView /></AdminLayout></MemoryRouter>);
   const first = (await screen.findByRole('link', { name: 'Payments – API reference' })).closest('tr')!;
-  expect(within(first).getByRole('link', { name: 'Payments – API reference' })).toHaveAttribute('href', '/documentation/sessions/s1');
+  expect(within(first).getByRole('link', { name: 'Payments – API reference' })).toHaveAttribute('href', '/documentation/generations/s1');
   expect(within(first).getByText('Waiting for you')).toBeVisible();
   expect(within(first).getByText('Technical writer')).toBeVisible();
   expect(within(first).getByText('12,345 in · 678 out')).toBeVisible();
@@ -24,10 +24,9 @@ test('Docs → Sessions lists sessions with status, agent, tokens and document',
   const second = screen.getByRole('link', { name: 'Jira overview' }).closest('tr')!;
   expect(within(second).getByText('Finished')).toBeVisible();
   expect(within(second).getByText('Not saved')).toBeVisible();
-  expect(screen.getByRole('link', { name: 'New session' })).toHaveAttribute('href', '/documentation/generations/new?scope=agent');
+  expect(screen.getByRole('link', { name: 'New' })).toHaveAttribute('href', '/documentation/generations/new');
   const docs = within(screen.getByRole('navigation', { name: 'Docs' }));
-  expect(docs.getAllByRole('link').map(link => link.textContent)).toEqual(['Documents', 'Prompts', 'Generate documents', 'Sessions', 'Folders']);
-  expect(docs.getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/documentation/sessions');
-  expect(screen.getByRole('heading', { name: 'Documentation sessions' })).toBeVisible();
+  expect(docs.getAllByRole('link').map(link => link.textContent)).toEqual(['Documents', 'Prompts', 'Generate documents', 'Folders']);
+  expect(screen.getByRole('heading', { name: 'Generate documents', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);  // the layout's heading only
 });

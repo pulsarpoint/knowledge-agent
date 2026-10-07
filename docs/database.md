@@ -23,10 +23,9 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `services`, `service_repositories`, `service_deployments` | Applications, source code and server/environment deployments |
 | `service_dependencies` | Directed dependencies between services, with a description of each relationship |
 | `servers` | Host inventory and SSH connection settings |
-| `documents`, `document_versions` | Stable document IDs, canonical Markdown, immutable versions, hashes and source snapshots |
+| `documents`, `document_versions` | Stable document IDs, canonical Markdown, immutable versions, hashes and source snapshots. `documents.phase_metadata` holds the service phase export layout (`services/<service>/<phase>/`); `document_versions.generation_id` is history without a foreign key since migration 0073 |
 | `document_code_projects`, `document_services`, `document_servers`, `document_deployments` | Current document associations to inventory |
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
-| `documentation_generations` | Immutable generation input snapshots associated with jobs; execution is a later stage |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
 | `rag_workspaces`, `rag_collections`, `rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its folders are in `ka.rag_collection_paths`); per-collection file hashes, per-file status (`rag_file_log`), searchable text and cached embeddings |
 | `agent_collections`, `agents.all_collections` | Which RAG collections an agent may search and read (whole collections; `all_collections` grants every one) |
@@ -55,8 +54,6 @@ erDiagram
     documents ||--o{ document_deployments : describes
     service_deployments ||--o{ document_deployments : linked
     documentation_prompts ||--o{ documentation_prompt_versions : versions
-    jobs ||--o| documentation_generations : records
-    documentation_generations ||--o{ document_versions : proposes
 ```
 
 ## Database and API guarantees

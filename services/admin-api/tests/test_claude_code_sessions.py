@@ -10,7 +10,8 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
-from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
+from knowledge_admin.claude_code_api import AGENT_MODEL, NO_FOLDER, NOTHING_CHOSEN
+from knowledge_admin.documents import SAME_DOCUMENT_NAME
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
 from test_repositories import HEADERS
@@ -18,36 +19,49 @@ from test_repositories import HEADERS
 
 @pytest.fixture
 def sessions(store, tmp_path, monkeypatch):
-    """A Claude Code agent, a Claude and an OpenAI model, a code project with one folder, a server and DATA_ROOT folders."""
+    """A Claude Code agent with a Claude model; code projects Payments API (app) and Payments worker (worker); the
+    Production environment with the Payments service (both projects, deployed on prod-1) and the prod-1 server."""
     data = tmp_path / 'data'
-    for folder in ('code/app', 'jira', 'generated-documents'):
+    for folder in ('code/app', 'code/worker', 'jira', 'generated-documents'):
         (data / folder).mkdir(parents=True)
     monkeypatch.setenv('DATA_ROOT_DIR', str(data))
     monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
     client = _client(tmp_path, repository_store=store)
-    agent = claude_code_agent(client)
     claude = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'Claude', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
         'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-secret-token'}).json()['id']
     gpt = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
         'base_url': 'http://model.test/v1'}).json()['id']
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        repo = uuid4()
-        conn.execute("INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'payments-api','Payments API')", (repo, project))
-        conn.execute("INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'app')", (repo, project))
+    agent = claude_code_agent(client, model_id=claude)
     server = client.post('/api/servers', headers=HEADERS, json={
         'name': 'prod-1', 'hostname': '10.0.0.5', 'description': 'Payments host'}).json()
-    prompt = next(p for p in client.get('/api/documentation/prompts', headers=HEADERS).json()['prompts']
-                  if p['name'] == 'Code analysis and architecture')
-    body = {'agent_id': agent, 'model_id': claude, 'prompt_id': prompt['id'], 'prompt_version_id': prompt['active_version_id'],
-            'comments': 'Focus on the public API.', 'code_project_ids': [str(repo)], 'folders': ['jira'],
-            'server_ids': [server['id']], 'notes': 'Deployed with Helm.',
+    repo, worker, environment, service = uuid4(), uuid4(), uuid4(), uuid4()
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        for project_id, slug, name, folder in ((repo, 'payments-api', 'Payments API', 'app'),
+                                               (worker, 'payments-worker', 'Payments worker', 'worker')):
+            conn.execute('INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,%s,%s)', (project_id, project, slug, name))
+            conn.execute('INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,%s)',
+                         (project_id, project, folder))
+        conn.execute("INSERT INTO ka.environments(id,project_id,name,description) VALUES (%s,%s,'Production','Live systems')",
+                     (environment, project))
+        conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Payments')", (service, project))
+        for project_id in (repo, worker):
+            conn.execute('INSERT INTO ka.service_repositories(project_id,service_id,repository_id) VALUES (%s,%s,%s)',
+                         (project, service, project_id))
+        conn.execute('INSERT INTO ka.environment_services(project_id,environment_id,service_id) VALUES (%s,%s,%s)',
+                     (project, environment, service))
+        conn.execute('INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
+                     (project, environment, server['id']))
+        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
+            runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'payments-api',8080)""", (project, service, server['id'], environment))
+    body = {'agent_id': agent, 'code_project_ids': [str(repo)], 'environment_ids': [str(environment)],
+            'service_ids': [str(service)], 'server_ids': [server['id']], 'instructions': ' Focus on the public API. ',
             'document_name': 'Payments – API reference', 'folder': 'payments-api-docs'}
     return SimpleNamespace(client=client, store=store, body=body, agent=agent, claude=claude, gpt=gpt, repo=str(repo),
-                           server=server, data=data, prompt=prompt)
+                           worker=str(worker), environment=str(environment), service=str(service), server=server, data=data)
 
 
 def start(sessions, **change) -> dict:
@@ -56,66 +70,88 @@ def start(sessions, **change) -> dict:
     return response.json()
 
 
-def test_session_context_snapshot_folders_servers_and_notes(sessions):
+def refused(sessions, **change) -> str:
+    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
+    assert response.status_code == 400, response.text
+    return response.json()['error']['message']
+
+
+def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
     session = start(sessions)
     data = sessions.data
     assert (session['status'], session['turns'], session['title'], session['folder'], session['agent_name'], session['model_name']) == (
         'starting', 0, 'Payments – API reference', 'payments-api-docs', 'Technical writer', 'Claude')
-    assert session['context_snapshot'] == {
-        'folders': [{'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo},
-                    {'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'}],
-        'code_project_ids': [sessions.repo],
-        'servers': [{'id': sessions.server['id'], 'name': 'prod-1', 'hostname': '10.0.0.5', 'description': 'Payments host'}],
-        'notes': 'Deployed with Helm.'}
-    snapshot = session['prompt_snapshot']
-    assert (snapshot['system_prompt'], snapshot['version_id'], snapshot['comments']) == (
-        SYSTEM_PROMPT, sessions.prompt['active_version_id'], 'Focus on the public API.')
+    app, worker = f'{data}/code/app', f'{data}/code/worker'
+    context = session['context_snapshot']
+    assert context['folders'] == [  # chosen first, then linked through the environment and the service, once each
+        {'path': app, 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo},
+        {'path': worker, 'kind': 'code_project', 'name': 'Payments worker', 'code_project_id': sessions.worker}]
+    assert context['code_project_ids'] == [sessions.repo]  # the saved document links the chosen projects only
+    assert context['servers'] == [{'id': sessions.server['id'], 'name': 'prod-1', 'hostname': '10.0.0.5',
+                                   'description': 'Payments host'}]
+    assert session['prompt_snapshot'] == {'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash'],
+                                          'agent_version': None}
     [first] = session['inputs']
     assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
-    assert first['text'].startswith(snapshot['content'].strip())
-    for part in ('## Comments for this run\n\nFocus on the public API.', '## Context',
-                 f'- {data}/code/app (code project Payments API)', f'- {data}/jira\n', '- prod-1 (10.0.0.5): Payments host',
-                 'Notes:\n\nDeployed with Helm.', FINAL_ANSWER):
-        assert part in first['text'], part
-    assert 'bedrock-secret-token' not in json.dumps(session)
-    # A DATA_ROOT folder alone is enough context; without servers, notes and comments those sections are left out.
-    folder_only = start(sessions, code_project_ids=[], server_ids=[], notes='', comments='')
-    text = folder_only['inputs'][0]['text']
-    assert folder_only['context_snapshot']['folders'] == [{'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'}]
-    assert 'Servers' not in text and 'Notes:' not in text and 'Comments for this run' not in text
+    assert first['text'] == '\n\n'.join([
+        'Document the following.',
+        f'## Code\n- Payments API — {app}',
+        '## Environments\n- Production: Live systems — servers: prod-1 (10.0.0.5); services: Payments; '
+        f'deployments: Payments on prod-1; code: Payments API ({app}), Payments worker ({worker})',
+        f'## Services\n- Payments — deployed on prod-1 (Production); code: Payments API ({app}), Payments worker ({worker})',
+        '## Servers\n- prod-1 (10.0.0.5): Payments host',
+        '## Instructions\nFocus on the public API.',
+        FINAL_ANSWER])
+    serialized = json.dumps(session)
+    for secret in ('bedrock-secret-token', 'api_key_ref', 'private_key', 'credential'):
+        assert secret not in serialized
+    # Servers only, without instructions: one section; the folders come from the agent's code projects (none here).
+    assert refused(sessions, code_project_ids=[], environment_ids=[], service_ids=[], instructions='') == NO_FOLDER
+    # A service alone opens its linked code projects.
+    service_only = start(sessions, code_project_ids=[], environment_ids=[], server_ids=[], instructions='')
+    assert [f['path'] for f in service_only['context_snapshot']['folders']] == [app, worker]
+    assert service_only['inputs'][0]['text'] == '\n\n'.join([
+        'Document the following.',
+        f'## Services\n- Payments — deployed on prod-1 (Production); code: Payments API ({app}), Payments worker ({worker})',
+        FINAL_ANSWER])
+    # An archived project is never linked.
+    with sessions.store.connect() as conn:
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (sessions.worker,))
+    linked = start(sessions, code_project_ids=[], environment_ids=[], server_ids=[])
+    assert [f['path'] for f in linked['context_snapshot']['folders']] == [app]
 
 
 @pytest.mark.parametrize('change, status', [
-    ({'model_id': 'gpt'}, 400), ({'agent_id': 'search'}, 400), ({'agent_id': 'missing'}, 400),
-    ({'folders': ['../etc']}, 400), ({'folders': ['/etc']}, 400), ({'folders': ['.git']}, 400), ({'folders': ['missing']}, 400),
-    ({'code_project_ids': [], 'folders': []}, 400), ({'code_project_ids': [str(uuid4())]}, 400),
+    ({'agent_id': 'search'}, 400), ({'agent_id': 'missing'}, 400),
+    ({'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}, 400),
+    ({'code_project_ids': ['not-a-uuid']}, 400), ({'code_project_ids': [str(uuid4())]}, 400),
+    ({'environment_ids': [str(uuid4())]}, 400), ({'service_ids': [str(uuid4())]}, 400), ({'server_ids': [str(uuid4())]}, 400),
     ({'folder': 'Payments'}, 400), ({'folder': 'services/x'}, 400), ({'folder': '../docs'}, 400),
-    ({'document_name': '– –'}, 400), ({'notes': 'a\x00b'}, 400), ({'comments': 'x' * 20001}, 400),
-    ({'server_ids': [str(uuid4())]}, 400), ({'prompt_version_id': str(uuid4())}, 409), ({'prompt_id': str(uuid4())}, 400)])
+    ({'document_name': '– –'}, 400), ({'instructions': 'a\x00b'}, 400), ({'instructions': 'x' * 20001}, 400),
+    # The agent runs with its own model and prompt: the form cannot override them or add folders or notes.
+    ({'model_id': 'CLAUDE'}, 400), ({'prompt_id': str(uuid4())}, 400), ({'prompt_version_id': str(uuid4())}, 400),
+    ({'comments': 'Extra'}, 400), ({'folders': ['jira']}, 400), ({'notes': 'Deployed with Helm.'}, 400)])
 def test_session_input_is_validated(sessions, change, status):
-    if change.get('model_id') == 'gpt':
-        change = {'model_id': sessions.gpt}
+    if change.get('model_id') == 'CLAUDE':
+        change = {'model_id': sessions.claude}
     response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
     assert response.status_code == status, response.text
-    if status == 409:
-        assert response.json()['error']['message'] == PROMPT_CHANGED
+    if change == {'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}:
+        assert NOTHING_CHOSEN in response.json()['error']['message']
     with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
 
 def test_a_removed_folder_or_disabled_agent_refuses_the_session(sessions):
     (sessions.data / 'code/app').rmdir()
-    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json=sessions.body)
-    assert response.status_code == 400 and 'does not exist' in response.json()['error']['message']
+    assert refused(sessions).startswith(f"The folder {sessions.data}/code/app of the code project Payments API does not exist.")
     with sessions.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (sessions.agent,))
-    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'code_project_ids': []})
-    assert response.status_code == 400 and response.json()['error']['message'] == 'Select an enabled Claude Code agent.'
+    assert refused(sessions) == 'Select an enabled Claude Code agent.'
     with sessions.store.connect() as conn:  # an enabled agent with a disabled Claude model is refused as well
         conn.execute('UPDATE ka.agents SET enabled=true WHERE id=%s', (sessions.agent,))
         conn.execute('UPDATE ka.llm_models SET enabled=false WHERE id=%s', (sessions.claude,))
-    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'code_project_ids': []})
-    assert response.status_code == 400 and response.json()['error']['message'].startswith('Select an enabled Claude model')
+    assert refused(sessions) == AGENT_MODEL
     with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
@@ -231,6 +267,38 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkey
     assert client.get(f'/api/claude-code/sessions/{sid}/events').status_code == 403
 
 
+def test_event_history_pages_backwards_like_the_stream(sessions):
+    client, store = sessions.client, sessions.store
+    sid = start(sessions)['id']
+    other = start(sessions)['id']
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=2 WHERE id=ANY(%s::uuid[])", ([sid, other],))
+        for seq in (1, 2, 3):
+            record(conn, sid, 1, seq, 'message', {'text': f'one {seq}'})
+        record(conn, other, 1, 1, 'message', {'text': 'another session'})
+        record(conn, sid, 2, 1, 'tool_result', {'name': 'Read', 'output': 'the whole file body', 'preview': 'line'})
+        record(conn, sid, 2, 2, 'message', {'text': 'two 2'})
+    url = f'/api/claude-code/sessions/{sid}/events/history'
+    latest = client.get(url + '?limit=2', headers=HEADERS)
+    assert latest.status_code == 200 and latest.headers['cache-control'] == 'no-store'
+    page = latest.json()
+    assert [(e['turn'], e['seq'], e['kind']) for e in page['events']] == [(2, 1, 'tool_result'), (2, 2, 'message')]
+    assert page['has_more'] is True
+    assert page['events'][0]['payload'] == {'name': 'Read', 'preview': 'line'}  # redacted like the stream
+    assert 'the whole file body' not in latest.text
+    older = client.get(f"{url}?before={page['events'][0]['id']}&limit=2", headers=HEADERS).json()
+    assert [e['payload']['text'] for e in older['events']] == ['one 2', 'one 3'] and older['has_more'] is True
+    first = client.get(f"{url}?before={older['events'][0]['id']}&limit=2", headers=HEADERS).json()
+    assert [e['payload']['text'] for e in first['events']] == ['one 1'] and first['has_more'] is False
+    default = client.get(url, headers=HEADERS).json()  # the latest 100: the whole session here, never another one's
+    assert [e['seq'] for e in default['events']] == [1, 2, 3, 1, 2] and default['has_more'] is False
+    assert all(e['id'] == r['id'] for e, r in zip(default['events'][-2:], page['events']))
+    for bad in ('?limit=0', '?limit=501', '?before=0', '?before=x'):
+        assert client.get(url + bad, headers=HEADERS).status_code == 400, bad
+    assert client.get(f'/api/claude-code/sessions/{uuid4()}/events/history', headers=HEADERS).status_code == 404
+    assert client.get(url).status_code == 403
+
+
 def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the_folder(sessions):
     client, store = sessions.client, sessions.store
     sid = start(sessions)['id']
@@ -259,7 +327,8 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     second = client.post(url + '/document', headers=HEADERS, json={'update_existing': True})
     assert second.status_code == 201 and (second.json()['id'], second.json()['revision']) == (saved['id'], 2)
     assert readme.read_text() == '# Payments API\n\nShorter.'
-    # Another session with the same name and folder needs the confirmation too; a folder-only session is 'explanation'.
+    # Another session with the same name and folder needs the confirmation too; without chosen code projects it is
+    # 'explanation'.
     other = start(sessions, code_project_ids=[])['id']
     with store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft='# Other' WHERE id=%s", (other,))
@@ -273,20 +342,14 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     assert client.post(url + '/document', json={}).status_code == 403
 
 
-def test_symlinked_folders_and_folders_outside_data_root_are_refused(sessions, tmp_path):
+def test_symlinked_code_folders_are_refused(sessions, tmp_path):
     outside = tmp_path / 'outside'
     outside.mkdir()
-    (sessions.data / 'linked').symlink_to(outside)
-    (sessions.data / 'jira-link').symlink_to(sessions.data / 'jira')  # inside DATA_ROOT, but still a link
     (sessions.data / 'code/app-link').symlink_to(outside)
-    for change in ({'code_project_ids': [], 'folders': ['linked']}, {'code_project_ids': [], 'folders': ['jira-link']},
-                   {'code_project_ids': [], 'folders': ['jira-link/..']}):
-        response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
-        assert response.status_code == 400, (change, response.text)
     with sessions.store.connect() as conn:
         conn.execute("UPDATE ka.code_project_folders SET path='app-link' WHERE code_project_id=%s", (sessions.repo,))
-    response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, 'folders': []})
-    assert response.status_code == 400 and 'symbolic link' in response.json()['error']['message']
+    assert refused(sessions) == (f'The folder {sessions.data}/code/app-link is a symbolic link or outside DATA_ROOT. '
+                                 "Check the code project's folders.")
     with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
@@ -341,27 +404,26 @@ def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projec
                               instructions='Write for operators.', model_id=sessions.claude, skills_enabled=True,
                               skill_ids=[skill['id']], repositories_enabled=True, repository_ids=[sessions.repo],
                               claude_code_tools=['Grep', 'Read'])
-    body = {key: value for key, value in sessions.body.items() if key != 'model_id'}  # the agent's model is used
-    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
+    body = {**sessions.body, 'code_project_ids': [], 'environment_ids': [], 'service_ids': []}  # servers only
+    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent})
     assert response.status_code == 201, response.text
     session = response.json()
     assert session['model_name'] == 'Claude'
-    assert session['context_snapshot']['folders'] == [
-        {'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'},
+    assert session['context_snapshot']['folders'] == [  # only the agent's own code projects
         {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
     assert session['context_snapshot']['code_project_ids'] == []
     snapshot = session['prompt_snapshot']
     assert snapshot['system_prompt'] == ('You write API references.\n\n## Instructions\n\nWrite for operators.\n\n'
                                          '## Skills\n\n### reference\n\nAPI reference style\n\nList every endpoint with its errors.')
     assert (snapshot['claude_code_tools'], snapshot['agent_version']) == (['Read', 'Grep'], None)
-    assert f'- {data}/code/app (code project Payments API)' in session['inputs'][0]['text']
+    assert '## Servers\n- prod-1 (10.0.0.5): Payments host' in session['inputs'][0]['text'] and '## Code' not in session['inputs'][0]['text']
     serialized = json.dumps(session)
     for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token'):
         assert secret not in serialized
-    # An agent without a model needs one in the request.
+    # An agent without a model is refused: the form has no model.
     plain = claude_code_agent(client, 'Plain writer')
     missing = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': plain})
-    assert missing.status_code == 400 and missing.json()['error']['message'].startswith('Select an enabled Claude model')
+    assert missing.status_code == 400 and missing.json()['error']['message'] == AGENT_MODEL
     # The agent's own folders must exist too.
     (data / 'code/app').rmdir()
     gone = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
@@ -383,9 +445,8 @@ def test_session_uses_the_active_version_tools_and_code_projects(sessions):
     profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
     changed = update(client, profile, repositories_enabled=False, repository_ids=[], claude_code_tools=['Bash'])
     assert changed.status_code == 200, changed.text
-    body = {key: value for key, value in sessions.body.items() if key != 'model_id'}
-    response = client.post('/api/claude-code/sessions', headers=HEADERS,
-                           json={**body, 'agent_id': agent, 'code_project_ids': [], 'folders': []})
+    body = {**sessions.body, 'code_project_ids': [], 'environment_ids': [], 'service_ids': []}
+    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent})
     assert response.status_code == 201, response.text
     session = response.json()
     assert session['model_name'] == 'Claude'

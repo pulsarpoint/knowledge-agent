@@ -2,7 +2,7 @@
 
 This guide explains how the application is used, from first start-up to day-to-day
 work. It describes the behavior of the **current code** (including uncommitted work
-on documentation workflows, code graphs and the sandboxed shell worker), not the
+on Generate documents, code graphs and the sandboxed shell worker), not the
 intended design. Where existing documentation in `docs/` disagrees with the code,
 the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree-with-the-code).
 
@@ -22,7 +22,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.10 MCP servers](#410-mcp-servers)
   - [4.11 Agents](#411-agents)
   - [4.12 Multi-agent board](#412-multi-agent-board)
-  - [4.13 Documentation generation](#413-documentation-generation)
+  - [4.13 Generate documents](#413-generate-documents)
   - [4.14 Documents and documentation prompts](#414-documents-and-documentation-prompts)
   - [4.15 Storage](#415-storage)
   - [4.16 Agent runs](#416-agent-runs)
@@ -56,9 +56,8 @@ What you can actually do today:
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
   deployments and service-to-service dependencies.
-- **Generate documentation with an LLM** for a service or an environment: application
-  overview, per-endpoint API documentation, messaging documentation, code analysis,
-  D2 diagrams and deployment/infrastructure documents (via SSH inspection).
+- **Generate documents with a Claude Code agent**: pick an agent and what to document
+  (code projects, environments, services, servers), follow the session and save the draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
   and MCP tools, and run them interactively (agent **Test** chat) or as a team on the
   **multi-agent board**.
@@ -73,8 +72,8 @@ Generated documents are searchable through a collection that holds `generated-do
 Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-web (nginx, Admin UI) ──► admin-api
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
-     workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph) · documentation-worker (doc generation)
-               claude-code-worker (interactive documentation sessions)
+     workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
+               claude-code-worker (Generate documents sessions)
 ```
 
 `claude-code-worker` runs the Claude Agent SDK with its bundled Claude Code CLI. It reads
@@ -132,7 +131,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
    documentation should inspect them.
 6. **Environments** → group servers and services (e.g. `production`, `staging`).
 7. **Services** → describe applications, link code projects, add deployments and dependencies.
-8. **Documentation → Generate documents** → create a workflow per service and run its phases.
+8. **Docs → Generate documents** → **New**: choose a Claude Code agent and what to document → **Generate**.
 9. **Agents** → create agents, assign a model, enable capabilities, test them.
 10. **Multi-agent board** → give the Coordinator a model and run team tasks.
 
@@ -164,7 +163,7 @@ General conventions throughout the admin app:
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers |
 | Code | Projects · Code graphs |
-| Docs | Documents · Prompts · Generate documents · Sessions · Folders |
+| Docs | Documents · Prompts · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
@@ -172,7 +171,7 @@ redirect to their current pages.
 
 ### 4.2 LLM Settings
 
-`/llm-settings` — named model connections used by agents, documentation generation
+`/llm-settings` — named model connections used by agents
 and RAG embeddings.
 
 **Add model** fields:
@@ -318,7 +317,7 @@ Code projects only clone and pull into `code/…`. To search code, add the proje
 to a collection in RAG → Collections; removing a project does not change RAG.
 
 **Remove** (in the project's row) asks for confirmation and lists the project's folders. The
-project disappears from Code projects, services, agents and documentation workflows, its
+project disappears from Code projects, services and agents, its
 scheduled pulls stop, and its folders and Git URL can be used by a new project. Files on disk
 are kept unless you tick **Also delete these folders and the code graph from disk** (off by
 default; it cannot be undone). Deleting is refused, and nothing is removed, when another code
@@ -456,7 +455,7 @@ saved but runs only after you choose one on its General tab.
 | **Services** | Pick services whose descriptions are added to the agent's context |
 | **Prompts** | System prompt versions: new draft, edit draft, **Set active**, delete inactive versions |
 | **Versions** | Snapshot the whole configuration as a version; **Test vN**, **Copy as draft**, **Activate vN** |
-| **Test** | Native: chat with the agent. Claude Code: **Start a session** opens New documentation → With an agent, with this agent and its model selected |
+| **Test** | Native: chat with the agent. Claude Code: **Start a session** opens **Docs → Generate documents → New** with this agent |
 
 > **Working configuration vs. active version.** Once an agent has an active
 > configuration version, edits in the tabs change the *working configuration* only.
@@ -504,154 +503,93 @@ Coordinator settings (Coordinator's General tab): max model turns (1–30), max 
 calls (1–50), task timeout (30–3600 s), notes, and the final-summary prompt. Up to 3
 main tasks run concurrently, with at most 30 unfinished tasks.
 
-### 4.13 Documentation generation
+### 4.13 Generate documents
 
-**Docs → Generate documents** (`/documentation/generations`) produces documentation
-from your code, inventory and servers using an LLM. Work is organized in
-**workflows**: one per service (or per environment). Code projects get a single
-document without a workflow (see **Code project documents**).
+**Docs → Generate documents** (`/documentation/generations`) lists Claude Code sessions in which an agent writes one
+document: status, agent, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
+and close after 24 idle hours (a session idle for 5 minutes is paused and resumes on your next message).
 
 **Prerequisites**
 
-- A code-compatible, enabled chat model in LLM Settings.
-- A service (with linked code projects), or an environment.
-- For code phases: a **code graph** for every selected code project (Phase 1).
-- For deployment/infrastructure documents: servers with SSH configured.
-- Active documentation prompts (seeded automatically; edit under **Docs → Prompts**).
+- An enabled Claude Code agent with a Claude model (Agents → Agent type: Claude Code).
+- Claude Code needs at least one working folder: code projects with folders, or environments or services linked to code
+  projects, or an agent with code projects of its own.
 
-No agent from the Agents page is needed — generation uses fixed built-in specialists.
+**The form**
 
-**Create a workflow:** **New documentation** → choose scope (**Service** or **Whole
-environment**), the service/environment, and the model → **Create workflow**. Scope
-**Code project** creates no workflow: it has its own **Generate** (see **Code project
-documents** below). The workflow page shows a phase summary table, the phases, and the generation history.
-Edits to prompts and context **autosave** ("Saving…" / "Saved"); closing the page does
-not cancel running jobs.
+- **Agent**: an enabled Claude Code agent (from an agent's Test tab it is preselected).
+- **What to document**: tick **Code**, **Environment**, **Services** and/or **Servers**; each shows its picker. Pick at
+  least one item.
+- **Instructions** (optional): extra instructions for this run.
+- **Document name** and **folder**: the folder defaults to `<first code project>-docs`, or `docs`. Folder names are
+  lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
+  '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
+  characters. The name needs ASCII letters or digits (the file name is made from them).
 
-**Service workflow phases** — each is started manually; none triggers the next:
+There is no model or prompt field: the agent runs with its own model, prompt, instructions, skills and Claude Code tools.
+Put a documentation prompt in the agent (Docs → Prompts holds the earlier prompts to copy from).
 
-| Phase | Button | What it produces |
-| --- | --- | --- |
-| 1. Code graph | **Generate graph** | Code graph per project (no LLM, 0 tokens). Inspect it in the graph explorer. Later phases stay disabled until every selected project has a graph |
-| 2. Application overview | **Generate / Regenerate application overview** | Overview document, optional D2 component diagram |
-| 3. API documentation | **Generate / Regenerate API documentation** | One analyzed section per HTTP route found in the graph, assembled with a coverage table. Progress shows "N route registrations · x/y sections saved" |
-| 4. Messaging documentation | **Generate / Regenerate messaging documentation** | Message flow documentation, optional D2 diagram |
+**What the agent receives.** Its system prompt (its own prompt, instructions and skills), then one first message listing
+what to document, as a user could have typed it:
 
-Each phase section has an editable **prompt** (changes apply to that run only;
-**Reset** / **Reload active** / **Manage … prompt versions**), a **context and
-requests** field, and an **Inspect** area: run selector, status and progress, **token
-usage**, the exact prompt and source snapshot used, a preview, and a link to the
-document. Each successful run adds a **new version** of the same document.
+```
+Document the following.
 
-**Additional documentation** (same page): tick **Code analysis**, **Code diagram
-(D2/TALA)**, **Deployment on an environment** and/or **Deployment diagram** (deployment
-documents also need an environment and servers to inspect), add context, tick **Create
-new versions of existing documents** if they exist already, then **Generate documents**.
+## Code
+- Payments API — /work/data/code/payments-api
 
-**Environment workflows** offer **Full environment architecture** (built from the
-services' saved documents, with three D2 views) and **Server infrastructure
-architecture** (inspects one SSH-enabled server).
+## Services
+- Payments — deployed on prod-1 (production); code: Payments API (/work/data/code/payments-api)
 
-**Important behaviors**
+## Servers
+- prod-1 (10.0.0.5): Payments host
 
-- Only **one documentation job per service** can be queued or running at a time.
-- If source code or the graph changed since Phase 1, the run fails with "Source or
-  graph selection changed. Generate and inspect the graph again…" — rerun Phase 1.
-- To retry a failure, click the same Generate button. A failed API run reuses
-  sections that already completed when inputs are unchanged.
-- Token usage (input, output, model calls; cached/reasoning listed separately) is
-  recorded even for failed runs. The summary reads "<input> in · <output> out · <total> total";
-  expand it for the per-phase table.
-- Results are exported as files to the generated-documents folder (`GENERATED_DOCS_FOLDER`) (Markdown, `metadata.json`,
-  and `.d2` files per diagram).
+## Instructions
+Focus on the public API.
 
-**Code project documents** — one document for one code project, with no workflow:
+When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
+later message, reply again with the complete updated document.
+```
 
-1. **New documentation** → scope **Code project** → the model.
-2. **Code project**: Phase 1 **Generate graph** appears; **Generate** stays disabled until
-   the project has a graph.
-3. **Prompt**: active prompts for code or mixed input. Server prompts are hidden because
-   the run has no server access.
-4. **Comments** (optional, up to 20,000 characters): appended to the prompt for this run.
-5. **Document name**: the document title, for example "Payments – API reference". The
-   name needs ASCII letters or digits (the file name is made from them).
-6. **Documentation folder**: the default is the project name plus `-docs`, for example
-   `payments-api-docs`. Pick an existing folder or type a new one. Folder names are
-   lowercase (`Payments` and `payments` would be the same folder on macOS).
-7. **Generate**.
+Environments and services are described as text (servers, services, deployments, linked code projects).
 
-Folder rule: A documentation folder is a path such as payments or team/payments: each
-segment uses lowercase letters, digits, '.', '_' and '-' and does not start with '.';
-node_modules and a first segment services are not allowed; at most 200 characters.
+**Working folders** (read-only): the chosen code projects, then the code projects linked to the chosen environments and
+services, then the agent's own code projects. The first is the working directory.
 
-Only one Code project run per project can be queued or running at a time (and one per
-folder and document name); wait for it to finish before generating again.
+**Servers are text only.** The form lists name, address and description; there is no SSH from this form. SSH through the
+agent comes with the tool gateway.
 
-The agent gets that project's code and graph tools; there is no SSH, RAG or MCP.
+**The session page.** Activity and Draft sit side by side, each with its own scroll, and the message box is always
+visible. Activity follows new events at the bottom; after you scroll up it stops following and shows **Jump to latest**.
+Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning of the session**.
+It also shows tokens in/out/cached and a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
 
-The result is a document in **Docs → Documents** (versions; linked to the code project;
-prompt, model and source commits recorded with the run), exported to
-`GENERATED_DOCS_FOLDER/<folder>/<document-slug>/README.md` with `.d2` diagrams and
-`metadata.json`. The run is listed under **Code project documents** on the Generate
-documents page.
-
-The same name in the same folder asks **Save a new version?**; the same name in another
-folder is a separate document.
-
-Errors: "The prompt changed. Reload the prompt before generating." (use **Reload
-prompt**); "Source or graph selection changed…" (run **Generate graph** again); "The
-document changed after this run was queued. Generate again." (the confirmed document was
-edited meanwhile); and a folder or document whose export folder would overlap another
-document's export at any level, for example folder `a/b` when folder `a` holds a document
-`b` (choose another folder or name).
-
-**With an agent (interactive).** **New documentation** → **With an agent** starts a
-Claude Code session in which you watch the agent work and steer it. Form fields:
-
-- **Agent**: an enabled Claude Code agent (opened from an agent's Test tab, it is preselected).
-- **Model** (required; defaults to the agent's model): Claude connections only. Bedrock models need inference-profile IDs
-  with a region prefix, such as `eu.anthropic.claude-…` (also `us.` or `global.`); the
-  Anthropic API is the other option.
-- **Prompt**: any active documentation prompt.
-- **Context**: code projects, folders under `DATA_ROOT` (**Choose a folder**), servers as
-  name/address/description text, and notes.
-- **Comments**, **Document name** and **Documentation folder** (default
-  `<first-project>-docs`, or `docs`).
-
-**Generate** opens the session page.
-
-What the agent gets: its own prompt, instructions and skills as the system prompt, then one message with the documentation prompt, the comments and the context (folders as absolute container paths). Working folders: this run's code projects and folders first (the first one is the working directory), then the agent's code projects. There is no SSH and there are no server credentials.
-
-The session page shows live activity: messages, thinking, and tool calls with the path,
-pattern or command and the first lines of output. It also shows tokens in/out/cached and
-a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
-
-- **Send message**: while the agent is working, the message is queued and delivered when
-  the current response finishes. After a turn it starts a new turn in the same conversation.
+- **Send message**: while the agent is working, the message is queued and delivered when the current response finishes.
+  After a turn it starts a new turn in the same conversation.
 - **Stop**: interrupts the turn and drops queued messages.
 - **Draft**: each finished turn's final answer, as Markdown.
-- **Save document**: a versioned document in the folder, linked to the code projects and
-  exported to `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name asks **Save
-  a new version?**. Nothing is saved automatically.
+- **Save document**: a versioned document in the folder, linked to the code projects and exported to
+  `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name in the same folder asks **Save a new version?**; the
+  same name in another folder is a separate document. Nothing is saved automatically.
 - **Close session**.
 
-Leaving the page does not stop a session. A session that is idle for 5 minutes is paused
-(its Claude Code process is stopped) and resumes on your next message; one idle for 24
-hours is closed and keeps its history. Every turn is an agent run in **Activity → Agent
-runs** (`cc:<session>:<turn>`).
+Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
 
-Errors: "Select an enabled Claude model (Bedrock or Anthropic) from LLM Settings."; a
-provider error, such as a missing Bedrock inference profile, shows the provider's reason
-without credentials plus a hint; "Waiting for the Claude Code worker…" when the worker is
-not running; a folder that no longer exists is refused when starting.
+Errors: "The agent has no enabled Claude model. Choose one on its General tab."; "Choose at least one code project,
+environment, service or server to document."; "Claude Code needs at least one working folder…"; a provider error, such as
+a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the Claude
+Code worker…" when the worker is not running; a folder that no longer exists is refused when starting.
 
-Security: the model key is passed only to the session's Claude Code process. Every
-enabled Claude connection's key is redacted from stored events, drafts and error
-messages. Each running session's Claude Code process runs as its own user, so one
-session cannot read another session's process or files, and the agent can reach only
-the internet and the database host, not the other services. Residual risk: Bash in the
-session can read the session's own key from its Claude Code process, so use a key with
-limited scope and spend.
+Security: the model key is passed only to the session's Claude Code process. Every enabled Claude connection's key is
+redacted from stored events, drafts and error messages. Each running session's Claude Code process runs as its own user,
+so one session cannot read another session's process or files, and the agent can reach only the internet and the database
+host, not the other services. Residual risk: Bash in the session can read the session's own key from its Claude Code
+process, so use a key with limited scope and spend.
+
+**Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
+and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
+exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect. Bookmarks of old generations
+(`/documentation/generations/<id>`) open a page that shows "Session not found".
 
 ### 4.14 Documents and documentation prompts
 
@@ -663,8 +601,7 @@ The editor has fields Title, Slug, Short description, Purpose, Audience (People 
 agents / People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resources**
 (including documented source commits) and **Version history** (**Use version as
 draft**). Actions: **Save new version** (every save is a full immutable version),
-**Export to folder**, **Download document folder** (ZIP), **Delete**, and links back
-to the workflow that produced it.
+**Export to folder**, **Download document folder** (ZIP), and **Delete**.
 
 Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
 **RAG → Collections**, or turn on Auto-sync, to index what is on disk. **RAG → Search** and the
@@ -678,14 +615,9 @@ RAG's New collection with the folder selected. Opening a folder lists its docume
 (title, code project, last generated), each opening in Documents. Editing a folder
 document keeps it in its folder.
 
-**Sessions** (`/documentation/sessions`) — Claude Code documentation sessions with status,
-agent, model, tokens, document and last activity. **New session** opens the **With an
-agent** form.
-
-**Prompts** (`/documentation/prompts`) — versioned prompts used by documentation
-generation. Saving changed text creates a draft version; **Activate vN** makes it the
-active one; inactive versions can be deleted. If an active prompt changes while a
-workflow page is open, generating fails with "An active prompt changed. Reload it…".
+**Prompts** (`/documentation/prompts`) — a library of versioned documentation prompts. Nothing generates with them
+directly: copy one into a documentation agent's prompt. Saving changed text creates a draft version; **Activate vN** makes
+it the active one; inactive versions can be deleted.
 
 ### 4.15 Storage
 
@@ -698,7 +630,7 @@ container paths, availability, and a file browser with text preview.
 
 `/activity/runs` — a complete record of every agent run: agent Test
 conversations, multi-agent board tasks (coordinator, every specialist and
-the summary in one record) and documentation steps. Each record shows, in order:
+the summary in one record) and Generate documents sessions. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
 - the model's reasoning when the provider returns it (otherwise "Reasoning not returned
@@ -708,8 +640,8 @@ the summary in one record) and documentation steps. Each record shows, in order:
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. Filter by run type or user. **Full record** links lead here from each reply in
-an agent's Test tab, from a board task, and **Run records** from each documentation job.
+characters. The run type filter offers **Agent test**, **Board task** and **Claude Code** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
+an agent's Test tab, from a board task, and from each Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
 
 ---
@@ -728,25 +660,21 @@ Records are kept until deleted; only administrators can see them.
 
 ### B. Document a service from its source code
 
-1. **LLM Settings**: add and test an Anthropic (or OpenAI Responses / Bedrock Claude) model.
+1. **LLM Settings**: add and test an Anthropic (or Bedrock Claude) model.
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
-4. **Docs → Generate documents → New documentation**: scope *Service*, choose the service
-   and model → **Create workflow**.
-5. Phase 1 **Generate graph** → inspect the graph.
-6. Run Phase 2 (overview), then Phase 3 (API), then Phase 4 (messaging) — one at a time.
-7. Review each document in **Docs → Documents**, edit, **Save new version**.
-8. Make them searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
+4. **Agents**: create a Claude Code agent with a Claude model and a documentation prompt.
+5. **Docs → Generate documents → New**: choose the agent, tick **Services** and pick the service → **Generate**.
+6. Follow the session, send messages such as "shorten the API section", then **Save document**.
+7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
 ### C. Document deployments and infrastructure
 
-1. **Servers**: register hosts, configure **SSH settings**, **Test connection**, add trusted host keys.
-2. **Environments**: create `production` with its servers and services.
-3. **Services**: add deployments (server + environment + container/unit + port + log path).
-4. In the service's documentation workflow, tick **Deployment on an environment**
-   (+ diagram), choose environment and servers → **Generate documents**.
-5. For the whole environment, create an *Environment* workflow and generate
-   **Full environment architecture** / **Server infrastructure architecture**.
+1. **Servers**: register hosts. **Environments**: create `production` with its servers and services.
+2. **Services**: add deployments (server + environment + container/unit + port + log path).
+3. **Generate documents → New**: tick **Environment** and pick it (or tick **Servers**), add instructions about
+   deployments → **Generate**.
+4. Servers are described as text until agents get SSH tools; the agent does not connect to them.
 
 ### D. Build and test an operations agent
 
@@ -768,7 +696,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ### G. Make one code project's documentation searchable
 
-1. **Generate documents** → **New documentation** → **Code project** → … → **Generate**.
+1. **Generate documents** → **New** → **Code**: the project → **Generate** → **Save document**.
 2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
@@ -777,8 +705,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 1. **Agents → New agent**, **Agent type: Claude Code**, choose a Claude model and write the
    system prompt → **Create agent**.
-2. **Docs → Generate documents** → **New documentation** → **With an agent** (or the agent's
-   **Test** tab → **Start a session**) → fill in the form → **Generate**.
+2. **Docs → Generate documents → New** (or the agent's **Test** tab → **Start a session**) → choose what to document → **Generate**.
 3. Follow the stream and send a message such as "shorten the API section".
 4. **Save document**.
 5. **Docs → Folders** → **Index in RAG → Collections**.
@@ -835,8 +762,6 @@ separately from database backups — without it, saved tokens and keys cannot be
 | "Administration unavailable" | User is not in `docs-admins`, or must sign out and in again |
 | Short host names don't resolve (SSH/Jira) | Set `DOCKER_DNS_SEARCH`, recreate `admin-api` |
 | Git pull fails "local changes" | Remove modified/untracked files in the clone folder |
-| Code docs phases disabled | Run Phase 1 **Generate graph** for every selected project |
-| "Documentation … already queued or running" | Wait for the current job of that service |
 | Port in use | Change the `*_PORT` variable and run `make up` |
 
 The stack uses HTTP and Keycloak dev mode; configure TLS and production Keycloak
@@ -851,11 +776,11 @@ before exposing it beyond localhost.
   **Refresh** (or **Refresh all stale**) after files change. Code is indexed as plain
   text (no code-aware chunking or line-number citations), and a collection is limited to
   20,000 files and 200 MB per sync.
-- The `api-analysis` skill is in the Skills library but is not used by API documentation generation.
-- The `code_graph` tool is only available to documentation generation, not to agent
-  Test chats or the board.
+- The `api-analysis` skill is in the Skills library but is not used by any documentation flow.
+- Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
+- Generate documents runs Claude Code agents only (native agents come with the session API) and describes servers as text (no SSH from the form).
 
 ---
 
@@ -867,7 +792,6 @@ before exposing it beyond localhost.
 | `shell_run` | Code or Documents capability on | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
-| `code_graph` | Documentation generation only | Queries the Phase 1 code graph |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
@@ -898,4 +822,4 @@ and always save trusted host keys.
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |
 | docs/architecture.md | Worker serializes jobs per project | The repository worker processes one job at a time overall |
 | docs/runtime-verification.md | Admin pages `/platform`, `/github-projects` | `/platform` doesn't exist; `/github-projects` redirects to `/code-projects` |
-| Skills (migration 0059) | `api-analysis` skill for API documentation | Not wired into documentation generation |
+| Skills (migration 0059) | `api-analysis` skill for API documentation | Not wired into any documentation flow |

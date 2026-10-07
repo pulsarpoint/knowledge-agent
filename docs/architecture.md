@@ -113,7 +113,7 @@ data, never as executable commands or grants of access.
 
 ## Claude Code worker
 
-Interactive documentation sessions run in `claude-code-worker`, one Claude Agent SDK
+Generate documents sessions run in `claude-code-worker`, one Claude Agent SDK
 client per session (`knowledge_admin.claude_code_worker`), claimed from PostgreSQL with a
 lease. Isolation:
 

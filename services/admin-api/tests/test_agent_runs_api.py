@@ -16,16 +16,16 @@ def seed(store):
         add('run:1', 2, 'tool_call', {'agent': 'Search agent', 'name': 'search_documents', 'arguments': '{"query":"retries"}'})
         add('run:1', 3, 'usage', {'agent': 'Search agent', 'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15})
         add('run:1', 4, 'end', {'status': 'completed'})
-        add('doc:j1:a', 1, 'start', {'kind': 'documentation', 'title': 'overview: writing', 'agent': 'Documentation'}, agent='documentation-overview')
-        add('doc:j1:a', 2, 'error', {'type': 'TimeoutError', 'message': 'late'}, agent='documentation-overview')
-        add('doc:j1:a', 3, 'end', {'status': 'failed'}, agent='documentation-overview')
+        add('cc:s1:1', 1, 'start', {'kind': 'claude_code', 'title': 'Payments API reference', 'agent': 'Technical writer'}, agent='technical-writer')
+        add('cc:s1:1', 2, 'error', {'type': 'TimeoutError', 'message': 'late'}, agent='technical-writer')
+        add('cc:s1:1', 3, 'end', {'status': 'failed'}, agent='technical-writer')
 
 
 def test_list_runs_with_filters(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     seed(store)
     runs = client.get('/api/agent-runs', headers=HEADERS).json()['runs']
-    assert [r['run_key'] for r in runs] == ['doc:j1:a', 'run:1']
+    assert [r['run_key'] for r in runs] == ['cc:s1:1', 'run:1']
     first = runs[1]
     assert first | {'started_at': None} == {'run_key': 'run:1', 'agent_id': 'search', 'agent': 'Search agent',
         'kind': 'test', 'title': 'How many retries?', 'user': 'alice@example.test', 'status': 'completed',
@@ -33,9 +33,9 @@ def test_list_runs_with_filters(store, tmp_path):
     assert runs[0]['status'] == 'failed'
     only = lambda **params: [r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']]
     assert only(kind='test') == ['run:1']
-    assert only(agent_id='documentation-overview') == ['doc:j1:a']
-    assert only(user='alice@example.test') == ['doc:j1:a', 'run:1']
-    assert only(key_prefix='doc:j1:') == ['doc:j1:a']
+    assert only(agent_id='technical-writer') == ['cc:s1:1']
+    assert only(user='alice@example.test') == ['cc:s1:1', 'run:1']
+    assert only(key_prefix='cc:s1:') == ['cc:s1:1']
 
 
 def test_read_one_run(store, tmp_path):

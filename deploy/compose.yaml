@@ -182,36 +182,6 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
-  documentation-worker:
-    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
-    restart: unless-stopped
-    networks: [default, agent-shell]
-    dns_search: ${DOCKER_DNS_SEARCH:-.}
-    entrypoint: [uv, run, --frozen, --no-dev, knowledge-doc-worker]
-    command: []
-    volumes:
-      - *data-root
-      - *code-index-rw
-      - *generated-docs-rw
-      - agent-workspaces:/work/agent-workspaces
-    environment:
-      <<: *data-env
-      AGENT_SHELL_URL: http://shell-worker:8796
-      AGENT_WORKSPACE_ROOT: /work/agent-workspaces
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
-      DOCS_WIKI_RAG_URL: http://rag:8790
-      RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
-      DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
-      DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-      shell-worker: {condition: service_healthy}
-
   claude-code-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped

@@ -2,7 +2,6 @@
 close, the event stream and saving the draft as a document."""
 import asyncio
 import json
-import os
 import time
 from pathlib import Path, PurePosixPath
 from uuid import UUID, uuid4
@@ -17,45 +16,47 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.claude_code import agent_system_prompt, close_idle, first_message
-from knowledge_admin.data_root import data_dir, data_folder, data_path, documentation_folder
-from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
-from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.claude_code import agent_system_prompt, close_idle
+from knowledge_admin.data_root import data_dir, documentation_folder
+from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.generate_documents import first_message, subjects
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.storage import storage_path
 
-NOT_CLAUDE = 'Select an enabled Claude model (Bedrock or Anthropic) from LLM Settings.'
-NO_CONTEXT = 'Add at least one code project or folder as context'
+NOTHING_CHOSEN = 'Choose at least one code project, environment, service or server to document.'
+NO_FOLDER = ('Claude Code needs at least one working folder: choose code projects, or environments or services with '
+             'code projects, or give the agent code projects.')
+AGENT_MODEL = 'The agent has no enabled Claude model. Choose one on its General tab.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
 
 class SessionInput(BaseModel):
+    """Docs → Generate documents → New. The agent runs with its own model, prompt, instructions, skills and tools."""
     model_config = ConfigDict(extra='forbid')
     agent_id: str = Field(min_length=1, max_length=100)
-    model_id: UUID | None = None  # None: the agent's model
-    prompt_id: UUID
-    prompt_version_id: UUID
-    comments: str = Field(default='', max_length=20000)
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=20)
-    folders: list[str] = Field(default_factory=list, max_length=20)
+    environment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    service_ids: list[UUID] = Field(default_factory=list, max_length=50)
     server_ids: list[UUID] = Field(default_factory=list, max_length=50)
-    notes: str = Field(default='', max_length=20000)
+    instructions: str = Field(default='', max_length=20000)
     document_name: str = Field(max_length=240)
     folder: str = Field(max_length=200)
 
     @model_validator(mode='after')
     def valid(self):
-        if any('\x00' in text for text in (self.comments, self.notes, self.document_name)):
+        if '\x00' in self.instructions or '\x00' in self.document_name:
             raise ValueError('Text cannot contain null characters')
+        self.instructions = self.instructions.strip()
         self.document_name = self.document_name.strip()
         if not document_slug(self.document_name):
             raise ValueError('Use letters or digits in the document name')
         self.folder = documentation_folder(self.folder)
-        self.folders = list(dict.fromkeys(data_folder(folder) for folder in self.folders))
-        self.code_project_ids = list(dict.fromkeys(self.code_project_ids))
-        self.server_ids = list(dict.fromkeys(self.server_ids))
+        for name in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids'):
+            setattr(self, name, list(dict.fromkeys(getattr(self, name))))
+        if not (self.code_project_ids or self.environment_ids or self.service_ids or self.server_ids):
+            raise ValueError(NOTHING_CHOSEN)
         return self
 
 
@@ -101,7 +102,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
 
 def inside_data_root(path: str) -> None:
     """The storage rule for a working folder: inside DATA_ROOT, and no part of it is a symbolic link."""
-    refused = HTTPException(400, f'The folder {path} is a symbolic link or outside DATA_ROOT. Remove it from the context.')
+    refused = HTTPException(400, f"The folder {path} is a symbolic link or outside DATA_ROOT. Check the code project's folders.")
     container = PurePosixPath(path)
     if not container.is_relative_to(data_dir()) or container == data_dir():
         raise refused
@@ -113,55 +114,37 @@ def inside_data_root(path: str) -> None:
         raise refused from None
 
 
-def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict] | None = None) -> dict:
-    """Working folders as container paths: this run's code projects (in the chosen order), its DATA_ROOT folders, then
-    the agent's own code projects. Servers as text and the notes. Every folder must exist now, inside DATA_ROOT, without
-    a symbolic link on the way."""
-    code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
-    if value.code_project_ids and (not code_root.is_absolute() or '..' in code_root.parts):
-        raise HTTPException(503, 'CODE_ROOT must be an absolute mounted path')
-    projects = {row['id']: row for row in conn.execute("""SELECT r.id,r.name,
-        ARRAY(SELECT path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY path) AS folder_paths
-        FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s) AND r.archived_at IS NULL""",
-        (project, value.code_project_ids)).fetchall()}
-    if len(projects) != len(value.code_project_ids):
-        raise HTTPException(400, 'Select available code projects.')
-    candidates = []
-    for project_id in value.code_project_ids:
-        item = projects[project_id]
-        if not item['folder_paths']:
-            raise HTTPException(400, f"The code project {item['name']} has no folders.")
-        candidates += [{'path': str(code_root / path), 'kind': 'code_project', 'name': item['name'],
-                        'code_project_id': str(project_id)} for path in item['folder_paths']]
-    candidates += [{'path': str(data_path(folder)), 'kind': 'folder', 'name': folder} for folder in value.folders]
-    for item in agent_projects or []:  # the agent's code projects come after this run's context; no folders adds nothing
-        candidates += [{'path': path, 'kind': 'code_project', 'name': item['name'], 'code_project_id': str(item['id']),
-                        'agent': True} for path in item['folder_paths']]
+def session_context(conn, project: UUID, value: SessionInput, agent_projects: list[dict]) -> dict:
+    """What to document (generate_documents.subjects) plus the working folders: the chosen code projects, the code
+    projects of the chosen environments and services, then the agent's own code projects, each folder once. Every
+    folder must exist now, inside DATA_ROOT, without a symbolic link on the way."""
+    context = subjects(conn, project, value)
+    candidates = [(path, item, False) for item in context['code_projects'] for path in item['paths']]
+    candidates += [(path, item, False) for group in ('environments', 'services') for subject in context[group]
+                   for item in subject['code_projects'] for path in item['paths']]
+    candidates += [(path, {'id': str(item['id']), 'name': item['name']}, True)
+                   for item in agent_projects for path in item['folder_paths']]
     folders, seen = [], set()
-    for item in candidates:
-        from_agent = item.pop('agent', False)
-        if item['path'] in seen:
+    for path, item, from_agent in candidates:
+        if path in seen:
             continue
-        seen.add(item['path'])
-        if not Path(item['path']).is_dir():
-            raise HTTPException(400, f"The folder {item['path']} of the agent's code project {item['name']} does not exist. "
+        seen.add(path)
+        if not Path(path).is_dir():
+            raise HTTPException(400, f"The folder {path} of the agent's code project {item['name']} does not exist. "
                                      'Remove the project from the agent or check its folders.' if from_agent else
-                                f"The folder {item['path']} does not exist. Remove it from the context.")
-        inside_data_root(item['path'])
-        folders.append(item)
+                                f"The folder {path} of the code project {item['name']} does not exist. "
+                                "Check the code project's folders.")
+        inside_data_root(path)
+        folders.append({'path': path, 'kind': 'code_project', 'name': item['name'], 'code_project_id': item['id']})
     if not folders:
-        raise HTTPException(400, NO_CONTEXT)
-    servers = conn.execute('''SELECT id,name,hostname,description FROM ka.servers WHERE project_id=%s AND id=ANY(%s)
-        ORDER BY lower(name),id''', (project, value.server_ids)).fetchall()
-    if len(servers) != len(value.server_ids):
-        raise HTTPException(400, 'Select available servers.')
-    return jsonable_encoder({'folders': folders, 'code_project_ids': value.code_project_ids, 'servers': servers,
-                             'notes': value.notes})
+        raise HTTPException(400, NO_FOLDER)
+    return {**context, 'folders': folders, 'code_project_ids': [item['id'] for item in context['code_projects']]}
 
 
 STREAM_POLL_SECONDS = 1.0
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
+HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
 STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
@@ -213,20 +196,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 config = get_agent_config(agent['id'], conninfo=db.conninfo)
             except (LookupError, ValueError) as exc:
                 raise HTTPException(400, str(exc)) from None
-            model_id = value.model_id or (config['model'] or {}).get('id')
+            model_id = (config['model'] or {}).get('id')  # the agent's own model; the form has none
             model = conn.execute('SELECT id,provider,model,api_format,enabled FROM ka.llm_models WHERE id=%s FOR SHARE',
                                  (model_id,)).fetchone() if model_id else None
             if model is None or not model['enabled'] or not claude_model(model['provider'], model['api_format'], model['model']):
-                raise HTTPException(400, NOT_CLAUDE)
-            prompt = conn.execute("""SELECT p.id,p.name,v.id AS version_id,v.version,v.content
-                FROM ka.documentation_prompts p JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-                WHERE p.id=%s AND p.project_id=%s AND p.enabled""", (value.prompt_id, project)).fetchone()
-            if prompt is None:
-                raise HTTPException(400, 'Select an active documentation prompt.')
-            if prompt['version_id'] != value.prompt_version_id:
-                raise HTTPException(409, PROMPT_CHANGED)
+                raise HTTPException(400, AGENT_MODEL)
             context = session_context(conn, project, value, config['code']['projects'] if config['code']['enabled'] else [])
-            snapshot = jsonable_encoder({**prompt, 'comments': value.comments, 'system_prompt': agent_system_prompt(config),
+            snapshot = jsonable_encoder({'system_prompt': agent_system_prompt(config),
                                          'claude_code_tools': config['claude_code_tools'],
                                          'agent_version': config.get('config_version')})
             session_id = uuid4()
@@ -235,7 +211,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 (session_id, project, agent['id'], actor, model['id'], value.document_name, Jsonb(snapshot), Jsonb(context),
                  value.document_name, value.folder))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
-                         (session_id, actor, first_message(prompt['content'], value.comments, context)))
+                         (session_id, actor, first_message(context)))
             audit(conn, actor, 'claude_code.session.created', 'agent_session', {'agent_id': agent['id']}, session_id)
             return session_detail(conn, project, session_id)
 
@@ -336,6 +312,25 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 discard(conn, session_id)
                 audit(conn, actor, 'claude_code.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
+
+    @router.get('/sessions/{session_id}/events/history')
+    def history(session_id: UUID, response: Response, before: int | None = Query(None, ge=1),
+                limit: int = Query(HISTORY_LIMIT, ge=1, le=500)) -> dict:
+        """A page of the session's events, oldest first: the latest page, or the page before an event id. Each event is
+        what the stream sends (a tool result keeps its preview; the full output stays in the run record)."""
+        response.headers['Cache-Control'] = 'no-store'
+        db = database()
+        with db.connect() as conn:
+            row = conn.execute('SELECT turns FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
+                               (session_id, db.project(conn, app_name))).fetchone()
+            if row is None:
+                raise HTTPException(404, 'Session not found.')
+            keys = [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
+            rows = conn.execute('''SELECT id,run_key,seq,kind,payload,created_at FROM ka.agent_run_events
+                WHERE run_key=ANY(%s) AND (%s::bigint IS NULL OR id<%s) ORDER BY id DESC LIMIT %s''',
+                (keys, before, before, limit + 1)).fetchall()
+        return jsonable_encoder({'events': [stream_event(item) for item in reversed(rows[:limit])],
+                                 'has_more': len(rows) > limit})
 
     @router.get('/sessions/{session_id}/events')
     async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):

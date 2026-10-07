@@ -302,14 +302,14 @@ class SetupTests(unittest.TestCase):
             folders = {"code": "src/code", "index": "code-index", "documents": "generated-documents", "jira": "exports/jira"}
             writers = {"rag": ["jira"], "rag-worker": [], "shell-worker": [],
                        "admin-api": ["code", "index", "documents"], "repository-worker": ["code", "index"],
-                       "documentation-worker": ["index", "documents"], "claude-code-worker": []}
+                       "claude-code-worker": []}
             for name, writable in writers.items():
                 mounts = sorted((v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]
                                 if v["target"].startswith("/work/data"))
                 expected = sorted([(data, "/work/data", True)] + [
                     (f"{data}/{folders[key]}", f"/work/data/{folders[key]}", False) for key in writable])
                 self.assertEqual(mounts, expected, name)
-            for retired in ("docs-wiki", "web", "oauth2-proxy"):
+            for retired in ("docs-wiki", "web", "oauth2-proxy", "documentation-worker"):
                 self.assertNotIn(retired, services)
             for name in ("rag", "admin-api"):
                 env = services[name]["environment"]

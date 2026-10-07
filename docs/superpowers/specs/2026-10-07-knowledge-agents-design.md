@@ -203,6 +203,16 @@ The form, top to bottom:
   sessions (status, agent, tokens, saved document); **New** opens the form above and
   submitting creates a session and opens it. The separate **Sessions** menu item goes
   away, and session URLs move under `/documentation/generations`.
+- **The session page fits the screen:**
+  - Activity and Draft are fixed-height panels side by side, each with its own scroll;
+    the page does not grow and the message box stays visible.
+  - Activity follows new events while you are at the bottom; scrolling up stops
+    following and shows **Jump to latest**.
+  - Opening a session loads only the latest 100 events and the live stream continues
+    after the newest. Scrolling near the top loads the previous 100, keeping your
+    position, until **Beginning of the session**. Older pages come from
+    `GET …/sessions/{id}/events/history?before=<event id>&limit=100`, redacted like the
+    stream.
 - **The old one-shot generation is removed completely:** its page, API routes, worker
   phases, tables (dropped in a migration, with their history) and any files it wrote
   for runs. Saved documents stay in **Docs → Documents**.

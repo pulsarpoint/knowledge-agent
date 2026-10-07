@@ -60,7 +60,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
         return {'projects': projects}
 
     @router.post('/code-projects/{repository_id}/process', status_code=202)
-    def process_project(repository_id: UUID, request: Request, workflow_id: UUID | None = None):
+    def process_project(repository_id: UUID, request: Request):
         selected = repository_store()
         with selected.connect() as conn:
             project = selected.project(conn, app_name)
@@ -68,10 +68,6 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
                 (repository_id,project)).fetchone()
             if repo is None:
                 raise HTTPException(404, 'Code project not found')
-            if workflow_id is not None and conn.execute('''SELECT 1 FROM ka.documentation_workflows w
-                JOIN ka.service_repositories r ON r.service_id=w.service_id
-                WHERE w.id=%s AND w.project_id=%s AND r.repository_id=%s''', (workflow_id,project,repository_id)).fetchone() is None:
-                raise HTTPException(400, 'Select a code project linked to this workflow service')
             # Pull and processing jobs share the existing per-project queue lock.
             live = conn.execute("SELECT id,kind FROM ka.jobs WHERE repository_id=%s AND status IN ('queued','running','waiting_input')", (repository_id,)).fetchone()
             if live is not None:
@@ -84,9 +80,6 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
             if live is None:
                 conn.execute("INSERT INTO ka.jobs(id,project_id,repository_id,kind,requested_by,idempotency_key) VALUES (%s,%s,%s,'code_index',%s,%s)",
                     (job,project,repository_id,actor,str(job)))
-            if workflow_id is not None:
-                conn.execute('INSERT INTO ka.documentation_workflow_jobs(workflow_id,job_id,project_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING', (workflow_id,job,project))
-                conn.execute('UPDATE ka.documentation_workflows SET updated_at=now() WHERE id=%s', (workflow_id,))
             return {'job_id': job}
 
     def rag_paths(project: UUID) -> list[tuple[str, str]]:

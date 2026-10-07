@@ -1,6 +1,6 @@
 import AdminLayout from '../components/AdminLayout';
-import { DocumentationWorkflowsView } from '../components/DocumentationWorkflowView';
+import ClaudeCodeSessionsView from '../components/ClaudeCodeSessionsView';
 
 export default function Page() {
-  return <AdminLayout><DocumentationWorkflowsView /></AdminLayout>;
+  return <AdminLayout><ClaudeCodeSessionsView /></AdminLayout>;
 }

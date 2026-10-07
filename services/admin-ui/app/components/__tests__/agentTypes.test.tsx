@@ -82,7 +82,7 @@ test('tool tabs say what Claude Code gets now, and Test starts a session', async
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.queryByText('Native test chat')).toBeNull();
   expect(screen.getByText('Test in a Claude Code session')).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Start a session' })).toHaveAttribute('href', '/documentation/generations/new?scope=agent&agent=writer');
+  expect(screen.getByRole('link', { name: 'Start a session' })).toHaveAttribute('href', '/documentation/generations/new?agent=writer');
 });
 
 test('a native agent keeps its test chat and Test vN', async () => {

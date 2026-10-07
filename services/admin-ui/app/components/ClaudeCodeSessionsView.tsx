@@ -7,7 +7,7 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-/** Interactive Claude Code sessions, newest first; leaving a session page does not stop it. */
+/** Docs → Generate documents: agent sessions that write documents, newest first; leaving a session page does not stop it. */
 export default function ClaudeCodeSessionsView() {
   const [rows, setRows] = useState<SessionSummary[] | null>(null);
   const [offset, setOffset] = useState(0);
@@ -15,17 +15,17 @@ export default function ClaudeCodeSessionsView() {
   useEffect(() => {
     const controller = new AbortController();
     getSessions(offset, controller.signal).then(result => { if (!controller.signal.aborted) setRows(result.sessions); })
-      .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load sessions'); });
+      .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load generations'); });
     return () => controller.abort();
   }, [offset]);
   return <div className="flex flex-col gap-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-muted-foreground">Interactive documentation sessions with Claude Code agents. Leaving a session page does not stop it. Sessions idle for 24 hours are closed; their history is kept.</p>
-      <Button asChild><Link to="/documentation/generations/new?scope=agent">New session</Link></Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-muted-foreground">An agent documents the code, environments, services and servers you choose. Follow it live, send messages, then save the draft as a document. Leaving the page does not stop it; runs idle for 24 hours are closed and their history is kept.</p>
+      <Button asChild><Link to="/documentation/generations/new">New</Link></Button></div>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    {rows === null ? <Skeleton className="h-40" /> : <Table><TableHeader><TableRow><TableHead>Session</TableHead><TableHead>Status</TableHead><TableHead>Agent</TableHead>
+    {rows === null ? <Skeleton className="h-40" /> : <Table><TableHeader><TableRow><TableHead>Generation</TableHead><TableHead>Status</TableHead><TableHead>Agent</TableHead>
       <TableHead>Tokens</TableHead><TableHead>Document</TableHead><TableHead>Last activity</TableHead></TableRow></TableHeader><TableBody>
       {rows.map(row => <TableRow key={row.id}>
-        <TableCell><Link className="underline" to={`/documentation/sessions/${row.id}`}>{row.title}</Link><p className="text-xs text-muted-foreground">{row.folder}/</p></TableCell>
+        <TableCell><Link className="underline" to={`/documentation/generations/${row.id}`}>{row.title}</Link><p className="text-xs text-muted-foreground">{row.folder}/</p></TableCell>
         <TableCell><Badge variant={row.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[row.status]}</Badge></TableCell>
         <TableCell><span>{row.agent_name}</span><p className="text-xs text-muted-foreground">{row.model_name}</p></TableCell>
         <TableCell>{`${formatTokens(row.input_tokens)} in · ${formatTokens(row.output_tokens)} out`}</TableCell>
@@ -33,7 +33,7 @@ export default function ClaudeCodeSessionsView() {
         <TableCell>{new Date(row.last_activity_at).toLocaleString()}</TableCell>
       </TableRow>)}
     </TableBody></Table>}
-    {rows?.length === 0 && <p>No sessions yet. Start one with New session.</p>}
+    {rows?.length === 0 && <p>Nothing generated yet. Start with New.</p>}
     {(offset > 0 || rows?.length === 50) && <div className="flex gap-2"><Button variant="outline" disabled={!offset} onClick={() => setOffset(n => n - 50)}>Previous</Button>
       <Button variant="outline" disabled={(rows?.length ?? 0) < 50} onClick={() => setOffset(n => n + 50)}>Next</Button></div>}
   </div>;

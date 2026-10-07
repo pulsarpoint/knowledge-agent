@@ -9,7 +9,7 @@ import { Input } from '~/components/ui/input';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-const KINDS = ['test', 'board', 'documentation'];
+const KINDS: Record<string, string> = { test: 'Agent test', board: 'Board task', claude_code: 'Claude Code' };
 
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
@@ -36,7 +36,7 @@ export default function RunsView() {
     <div className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1 text-sm">Run type
         <select aria-label="Run type" className="h-9 rounded-md border bg-background px-2" value={kind} onChange={e => { setBefore(undefined); update('kind', e.target.value); }}>
-          <option value="">All</option>{KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+          <option value="">All</option>{Object.entries(KINDS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       </label>
       <label className="flex flex-col gap-1 text-sm">User
@@ -51,7 +51,7 @@ export default function RunsView() {
           <TableHeader><TableRow><TableHead>Run</TableHead><TableHead>Type</TableHead><TableHead>Agent</TableHead><TableHead>User</TableHead><TableHead>Status</TableHead><TableHead>Tokens</TableHead><TableHead>Started</TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={row.run_key}>
             <TableCell className="max-w-md"><Link className="underline underline-offset-4" to={runPath(row.run_key)}>{row.title || row.run_key}</Link></TableCell>
-            <TableCell><Badge variant="secondary">{row.kind ?? 'run'}</Badge></TableCell>
+            <TableCell><Badge variant="secondary">{row.kind ? KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
             <TableCell>{row.agent ?? row.agent_id}</TableCell>
             <TableCell>{row.user ?? '—'}</TableCell>
             <TableCell>{row.status ?? 'running'}</TableCell>

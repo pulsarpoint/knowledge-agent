@@ -27,7 +27,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- `claude-code-worker` runs interactive documentation sessions with the Claude Agent SDK.
+- `claude-code-worker` runs **Generate documents** sessions with the Claude Agent SDK.
   It is on its own `claude-code` network, shared only with `postgres` (not internal, so
   it keeps internet egress to Bedrock or Anthropic); Bash in a session cannot reach
   `admin-api`, `admin-web`, `rag`, `litellm`, Keycloak, the proxies or Phoenix. It sees
@@ -67,9 +67,9 @@ each folder is writable only in the services listed.
 | --- | --- | --- | --- | --- |
 | `DATA_ROOT` | (required) | `/work/data` | Everything below; read-only base | nothing |
 | `CODE_FOLDER` | `code` | `/work/data/code` | Code projects, Git clones and caches | `admin-api`, `repository-worker` |
-| `CODE_INDEX_FOLDER` | `code-index` | `/work/data/code-index` | Code graph snapshots | `admin-api`, `repository-worker`, `documentation-worker` |
+| `CODE_INDEX_FOLDER` | `code-index` | `/work/data/code-index` | Code graph snapshots | `admin-api`, `repository-worker` |
 | `DOCS_FOLDER` | `docs` | `/work/data/docs` | Bootstrap docs seeded from `examples/docs` | nothing |
-| `GENERATED_DOCS_FOLDER` | `generated-documents` | `/work/data/generated-documents` | Current Markdown/D2 export of each document: `<slug>/`, `<folder>/<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) | `admin-api`, `documentation-worker` |
+| `GENERATED_DOCS_FOLDER` | `generated-documents` | `/work/data/generated-documents` | Current Markdown/D2 export of each document: `<slug>/`, `<folder>/<slug>/` or `services/<svc>/<phase>/`; indexed by the `documents` collection (old `v<n>/` folders are excluded) | `admin-api` |
 | `JIRA_FOLDER` | `jira` | `/work/data/jira` | Jira exports, one `<KEY>.md` per ticket | `rag` |
 
 Each `*_FOLDER` value is a path relative to `DATA_ROOT`: no leading `/`, no `..`, no
@@ -265,3 +265,20 @@ DROP TABLE IF EXISTS reader_settings;            -- 0071_reader_agents already d
 ```
 
 The recorded migration version stays 71.
+
+## Upgrading to Generate documents
+
+Docs → Generate documents now runs a Claude Code agent; the one-shot generation and its worker are gone. After pulling this version on an existing installation:
+
+1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0073
+   deletes the one-shot generation's workflows, jobs, job events and run records;
+   documents, versions and exports stay.
+2. Remove the orphaned `documentation-worker` container:
+   `docker compose --env-file .env -f deploy/compose.yaml up -d --remove-orphans`
+3. Documentation agents need a Claude model and a documentation prompt of their own
+   (Docs → Prompts holds the earlier prompts to copy from).
+
+Back up the database first: rolling 0073 back restores only the empty tables, not the deleted history. It also drops
+`documents.phase_metadata`, so a document written by a service phase re-exports to `<slug>/` instead of
+`services/<service>/<phase>/`; applying 0073 again does not bring the phase folders back.
+

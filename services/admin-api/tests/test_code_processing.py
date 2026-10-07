@@ -155,52 +155,6 @@ def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(s
     assert row['processing']['result']['source_hash'] == 'snapshot'
 
 
-def test_missing_code_skips_models_and_saves_clear_document(store, tmp_path, monkeypatch):
-    from test_documentation_generation import setup_request
-    from knowledge_admin import documentation_generation as generation
-    client, value, _ = setup_request(store, tmp_path, monkeypatch)
-    service = client.post('/api/services', headers=HEADERS, json={'name': 'Postgres', 'service_type': 'builtin'}).json()
-    value.update(service_id=service['id'], code_project_ids=[], environment_id=None, server_ids=[], units=value['units'][:1])
-    monkeypatch.setattr(generation, 'agent', lambda *_a, **_k: pytest.fail('Missing code must not invoke a model'))
-    response = client.post('/api/documentation/generations', headers=HEADERS, json=value)
-    assert response.status_code == 202, response.text
-    assert generation.run_once(store)
-    doc = client.get('/api/documentation/documents', headers=HEADERS).json()['documents'][0]
-    content = client.get('/api/documentation/documents/' + doc['id'], headers=HEADERS).json()['current_version']['markdown']
-    assert 'Code is not available' in content and 'prompt was skipped' in content
-
-
-def test_two_diagrams_keep_code_shared_and_deployment_scoped(store, tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from test_documentation_generation import setup_request
-    from knowledge_admin import documentation_generation as generation
-    client, value, _ = setup_request(store, tmp_path, monkeypatch)
-    prompt = next(p for p in client.get('/api/documentation/prompts', headers=HEADERS).json()['prompts'] if p['name'] == 'Deployment diagram (D2 / TALA)')
-    value['units'].append({'kind': 'deployment_diagram', 'prompt_id': prompt['id'], 'prompt_version_id': prompt['active_version_id']})
-    calls = []
-    async def run(config, task, **kwargs):
-        payload = json.loads(task)
-        calls.append((config,payload))
-        if kwargs['output_type'] is generation.ComponentGraph:
-            return SimpleNamespace(final_output=generation.ComponentGraph(nodes=[{'id': 'app', 'label': 'Application', 'parent_id': None}], edges=[], explanation='Recorded evidence'))
-        return SimpleNamespace(final_output=generation.GeneratedDocument(title='Evidence', description='', markdown='# Checked source or deployment'))
-    monkeypatch.setattr(generation, 'agent', run)
-    assert client.post('/api/documentation/generations', headers=HEADERS, json=value).status_code == 202
-    generation.run_once(store)
-    assert len(calls) == 4
-    assert calls[1][0]['code']['graphs'] and not calls[1][0]['ssh']['enabled']
-    assert calls[3][1]['deployment_findings'] and not calls[3][0]['ssh']['enabled']
-    jobs = client.get('/api/documentation/generations', headers=HEADERS).json()['generations']
-    assert jobs[0]['status'] == 'succeeded', jobs[0]['error']
-    docs = client.get('/api/documentation/documents', headers=HEADERS).json()['documents']
-    diagrams = [doc for doc in docs if doc['purpose'] == 'diagram']
-    assert len(diagrams) == 2
-    assert sorted(len(doc['environment_ids']) for doc in diagrams) == [0, 1]
-    deployment = next(doc for doc in diagrams if doc['environment_ids'])
-    assert deployment['environment_ids'] == [value['environment_id']]
-    assert deployment['server_ids'] == value['server_ids']
-
-
 def _saved_before_data_root(tmp_path, monkeypatch):
     """A graph written while code lived at /work/code and graphs at /work/code-index."""
     from knowledge_admin.code_processing import source_inventory
@@ -242,13 +196,10 @@ def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder
     assert graph['folder_paths'] == [str(root / 'app')]
 
 
-def test_a_queued_generation_snapshot_is_rebased_before_it_runs(monkeypatch, tmp_path):
-    from knowledge_admin.documentation_generation import rebase_saved_code_paths
-    monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'data' / 'code'))
-    job = {'source_snapshot': {'code_projects': [{'id': 'p', 'folder_paths': ['/work/code/app', '/work/code/lib']}]},
-        'agent_snapshot': {'code': {'code': {'projects': [{'id': 'p', 'folder_paths': ['/work/code/app']}]}},
-                           'deployment': {'code': {'enabled': False, 'projects': []}}}}
-    rebase_saved_code_paths(job)
-    current = str(tmp_path / 'data' / 'code')
-    assert job['source_snapshot']['code_projects'][0]['folder_paths'] == [current + '/app', current + '/lib']
-    assert job['agent_snapshot']['code']['code']['projects'][0]['folder_paths'] == [current + '/app']
+def test_loading_a_graph_that_was_never_generated_asks_to_generate_it(tmp_path, monkeypatch):
+    (tmp_path / 'code/app').mkdir(parents=True)
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'code'))
+    monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
+    with pytest.raises(CodeProcessingError) as raised:
+        load_code_graph({'id': str(uuid4()), 'name': 'App', 'folder_paths': ['app']})
+    assert str(raised.value) == 'No code graph yet. Generate the graph in Code projects first.'

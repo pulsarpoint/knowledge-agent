@@ -3,7 +3,6 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 import RunsView from '../RunsView';
 import RunRecordView from '../RunRecordView';
-import DocumentationGenerationsView from '../DocumentationGenerationsView';
 
 afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -23,12 +22,23 @@ test('runs list shows each run and filters by kind', async () => {
   await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=board'));
 });
 
+test('run types have readable names in the filter and the list', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: string) => json({ next: null, runs: [
+    { ...runs.runs[0], run_key: 'cc:s1:1', kind: 'claude_code', title: 'Payments API reference' }] })));
+  render(<MemoryRouter><RunsView /></MemoryRouter>);
+  const row = (await screen.findByText('Payments API reference')).closest('tr')!;
+  expect(within(row).getByText('Claude Code')).toBeInTheDocument();
+  const options = within(screen.getByLabelText('Run type')).getAllByRole('option');
+  expect(options.map(option => [option.getAttribute('value'), option.textContent])).toEqual([
+    ['', 'All'], ['test', 'Agent test'], ['board', 'Board task'], ['claude_code', 'Claude Code']]);
+});
+
 test('runs list passes a key prefix from the URL', async () => {
   const fetchMock = vi.fn(async (_url: string) => json(runs));
   vi.stubGlobal('fetch', fetchMock);
-  render(<MemoryRouter initialEntries={['/activity/runs?key_prefix=doc%3Aj1%3A']}><RunsView /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/activity/runs?key_prefix=cc%3As1%3A']}><RunsView /></MemoryRouter>);
   await screen.findByText('How many retries?');
-  expect(fetchMock.mock.calls[0][0]).toContain('key_prefix=doc%3Aj1%3A');
+  expect(fetchMock.mock.calls[0][0]).toContain('key_prefix=cc%3As1%3A');
 });
 
 test('run record shows the full timeline', async () => {
@@ -51,11 +61,4 @@ test('run record shows the full timeline', async () => {
   expect(screen.getByText('{"query":"retries"}')).toBeInTheDocument();
   expect(screen.getByText(/LONG OUTPUT x{5000}/)).toBeInTheDocument();
   expect(screen.getByText('Three retries [1].')).toBeInTheDocument();
-});
-
-test('documentation history links each job to its run records', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => json({ generations: [{ job_id: 'j1', instructions: 'Write docs', mode: 'create', status: 'succeeded', created_at: '2026-10-04T10:00:00Z', document_count: 0, result: {} }] })));
-  render(<MemoryRouter><DocumentationGenerationsView /></MemoryRouter>);
-  const row = (await screen.findByText('Write docs')).closest('tr')!;
-  expect(within(row).getByRole('link', { name: 'Run records' })).toHaveAttribute('href', '/activity/runs?key_prefix=doc%3Aj1%3A');
 });
