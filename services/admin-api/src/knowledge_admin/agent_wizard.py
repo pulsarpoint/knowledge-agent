@@ -91,12 +91,6 @@ class AgentProposal(BaseModel):
     service_ids: list[UUID] = Field(max_length=100)
     servers: list[ServerProposal] = Field(max_length=100)
 
-
-class CreateInput(AgentProposal):
-    """A reviewed proposal plus the agent type. The administrator chooses the type; the designer never proposes it."""
-    runtime: Literal['openai', 'claude_code'] = 'openai'
-    claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
-
     @model_validator(mode='after')
     def consistent_selections(self):
         if self.all_collections and self.collection_ids or self.all_repositories and self.repository_ids:
@@ -112,6 +106,12 @@ class CreateInput(AgentProposal):
             if text is not None and '\x00' in text:
                 raise ValueError('Text cannot contain null characters.')
         return self
+
+
+class CreateInput(AgentProposal):
+    """A reviewed proposal plus the agent type. The administrator chooses the type; the designer never proposes it."""
+    runtime: Literal['openai', 'claude_code'] = 'openai'
+    claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
 
 
 class GenerateInput(BaseModel):

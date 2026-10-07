@@ -229,3 +229,24 @@ def test_wizard_creates_claude_code_agents_with_claude_models_only(store, wizard
         assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'name': 'Bad', **bad}).status_code == 400
     with store.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM ka.agents WHERE name IN ('GPT writer','Bad')").fetchone()['n'] == 0
+
+
+def test_proposal_rejects_all_and_specific_collections(wizard):
+    _, _, proposal, _ = wizard
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match='not both'):
+        AgentProposal.model_validate({**proposal, 'all_collections': True})
+
+
+def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypatch):
+    client, _, proposal, _ = wizard
+    calls = []
+    async def run(config, task, **kwargs):
+        calls.append(json.loads(task))
+        output = {**proposal, 'all_collections': True} if len(calls) == 1 else proposal
+        return SimpleNamespace(final_output=AgentProposal.model_validate(output))
+    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
+    assert result.status_code == 200 and result.json()['proposal'] == proposal
+    assert len(calls) == 2
+    assert any('not both' in e['message'] for e in calls[1]['correction']['errors'])
