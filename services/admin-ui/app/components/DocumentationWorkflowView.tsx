@@ -71,7 +71,7 @@ export function NewDocumentationWorkflow() {
     {(scope==='service'||scope==='environment')&&<Button type="submit" className="self-start" disabled={busy||!subject||!model}>{busy?'Creating…':'Create workflow'}</Button>}
   </form>
   {scope==='code_project' && data && <CodeProjectDocumentationForm modelId={model} onQueued={() => navigate('/documentation/generations')} />}
-  {scope==='agent' && data && <ClaudeCodeSessionForm onCreated={id => navigate(`/documentation/sessions/${id}`)} />}
+  {scope==='agent' && data && <ClaudeCodeSessionForm initialAgentId={params.get('agent') ?? ''} onCreated={id => navigate(`/documentation/sessions/${id}`)} />}
   </div>;
 }
 

@@ -12,6 +12,7 @@ from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
 from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from test_api import _client
+from test_claude_code_agents import claude_code_agent
 from test_repositories import HEADERS
 
 
@@ -25,7 +26,7 @@ def sessions(store, tmp_path, monkeypatch):
     monkeypatch.setenv('CODE_ROOT', str(data / 'code'))
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(data / 'generated-documents'))
     client = _client(tmp_path, repository_store=store)
-    agent = client.post('/api/claude-code/agents', headers=HEADERS, json={'name': 'Technical writer'}).json()['id']
+    agent = claude_code_agent(client)
     claude = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'Claude', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
         'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-secret-token'}).json()['id']
@@ -330,3 +331,65 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
     assert ': keepalive' not in response.text  # well under KEEPALIVE_SECONDS
     assert connected == [5]
     assert claude_code_api.KEEPALIVE_SECONDS == 60 and 10 <= claude_code_api.DEFAULT_KEEPALIVE_SECONDS <= 20
+
+
+def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projects(sessions):
+    client, data = sessions.client, sessions.data
+    skill = client.post('/api/skills', headers=HEADERS, json={
+        'name': 'reference', 'description': 'API reference style', 'instructions': 'List every endpoint with its errors.'}).json()
+    agent = claude_code_agent(client, 'API writer', system_prompt='You write API references.',
+                              instructions='Write for operators.', model_id=sessions.claude, skills_enabled=True,
+                              skill_ids=[skill['id']], repositories_enabled=True, repository_ids=[sessions.repo],
+                              claude_code_tools=['Grep', 'Read'])
+    body = {key: value for key, value in sessions.body.items() if key != 'model_id'}  # the agent's model is used
+    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session['model_name'] == 'Claude'
+    assert session['context_snapshot']['folders'] == [
+        {'path': f'{data}/jira', 'kind': 'folder', 'name': 'jira'},
+        {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
+    assert session['context_snapshot']['code_project_ids'] == []
+    snapshot = session['prompt_snapshot']
+    assert snapshot['system_prompt'] == ('You write API references.\n\n## Instructions\n\nWrite for operators.\n\n'
+                                         '## Skills\n\n### reference\n\nAPI reference style\n\nList every endpoint with its errors.')
+    assert (snapshot['claude_code_tools'], snapshot['agent_version']) == (['Read', 'Grep'], None)
+    assert f'- {data}/code/app (code project Payments API)' in session['inputs'][0]['text']
+    serialized = json.dumps(session)
+    for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token'):
+        assert secret not in serialized
+    # An agent without a model needs one in the request.
+    plain = claude_code_agent(client, 'Plain writer')
+    missing = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': plain})
+    assert missing.status_code == 400 and missing.json()['error']['message'].startswith('Select an enabled Claude model')
+    # The agent's own folders must exist too.
+    (data / 'code/app').rmdir()
+    gone = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
+    assert gone.status_code == 400 and "of the agent's code project Payments API does not exist" in gone.json()['error']['message']
+
+
+def test_session_uses_the_active_version_tools_and_code_projects(sessions):
+    from test_profiles import update
+    client, data = sessions.client, sessions.data
+    agent = claude_code_agent(client, 'Versioned writer', model_id=sessions.claude, repositories_enabled=True,
+                              repository_ids=[sessions.repo], claude_code_tools=['Grep', 'Read'])
+    path = f'/api/agents/{agent}/versions'
+    source = client.get(path + '/source', headers=HEADERS).json()
+    draft = client.post(path, headers=HEADERS, json={'label': 'Draft', 'source_hash': source['source_hash'],
+                        'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
+    assert draft.status_code == 201, draft.text
+    active = client.get(path, headers=HEADERS).json()['active_id']  # the initial configuration
+    # Working settings changed after the version was saved do not reach the session.
+    profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
+    changed = update(client, profile, repositories_enabled=False, repository_ids=[], claude_code_tools=['Bash'])
+    assert changed.status_code == 200, changed.text
+    body = {key: value for key, value in sessions.body.items() if key != 'model_id'}
+    response = client.post('/api/claude-code/sessions', headers=HEADERS,
+                           json={**body, 'agent_id': agent, 'code_project_ids': [], 'folders': []})
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session['model_name'] == 'Claude'
+    snapshot = session['prompt_snapshot']
+    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and snapshot['agent_version']['id'] == active
+    assert session['context_snapshot']['folders'] == [
+        {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]

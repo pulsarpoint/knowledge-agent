@@ -1,4 +1,5 @@
 import { request } from './api';
+import type { AgentRuntime, ClaudeCodeTool } from './profiles';
 
 export interface WizardResource { id: string; name: string; description?: string }
 export interface WizardConnection {
@@ -20,7 +21,7 @@ export interface AgentProposal {
 export interface WizardOptions {
   default_model_id: string | null; prompt: string; schema: Record<string, unknown>;
   catalog: {
-    models: (WizardResource & { provider: string; model: string })[];
+    models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
     collections: { id: string; name: string; description: string }[];
     servers: (WizardResource & WizardConnection & { hostname: string; tags: string[] })[];
@@ -28,10 +29,11 @@ export interface WizardOptions {
     services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];
   };
 }
+export type NewAgent = AgentProposal & { runtime: AgentRuntime; claude_code_tools: ClaudeCodeTool[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
 export const generateAgent = (role: string, model_id: string) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id }),
 });
-export const createWizardAgent = (proposal: AgentProposal) => request<{ id: string }>('/api/agents/wizard', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal),
+export const createWizardAgent = (value: NewAgent) => request<{ id: string }>('/api/agents/wizard', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });

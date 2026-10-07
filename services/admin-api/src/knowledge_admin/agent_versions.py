@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import get_agent_config
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, model_fits
 
 
 class ServerInstructions(BaseModel):
@@ -68,8 +69,6 @@ def build_api(app_name, store):
             raise HTTPException(404, 'Agent not found.')
         if row['is_coordinator']:
             raise HTTPException(409, 'Configuration versions are available for specialist agents.')
-        if row['runtime'] != 'openai':
-            raise HTTPException(409, 'Claude Code agents have no configuration versions.')
         return row
 
     def source(conn, agent_id, version_id, review_id):
@@ -169,6 +168,9 @@ def build_api(app_name, store):
             config = version['config']
             if not config['system_prompt']['content'].strip() or config['model'] is None:
                 raise HTTPException(409, 'A system prompt and model are required before activation.')
+            if not model_fits(row['runtime'], config['model']):
+                raise HTTPException(400, CHOOSE_CLAUDE if row['runtime'] == 'claude_code'
+                                    else 'Choose an enabled model compatible with this agent.')
             conn.execute('UPDATE ka.agent_versions SET published_at=coalesce(published_at,now()) WHERE id=%s', (version_id,))
             conn.execute('UPDATE ka.agents SET active_config_version_id=%s WHERE id=%s', (version_id,agent_id))
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

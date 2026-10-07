@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { saveProfileModel, type AgentProfile } from '../lib/profiles';
 import { ApiError } from '../lib/api';
-import { codeCompatible, getLlmSettings, saveAgentModel, type LlmSettings } from '../lib/llm';
+import { codeCompatible, getLlmSettings, saveAgentModel, type LlmSettings, type ModelProfile } from '../lib/llm';
+import { claudeModel } from '~/lib/claudeCode';
 import { agentNames, type AgentName } from '../lib/prompts';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -21,6 +22,8 @@ export default function AgentModelSelection({ agent = "code", profile, onSaved, 
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const field = `${agent}_model_id` as const;
+  const claudeCode = profile?.runtime === 'claude_code';
+  const fits = (model: ModelProfile) => claudeCode ? claudeModel(model) : codeCompatible(model);
 
   useEffect(() => {
     let live = true;
@@ -55,7 +58,7 @@ export default function AgentModelSelection({ agent = "code", profile, onSaved, 
   }
 
   const savedId = profile ? profile.model_id : settings?.assignments[field] ?? null;
-  const models = settings?.models.filter(model => model.api_format !== 'embeddings' && (model.id === savedId || model.enabled && (profile?.is_coordinator || !profile && agent === 'search' || codeCompatible(model)))) ?? [];
+  const models = settings?.models.filter(model => model.api_format !== 'embeddings' && (model.id === savedId || model.enabled && (profile?.is_coordinator || !profile && agent === 'search' || fits(model)))) ?? [];
   return <Card>
     <CardHeader><CardTitle>{profile ? "Model connection" : agentNames[agent] + " model"}</CardTitle><CardDescription>Choose the model connection this agent uses. Changes apply to new requests.</CardDescription></CardHeader>
     <CardContent className="flex flex-col gap-3">
@@ -66,10 +69,10 @@ export default function AgentModelSelection({ agent = "code", profile, onSaved, 
           <Select value={selected ?? 'none'} disabled={saving} onValueChange={value => { setSelected(value === 'none' ? null : value); setNotice(undefined); }}>
             <SelectTrigger id={`agent-model-${agent}`}><SelectValue /></SelectTrigger>
             <SelectContent><SelectGroup><SelectItem value="none">Not configured</SelectItem>
-              {models.map(model => <SelectItem key={model.id} value={model.id} disabled={!model.enabled || !profile?.is_coordinator && (profile || agent !== 'search') && !codeCompatible(model)}>{model.name}{!model.enabled && ' (disabled)'}</SelectItem>)}
+              {models.map(model => <SelectItem key={model.id} value={model.id} disabled={!model.enabled || !profile?.is_coordinator && (profile || agent !== 'search') && !fits(model)}>{model.name}{!model.enabled && ' (disabled)'}</SelectItem>)}
             </SelectGroup></SelectContent>
           </Select>
-          <FieldDescription>{profile?.is_coordinator || !profile && agent === 'search' ? 'Select an enabled model with tool support.' : 'Select an enabled Responses connection or a Claude model.'} {models.length === 0 && 'Add a compatible connection in LLM Settings to get started.'}</FieldDescription>
+          <FieldDescription>{claudeCode ? 'Claude Code agents use Claude connections only: Bedrock inference profiles (eu.anthropic.claude-…) or the Anthropic API.' : profile?.is_coordinator || !profile && agent === 'search' ? 'Select an enabled model with tool support.' : 'Select an enabled Responses connection or a Claude model.'} {models.length === 0 && 'Add a compatible connection in LLM Settings to get started.'}</FieldDescription>
         </Field>
       </FieldGroup>}
     </CardContent>

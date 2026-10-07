@@ -430,9 +430,9 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 ### 4.11 Agents
 
-`/agents` lists agents with capabilities, model, active system prompt and status.
+`/agents` lists agents with **Agent type**, capabilities, model, active system prompt and status.
 
-**Create an agent** with **New agent** (the only way to create agents). It opens one panel with two tabs: **Generic agent** (the wizard below) and **Claude Code** (name and description). On the **Generic agent** tab:
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. The review **General** tab starts with **Agent type** (Native or Claude Code):
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
@@ -447,7 +447,7 @@ saved but runs only after you choose one on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | Name, purpose, when-to-use, **Enable agent**; **Model connection** (required to run); additional instructions |
+| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover) |
 | **Code projects** | Enable and pick code projects, or "All code projects" |
@@ -456,7 +456,7 @@ saved but runs only after you choose one on its General tab.
 | **Services** | Pick services whose descriptions are added to the agent's context |
 | **Prompts** | System prompt versions: new draft, edit draft, **Set active**, delete inactive versions |
 | **Versions** | Snapshot the whole configuration as a version; **Test vN**, **Copy as draft**, **Activate vN** |
-| **Test** | Chat with the agent |
+| **Test** | Native: chat with the agent. Claude Code: **Start a session** opens New documentation → With an agent, with this agent and its model selected |
 
 > **Working configuration vs. active version.** Once an agent has an active
 > configuration version, edits in the tabs change the *working configuration* only.
@@ -480,13 +480,7 @@ on. Settings changes touch only the agent's working copy: if the Search agent ha
 active configuration version, runs keep using that version's snapshot until you save
 and activate a new version.
 
-**Claude Code agents.** **All agents** shows them with a **Claude Code SDK** badge.
-**New agent → Claude Code** asks only for a name and a description, and the agent page edits
-only those. The model, folders, prompt and context are chosen per session (see
-[4.13](#413-documentation-generation), **With an agent**). Tools are fixed: Read, Grep, Glob
-and Bash, in their own container with `DATA_ROOT` read-only. Bash can reach the network.
-There is no Edit/Write, no MCP and no sub-agents, and there are no turn, time or cost
-limits. Claude Code agents never appear on the multi-agent board or in test chats.
+**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, prompt versions, versions). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the active prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats or on the multi-agent board. Agents created before this release got the built-in documentation prompt as prompt version 1.
 
 Agents with sessions or board history cannot be removed — disable them instead.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
@@ -614,8 +608,8 @@ document's export at any level, for example folder `a/b` when folder `a` holds a
 **With an agent (interactive).** **New documentation** → **With an agent** starts a
 Claude Code session in which you watch the agent work and steer it. Form fields:
 
-- **Agent**: a Claude Code agent.
-- **Model** (required): Claude connections only. Bedrock models need inference-profile IDs
+- **Agent**: an enabled Claude Code agent (opened from an agent's Test tab, it is preselected).
+- **Model** (required; defaults to the agent's model): Claude connections only. Bedrock models need inference-profile IDs
   with a region prefix, such as `eu.anthropic.claude-…` (also `us.` or `global.`); the
   Anthropic API is the other option.
 - **Prompt**: any active documentation prompt.
@@ -626,11 +620,7 @@ Claude Code session in which you watch the agent work and steer it. Form fields:
 
 **Generate** opens the session page.
 
-What the agent gets: the built-in system prompt, "You are an expert technical writer. You
-explore the provided folders and context to write accurate documentation; everything you
-state must be grounded in what you read.", and one message with the prompt, the comments
-and the context (folders as absolute container paths; the first folder is its working
-directory). There is no SSH and there are no server credentials.
+What the agent gets: its own prompt, instructions and skills as the system prompt, then one message with the documentation prompt, the comments and the context (folders as absolute container paths). Working folders: this run's code projects and folders first (the first one is the working directory), then the agent's code projects. There is no SSH and there are no server credentials.
 
 The session page shows live activity: messages, thinking, and tool calls with the path,
 pattern or command and the first lines of output. It also shows tokens in/out/cached and
@@ -785,9 +775,10 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ### H. Write documentation interactively with Claude Code
 
-1. **Agents → New agent → Claude Code** (name and description).
-2. **Docs → Generate documents** → **New documentation** → **With an agent** → fill in the
-   form → **Generate**.
+1. **Agents → New agent**, **Agent type: Claude Code**, choose a Claude model and write the
+   system prompt → **Create agent**.
+2. **Docs → Generate documents** → **New documentation** → **With an agent** (or the agent's
+   **Test** tab → **Start a session**) → fill in the form → **Generate**.
 3. Follow the stream and send a message such as "shorten the API section".
 4. **Save document**.
 5. **Docs → Folders** → **Index in RAG → Collections**.
@@ -886,7 +877,7 @@ Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and
 Services add context only — no tools.
 
-**Claude Code agents** use Read, Grep, Glob and Bash as user `claude` (uid 1001) in
+**Claude Code agents** use the Read, Grep, Glob and Bash tools switched on in their **Claude Code tools** card (all on by default; off tools are also disallowed; catalog tools come in a later release), as user `claude` (uid 1001) in
 `claude-code-worker`, with `DATA_ROOT` read-only and `setting_sources=[]` (no `.claude/`
 settings, hooks or CLAUDE.md from the folders). The model key exists only in the CLI
 environment.

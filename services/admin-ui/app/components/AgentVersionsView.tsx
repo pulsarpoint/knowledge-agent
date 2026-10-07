@@ -13,7 +13,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Skeleton } from './ui/skeleton';
 import { Textarea } from './ui/textarea';
 
-export default function AgentVersionsView({ agentId, dirty, onChanged }: { agentId: string; dirty: boolean; onChanged: () => void }) {
+export default function AgentVersionsView({ agentId, dirty, onChanged, testable = true }: { agentId: string; dirty: boolean; onChanged: () => void; testable?: boolean }) {
   const [params, setParams] = useSearchParams();
   const reviewId = params.get('review_id');
   const [data, setData] = useState<AgentVersions>();
@@ -77,7 +77,7 @@ export default function AgentVersionsView({ agentId, dirty, onChanged }: { agent
         <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">v{version.version} · {version.label}</span><Badge variant={version.status === 'active' ? 'default' : 'outline'}>{version.status}</Badge></div>
           <p className="text-xs text-muted-foreground">{new Date(version.created_at).toLocaleString()}</p>{version.notes && <p className="max-w-2xl whitespace-pre-wrap text-sm text-muted-foreground">{version.notes}</p>}</div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" asChild><Link to={`?view=test&version_id=${version.id}`} target="_blank" rel="noopener noreferrer">Test v{version.version}<ExternalLink data-icon="inline-end" /></Link></Button>
+          {testable && <Button variant="outline" size="sm" asChild><Link to={`?view=test&version_id=${version.id}`} target="_blank" rel="noopener noreferrer">Test v{version.version}<ExternalLink data-icon="inline-end" /></Link></Button>}
           <Button variant="ghost" size="sm" disabled={dirty || busy} onClick={() => setSource({ version_id: version.id })}><Copy data-icon="inline-start" />Copy as draft</Button>
           {version.status !== 'active' && <Button variant="outline" size="sm" disabled={dirty || busy} onClick={() => setActivation(version)}>Activate v{version.version}</Button>}
         </div>

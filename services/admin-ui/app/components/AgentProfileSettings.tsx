@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
-import { getAgentOptions, saveAgent, type AgentProfile, type AgentOptions } from '../lib/profiles';
+import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentRuntime } from '../lib/profiles';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '~/components/ui/card';
@@ -46,8 +47,20 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <Field><FieldLabel htmlFor="agent-name">Name</FieldLabel><Input id="agent-name" required maxLength={100} disabled={busy} value={draft.name} onChange={e => change({ name: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. {profile.is_coordinator ? 'The coordinator handles every board task.' : 'Agents are currently selected explicitly.'}</FieldDescription></Field>
+      {!profile.is_coordinator && <Field><FieldLabel htmlFor="agent-type">Agent type</FieldLabel>
+        <Select value={draft.runtime ?? 'openai'} disabled={busy} onValueChange={value => change({ runtime: value as AgentRuntime })}>
+          <SelectTrigger id="agent-type"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
+        <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>}
       {profile.is_coordinator ? <FieldDescription>The coordinator is always enabled.</FieldDescription> : <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>}
       </FieldGroup></div>
+      {view === 'general' && draft.runtime === 'claude_code' && <FieldSet className="rounded-lg border p-4"><FieldLegend>Claude Code tools</FieldLegend>
+        <FieldDescription>Claude Code’s own tools over the agent’s working folders. With all four off, the agent has only catalog tools, which come in the next update.</FieldDescription>
+        {CLAUDE_CODE_TOOL_NAMES.map(tool => { const tools = draft.claude_code_tools ?? [...CLAUDE_CODE_TOOL_NAMES]; return <Field key={tool} orientation="horizontal">
+          <Switch id={`claude-code-tool-${tool}`} disabled={busy} checked={tools.includes(tool)}
+            onCheckedChange={on => change({ claude_code_tools: CLAUDE_CODE_TOOL_NAMES.filter(name => name === tool ? on : tools.includes(name)) })} />
+          <FieldLabel htmlFor={`claude-code-tool-${tool}`}>{tool}</FieldLabel></Field>; })}
+      </FieldSet>}
       {capability && <Field orientation="horizontal"><Switch id={`capability-${capability[0]}`} checked={draft[capability[0]]} disabled={busy} onCheckedChange={enabled => { change({ [capability[0]]: enabled }); if (view === 'skills') setSkillsDirty(true); }} /><div><FieldLabel htmlFor={`capability-${capability[0]}`}>Enable {capability[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</FieldLabel><FieldDescription>{draft[capability[0]] ? 'Enabled for this agent after saving.' : 'Disabled. Its saved settings are retained.'}</FieldDescription></div></Field>}
       <div hidden={view !== 'skills'}><FieldGroup>
         {skillsDirty && configurationDirty && <Alert><AlertDescription>Save or discard changes in General, SSH, or MCP before saving skills.</AlertDescription></Alert>}

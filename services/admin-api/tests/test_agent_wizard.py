@@ -205,3 +205,48 @@ def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch
     assert agent['name'] == 'Blank agent' and agent['model_id'] is None
     assert agent['active_prompt']['version'] == 1
     assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Other', 'system_prompt': ' '}).status_code == 400
+
+
+def test_wizard_creates_claude_code_agents_with_claude_models_only(store, wizard):
+    client, catalog, proposal, _ = wizard
+    assert 'runtime' not in client.get('/api/agents/wizard/options', headers=HEADERS).json()['schema']['properties']
+    created = client.post('/api/agents/wizard', headers=HEADERS, json={
+        **proposal, 'name': 'Payments writer', 'runtime': 'claude_code', 'claude_code_tools': ['Bash', 'Read', 'Read']})
+    assert created.status_code == 201, created.text
+    config = get_agent_config(created.json()['id'], conninfo=store.conninfo)
+    assert (config['runtime'], config['claude_code_tools'], config['system_prompt']['content'], config['instructions']) == (
+        'claude_code', ['Read', 'Bash'], proposal['system_prompt'], proposal['instructions'])
+    assert config['ssh']['enabled'] and config['skills']['items'] and config['code']['projects']  # saved like native
+    gpt = client.post('/api/llm/models', headers=HEADERS, json={'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5',
+                      'api_format': 'responses', 'base_url': 'http://model.test/v1'}).json()['id']
+    refused = client.post('/api/agents/wizard', headers=HEADERS, json={
+        **proposal, 'name': 'GPT writer', 'model_id': gpt, 'runtime': 'claude_code'})
+    assert refused.status_code == 400 and refused.json()['error']['message'] == 'Choose a Claude model for Claude Code agents'
+    native = client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'name': 'GPT helper', 'model_id': gpt})
+    assert native.status_code == 201, native.text
+    assert get_agent_config(native.json()['id'], conninfo=store.conninfo)['runtime'] == 'openai'
+    for bad in ({'runtime': 'other'}, {'claude_code_tools': ['Edit']}, {'claude_code_tools': 'Read'}):
+        assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'name': 'Bad', **bad}).status_code == 400
+    with store.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM ka.agents WHERE name IN ('GPT writer','Bad')").fetchone()['n'] == 0
+
+
+def test_proposal_rejects_all_and_specific_collections(wizard):
+    _, _, proposal, _ = wizard
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match='not both'):
+        AgentProposal.model_validate({**proposal, 'all_collections': True})
+
+
+def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypatch):
+    client, _, proposal, _ = wizard
+    calls = []
+    async def run(config, task, **kwargs):
+        calls.append(json.loads(task))
+        output = {**proposal, 'all_collections': True} if len(calls) == 1 else proposal
+        return SimpleNamespace(final_output=AgentProposal.model_validate(output))
+    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
+    assert result.status_code == 200 and result.json()['proposal'] == proposal
+    assert len(calls) == 2
+    assert any('not both' in e['message'] for e in calls[1]['correction']['errors'])

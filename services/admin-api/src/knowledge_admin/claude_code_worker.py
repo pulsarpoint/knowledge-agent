@@ -86,12 +86,20 @@ def session_env(session_id, slot: int) -> dict[str, str]:
     return {'HOME': home, 'TMPDIR': f'{home}/tmp', SLOT_ENV: str(slot)}
 
 
+def session_tools(session: dict[str, Any]) -> list[str]:
+    """The agent's Claude Code tools when the session started; sessions created before step 1 have all four."""
+    chosen = session['prompt_snapshot'].get('claude_code_tools', list(ALLOWED_TOOLS))
+    return [tool for tool in ALLOWED_TOOLS if tool in chosen]
+
+
 def build_options(session: dict[str, Any], model: RuntimeModel, slot: int = 1) -> dict[str, Any]:
-    """Keyword arguments for ClaudeAgentOptions: fixed read-only tools plus Bash, the chosen folders, no limits."""
+    """Keyword arguments for ClaudeAgentOptions: the agent's Claude Code tools, the chosen folders, no limits."""
+    tools = session_tools(session)
     folders = [folder['path'] for folder in session['context_snapshot']['folders']]
     options = {
         'system_prompt': {'type': 'preset', 'preset': 'claude_code', 'append': session['prompt_snapshot']['system_prompt']},
-        'tools': list(ALLOWED_TOOLS), 'allowed_tools': list(ALLOWED_TOOLS), 'disallowed_tools': list(DISALLOWED_TOOLS),
+        'tools': tools, 'allowed_tools': list(tools),
+        'disallowed_tools': [*DISALLOWED_TOOLS, *(tool for tool in ALLOWED_TOOLS if tool not in tools)],
         'permission_mode': 'dontAsk', 'setting_sources': [], 'skills': [], 'mcp_servers': {}, 'strict_mcp_config': True,
         'cwd': folders[0], 'add_dirs': folders, 'model': model.model,
         'env': {**BASE_ENV, **session_env(session['id'], slot), **credential_env(model)},

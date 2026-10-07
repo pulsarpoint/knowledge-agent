@@ -417,3 +417,14 @@ def test_home_root_belongs_to_root_and_hides_what_an_earlier_image_left(tmp_path
     assert oct((root / 'sessions').stat().st_mode & 0o777) == oct(0o711) and oct(root.stat().st_mode & 0o777) == oct(0o711)
     assert oct((root / '.claude').stat().st_mode & 0o777) == oct(0o700)
     assert oct((root / 'tmp').stat().st_mode & 0o777) == oct(0o700)  # the worker's TMPDIR
+
+
+def test_claude_code_tools_switches_map_to_tools_and_allowed_tools():
+    chosen = worker.build_options({**SESSION, 'prompt_snapshot': {'system_prompt': 'Write.', 'claude_code_tools': ['Grep', 'Read']}},
+                                  BEDROCK)
+    assert chosen['tools'] == chosen['allowed_tools'] == ['Read', 'Grep']
+    assert {'Glob', 'Bash', 'Edit', 'Write', 'WebFetch'} <= set(chosen['disallowed_tools'])
+    none = worker.build_options({**SESSION, 'prompt_snapshot': {'system_prompt': 'Write.', 'claude_code_tools': []}}, BEDROCK)
+    assert none['tools'] == none['allowed_tools'] == []
+    assert {'Read', 'Grep', 'Glob', 'Bash'} <= set(none['disallowed_tools'])
+    assert worker.session_tools(SESSION) == ['Read', 'Grep', 'Glob', 'Bash']  # sessions created before step 1

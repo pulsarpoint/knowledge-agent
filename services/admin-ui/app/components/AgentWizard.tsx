@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from '../lib/agentWizard';
+import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, type AgentRuntime } from '../lib/profiles';
+import { claudeModel } from '~/lib/claudeCode';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -51,6 +53,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [error, setError] = useState('');
   const [showContext, setShowContext] = useState(false);
   const [reload, setReload] = useState(0);
+  const [runtime, setRuntime] = useState<AgentRuntime>('openai');
   useEffect(() => {
     let live = true;
     getWizardOptions().then(data => {
@@ -62,6 +65,11 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     return () => { live = false; };
   }, [reload]);
   const catalog = options?.catalog;
+  const agentModels = catalog?.models.filter(m => runtime !== 'claude_code' || claudeModel(m)) ?? [];
+  function chooseType(next: AgentRuntime) {
+    setRuntime(next);
+    if (next === 'claude_code' && proposal?.model_id && !catalog?.models.some(m => m.id === proposal.model_id && claudeModel(m))) edit({ model_id: null });
+  }
   function edit(value: Partial<AgentProposal>) { setProposal(current => current ? { ...current, ...value } : current); }
   function editServer(id: string, value: Partial<WizardServer>) {
     if (proposal) edit({ servers: proposal.servers.map(server => server.server_id === id ? { ...server, ...value } : server) });
@@ -81,7 +89,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent(proposal); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
+    try { const saved = await createWizardAgent({ ...proposal, runtime, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES] }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
   }
@@ -109,10 +117,11 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services']].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
+          <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>
-          <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={proposal.model_id ?? 'none'} onValueChange={value => edit({ model_id: value === 'none' ? null : value })}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{catalog.models.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>An agent runs only after a model is selected.</FieldDescription></Field>
+          <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={proposal.model_id ?? 'none'} onValueChange={value => edit({ model_id: value === 'none' ? null : value })}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{agentModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>An agent runs only after a model is selected.</FieldDescription></Field>
           <Toggle label="Enable agent" checked={proposal.enabled} onChange={enabled => edit({ enabled })} />
           <Field><FieldLabel htmlFor="wizard-instructions">Additional instructions</FieldLabel><Textarea id="wizard-instructions" rows={5} maxLength={40000} value={proposal.instructions} onChange={e => edit({ instructions: e.target.value })} /></Field>
           <FieldSet><FieldLegend>Proposed access</FieldLegend><div className="flex flex-wrap gap-2">{([['documents_enabled','Documents'],['repositories_enabled','Code projects'],['ssh_enabled','SSH'],['skills_enabled','Skills'],['mcp_enabled','MCP'],['services_enabled','Services']] as const).map(([key,label]) => <Badge key={key} variant={proposal[key] ? 'default' : 'outline'}>{label}: {proposal[key] ? 'on' : 'off'}</Badge>)}</div><FieldDescription>Review each tab to change access and resource selections.</FieldDescription></FieldSet>

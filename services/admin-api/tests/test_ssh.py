@@ -29,12 +29,16 @@ def ssh_server(tmp_path_factory):
     subprocess.run(['docker', 'run', '-d', '--rm', '--name', name, '-p', '127.0.0.1::22', '-v', f'{directory}:/fixtures:ro', 'knowledge-agent-v3-ssh-test'], check=True, capture_output=True)
     try:
         port = int(subprocess.check_output(['docker', 'port', name, '22'], text=True).strip().rsplit(':', 1)[1])
+        # Docker accepts the port before sshd is up, so wait for the SSH banner, not the socket.
         for _ in range(100):
             try:
-                with socket.create_connection(('127.0.0.1', port), timeout=0.5):
-                    break
+                with socket.create_connection(('127.0.0.1', port), timeout=0.5) as probe:
+                    probe.settimeout(0.5)
+                    if probe.recv(4).startswith(b'SSH-'):
+                        break
             except OSError:
-                time.sleep(0.1)
+                pass
+            time.sleep(0.1)
         yield SSHConnection('127.0.0.1', port, 'operator', f'[127.0.0.1]:{port} {host.export_public_key().decode().strip()}', key.export_private_key().decode(), False)
     finally:
         subprocess.run(['docker', 'rm', '-f', name], capture_output=True)

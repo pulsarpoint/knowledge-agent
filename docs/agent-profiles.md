@@ -45,15 +45,17 @@ Prompt versions belong to one profile. Creating an agent requires an explicit, n
 The default IDs `search`, `code`, and `operations` preserve existing integrations.
 Every agent has its own configuration; no parent agent is introduced.
 
-## New agent → Generic agent
+## New agent
 
-Agents → New agent → Generic agent designs a specialist from a role description. Choose
+Agents → New agent designs a specialist from a role description. Choose
 an enabled model connection, then generate a proposal with the official Agents SDK.
 The designer receives the agent JSON schema and current resource metadata:
 code projects and their mapped folders, document folders, SSH servers and saved
 credential references, skills, MCP servers, services, model connections, and
 existing agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
+
+The wizard's review has an **Agent type** choice (Native or Claude Code); the generation schema does not include it. `POST /api/agents/wizard` accepts `runtime` and `claude_code_tools`.
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
@@ -91,10 +93,14 @@ runtime, SDK wrapper, dependency, or migration is introduced.
 
 Migration `0020_agent_profiles` introduced agent identity and resource joins. Migration `0021_agent_capabilities` replaces the fixed `kind` with six independent boolean fields: `documents_enabled`, `repositories_enabled`, `ssh_enabled`, `skills_enabled`, `mcp_enabled`, and `services_enabled`. Existing profiles receive the capabilities their previous runtime supported. Prompts, models, server overrides, encrypted credentials, resource selections and run history remain intact. Migration `0022_required_agent_prompt` adds a deferred foreign key so an agent cannot be persisted without its own prompt record and active version.
 
+Migration `0072_knowledge_agents_config` lifts the 0070 registration rule, adds `claude_code_tools` (default all four, values restricted) and `claude_code_agent_is_not_the_coordinator`, restores the required prompt for every agent and gives existing Claude Code agents the built-in documentation prompt; its down migration refuses while a Claude Code agent is the coordinator, has a model, any configuration versions (or an active one), a capability switch on (including grounded documents or all collections/code projects), tools other than the default four, more than one prompt version, or server instructions, saved instructions or server connections. Otherwise it drops the other saved selections of Claude Code agents (specific collections, code projects, services and skills, settings rows) and their prompt, keeping only the name and description.
+
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
-- `PUT /api/agents/{id}/model` assigns an enabled compatible model.
+- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools`.
+- `PUT /api/agents/{id}/model` assigns an enabled compatible model and applies the type's model rule.
+- `GET /api/agents/{id}/config` returns `runtime` and `claude_code_tools` for both types (`knowledge_admin.knowledge_agents.config.get_agent_config`).
 - Prompt APIs accept the agent ID.
 - `/api/agents/{id}/sessions` and `/{session_id}` list and restore conversations;
   `/{session_id}/close` ends one and `/{session_id}/review` saves tuning suggestions.

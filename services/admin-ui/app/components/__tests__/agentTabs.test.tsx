@@ -155,16 +155,14 @@ test('old prompt links open the matching agent detail', async () => {
   expect(await screen.findByRole('region', { name: 'Code search agent system prompts' })).toBeVisible();
 });
 
-test('agents are created only through one New agent panel with a generic and a Claude Code tab', async () => {
+test('agents are created only through one New agent panel with the wizard', async () => {
   render(app('/agents'));
   const button = await screen.findByRole('button', { name: 'New agent' });
   expect(screen.queryByRole('button', { name: 'New Agent Wizard' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Create agent' })).toBeNull();
   expect(screen.queryByLabelText('System prompt')).toBeNull();
   fireEvent.click(button);
   const panel = screen.getByRole('region', { name: 'New agent' });
-  expect(within(panel).getByRole('tab', { name: 'Generic agent' })).toHaveAttribute('aria-selected', 'true');
-  expect(within(panel).getByRole('tab', { name: 'Claude Code' })).toBeVisible();
+  expect(within(panel).queryByRole('tab')).toBeNull();
   expect(within(panel).getByRole('button', { name: /Generate proposal/ })).toBeInTheDocument();
 });
 

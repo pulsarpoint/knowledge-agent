@@ -4,13 +4,13 @@ from typing import Literal
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
-from knowledge_llm import ModelUnavailable, code_compatible
+from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.agents import get_agent_config
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools
 
 
 class ProfileInput(BaseModel):
@@ -33,6 +33,8 @@ class ProfileInput(BaseModel):
     skills_enabled: bool = Field(strict=True)
     mcp_enabled: bool = Field(strict=True)
     services_enabled: bool = Field(strict=True)
+    runtime: Literal['openai', 'claude_code'] | None = None  # None keeps the agent type
+    claude_code_tools: list[ClaudeCodeTool] | None = Field(default=None, max_length=8)  # None keeps the saved tools
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
@@ -74,10 +76,10 @@ def build_api(app_name, store):
             JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id WHERE p.agent=%s''', (agent_id,)).fetchone()
         return row
 
-    def audit(conn, request, agent_id, action):
+    def audit(conn, request, agent_id, action, **details):
         actor = store.actor(conn, *request_actor(request))
         conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb({'agent_id': agent_id})))
+            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb({'agent_id': agent_id, **details})))
         return actor
 
     @router.get('')
@@ -92,6 +94,7 @@ def build_api(app_name, store):
             for row in rows:
                 config = row.pop('version_config')
                 if config is not None:
+                    row['claude_code_tools'] = config.get('claude_code_tools', row['claude_code_tools'])
                     for key in ('name','description','when_to_use'):
                         row[key] = config[key]
                     row['model_id'] = config['model']['id'] if config['model'] else None
@@ -137,8 +140,6 @@ def build_api(app_name, store):
                 old = read(conn, agent_id)
                 if old['revision'] != value.revision:
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
-                if old['runtime'] != 'openai':
-                    raise HTTPException(409, 'Claude Code agents have only a name and a description; edit them on their agent page.')
                 if old['is_coordinator'] and not value.enabled:
                     raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
                 if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
@@ -147,8 +148,25 @@ def build_api(app_name, store):
                     raise HTTPException(400, 'Configure resource access on the specialists the coordinator delegates to.')
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
+                runtime = value.runtime or old['runtime']
+                if runtime != old['runtime']:
+                    if old['is_coordinator']:
+                        raise HTTPException(400, 'The coordinator runs on the native runtime.')
+                    if runtime == 'claude_code' and old['model_id'] is not None:
+                        current = conn.execute('SELECT provider,api_format,model FROM ka.llm_models WHERE id=%s',
+                                               (old['model_id'],)).fetchone()
+                        if not model_fits('claude_code', current):
+                            raise HTTPException(400, CHOOSE_CLAUDE)
+                    if runtime == 'claude_code':
+                        # The active version runs with its own stored model.
+                        active = conn.execute('''SELECT v.config->'model' AS model FROM ka.agents a
+                            JOIN ka.agent_versions v ON v.id=a.active_config_version_id WHERE a.id=%s''', (agent_id,)).fetchone()
+                        if active is not None and active['model'] is not None and not model_fits('claude_code', active['model']):
+                            raise HTTPException(400, CHOOSE_CLAUDE)
+                tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
-                actor = audit(conn, request, agent_id, 'agent.updated')
+                switch = {'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}
+                actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
                     skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
                     if len(skills) != len(value.skill_ids):
@@ -170,8 +188,8 @@ def build_api(app_name, store):
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,actor,agent_id))
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
@@ -220,14 +238,15 @@ def build_api(app_name, store):
             conn.execute('SELECT singleton FROM ka.llm_assignment_revision FOR UPDATE')
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
             old = read(conn, agent_id)
-            if old['runtime'] != 'openai':
-                raise HTTPException(409, 'Claude Code agents choose their model when a session starts.')
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Refresh before saving its model.')
             if value.model_id is not None:
                 selected = conn.execute('SELECT * FROM ka.llm_models WHERE id=%s FOR SHARE', (value.model_id,)).fetchone()
-                if selected is None or not selected['enabled'] or selected['api_format'] == 'embeddings' or (not old['is_coordinator'] and not code_compatible(selected['provider'],selected['api_format'],selected['model'])):
+                if selected is None or not selected['enabled'] or selected['api_format'] == 'embeddings':
                     raise HTTPException(400, 'Choose an enabled model compatible with this agent.')
+                if not model_fits(old['runtime'], selected, coordinator=old['is_coordinator']):
+                    raise HTTPException(400, CHOOSE_CLAUDE if old['runtime'] == 'claude_code'
+                                        else 'Choose an enabled model compatible with this agent.')
             actor = audit(conn, request, agent_id, 'agent.model.updated')
             conn.execute('UPDATE ka.agents SET model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s', (value.model_id,actor,agent_id))
             conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
