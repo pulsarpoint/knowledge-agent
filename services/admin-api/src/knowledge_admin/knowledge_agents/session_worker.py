@@ -202,7 +202,10 @@ class SessionRunner:
     def finish_turn(self, number: int, status: str, message: str, *, draft: str, usage: dict[str, Any] | None,
                     claude_session_id: str | None = None, commit: Callable[[Any], None] | None = None) -> None:
         """Record the turn's outcome. The draft (already cleaned) replaces the previous one only after a successful turn
-        with text. `commit(conn)` runs in the same transaction, only for a successful turn this worker still owns."""
+        with text. `commit(conn)` runs in the same transaction, only for a successful turn this worker still owns: a
+        lease lost after the turn completed leaves the comments delivered inside it delivered and its history
+        uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
+        more messages, so no turn reads that history again."""
         usage = usage or NO_USAGE
         draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:

@@ -312,6 +312,9 @@ class NativeRunner(shared.SessionRunner):
             await asyncio.to_thread(recorder.flush)
             if status != 'waiting' and comments is not None:
                 await asyncio.to_thread(self.return_comments, number, comments.ids)
+            # finish_turn commits only while this worker holds the lease: when it was lost after the turn completed,
+            # the comments delivered inside the turn stay delivered and its history is not saved. A session closed
+            # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             await asyncio.to_thread(self.finish_turn, number, status, message, usage=events.usage, commit=commit,
                                     draft=clean_text(events.draft(final), secrets))
