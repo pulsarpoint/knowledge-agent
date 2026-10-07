@@ -83,6 +83,16 @@ This overrides every mention of 300 s / 20 model calls below (Global Constraints
   `stopped`, its history is dropped, the session stays usable for the next message. Add tests for Stop during a model
   call and during a slow tool call (fake runtime), and that a stopped turn leaves no running work behind.
 - Test chats and the board keep their current limits (out of scope).
+- **Comments while the agent works (native):** a message sent while a native turn is running is delivered **inside
+  that turn**, before the agent's next model call, instead of waiting for the turn to end. Use the SDK's
+  `RunConfig(call_model_input_filter=…)`: before each model call, claim the session's queued `agent_session_inputs`
+  (same `delivered` marking as `next_turn`, guarded by the worker's lease), append each as a user message
+  ("Comment from the user while you work: …") to the model input, record an `input` event for it, and include it in
+  the turn's buffered history. Messages that arrive after the last model call are delivered as the next turn, as today.
+  Tests: a message queued during a slow tool call reaches the following model call of the same turn, exactly once,
+  with an `input` event; a message after the final answer starts the next turn.
+- The session page keeps the message box enabled while the agent works and says "Your comment reaches the agent at its
+  next step" for native sessions (Claude Code keeps "after its current response").
 
 ## Global Constraints
 
