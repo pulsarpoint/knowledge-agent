@@ -9,8 +9,8 @@ export const claudeModel = (model: Pick<ModelProfile, 'provider' | 'api_format' 
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
-export interface ClaudeCodeAgentInput { name: string; description: string; revision?: number }
-export interface ClaudeCodeAgent { id: string; name: string; description: string; revision: number }
+export interface ClaudeCodeAgentInput { name: string; description: string; enabled?: boolean; revision?: number }
+export interface ClaudeCodeAgent { id: string; name: string; description: string; enabled: boolean; revision: number }
 export const createClaudeCodeAgent = (value: ClaudeCodeAgentInput) => request<{ id: string }>('/api/claude-code/agents', json('POST', value));
 export const saveClaudeCodeAgent = (id: string, value: ClaudeCodeAgentInput) =>
   request<ClaudeCodeAgent>(`/api/claude-code/agents/${encodeURIComponent(id)}`, json('PUT', value));

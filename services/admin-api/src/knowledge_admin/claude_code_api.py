@@ -30,6 +30,7 @@ class AgentInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=4000)
+    enabled: bool | None = Field(default=None, strict=True)  # None keeps it; a disabled agent starts no new session
     revision: int | None = Field(default=None, ge=1, strict=True)
 
     @field_validator('name', 'description')
@@ -205,8 +206,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         try:
             with db.connect() as conn:
                 actor = db.actor(conn, *request_actor(request))
-                conn.execute('''INSERT INTO ka.agents(id,name,description,runtime,created_by,updated_by)
-                    VALUES (%s,%s,%s,'claude_code',%s,%s)''', (agent_id, value.name, value.description, actor, actor))
+                conn.execute('''INSERT INTO ka.agents(id,name,description,runtime,enabled,created_by,updated_by)
+                    VALUES (%s,%s,%s,'claude_code',%s,%s,%s)''',
+                    (agent_id, value.name, value.description, value.enabled is not False, actor, actor))
                 audit(conn, actor, 'agent.created', 'agent', {'agent_id': agent_id, 'runtime': 'claude_code'})
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
@@ -223,8 +225,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if row['revision'] != value.revision:
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
                 actor = db.actor(conn, *request_actor(request))
-                conn.execute('UPDATE ka.agents SET name=%s,description=%s,revision=revision+1,updated_by=%s WHERE id=%s',
-                             (value.name, value.description, actor, agent_id))
+                conn.execute('''UPDATE ka.agents SET name=%s,description=%s,enabled=coalesce(%s,enabled),revision=revision+1,
+                    updated_by=%s WHERE id=%s''', (value.name, value.description, value.enabled, actor, agent_id))
                 audit(conn, actor, 'agent.updated', 'agent', {'agent_id': agent_id, 'runtime': 'claude_code'})
                 return conn.execute(f'SELECT {AGENT_FIELDS} FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
         except psycopg.errors.UniqueViolation:

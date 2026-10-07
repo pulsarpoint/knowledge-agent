@@ -11,6 +11,7 @@ const bodies: Record<string, unknown> = {
     { id: 'gpt', name: 'GPT', provider: 'openai', model: 'gpt-5', api_format: 'responses', enabled: true }],
     assignments: { search_model_id: null, code_model_id: null, revision: 1 } },
   '/api/agents': { agents: [{ id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true },
+    { id: 'retired', name: 'Retired writer', runtime: 'claude_code', enabled: false },
     { id: 'search', name: 'Search agent', runtime: 'openai', enabled: true }] },
   '/api/documentation/prompts': { prompts: [
     { id: 'code', name: 'Code analysis and architecture', input_kind: 'code', enabled: true, active_version_id: 'code-v1' },
@@ -41,7 +42,10 @@ async function select(label: string, option: string) {
   fireEvent.click(await screen.findByRole('option', { name: option }));
 }
 async function fill() {
-  await select('Agent', 'Technical writer');
+  fireEvent.click(await screen.findByLabelText('Agent'));
+  expect(await screen.findByRole('option', { name: 'Technical writer' })).toBeVisible();
+  expect(screen.queryByRole('option', { name: 'Retired writer' })).toBeNull();  // a disabled agent is not offered
+  fireEvent.click(screen.getByRole('option', { name: 'Technical writer' }));
   fireEvent.click(screen.getByLabelText('Model'));
   expect(screen.queryByRole('option', { name: 'GPT' })).toBeNull();  // Claude connections only
   fireEvent.click(screen.getByRole('option', { name: 'Claude on Bedrock' }));

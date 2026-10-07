@@ -20,7 +20,7 @@ function setup() {
     calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined });
     if (url === '/api/agents') return Response.json({ agents: [search, writer] });
     if (url === '/api/claude-code/agents' && method === 'POST') return Response.json({ id: 'new-writer' }, { status: 201 });
-    if (url === '/api/claude-code/agents/writer' && method === 'PUT') return Response.json({ ...writer, name: 'Writer', revision: 2 });
+    if (url === '/api/claude-code/agents/writer' && method === 'PUT') return Response.json({ ...writer, ...JSON.parse(init!.body as string), revision: 2 });
     if (url === '/api/agents/new-writer') return Response.json({ ...writer, id: 'new-writer', name: 'Release notes writer', description: 'Writes release notes' });
     if (url.startsWith('/api/agents/')) return Response.json({ ...writer, id: url.split('/').pop() });
     return Response.json({});
@@ -67,6 +67,20 @@ test('a Claude Code agent page edits only its name and description', async () =>
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Writer' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
   await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toEqual({
-    url: '/api/claude-code/agents/writer', method: 'PUT', body: { name: 'Writer', description: 'Writes documentation', revision: 1 } }));
+    url: '/api/claude-code/agents/writer', method: 'PUT', body: { name: 'Writer', description: 'Writes documentation', enabled: true, revision: 1 } }));
   expect(await screen.findByRole('heading', { name: 'Writer', level: 2 })).toBeVisible();
+});
+
+test('a Claude Code agent page names the agent once and can disable it', async () => {
+  const calls = setup();
+  render(app('/agents/writer'));
+  expect(await screen.findByRole('heading', { name: 'Technical writer', level: 2 })).toBeVisible();
+  expect(screen.queryByText('Claude Code agent')).toBeNull();  // the agent's name is the page's only agent heading
+  const toggle = screen.getByRole('switch', { name: 'Enable agent' });
+  expect(toggle).toBeChecked();
+  expect(screen.getByText(/Disabled agents cannot start new sessions/)).toBeVisible();
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
+  await waitFor(() => expect(calls.find(c => c.method === 'PUT')?.body).toEqual(
+    { name: 'Technical writer', description: 'Writes documentation', enabled: false, revision: 1 }));
 });

@@ -33,7 +33,7 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
     <Button asChild variant="link" className="self-start px-0"><Link to="/agents"><ArrowLeft />All agents</Link></Button>
     {error && <Alert variant="destructive"><AlertDescription>{error}<Button variant="outline" onClick={() => setReload(n => n + 1)}>Reload agent</Button></AlertDescription></Alert>}
     {!profile ? <Skeleton className="h-64 w-full" /> : profile.runtime === 'claude_code' ? <>
-  <div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-semibold">{profile.name}</h2><Badge variant="secondary">{CLAUDE_CODE_SDK}</Badge></div>
+  <div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-semibold">{profile.name}</h2><Badge variant="secondary">{CLAUDE_CODE_SDK}</Badge>{!profile.enabled && <Badge variant="outline">Disabled</Badge>}</div>
   <ClaudeCodeAgentForm key={profile.revision} agent={profile} onSaved={saved => setProfile({ ...profile, ...saved })} />
   <p className="text-sm text-muted-foreground">Start a session in <Link className="underline" to="/documentation/generations/new?scope=agent">Docs → Generate documents → New documentation → With an agent</Link>.</p>
 </> : <>

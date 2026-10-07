@@ -114,3 +114,22 @@ def test_claude_code_agent_with_retained_sessions_cannot_be_deleted(store, write
     with store.connect() as conn:
         assert conn.execute('SELECT 1 FROM ka.agents WHERE id=%s', (agent_id,)).fetchone() is not None
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,)).fetchone()['n'] == 1
+
+
+def test_claude_code_agent_can_be_disabled_and_enabled(writer):
+    client, agent_id = writer
+    revision = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()['revision']
+    disabled = client.put(f'/api/claude-code/agents/{agent_id}', headers=HEADERS,
+                          json={'name': 'Technical writer', 'description': '', 'enabled': False, 'revision': revision})
+    assert disabled.status_code == 200, disabled.text
+    assert (disabled.json()['enabled'], disabled.json()['revision']) == (False, revision + 1)
+    listed = next(a for a in client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent_id)
+    assert listed['enabled'] is False
+    kept = client.put(f'/api/claude-code/agents/{agent_id}', headers=HEADERS,
+                      json={'name': 'Writer', 'description': '', 'revision': revision + 1})  # no `enabled`: unchanged
+    assert kept.json()['enabled'] is False
+    enabled = client.put(f'/api/claude-code/agents/{agent_id}', headers=HEADERS,
+                         json={'name': 'Writer', 'description': '', 'enabled': True, 'revision': revision + 2})
+    assert enabled.json()['enabled'] is True
+    assert client.put(f'/api/claude-code/agents/{agent_id}', headers=HEADERS,
+                      json={'name': 'Writer', 'enabled': 'no', 'revision': revision + 3}).status_code == 400
