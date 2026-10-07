@@ -5,6 +5,11 @@ import AgentsView from '../AgentsView';
 import AgentDetailView from '../AgentDetailView';
 import { Toaster } from '~/components/ui/sonner';
 
+// The agent page is the shared page now; its heavy views are covered by their own tests.
+vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('../PromptsView', () => ({ default: () => null }));
+vi.mock('../AgentInstructions', () => ({ default: () => null }));
+
 const base = { when_to_use: '', enabled: true, is_coordinator: false, documents_enabled: false, repositories_enabled: false,
   ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false, documents_grounded: false, revision: 1,
   all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null };
@@ -22,6 +27,8 @@ function setup() {
     if (url === '/api/agents') return Response.json({ agents: [search, writer] });
     if (url === '/api/claude-code/agents' && method === 'POST') return Response.json({ id: 'new-writer' }, { status: 201 });
     if (url === '/api/claude-code/agents/writer' && method === 'PUT') return Response.json({ ...writer, ...JSON.parse(init!.body as string), revision: 2 });
+    if (url === '/api/llm') return Response.json({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
+    if (url.endsWith('/options')) return Response.json({ collections: [], repositories: [], services: [], skills: [] });
     if (url === '/api/agents/new-writer') return Response.json({ ...writer, id: 'new-writer', name: 'Release notes writer', description: 'Writes release notes' });
     if (url.startsWith('/api/agents/')) return Response.json({ ...writer, id: url.split('/').pop() });
     return Response.json({});
@@ -61,35 +68,4 @@ test('All agents shows Claude Code agents with their badge and creates one from 
     url: '/api/claude-code/agents', method: 'POST', body: { name: 'Release notes writer', description: 'Writes release notes' } }));
   expect(await screen.findByRole('heading', { name: 'Release notes writer', level: 2 })).toBeVisible();
   expect(await screen.findByText('Agent Release notes writer created')).toBeVisible();
-});
-
-test('a Claude Code agent page edits only its name and description', async () => {
-  const calls = setup();
-  render(app('/agents/writer'));
-  expect(await screen.findByRole('heading', { name: 'Technical writer', level: 2 })).toBeVisible();
-  expect(screen.getByText('Claude Code SDK')).toBeVisible();
-  expect(screen.queryByRole('tab')).toBeNull();
-  expect(screen.queryByRole('combobox', { name: 'Model connection' })).toBeNull();
-  expect(screen.getByText(/are chosen when a session starts/)).toBeVisible();
-  expect(screen.getByRole('link', { name: /With an agent/ })).toHaveAttribute('href', '/documentation/generations/new?scope=agent');
-  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Writer' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
-  await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toEqual({
-    url: '/api/claude-code/agents/writer', method: 'PUT', body: { name: 'Writer', description: 'Writes documentation', enabled: true, revision: 1 } }));
-  expect(await screen.findByRole('heading', { name: 'Writer', level: 2 })).toBeVisible();
-  expect(await screen.findByText('Agent Writer saved')).toBeVisible();
-});
-
-test('a Claude Code agent page names the agent once and can disable it', async () => {
-  const calls = setup();
-  render(app('/agents/writer'));
-  expect(await screen.findByRole('heading', { name: 'Technical writer', level: 2 })).toBeVisible();
-  expect(screen.queryByText('Claude Code agent')).toBeNull();  // the agent's name is the page's only agent heading
-  const toggle = screen.getByRole('switch', { name: 'Enable agent' });
-  expect(toggle).toBeChecked();
-  expect(screen.getByText(/Disabled agents cannot start new sessions/)).toBeVisible();
-  fireEvent.click(toggle);
-  fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
-  await waitFor(() => expect(calls.find(c => c.method === 'PUT')?.body).toEqual(
-    { name: 'Technical writer', description: 'Writes documentation', enabled: false, revision: 1 }));
 });

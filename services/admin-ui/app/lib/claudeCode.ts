@@ -4,8 +4,14 @@ import type { ModelProfile } from './llm';
 export const CLAUDE_CODE_SDK = 'Claude Code SDK';
 export const CLAUDE_CODE_TOOLS = 'Read, Grep, Glob, Bash';
 /** The server's Claude connection rule (knowledge_llm.claude_model). */
-export const claudeModel = (model: Pick<ModelProfile, 'provider' | 'api_format' | 'model'>) =>
+export const claudeModel = (model: { provider: string; api_format: string; model: string }) =>
   model.api_format === 'native' && (model.provider === 'anthropic' || model.provider === 'bedrock' && model.model.includes('anthropic.claude'));
+export const CATALOG_TOOLS_NEXT = 'Claude Code agents get these tools in the next update. What you save here is already part of the agent’s configuration and versions.';
+/** Notes on the agent page tabs whose catalog tools Claude Code agents do not have yet. */
+export const claudeCodeNotes: Partial<Record<string, string>> = {
+  documents: CATALOG_TOOLS_NEXT, ssh: CATALOG_TOOLS_NEXT, mcp: CATALOG_TOOLS_NEXT, services: CATALOG_TOOLS_NEXT,
+  git: 'Claude Code sessions open these code projects as read-only working folders. Code search and the code graph come in the next update.',
+};
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
