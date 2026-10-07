@@ -1,8 +1,8 @@
 # Documentation administration
 
-Docs is a separate admin section with Documents, Prompts, and Generate documents.
+Docs is a separate admin section with Documents, Prompts, Generate documents and Folders.
 It supports Markdown CRUD, version history, resource links, versioned prompts and
-background documentation generation. RAG publication remains a separate next stage.
+document generation by Claude Code agents. RAG publication remains a separate next stage.
 
 ## Storage and versions
 
@@ -80,116 +80,58 @@ role. Mutations also require an attributed user. No credential fields are return
 | `POST /prompts/{id}/versions/{version_id}/activate` | Activate using expected parent `revision` |
 | `DELETE /prompts/{id}/versions/{version_id}` | Remove inactive version; expected `revision`, confirmation |
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
-| `POST /generations` | Queue environment or service documentation with immutable prompt and resource snapshots |
-| `GET /generations` | Read recorded generation history, 50 per page |
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
 `/documentation/prompts`, `/documentation/prompts/new`,
-`/documentation/prompts/{id}`, and `/documentation/generations`.
+`/documentation/prompts/{id}`, `/documentation/generations` and `/documentation/folders`.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
 
-## Migration and next stage
+## Generate documents
 
-Migration 39 retires the unused v2-style document-set/plugin/RAG-collection schema.
-It refuses to run if legacy document sets, collections or their jobs contain data.
-It leaves the current folder RAG tables, chunks, vectors and processing jobs intact.
-Migration 40 creates the managed-document schema. Its down migration refuses to
-discard documents, prompts or generation history; empty-schema rollback is tested.
+**Docs → Generate documents** starts a Claude Code agent session; the agent writes one document. The agent runs with
+its own model, prompt, instructions, skills and Claude Code tools; the form has no model or prompt field.
 
-`documentation_generations` reuses `ka.jobs` with `documentation_generate` kind.
-Such jobs have no single inventory target: one run may use multiple sources and
-propose multiple document versions. The generation row pins create/update mode,
-user instructions, agent configuration, prompt texts and source evidence. Its
-input snapshot is immutable and must reference a queued documentation job.
-The generation endpoint and worker are described below.
+`POST /api/claude-code/sessions` takes eight fields: `agent_id`, `code_project_ids`, `environment_ids`, `service_ids`,
+`server_ids`, `instructions`, `document_name` and `folder`. At least one code project, environment, service or server is
+required. Refusals (400): `NOTHING_CHOSEN` (nothing chosen), `NO_FOLDER` (Claude Code needs at least one working folder:
+code projects, or environments or services linked to code projects, or an agent with code projects), `AGENT_MODEL` (the
+agent has no enabled Claude model), and unknown or unavailable ids ("Select available ...", "Select an enabled Claude
+Code agent.").
 
-Documents are searchable through the collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install); refresh it in RAG → Collections.
-No credentials may be included in generation or document snapshots.
+The session stores two snapshots. `prompt_snapshot` holds `system_prompt`, `claude_code_tools` and `agent_version`.
+`context_snapshot` holds the chosen `code_projects`, `environments`, `services`, `servers` and `instructions`, plus
+`folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
+never included.
 
+The first message is built from the context (`first_message` in `generate_documents.py`) and queued as the session's
+first input:
 
-## Documentation workflows
+```
+Document the following.
 
-**Docs → Generate documents** offers two scopes:
+## Code
+- Payments API — /work/data/code/payments-api
 
-- **Whole environment:** an architecture document covering all environment members,
-  their recorded dependencies, linked code projects and deployment inventory. The
-  **Full environment architecture** explains system purpose, functional
-  relationships, end-to-end request/event/data flows, logical implementation,
-  deployment, networking, reliability and investigation paths. A connection matrix
-  and relationship catalogue connect these abstractions with cited evidence. Three
-  D2/TALA views show functional dependencies, deployment/runtime mapping and recorded
-  endpoints. Logical dependency arrows never imply verified network reachability,
-  traffic direction or default ports. This synthesis step has no SSH or source tools. Select **Server infrastructure architecture**
-  separately to inspect one environment member server over SSH. It documents the
-  host's runtime layers, storage, networking, configuration locations, logging,
-  monitoring and operational boundaries. Generate either or both documents; each
-  has its own editable active prompt. Infrastructure requires exactly one server
-  with saved global SSH access and never connects onward to other hosts.
-- **Service:** independently select a D2/TALA component diagram, code analysis,
-  and deployment documentation. Each selection produces a separate document.
-  Code analysis requires a Custom service and linked projects with mapped folders.
-  A standalone diagram can inspect selected custom code. When code analysis is
-  also requested, the diagram step reuses its findings without rescanning source.
-  Built-in/external service diagrams use recorded inventory instead of source.
-  Deployment requires an environment containing the service and selected servers;
-  it uses each selected server's saved global SSH user, private key and sudo setting.
+## Services
+- Payments — deployed on prod-1 (production); code: Payments API (/work/data/code/payments-api)
 
-These are fixed application workflow specialists using the existing Agents SDK
-runtime, not profiles in `ka.agents`. Select one enabled compatible text model
-from LLM Settings for the run. No configurable AI agent or agent model assignment
-is required. Each step shows its active documentation prompt and an editable copy.
-Edits apply only to that run; use **Manage saved prompt versions** to create and
-activate a reusable version in Docs → Prompts. The API pins the active version ID
-and rejects stale submissions if it changed while the form was open.
+## Servers
+- prod-1 (10.0.0.5): Payments host
 
-Migration 46 adds document–environment associations and the initial code, service,
-deployment and diagram prompt fixtures. Migration 47 adds **Environment architecture**
-and upgrades the untouched diagram fixture to support standalone inspection.
-Customized prompts are preserved; rollback refuses to discard customized fixtures.
-Migration 48 adds the active **Server infrastructure architecture** prompt.
-Migration 49 upgrades the untouched Environment architecture fixture to version 2
-with a comprehensive multi-view document contract, retaining the old version.
-Existing app-docs and service-purpose templates remain available. Fixtures are
-seeded for existing and new application workspaces, never reset on page load.
+## Instructions
+Focus on the public API.
 
-`POST /api/documentation/generations` accepts `scope`, `model_id`, optional
-`service_id`/`environment_id`, `code_project_ids`, `server_ids`, `units` (`kind`,
-`prompt_id`, `prompt_version_id`, optional `prompt_override`), `instructions`, and
-`update_existing`. Jobs snapshot the actual prompt, original active text, model,
-source inventory and scoped tool configuration. Credentials are encrypted at rest;
-snapshots contain references, and only the worker resolves their values.
-`knowledge-doc-worker` executes code → diagram → deployment, or environment
-steps in the order infrastructure → architecture. When both are selected, synthesis
-receives the server findings from that run. It also receives pinned current document
-versions: documents associated only with this environment, and shared code/diagram
-documents linked to its services or code projects. Other environments and previous
-architecture outputs are excluded from supporting evidence. Markdown, version IDs,
-hashes and timestamps are snapshotted at queue time. Architecture generation has no
-SSH tools even when requested together with infrastructure. Diagram output uses a validated component/connection schema;
-the application serializes D2, rendered with TALA in an inert SVG image.
-Documentation runs request up to 16,384 output tokens per model response so long
-documents are not limited by the provider adapter's smaller fallback. The selected
-model must support that output limit. Other agent runs retain their existing limits.
-Background document jobs use complete structured responses; job progress and tool
-hooks remain available. Interactive agents continue to stream their responses.
+When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
+later message, reply again with the complete updated document.
+```
 
-All selected outputs save in one transaction; an intervening manual edit aborts
-that save with a conflict. Code and diagram documents link to the service and
-selected code projects across environments. Deployment documents link to the
-service, environment, selected servers and matching deployment records. Whole
-overview documents link all member services/servers and their code projects.
-Infrastructure documents link the environment, selected server and services/code
-projects with recorded deployments on that server in that environment. Newly
-observed runtimes are documented as unassigned rather than silently added to
-inventory. Each environment/server pair has an independent document and version
-sequence; generating infrastructure for another server does not overwrite it.
-Deployment environment labels are still text and use exact environment-name
-matches. Membership alone does not prove deployment. Dependencies remain shared
-service records filtered to the selected environment's members.
+`GET /api/claude-code/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
+or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a
+tool result keeps its preview and the full output stays in the run record.
 
-Prompts require source citations, uncertainty, targeted read-only SSH inspection,
-and sanitized configuration metadata. Read-only SSH behavior is an instruction
-to the existing tool, not an OS-enforced remote account restriction.
+Migration 0073 dropped `documentation_generations`, `documentation_workflows` and `documentation_workflow_jobs`, the
+`documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
+export layout, read by `export_input`). Saved documents, versions and exports stay.
 
 The canonical content stays in PostgreSQL. Every save also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for code documentation phases. Renaming a slug removes the old folder's files; deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the save or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.

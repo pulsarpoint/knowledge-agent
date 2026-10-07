@@ -169,7 +169,7 @@ Python interpreter. Scratch files are removed when the run ends. Tool responses
 report stdout, stderr, exit code, timeout and truncation (32 KiB per stream).
 
 Compose sets `AGENT_SHELL_URL=http://shell-worker:8796` and
-`AGENT_WORKSPACE_ROOT=/work/agent-workspaces` on the API and documentation worker.
+`AGENT_WORKSPACE_ROOT=/work/agent-workspaces` on the API and the shell worker.
 The shared workspace volume uses the same paths in all three containers; the
 runner assigns scratch ownership to the shell worker's UID 1000. No database
 migration or separate model connection is needed.

@@ -95,6 +95,8 @@ Migration `0020_agent_profiles` introduced agent identity and resource joins. Mi
 
 Migration `0072_knowledge_agents_config` lifts the 0070 registration rule, adds `claude_code_tools` (default all four, values restricted) and `claude_code_agent_is_not_the_coordinator`, restores the required prompt for every agent and gives existing Claude Code agents the built-in documentation prompt; its down migration refuses while a Claude Code agent is the coordinator, has a model, any configuration versions (or an active one), a capability switch on (including grounded documents or all collections/code projects), tools other than the default four, more than one prompt version, or server instructions, saved instructions or server connections. Otherwise it drops the other saved selections of Claude Code agents (specific collections, code projects, services and skills, settings rows) and their prompt, keeping only the name and description.
 
+Migration `0073_remove_documentation_generation` removes the one-shot generation (tables, job kind, history and `doc:*` run records), adds `documents.phase_metadata`, and its down migration restores the empty schema only. The Claude Code Test tab links to `/documentation/generations/new?agent=<id>`.
+
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
