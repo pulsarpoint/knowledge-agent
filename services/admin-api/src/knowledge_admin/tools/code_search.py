@@ -9,7 +9,7 @@ from typing import Literal
 from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools import AgentContext, require_given
 from knowledge_admin.tools.ast_grep import scan_source
 from knowledge_admin.tools.files import _path
 
@@ -47,6 +47,7 @@ async def code_search(ctx: RunContextWrapper[AgentContext], path: str, language:
     """
     if not ctx.context['config']['code']['enabled']:
         raise ValueError('Code access is disabled.')
+    require_given(ctx.context['config'], 'code')
     if not name.strip() or len(name) > 300 or offset < 0 or not 1 <= limit <= 20:
         raise ValueError('Use a name up to 300 characters, nonnegative offset and limit from 1 to 20.')
     if match not in ('exact', 'contains'):

@@ -6,7 +6,7 @@ from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.ssh import SSHConnection, execute
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools import AgentContext, require_given
 
 
 @function_tool
@@ -27,6 +27,7 @@ async def ssh_run(ctx: RunContextWrapper[AgentContext], server_id: str, command:
     config = ctx.context['config']
     if not config['enabled'] or not config['ssh']['enabled']:
         raise ValueError('SSH is disabled for this agent.')
+    require_given(config, 'ssh')
     server = next((item for item in config['ssh']['servers'] if item['id'] == server_id), None)
     if server is None or not server['enabled'] or not server['ssh_allowed']:
         raise ValueError('This server is not available to this agent.')

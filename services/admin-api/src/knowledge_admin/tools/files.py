@@ -10,7 +10,7 @@ from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.collections import document_collections
-from knowledge_admin.tools import AgentContext
+from knowledge_admin.tools import AgentContext, require_given
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ def _roots(context: AgentContext) -> list[Path]:
     config = context['config']
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
+    require_given(config, 'files')
     paths = [context['workspace']]  # the workspace and code folders must be mounted
     if config['code']['enabled']:
         paths.extend(Path(path) for project in config['code']['projects'] for path in project['folder_paths'])
