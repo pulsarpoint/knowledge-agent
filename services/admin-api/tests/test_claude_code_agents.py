@@ -115,7 +115,7 @@ def test_claude_code_agent_with_retained_sessions_cannot_be_deleted(store, write
     detail = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
     deleted = client.request('DELETE', f'/api/agents/{agent_id}', headers=HEADERS,
                              json={'revision': detail['revision'], 'confirmed': True})
-    assert deleted.status_code == 409 and 'retained sessions' in deleted.json()['error']['message']
+    assert deleted.status_code == 409 and 'Delete it with its history' in deleted.json()['error']['message']
     with store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,)).fetchone()['n'] == 1
 
