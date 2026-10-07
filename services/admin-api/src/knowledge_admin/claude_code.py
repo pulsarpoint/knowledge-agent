@@ -3,6 +3,7 @@ from typing import Any
 
 SYSTEM_PROMPT = ('You are an expert technical writer. You explore the provided folders and context to write accurate '
                  'documentation; everything you state must be grounded in what you read.')
+BUILT_IN_PROMPT_TITLE = 'Built-in documentation writer'  # prompt version 1 of agents created before 0072
 ALLOWED_TOOLS = ('Read', 'Grep', 'Glob', 'Bash')
 DISALLOWED_TOOLS = ('Edit', 'Write', 'NotebookEdit', 'Agent', 'Task', 'Skill', 'WebFetch', 'WebSearch', 'TodoWrite')
 FINAL_ANSWER = ('When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. '

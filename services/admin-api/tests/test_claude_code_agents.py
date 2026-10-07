@@ -6,6 +6,7 @@ from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
 from knowledge_admin.agents import get_agent_config
+from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -24,11 +25,11 @@ def writer(store, tmp_path):
 def test_claude_code_agent_is_created_listed_renamed_and_deleted(writer):
     client, agent_id = writer
     listed = next(a for a in client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent_id)
-    assert (listed['runtime'], listed['model_id'], listed['prompt_version'], listed['config_version']) == ('claude_code', None, None, None)
+    assert (listed['runtime'], listed['model_id'], listed['prompt_version'], listed['config_version']) == ('claude_code', None, 1, None)
     assert not any(listed[flag] for flag in FLAGS)
     detail = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
-    assert (detail['name'], detail['description'], detail['runtime'], detail['active_prompt']) == (
-        'Technical writer', 'Writes documentation', 'claude_code', None)
+    assert (detail['name'], detail['description'], detail['runtime'], detail['active_prompt']['title']) == (
+        'Technical writer', 'Writes documentation', 'claude_code', BUILT_IN_PROMPT_TITLE)
     renamed = client.put(f'/api/claude-code/agents/{agent_id}', headers=HEADERS,
                          json={'name': 'Writer', 'description': '', 'revision': detail['revision']})
     assert renamed.status_code == 200, renamed.text

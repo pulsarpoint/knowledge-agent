@@ -7,16 +7,22 @@ import pytest
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0070_claude_code_agents.up.sql', '0070_claude_code_agents.down.sql'
+LATER_UP, LATER_DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 
 
 def run(conn, name: str):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-def registration(conn, agent_id: str = 'writer', **columns):
+def registration(conn, agent_id: str = 'writer', prompt: bool = False, **columns):
     names = ['id', 'name', 'runtime', *columns]
     conn.execute(f"INSERT INTO ka.agents({','.join(names)}) VALUES ({','.join(['%s'] * len(names))})",
                  (agent_id, agent_id.title(), 'claude_code', *columns.values()))
+    if prompt:  # from 0072 on, every agent has its own prompt
+        version = uuid4()
+        conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)', (agent_id, version))
+        conn.execute("""INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,published_at)
+            VALUES (%s,%s,1,'Writer','Write documentation.',now())""", (version, agent_id))
 
 
 def model(conn, actor):
@@ -27,6 +33,8 @@ def model(conn, actor):
 
 def test_claude_code_agents_are_registrations_only(store):
     with store.connect() as conn:
+        run(conn, LATER_DOWN)
+        conn.commit()
         registration(conn)  # no system prompt row: the prompt FK applies to OpenAI agents only
         conn.commit()
         assert conn.execute("SELECT runtime,prompt_agent FROM ka.agents WHERE id='writer'").fetchone() == {
@@ -53,7 +61,7 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         actor = store.actor(conn, 'admin-id', 'admin@example.test')
-        registration(conn)
+        registration(conn, prompt=True)
         session = uuid4()
         conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,document_name,folder) VALUES (%s,%s,'writer',%s,%s,'Payments','{}','{}','Payments','payments-docs')""",
@@ -78,6 +86,8 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
 
 def test_down_refuses_claude_code_agents_and_restores_the_prompt_rule(store):
     with store.connect() as conn:
+        run(conn, LATER_DOWN)
+        conn.commit()
         registration(conn)
         conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='Claude Code agents exist'):
@@ -92,3 +102,4 @@ def test_down_refuses_claude_code_agents_and_restores_the_prompt_rule(store):
         assert conn.execute("SELECT to_regclass('ka.agent_sessions_cc') AS t").fetchone()['t'] is None
         run(conn, UP)
         conn.commit()
+        run(conn, LATER_UP)

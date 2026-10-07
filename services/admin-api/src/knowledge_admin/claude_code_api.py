@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.claude_code import SYSTEM_PROMPT, close_idle, first_message
+from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE, SYSTEM_PROMPT, close_idle, first_message
 from knowledge_admin.data_root import data_dir, data_folder, data_path, documentation_folder
 from knowledge_admin.documentation_generation import PROMPT_CHANGED, SAME_DOCUMENT_NAME
 from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
@@ -209,6 +209,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute('''INSERT INTO ka.agents(id,name,description,runtime,enabled,created_by,updated_by)
                     VALUES (%s,%s,%s,'claude_code',%s,%s,%s)''',
                     (agent_id, value.name, value.description, value.enabled is not False, actor, actor))
+                prompt_id = uuid4()
+                conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)',
+                             (agent_id, prompt_id))
+                conn.execute('''INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,created_by,updated_by,
+                    published_at) VALUES (%s,%s,1,%s,%s,%s,%s,now())''',
+                    (prompt_id, agent_id, BUILT_IN_PROMPT_TITLE, SYSTEM_PROMPT, actor, actor))
                 audit(conn, actor, 'agent.created', 'agent', {'agent_id': agent_id, 'runtime': 'claude_code'})
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
