@@ -66,6 +66,24 @@ Agent runs** work unchanged.
 session API** (binding). This plan delivers the native session worker, the SDK Session history, both agent types in
 Generate documents and the shared event format. Where it differs from the spec's letter, see **Decisions**.
 
+## Amendment (user decision, 2026-10-08): no turn limits, Stop always works
+
+This overrides every mention of 300 s / 20 model calls below (Global Constraints, Tasks 6 and 9, tests, docs).
+- Native session turns have **no total time limit and no model-call limit**, like Claude Code sessions. They end when
+  the agent finishes or the user presses **Stop** (or closes the session / the lease is lost).
+- `agents.agent()` gets `turn_timeout_seconds: float | None = None`, separate from `timeout_seconds`, which keeps its
+  current meaning for each model request and MCP connection (stays 300 s). The whole-turn `asyncio.timeout` uses
+  `turn_timeout_seconds` (None = no limit). Existing callers keep their behaviour by passing
+  `turn_timeout_seconds=timeout_seconds` where they relied on it (test chats, board, wizard) — verify each call site.
+- Native session turns call `agent(..., max_turns=None, turn_timeout_seconds=None)`; the SDK treats `max_turns=None` as
+  unlimited (`run_internal/run_loop.py`). Remove `TURN_TIMEOUT_SECONDS`, `MAX_TURNS`, `TOO_MANY_STEPS` and the timeout
+  error text from the native runner; tests assert the runner passes `max_turns=None, turn_timeout_seconds=None`.
+- **Stop must always work**, at any point of a turn: before the first model call, during a model call, during a tool
+  call (including `shell_run` and `ssh_run`), and while waiting for MCP. Stop cancels the running task; the turn ends as
+  `stopped`, its history is dropped, the session stays usable for the next message. Add tests for Stop during a model
+  call and during a slow tool call (fake runtime), and that a stopped turn leaves no running work behind.
+- Test chats and the board keep their current limits (out of scope).
+
 ## Global Constraints
 
 - Implementers and reviewers never run make targets and never touch .env or .local; compose checks use a temp .env.
