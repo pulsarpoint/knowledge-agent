@@ -1,12 +1,17 @@
 """Administrator view of complete agent run records."""
 from fastapi import APIRouter, HTTPException, Query
 
+from knowledge_admin.run_record import tool_counts
+
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
     s.payload->>'title' AS title, p.email AS "user", s.created_at AS started_at,
     (SELECT e.payload->>'status' FROM ka.agent_run_events e WHERE e.run_key=s.run_key AND e.kind='end'
         ORDER BY e.seq DESC LIMIT 1) AS status,
     (SELECT coalesce(sum((e.payload->>'total_tokens')::bigint),0) FROM ka.agent_run_events e
-        WHERE e.run_key=s.run_key AND e.kind='usage') AS total_tokens, s.id
+        WHERE e.run_key=s.run_key AND e.kind='usage') AS total_tokens,
+    (SELECT coalesce(jsonb_agg(jsonb_build_object('name', t.name, 'calls', t.calls) ORDER BY t.calls DESC, t.name), '[]'::jsonb)
+        FROM (SELECT e.payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events e
+              WHERE e.run_key=s.run_key AND e.kind='tool_call' GROUP BY 1) t) AS tool_counts, s.id
     FROM ka.agent_run_events s LEFT JOIN ka.principals p ON p.id=s.actor_id
     WHERE s.kind='start' AND s.project_id=%(project)s
       AND (%(agent_id)s::text IS NULL OR s.agent_id=%(agent_id)s)
@@ -45,9 +50,10 @@ def build_api(app_name: str, store) -> APIRouter:
             events = conn.execute('''SELECT e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
                 FROM ka.agent_run_events e LEFT JOIN ka.principals p ON p.id=e.actor_id
                 WHERE e.run_key=%s AND e.project_id=%s ORDER BY e.seq''', (run_key, store.project(conn, app_name))).fetchall()
+            counts = tool_counts(conn, [run_key]) if events else []
         if not events:
             raise HTTPException(404, 'Run record not found.')
-        return {'run_key': run_key, 'agent_id': events[0]['agent_id'], 'user': events[0]['user'],
+        return {'run_key': run_key, 'agent_id': events[0]['agent_id'], 'user': events[0]['user'], 'tool_counts': counts,
                 'events': [{key: event[key] for key in ('seq', 'kind', 'agent_id', 'payload', 'created_at')} for event in events]}
 
     return router

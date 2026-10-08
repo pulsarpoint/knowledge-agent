@@ -13,6 +13,16 @@ from knowledge_admin.agent_activity import redact
 MAX_TEXT = 1_000_000
 TRUNCATED = '\n[truncated]'
 
+TOOL_COUNTS = '''SELECT payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events
+    WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1'''
+
+
+def tool_counts(conn, run_keys: list[str]) -> list[dict[str, Any]]:
+    """How often the given runs called each tool, most used first (ties by name)."""
+    if not run_keys:
+        return []
+    return [dict(row) for row in conn.execute(TOOL_COUNTS, (list(run_keys),))]
+
 _store = None
 _app_name = None
 

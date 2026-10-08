@@ -25,6 +25,7 @@ from knowledge_admin.agent_activity import redact
 from knowledge_admin.agents import agent, get_agent_config, load_credentials
 from knowledge_admin.knowledge_agents.config import require_native, require_run_resources
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
+from knowledge_admin.run_record import tool_counts
 
 KEEPS_RESOURCES = 'A conversation keeps the resources it started with. Start a new session to change them.'
 
@@ -343,6 +344,8 @@ def build_api(app_name, store):
                 JOIN ka.principals p ON p.id=r.actor_id WHERE session_id=%s ORDER BY r.created_at,r.id""", (session_id,)).fetchall()
             for run in value['runs']:
                 run['commands'] = []
+                run['tool_counts'] = tool_counts(conn, [f"run:{run['id']}"])
+            value['tool_counts'] = tool_counts(conn, [f"run:{run['id']}" for run in value['runs']])
             value['reviews'] = conn.execute("SELECT id,comment,suggestion,created_at,context->>'response_id' AS response_id,context->'changes' AS changes FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at", (session_id,)).fetchall()
             return value
 

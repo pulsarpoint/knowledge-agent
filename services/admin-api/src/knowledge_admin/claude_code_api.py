@@ -23,6 +23,7 @@ from knowledge_admin.generate_documents import first_message, subjects
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.run_record import tool_counts
 from knowledge_admin.storage import storage_path
 
 NOTHING_CHOSEN = 'Choose at least one code project, collection, environment, service or server to document.'
@@ -103,6 +104,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         raise HTTPException(404, 'Session not found.')
     row['inputs'] = conn.execute('''SELECT seq,text,status,turn,created_at FROM ka.agent_session_inputs
         WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
+    row['tool_counts'] = tool_counts(conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
     return row
 
 
