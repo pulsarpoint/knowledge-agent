@@ -14,6 +14,7 @@ import AgentProfileSettings from './AgentProfileSettings';
 import OperationsView from './OperationsView';
 import AgentPromptCard from './AgentPromptCard';
 import AgentToolsView from './AgentToolsView';
+import AgentActions from './AgentActions';
 import { TOOLS_TAB_NOTE } from '../lib/tools';
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
@@ -37,10 +38,12 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
     <Button asChild variant="link" className="self-start px-0"><Link to="/agents"><ArrowLeft />All agents</Link></Button>
     {error && <Alert variant="destructive"><AlertDescription>{error}<Button variant="outline" onClick={() => setReload(n => n + 1)}>Reload agent</Button></AlertDescription></Alert>}
     {!profile ? <Skeleton className="h-64 w-full" /> : <>
-      <div className="flex flex-col gap-2"><div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-semibold">{profile.name}</h2>{claudeCode && <Badge variant="secondary">Claude Code</Badge>}{!profile.enabled && <Badge variant="outline">Disabled</Badge>}</div>{profile.description && view !== 'test' && <p className="text-sm text-muted-foreground">{profile.description}</p>}</div>
+      <div className="flex flex-col gap-2"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-semibold">{profile.name}</h2>{claudeCode && <Badge variant="secondary">Claude Code</Badge>}{!profile.enabled && <Badge variant="outline">Disabled</Badge>}</div>
+        <AgentActions profile={profile} onChanged={() => setReload(n => n + 1)} /></div>{profile.description && view !== 'test' && <p className="text-sm text-muted-foreground">{profile.description}</p>}</div>
       <Tabs value={view} onValueChange={next => setParams(current => { current.set('view', next); return current; })} className="flex flex-col gap-6">
         <div className="overflow-x-auto"><TabsList aria-label="Agent sections" className="w-max">{sections.map(section => <TabsTrigger key={section} value={section}>{({ git: 'Code projects', ssh: 'SSH', mcp: 'MCP' } as Record<string,string>)[section] ?? section[0].toUpperCase()+section.slice(1)}</TabsTrigger>)}</TabsList></div>
         <TabsContent value={view} forceMount className="flex flex-col gap-6">
+          {view === 'general' && profile.original && <p className="text-sm text-muted-foreground">Clone of <Link className="underline underline-offset-4" to={`/agents/${encodeURIComponent(profile.original.id)}`}>{profile.original.name}</Link></p>}
           {claudeCode && claudeCodeNotes[view] && <Alert><AlertDescription>{claudeCodeNotes[view]}</AlertDescription></Alert>}
           {profile.resources === 'per_run' && PER_RUN_NOTES[view] && <Alert><AlertDescription>{PER_RUN_NOTES[view]}</AlertDescription></Alert>}
           {!claudeCode && ['git','documents','ssh','mcp'].includes(view) && <p className="text-sm text-muted-foreground"><span>{TOOLS_TAB_NOTE}</span> <Link className="underline underline-offset-4" to="?view=tools">Open Tools</Link></p>}

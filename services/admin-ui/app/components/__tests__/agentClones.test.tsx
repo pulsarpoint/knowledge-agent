@@ -1,0 +1,129 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router';
+import AgentDetailView from '../AgentDetailView';
+import AgentsView from '../AgentsView';
+import * as profiles from '../../lib/profiles';
+import * as clones from '../../lib/clones';
+import * as llm from '../../lib/llm';
+import { Toaster } from '~/components/ui/sonner';
+import { ApiError } from '../../lib/api';
+
+vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(),
+  getAgents: vi.fn(), getAgentOptions: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
+vi.mock('../../lib/clones');
+vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
+vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('../AgentWizard', () => ({ default: () => null }));
+
+const base: profiles.AgentProfile = { id: 'operations', name: 'SSH agent', description: '', when_to_use: '', enabled: true,
+  runtime: 'openai', documents_enabled: false, repositories_enabled: false, ssh_enabled: true, skills_enabled: false,
+  mcp_enabled: false, services_enabled: false, documents_grounded: false, revision: 3, model_id: null,
+  all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [],
+  skill_ids: [], system_prompt: 'Operate servers.', cloned_from: null, original: null };
+const copy: profiles.AgentProfile = { ...base, id: 'clone-1', name: 'SSH agent (copy)', revision: 2,
+  cloned_from: 'operations', original: { id: 'operations', name: 'SSH agent' } };
+const preview: clones.ApplyPreview = { original: { id: 'operations', name: 'SSH agent', revision: 3 },
+  fingerprint: 'f'.repeat(64), changes: ['Prompt', 'Tools'] };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ is_admin: true })));
+  vi.mocked(profiles.getAgent).mockImplementation(async id => structuredClone(id === 'clone-1' ? copy : { ...base, id }));
+  vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
+    { ...structuredClone(base), model_name: null, original_name: null },
+    { ...structuredClone(copy), model_name: null, original_name: 'SSH agent' }] });
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, chats: 0, claude_code_sessions: 0, runs: 0 });
+  vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
+  vi.mocked(clones.cloneAgent).mockResolvedValue({ id: 'clone-2', name: 'SSH agent (copy 2)' });
+  vi.mocked(clones.getApplyPreview).mockResolvedValue(structuredClone(preview));
+  vi.mocked(clones.applyToOriginal).mockResolvedValue({ id: 'operations', revision: 4 });
+});
+afterEach(() => vi.unstubAllGlobals());
+function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
+const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes>
+  <Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} />
+</Routes><Toaster /></MemoryRouter>);
+
+test('Clone agent in the header menu opens the new clone', async () => {
+  const user = userEvent.setup();
+  open('/agents/operations');
+  await user.click(await screen.findByRole('button', { name: 'Actions for SSH agent' }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Clone agent' }));
+  expect(clones.cloneAgent).toHaveBeenCalledWith('operations');
+  await waitFor(() => expect(profiles.getAgent).toHaveBeenLastCalledWith('clone-2'));
+  expect(screen.queryByRole('button', { name: /^Apply to/ })).toBeNull();  // not a clone: nothing to apply to
+});
+
+test('a clone says what it is a clone of and applies to it after confirmation', async () => {
+  const user = userEvent.setup();
+  open('/agents/clone-1');
+  expect(await screen.findByRole('link', { name: 'SSH agent' })).toHaveAttribute('href', '/agents/operations');
+  expect(screen.getByText(/Clone of/)).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Apply to SSH agent' }));
+  const dialog = await screen.findByRole('alertdialog');
+  expect(await within(dialog).findByText('These sections of SSH agent are replaced by this clone’s: Prompt, Tools. Its name and description stay.')).toBeVisible();
+  expect(clones.applyToOriginal).not.toHaveBeenCalled();
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+  await waitFor(() => expect(clones.applyToOriginal).toHaveBeenCalledWith('clone-1', preview));
+  expect(await screen.findByText('Applied to SSH agent.')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Delete this clone' }));
+  await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete clone' }));
+  await waitFor(() => expect(profiles.deleteAgent).toHaveBeenCalledWith('clone-1', 2, true));
+  await waitFor(() => expect(profiles.getAgent).toHaveBeenLastCalledWith('operations'));
+});
+
+test('a refused apply keeps the dialog open with the reason', async () => {
+  const user = userEvent.setup();
+  vi.mocked(clones.applyToOriginal).mockRejectedValue(new Error('The original changed; review again.'));
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  const dialog = await screen.findByRole('alertdialog');
+  await within(dialog).findByText(/These sections of SSH agent/);
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+  expect(await within(dialog).findByText('The original changed; review again.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Delete this clone' })).toBeNull();
+});
+
+test('All agents shows clones and clones a row', async () => {
+  const user = userEvent.setup();
+  open('/agents');
+  expect(await screen.findByText('Clone of SSH agent')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Clone SSH agent' }));
+  expect(clones.cloneAgent).toHaveBeenCalledWith('operations');
+  await waitFor(() => expect(profiles.getAgent).toHaveBeenLastCalledWith('clone-2'));
+});
+
+test('an original changed since the preview shows the reason and compares again', async () => {
+  const user = userEvent.setup();
+  vi.mocked(clones.applyToOriginal).mockRejectedValueOnce(new ApiError('The original changed; review again.', 409));
+  vi.mocked(clones.getApplyPreview).mockResolvedValueOnce(structuredClone(preview))
+    .mockResolvedValueOnce({ ...structuredClone(preview), original: { ...preview.original, revision: 4 }, changes: ['Model'] });
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  const dialog = await screen.findByRole('alertdialog');
+  await within(dialog).findByText(/Prompt, Tools/);
+  await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+  expect(await within(dialog).findByText('The original changed; review again.')).toBeVisible();
+  expect(await within(dialog).findByText(/replaced by this clone’s: Model\./)).toBeVisible();
+  expect(clones.getApplyPreview).toHaveBeenCalledTimes(2);
+});
+
+test('an agent that is no longer a clone hides Apply', async () => {
+  const user = userEvent.setup();
+  vi.mocked(clones.getApplyPreview).mockRejectedValue(new ApiError('This agent is not a clone.', 404));
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply to SSH agent' })).toBeNull());
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(await screen.findByText('This agent is not a clone.')).toBeVisible();
+});
+
+test('the agent list empty row spans every column', async () => {
+  const user = userEvent.setup();
+  open('/agents');
+  await user.type(await screen.findByRole('textbox', { name: 'Find agents' }), 'nothing like it');
+  const cell = await screen.findByText('No agents match your search.');
+  expect(cell).toHaveAttribute('colspan', String(screen.getAllByRole('columnheader').length));
+});
