@@ -389,6 +389,8 @@ def test_an_outage_sends_unavailable_once_and_recovery_resumes(store, postgres):
                 assert page.queue.empty()  # told once
                 await db(connections, True)
                 await until(hub.listening.is_set)
+                # no new write: the recovery read sends the state again, so the page stops showing the outage
+                assert summary(await take(page, 1)) == [('session', 'working')]
                 await db(write, store, event(session, 1))
                 assert [kind for kind, _ in await take(page, 1)] == ['event']
         finally:
@@ -422,11 +424,13 @@ def test_a_failed_read_never_ends_the_reader(store):
                 assert summary(await take(page, 1)) == [('unavailable', None)]
                 [(kind, row)] = await take(page, 1)  # retried
                 assert kind == 'event' and row['seq'] == 1
+                assert summary(await take(page, 1)) == [('session', 'working')]  # the state again: it was told unavailable
                 failing_reads(hub, 1, RuntimeError('a bug'))  # not even an unexpected error ends it
                 await db(write, store, event(session, 2))
                 assert summary(await take(page, 1)) == [('unavailable', None)]  # told again: it had recovered
                 [(kind, row)] = await take(page, 1)
                 assert kind == 'event' and row['seq'] == 2
+                assert summary(await take(page, 1)) == [('session', 'working')]
                 assert await nothing_more(page)
         finally:
             await hub.stop()
@@ -449,6 +453,7 @@ def test_a_failed_read_retries_every_session_of_its_batch(store):
                     assert summary(await take(page, 1)) == [('unavailable', None)]
                     [(kind, row)] = await take(page, 1)
                     assert kind == 'event' and row['seq'] == 1
+                    assert summary(await take(page, 1)) == [('session', 'working')]
                     assert await nothing_more(page)
         finally:
             await hub.stop()
@@ -469,6 +474,7 @@ def test_a_failing_reader_retries_at_once_when_the_database_is_back(store):
                 hub._recovered()  # what the listener does once it is connected again
                 [(kind, row)] = await take(page, 1, timeout=2)
                 assert kind == 'event' and row['seq'] == 1
+                assert summary(await take(page, 1, timeout=2)) == [('session', 'working')]
         finally:
             await hub.stop()
     asyncio.run(scenario())

@@ -165,9 +165,12 @@ class SessionHub:
                     self._put(session_id, subscription, ('unavailable', None))
 
     def _recovered(self) -> None:
-        """Connected again: a later outage is told again, and every watched session is read."""
+        """Connected again: a later outage is told again, and every watched session is read. A subscriber that was told
+        unavailable gets the state again (even unchanged), so its page stops showing the outage."""
         for watched in self._watched.values():
             for subscription in watched.subscribers:
+                if subscription.told_unavailable:
+                    subscription.state = None
                 subscription.told_unavailable = False
         self._mark(list(self._watched))
 
