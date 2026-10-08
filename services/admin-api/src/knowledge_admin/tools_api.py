@@ -7,8 +7,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.tools.catalog import (CATALOG, NEED_REASONS, NEED_TABS, capability_tools,
-                                           catalog_listing, enabled_capability_tools, implied_tools, needs_met)
+from knowledge_admin.tools.catalog import (CATALOG, NEED_REASONS, NEED_TABS, capability_defaults, catalog_listing,
+                                           implied_tools, needs_met)
 
 STALE = 'The tools changed since you opened them. Reload.'
 GROUNDED = 'Grounded answers need report_not_covered.'
@@ -16,6 +16,8 @@ UNKNOWN = 'Unknown tool: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
 CLAUDE_CODE = 'Claude Code agents use their Claude Code tools. Switch them on the General tab.'
 MCP_REASON = 'Needs MCP'
+# A capability's own tools (by need): switching it on while none of them is on switches its defaults on.
+PRIMARY = {'code': ('code', 'code_graph'), 'documents': ('documents', 'grounded'), 'ssh': ('ssh',)}
 
 AGENT = '''SELECT id,runtime,revision,claude_code_tools,repositories_enabled,documents_enabled,documents_grounded,
     ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
@@ -52,8 +54,7 @@ class ToolsInput(BaseModel):
 
 def flags(row: dict[str, Any]) -> dict[str, Any]:
     """The capability switches of an agent row (or a proposal) in config shape, for the catalog rules."""
-    return {'runtime': row['runtime'], 'resources': row.get('resources', 'fixed'),
-            'code': {'enabled': row['repositories_enabled']},
+    return {'runtime': row['runtime'], 'code': {'enabled': row['repositories_enabled']},
             'documents': {'enabled': row['documents_enabled'], 'grounded': row['documents_grounded']},
             'ssh': {'enabled': row['ssh_enabled']}}
 
@@ -102,27 +103,21 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     return {'runtime': 'openai', 'revision': agent['revision'], 'tools': tools}
 
 
-CAPABILITIES = ('code', 'documents', 'ssh')
-
-
 def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, Any]) -> None:
-    """Profile save. Fixed agents: a capability switched on gets all of its tools on (catalog.capability_tools),
-    replacing earlier off rows (they had no effect while it was off). Per-run agents: when the agent becomes per run or
-    a capability is switched on, every enabled capability's tools are switched on. Grounded answers always get
-    report_not_covered. Switching a capability off, and a save that switches nothing on, keep every row; edited usage
-    text is kept."""
+    """Profile save: a capability switched on while none of its own tools is on gets its default tools; grounded
+    answers always get report_not_covered. Switching a capability off keeps every row."""
     if new['runtime'] != 'openai':
         return
-    switched_on = [capability for capability in CAPABILITIES
-                   if new[capability]['enabled'] and not old[capability]['enabled']]
+    on = {row['tool'] for row in conn.execute(ON, (agent_id,))}
     wanted: set[str] = set()
-    if new['resources'] == 'per_run' and (old['resources'] != 'per_run' or switched_on):
-        wanted.update(enabled_capability_tools(new))
-    for capability in switched_on:
-        wanted.update(capability_tools(capability, new))
+    for capability in ('code', 'documents', 'ssh'):
+        if new[capability]['enabled'] and not old[capability]['enabled']:
+            own = {spec.name for spec in CATALOG.values() if spec.needs in PRIMARY[capability]}
+            if not on & own:
+                wanted.update(capability_defaults(capability, new))
     if new['documents']['enabled'] and new['documents']['grounded']:
         wanted.add('report_not_covered')
-    for name in sorted(wanted):
+    for name in sorted(wanted - on):
         conn.execute(SWITCH_ON, (agent_id, name))
 
 

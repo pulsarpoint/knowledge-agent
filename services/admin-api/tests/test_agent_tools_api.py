@@ -31,18 +31,6 @@ def rows(store, agent_id) -> set[str]:
         return {row['tool'] for row in conn.execute("SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'", (agent_id,))}
 
 
-CODE_TOOLS = {'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph'}
-
-
-def usage_of(store, agent_id, tool):
-    with store.connect() as conn:
-        return conn.execute('SELECT usage FROM ka.agent_tools WHERE agent_id=%s AND tool=%s', (agent_id, tool)).fetchone()['usage']
-
-
-def profile_of(client, agent_id):
-    return client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
-
-
 def test_the_catalog_and_an_agents_tools(store, saved_agent):
     client, mcp = saved_agent[0], saved_agent[4]
     assert client.get('/api/tools').status_code == 403
@@ -111,61 +99,26 @@ def test_claude_code_agents_keep_their_claude_code_tools(store, saved_agent):
     assert refused.status_code == 400 and refused.json()['error']['message'] == CLAUDE_CODE
 
 
-def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent):
+def test_switching_a_capability_on_switches_its_default_tools_on(store, saved_agent):
     client = saved_agent[0]
     blank = create(client, 'Blank')
     assert rows(store, blank['id']) == set()
     code = update(client, blank, repositories_enabled=True).json()
-    assert rows(store, blank['id']) == CODE_TOOLS
-    only = put(client, blank['id'], code['revision'], [
-        {'tool': 'read_file', 'mode': 'on', 'usage': 'Read narrowly.'},
-        *({'tool': name, 'mode': 'off', 'usage': None} for name in sorted(CODE_TOOLS - {'read_file'}))]).json()
-    profile = profile_of(client, blank['id'])
+    defaults = {'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph'}
+    assert rows(store, blank['id']) == defaults
+    only = put(client, blank['id'], code['revision'], [{'tool': 'read_file', 'mode': 'on', 'usage': None}]).json()
+    profile = client.get(f"/api/agents/{blank['id']}", headers=HEADERS).json()
     assert profile['revision'] == only['revision']
     documents = update(client, profile, documents_enabled=True).json()
-    assert rows(store, blank['id']) == {'read_file', 'search_documents', 'read_document'}  # code keeps its choices
+    assert rows(store, blank['id']) == {'read_file', 'search_documents', 'read_document'}  # code keeps its file tools
     grounded = update(client, documents, documents_grounded=True).json()
     assert 'report_not_covered' in rows(store, blank['id'])
     ssh = update(client, grounded, ssh_enabled=True).json()
     assert 'ssh_run' in rows(store, blank['id'])
     off = update(client, ssh, repositories_enabled=False).json()
-    assert 'read_file' in rows(store, blank['id']) and 'shell_run' not in rows(store, blank['id'])  # off keeps rows
-    update(client, off, repositories_enabled=True)  # on again: all of its tools, replacing the off rows
-    assert rows(store, blank['id']) >= CODE_TOOLS
-    assert usage_of(store, blank['id'], 'read_file') == 'Read narrowly.'  # switching on keeps edited usage
-
-
-def test_a_per_run_agent_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
-    client = saved_agent[0]
-    role = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Role', resources='per_run', repositories_enabled=True, documents_enabled=True)).json()
-    assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document'}
-    profile = profile_of(client, role['id'])
-    trimmed = put(client, role['id'], profile['revision'], [
-        {'tool': name, 'mode': 'off' if name == 'shell_run' else 'on', 'usage': None}
-        for name in sorted(CODE_TOOLS | {'search_documents', 'read_document'})]).json()
-    assert 'shell_run' not in rows(store, role['id'])
-    ssh = update(client, profile_of(client, role['id']), ssh_enabled=True).json()  # a capability on while per run
-    assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document', 'ssh_run'}
-    assert ssh['revision'] == trimmed['revision'] + 1
-    fixed = create(client, 'Fixed first')
-    coded = update(client, fixed, repositories_enabled=True).json()
-    put(client, fixed['id'], coded['revision'], [{'tool': name, 'mode': 'off' if name == 'code_search' else 'on',
-                                                  'usage': None} for name in sorted(CODE_TOOLS)])
-    update(client, profile_of(client, fixed['id']), resources='per_run')  # switched to per run
-    assert rows(store, fixed['id']) == CODE_TOOLS
-
-
-def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_agent):
-    """Existing agents are not changed: only switching a capability on (or to per run) switches tools on."""
-    client = saved_agent[0]
-    for resources in ('fixed', 'per_run'):
-        agent = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-            f'Kept {resources}', resources=resources, repositories_enabled=True)).json()
-        profile = profile_of(client, agent['id'])
-        put(client, agent['id'], profile['revision'], [{'tool': 'read_file', 'mode': 'off', 'usage': None}])
-        update(client, profile_of(client, agent['id']), name=f'Renamed {resources}')
-        assert rows(store, agent['id']) == set(), resources
+    assert 'read_file' in rows(store, blank['id'])  # switching off keeps the rows
+    update(client, off, repositories_enabled=True)  # none of code's own tools is on: its defaults come back
+    assert rows(store, blank['id']) >= defaults
 
 
 def test_a_claude_code_agent_switched_to_native_gets_todays_tools(store, saved_agent):

@@ -358,24 +358,12 @@ def catalog_listing() -> list[dict[str, Any]]:
              'usage': spec.usage, 'needs': spec.needs} for spec in CATALOG.values()]
 
 
-CAPABILITY_NEEDS: dict[str, tuple[str, ...]] = {
-    'code': ('files', 'code', 'code_graph'), 'documents': ('documents', 'grounded'), 'ssh': ('ssh',)}
-
-
-def capability_tools(capability: str, config: Mapping[str, Any]) -> list[str]:
-    """All tools of one capability, by need, in catalog order (not only those default_on gives). With code projects
-    off, documents also bring the file tools. report_not_covered belongs to "Answer only from documents" and is listed
-    only while it is on."""
-    needs = CAPABILITY_NEEDS[capability] + (('files',) if capability == 'documents' and not _code(config) else ())
-    return [spec.name for spec in CATALOG.values()
-            if spec.needs in needs and (spec.name != 'report_not_covered' or _grounded(config))]
-
-
-def enabled_capability_tools(config: Mapping[str, Any]) -> list[str]:
-    """The tools of every capability switched on, each once, in catalog order."""
-    names = {name for capability in CAPABILITY_NEEDS if config[capability]['enabled']
-             for name in capability_tools(capability, config)}
-    return [name for name in CATALOG if name in names]
+def capability_defaults(capability: str, config: Mapping[str, Any]) -> list[str]:
+    """The tools a capability switched on gets, by the backfill rule for the new switches. With code projects on,
+    the file tools belong to code, so documents do not bring them."""
+    needs = {'code': ('files', 'code', 'code_graph'), 'ssh': ('ssh',),
+             'documents': ('documents', 'grounded') + (() if _code(config) else ('files',))}[capability]
+    return [spec.name for spec in CATALOG.values() if spec.needs in needs and spec.default_on(config)]
 
 
 def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
