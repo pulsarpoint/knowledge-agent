@@ -1,6 +1,7 @@
 BEGIN;
 SET search_path = ka, public;
 
+-- Roll back to 29 or below, or stop at 31 or above: 0031 up needs the coordinator settings row that 0030 seeds.
 -- Restores the board and coordinator schema as 0076 had it, empty: deleted board tasks, their run records and the
 -- coordinator agent are not restored. 0076…0027 then roll back as before.
 ALTER TABLE agents ADD COLUMN is_coordinator boolean NOT NULL DEFAULT false;

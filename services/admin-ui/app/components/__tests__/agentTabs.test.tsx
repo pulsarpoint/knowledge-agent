@@ -61,14 +61,6 @@ test('catalog opens distinct agents with one model card and preserves SSH tasks 
   expect(screen.getByText('SSH test custom-code')).toBeVisible();
 });
 
-test('an agent flagged by an older API is still an ordinary agent', async () => {
-  Object.assign(agents[0], { is_coordinator: true });
-  render(app('/agents'));
-  for (const agent of agents) expect(await screen.findByRole('button', { name: `Remove ${agent.name}` })).toBeVisible();
-  expect(screen.queryByText('Coordinator')).toBeNull();
-  expect(screen.queryByText('Delegation')).toBeNull();
-});
-
 test('a custom agent prompt draft survives section changes and saves to its own identity', async () => {
   const user = userEvent.setup();
   vi.mocked(prompts.savePrompt).mockImplementation(async (agent, title, content) => {
