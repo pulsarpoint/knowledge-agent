@@ -58,7 +58,7 @@ run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
-[ "$rolled_back_version" = 79 ]
+[ "$rolled_back_version" = 80 ]
 run_migrate postgres goto 38 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 # The board and the coordinator: roll back to 29, before 0030 seeded the coordinator settings that 0031 turns into the
@@ -81,6 +81,14 @@ prompt_default=$(docker exec "$test_container" psql -X -U postgres -Atc \
         WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'system_prompt'")
 [ "$prompt_default" = t ] || { echo 'FAIL: agents.system_prompt still has a default' >&2; exit 1; }
 printf '%s\n' 'PASS: agents.system_prompt is required and has no default.'
+# 0081 runs Test chats as sessions: the old Test chat tables are gone and agent_sessions_cc has a purpose.
+test_sessions=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_sessions') IS NULL AND to_regclass('ka.operations_runs') IS NULL
+        AND to_regclass('ka.operations_commands') IS NULL
+        AND EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'ka' AND table_name = 'agent_sessions_cc' AND column_name = 'purpose')")
+[ "$test_sessions" = t ] || { echo 'FAIL: the old Test chat tables are still there' >&2; exit 1; }
+printf '%s\n' 'PASS: Test chats are sessions; the old Test chat tables are gone.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

@@ -1,11 +1,9 @@
 """Tuning reviews: the reviewer's output shape, its correction, and (Task 6) applying a reviewed suggestion."""
 import json
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from agents import AgentOutputSchema, ModelBehaviorError
-from psycopg.types.json import Jsonb
 
 import psycopg
 
@@ -14,8 +12,8 @@ from knowledge_admin.agent_clones import NAME_TAKEN
 from knowledge_admin.agent_reviews import (AGENT_CHANGED, INVALID_TEXT, PROMPT_REQUIRED, REVIEW_NOT_FOUND, UNKNOWN_SERVER,
                                           TuningSuggestion)
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
+from session_rows import a_model, add_review, add_test_session
 from test_agents import agent_mounts, saved_agent  # noqa: F401
-from test_agent_runs import direct, events  # noqa: F401  (fixture)
 from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
@@ -46,37 +44,15 @@ def test_sdk_tuning_schema_still_rejects_invalid_encoded_changes(changes):
         schema.validate_json(json.dumps({'suggestion':'Suggested changes.','changes':changes}))
 
 
-def test_invalid_tuning_output_is_corrected_once_before_saving(direct, monkeypatch):
-    client, agent_id, path = direct
-    initial = client.post(path,headers=HEADERS,json={'task':'Check formatting.'})
-    session_id = events(initial)[0]['session_id']
-    calls = []
-    async def review(config,task,**kwargs):
-        calls.append(json.loads(task))
-        output = {'unexpected':'bad shape'} if len(calls)==1 else {
-            'suggestion':'Be concise.','changes':{'system_prompt':None,'instructions':'Be concise.','server_instructions':[]}}
-        if len(calls)==1:
-            raise ModelBehaviorError('Invalid model output')
-        return SimpleNamespace(final_output=kwargs['output_type'].model_validate(output))
-    monkeypatch.setattr('knowledge_admin.agent_sessions.agent',review)
-    result = client.post(f'/api/agents/{agent_id}/sessions/{session_id}/review',headers=HEADERS,json={'comment':'Be concise.'})
-    assert result.status_code == 200,result.text
-    assert len(calls) == 2 and 'correction' in calls[1] and 'output_schema' in calls[0]
-    assert result.json()['changes']['instructions'] == 'Be concise.'
-
-
 NARROWED = {'run_resources': {'code_project_ids': []}, 'code': {'enabled': True, 'all_projects': False, 'projects': []}}
 
 
 def saved_review(store, agent_id: str, changes: dict, agent_config: dict | None = None) -> str:
-    """A tuning suggestion saved for one of the agent's conversations."""
+    """A tuning suggestion saved for one of the agent's Test sessions."""
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'reviewer', 'reviewer@test')
-        session = conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent,actor_id,title,config,is_test)
-            VALUES (%s,%s,%s,%s,'Chat','{}',true) RETURNING id''', (uuid4(), project, agent_id, actor)).fetchone()['id']
-        return str(conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
-            VALUES (%s,%s,'Feedback',%s,'Be clearer.') RETURNING id''',
-            (session, actor, Jsonb({'agent_config': agent_config or {}, 'changes': changes}))).fetchone()['id'])
+        session = add_test_session(conn, project, actor, agent_id, a_model(conn, actor), status='waiting', turns=1)
+        return str(add_review(conn, session, actor, changes=changes, agent_config=agent_config))
 
 
 def changes(system_prompt=None, instructions=None, servers=()) -> dict:

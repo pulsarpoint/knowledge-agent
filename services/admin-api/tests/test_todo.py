@@ -1,42 +1,6 @@
-from uuid import uuid4
-
-import pytest
-
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
-
-
-def test_unconfigured_run_does_not_execute_or_create_run_records(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    async def forbidden(*args, **kwargs):
-        pytest.fail('Execution must not contact a provider or server')
-    monkeypatch.setattr('knowledge_admin.capabilities.ssh.execute', forbidden)
-    monkeypatch.setattr('httpx.AsyncClient.send', forbidden)
-    with store.connect() as conn:
-        before = conn.execute('SELECT count(*) AS n FROM ka.operations_runs').fetchone()['n']
-    response = client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Inspect the server'})
-    assert response.status_code == 409
-    with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.operations_runs').fetchone()['n'] == before
-    assert client.post('/api/agents/operations/runs', json={'task': 'Inspect'}).status_code == 403
-    assert client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': ' '}).status_code == 400
-    assert client.post('/api/agents/missing/runs', headers=HEADERS, json={'task': 'Inspect'}).status_code == 404
-
-
-def test_historical_run_can_be_cancelled_and_history_stays_readable(store, tmp_path):
-    client = _client(tmp_path, repository_store=store)
-    run_id = uuid4()
-    with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        actor = store.actor(conn, 'admin', 'admin@test')
-        conn.execute("INSERT INTO ka.operations_runs(id,project_id,actor_id,task,context) VALUES (%s,%s,%s,'Old task','{}')", (run_id, project, actor))
-    response = client.post(f'/api/agents/operations/runs/{run_id}/cancel', headers=HEADERS)
-    assert response.status_code == 200 and response.json()['id'] == str(run_id)
-    assert client.get(f'/api/agents/operations/runs/{run_id}', headers=HEADERS).json()['status'] == 'cancelled'
-    assert client.get('/api/agents/operations/runs', headers=HEADERS).json()['runs'][0]['id'] == str(run_id)
-    response = client.request('DELETE', '/api/agents/operations', headers=HEADERS, json={'revision': 1, 'confirmed': True})
-    assert response.status_code == 409 and 'history' in response.text
 
 
 def test_agent_delete_keeps_other_agents(store, tmp_path):

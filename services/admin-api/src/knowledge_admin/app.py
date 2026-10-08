@@ -1,8 +1,8 @@
-"""Standalone admin application, including isolated agent tests."""
+"""Standalone admin application."""
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 import httpx
 import psycopg
@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from knowledge_admin.config import Config, ServerConfig
-from knowledge_admin.agent_sessions import expire_sessions
 from knowledge_admin.api import build_api
 from knowledge_admin.documents import backfill_exports
 from knowledge_admin.repositories import RepositoryStore
@@ -36,27 +35,15 @@ def create_app(cfg: Config, *, server: ServerConfig,
                jira_transport: httpx.BaseTransport | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
-        async def expire_idle_sessions():
-            while True:
-                if repository_store is not None:
-                    with suppress(psycopg.Error):
-                        await asyncio.to_thread(expire_sessions, repository_store)
-                await asyncio.sleep(60)
-        expiry = asyncio.create_task(expire_idle_sessions())
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
         try:
             yield
         finally:
-            expiry.cancel()
             backfill.cancel()
-            tasks = list(app.state.agent_runs)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(expiry, backfill, *tasks, return_exceptions=True)
+            await asyncio.gather(backfill, return_exceptions=True)
 
     app = FastAPI(title="Knowledge Agent Administration", docs_url=None,
                   redoc_url=None, openapi_url=None, lifespan=lifespan)
-    app.state.agent_runs = set()
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):

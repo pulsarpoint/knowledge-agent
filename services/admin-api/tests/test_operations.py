@@ -83,7 +83,6 @@ def test_settings_validate_ssh_skills_revisions_and_empty_allowlist(store, tmp_p
     client = _client(tmp_path, repository_store=store)
     initial = client.get('/api/operations/settings', headers=HEADERS).json()['settings']
     assert 'enabled' not in initial and initial['server_ids'] == []
-    assert client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Inspect'}).status_code == 409
     settings = {'revision': 1, 'instructions': '', 'server_ids': [], 'skill_ids': []}
     assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 200
     settings['revision'] = 2
@@ -94,7 +93,6 @@ def test_settings_validate_ssh_skills_revisions_and_empty_allowlist(store, tmp_p
     settings['skill_ids'] = []
     assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 200
     assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 409
-    assert client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Check status'}).status_code == 409
 
 
 def test_builtin_mcp_endpoint_removed_and_model_gateway_rejects_unleased_requests(store, tmp_path):

@@ -86,7 +86,8 @@ def build_api(app_name, store):
 
     def review_of(conn, agent_id: str, review_id: UUID) -> dict[str, Any]:
         row = conn.execute('''SELECT r.suggestion,r.context FROM ka.agent_session_reviews r
-            JOIN ka.agent_sessions s ON s.id=r.session_id WHERE r.id=%s AND s.agent=%s''', (review_id, agent_id)).fetchone()
+            JOIN ka.agent_sessions_cc s ON s.id=r.session_id WHERE r.id=%s AND s.agent_id=%s''',
+            (review_id, agent_id)).fetchone()
         if row is None:
             raise HTTPException(404, REVIEW_NOT_FOUND)
         return row

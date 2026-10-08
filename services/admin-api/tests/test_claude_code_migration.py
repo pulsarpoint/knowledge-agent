@@ -8,7 +8,7 @@ import pytest
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0070_claude_code_agents.up.sql', '0070_claude_code_agents.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
-LATER = ('0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0072 down drops the prompt FK that 0079 removed
+LATER = ('0081_test_sessions.down.sql', '0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0072 down drops the prompt FK that 0079 removed
 LATER_UP, LATER_DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 
 

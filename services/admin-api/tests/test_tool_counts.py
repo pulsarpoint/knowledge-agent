@@ -1,11 +1,9 @@
 """Which tools each run called and how often, from the run records' tool_call events."""
-from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.run_record import tool_counts
 from test_agent_runs_api import seed
-from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_api import _client
 from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -63,20 +61,3 @@ def test_a_session_without_tool_calls_counts_through_zero(store, sessions):
     sid = start(sessions)['id']
     detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
     assert detail['tool_counts'] == [] and detail['tool_counts_through_id'] == 0
-
-
-def test_a_test_chat_counts_its_runs_and_each_run(store, saved_agent):
-    client = saved_agent[0]
-    chat = client.post('/api/agents/operations/sessions', headers=HEADERS, json={'title': 'Test', 'is_test': True}).json()
-    runs = [uuid4(), uuid4()]
-    with store.connect() as conn:
-        project, actor = store.project(conn, 'shop'), store.actor(conn, 'alice', 'alice@test')
-        for run in runs:
-            conn.execute('''INSERT INTO ka.operations_runs(id,session_id,project_id,actor_id,agent,task,context,status)
-                VALUES (%s,%s,%s,%s,'operations','Check disk','{}','completed')''', (run, chat['id'], project, actor))
-    calls(store, f'run:{runs[0]}', ['ssh_run', 'ssh_run'])
-    calls(store, f'run:{runs[1]}', ['read_file'])
-    conversation = client.get(f"/api/agents/operations/sessions/{chat['id']}", headers=HEADERS).json()
-    assert conversation['tool_counts'] == [{'name': 'ssh_run', 'calls': 2}, {'name': 'read_file', 'calls': 1}]
-    assert {run['id']: run['tool_counts'] for run in conversation['runs']} == {
-        str(runs[0]): [{'name': 'ssh_run', 'calls': 2}], str(runs[1]): [{'name': 'read_file', 'calls': 1}]}

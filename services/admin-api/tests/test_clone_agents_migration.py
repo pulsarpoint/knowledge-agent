@@ -18,6 +18,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0080_clone_agents.up.sql', '0080_clone_agents.down.sql'
+LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (('agents', 'active_config_version_id'), ('agents', 'next_config_version'),
            ('agent_sessions', 'agent_version_id'), ('agents', 'cloned_from'))
@@ -27,6 +28,8 @@ BEFORE = {'tables': list(TABLES), 'function': 1, 'columns': [
 
 
 def run(conn, name: str):
+    if name == DOWN and conn.execute("SELECT to_regclass('ka.operations_runs') AS r").fetchone()['r'] is None:
+        conn.execute((MIGRATIONS / LATER).read_text(), prepare=False)  # newest first, as golang-migrate does
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
@@ -204,7 +207,6 @@ def test_a_claude_code_agent_keeps_its_versions_claude_code_tools(store, tmp_pat
 
 
 def test_pinned_conversations_keep_their_configuration(store, saved_agent):
-    client = saved_agent[0]
     pinned = {'id': 'operations', 'instructions': 'Pinned instructions',
               'config_version': {'id': str(uuid4()), 'version': 3, 'label': 'Old'}}
     with store.connect() as conn:
@@ -219,11 +221,10 @@ def test_pinned_conversations_keep_their_configuration(store, saved_agent):
         conn.commit()
         run(conn, UP)
         conn.commit()
-    detail = client.get(f'/api/agents/operations/sessions/{session}', headers=HEADERS)
-    assert detail.status_code == 200, detail.text
-    assert detail.json()['config'] == pinned and 'agent_version_id' not in detail.json()
-    listed = client.get('/api/agents/operations/sessions', headers=HEADERS).json()['sessions']
-    assert [row['id'] for row in listed] == [str(session)] and 'config_version' not in listed[0]
+        saved = conn.execute('SELECT config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
+        assert saved['config'] == pinned
+        assert conn.execute("""SELECT 1 FROM information_schema.columns WHERE table_schema='ka'
+            AND table_name='agent_sessions' AND column_name='agent_version_id'""").fetchone() is None
 
 
 def test_up_drops_versions_and_prompt_history_and_down_restores_the_empty_schema(store, tmp_path):

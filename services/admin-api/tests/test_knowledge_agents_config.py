@@ -5,10 +5,9 @@ from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
 from knowledge_admin.agents import get_agent_config as agents_loader
-from knowledge_admin.knowledge_agents.config import (CLAUDE_CODE_TOOLS, NATIVE_ONLY, AgentConfig, get_agent_config,
+from knowledge_admin.knowledge_agents.config import (CLAUDE_CODE_TOOLS, AgentConfig, get_agent_config,
                                                      model_fits, normalize_tools, require_native)
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_repositories import HEADERS
 
 
 def test_both_types_load_the_same_config_shape(store, saved_agent):
@@ -46,14 +45,9 @@ def test_claude_code_agents_stay_out_of_native_runs(store, saved_agent):
     client = saved_agent[0]
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET runtime='claude_code' WHERE id='operations'")
-    created = client.post('/api/agents/operations/sessions', headers=HEADERS, json={'title': 'Test', 'is_test': True})
-    assert created.status_code == 409 and created.json()['error']['message'] == NATIVE_ONLY
-    run = client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Check the queue', 'is_test': True})
-    assert run.status_code == 409 and NATIVE_ONLY in run.text
     with store.connect() as conn:
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
 
 
 def test_the_claude_code_tool_names_are_defined_once():

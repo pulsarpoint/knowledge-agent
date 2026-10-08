@@ -124,7 +124,6 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret'):
         assert secret not in response.text
     with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.operations_runs').fetchone()['n'] == 0
         conn.execute("UPDATE ka.agents SET enabled=false WHERE id='operations'")
     assert client.get(path, headers=HEADERS).json()['enabled'] is False
 

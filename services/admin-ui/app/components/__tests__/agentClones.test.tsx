@@ -34,7 +34,7 @@ beforeEach(() => {
     { ...structuredClone(base), model_name: null, original_name: null },
     { ...structuredClone(copy), model_name: null, original_name: 'SSH agent' }] });
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, chats: 0, claude_code_sessions: 0, runs: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, documentation_sessions: 0, run_records: 0 });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
   vi.mocked(clones.cloneAgent).mockResolvedValue({ id: 'clone-2', name: 'SSH agent (copy 2)' });
   vi.mocked(clones.getApplyPreview).mockResolvedValue(structuredClone(preview));
@@ -143,7 +143,7 @@ test('Delete this clone shows the history deleted with it', async () => {
 
 test('a clone without history is deleted without history', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, documentation_sessions: 0, run_records: 0 });
   open('/agents/clone-1');
   await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
   await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Apply' }));

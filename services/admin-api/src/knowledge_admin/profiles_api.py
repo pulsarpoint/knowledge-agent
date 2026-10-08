@@ -81,36 +81,28 @@ class PromptInput(BaseModel):
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
 WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions and runs, '
                    'or wait for them to finish, then delete it.')
-# Anything still in progress for the agent.
-WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')
-    UNION ALL SELECT 1 FROM ka.operations_runs WHERE agent=%(a)s AND status='running'
-    LIMIT 1'''
+# Anything still in progress for the agent: Test and documentation sessions run in the session workers.
+WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1'''
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:
-    """What deleting the agent with its history removes; saved documents are not part of it."""
+    """What deleting the agent with its history removes; saved documents are not part of it. `run_records` are the
+    records of Test chats from before migration 0081 (run:<id> keys)."""
     return conn.execute('''SELECT
-        (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND is_test)::int AS test_chats,
-        (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND NOT is_test)::int AS chats,
-        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s)::int AS claude_code_sessions,
-        (SELECT count(*) FROM ka.operations_runs WHERE agent=%(agent)s)::int AS runs''',
-        {'agent': agent_id}).fetchone()
+        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s AND purpose='test')::int AS test_chats,
+        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s AND purpose='documents')::int
+            AS documentation_sessions,
+        (SELECT count(*) FROM ka.agent_run_events WHERE agent_id=%(agent)s AND kind='start'
+            AND starts_with(run_key, 'run:'))::int AS run_records''', {'agent': agent_id}).fetchone()
 
 
 def delete_history(conn, agent_id) -> None:
-    """Remove the agent's sessions, runs and their run records, children before their parents."""
-    # Run records have no foreign keys; their keys are run:<run id> and cc:<session id>:<turn>.
-    conn.execute('''DELETE FROM ka.agent_run_events WHERE run_key IN (
-        SELECT 'run:' || id FROM ka.operations_runs WHERE agent=%s)
+    """Remove the agent's sessions and run records. Run records have no foreign keys: run:<id> (old Test chats) belong
+    to the agent by agent_id, cc:<session>:<turn> by their session; inputs and suggestions cascade with the session."""
+    conn.execute('''DELETE FROM ka.agent_run_events WHERE (starts_with(run_key, 'run:') AND agent_id=%s)
         OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (
             SELECT id::text FROM ka.agent_sessions_cc WHERE agent_id=%s))''', (agent_id, agent_id))
-    conn.execute('''DELETE FROM ka.operations_commands WHERE run_id IN (
-        SELECT id FROM ka.operations_runs WHERE agent=%s)''', (agent_id,))
-    conn.execute('DELETE FROM ka.operations_runs WHERE agent=%s', (agent_id,))
-    reviews = 'SELECT v.id FROM ka.agent_session_reviews v JOIN ka.agent_sessions s ON s.id=v.session_id WHERE s.agent=%s'
-    conn.execute(f'DELETE FROM ka.agent_session_reviews WHERE id IN ({reviews})', (agent_id,))
-    conn.execute('DELETE FROM ka.agent_sessions WHERE agent=%s', (agent_id,))
-    conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))  # queued inputs cascade
+    conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))
 
 
 def build_api(app_name, store):
