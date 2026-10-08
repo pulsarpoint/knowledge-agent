@@ -26,7 +26,7 @@ const bodies: Record<string, unknown> = {
 };
 type Pending = { body: Record<string, string[]>; resolve: (r: Response) => void };
 
-function setup({ models = MODELS, hold = false, error = '', failPrompt = '' } = {}) {
+function setup({ models = MODELS, hold = false, error = '', failPrompt = '', contextFails = false } = {}) {
   const posts: Record<string, unknown>[] = [];
   const held: Pending[] = [];
   const contextText = (body: Record<string, string[]>) =>
@@ -34,6 +34,7 @@ function setup({ models = MODELS, hold = false, error = '', failPrompt = '' } = 
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/api/claude-code/context') {
       const body = JSON.parse(init!.body as string);
+      if (contextFails) return Response.json({ error: { message: 'Context service is down' } }, { status: 500 });
       if (hold) return new Promise<Response>(resolve => held.push({ body, resolve }));
       return Response.json({ text: contextText(body) });
     }
@@ -56,6 +57,12 @@ async function select(label: string, option: string) {
   fireEvent.click(await screen.findByLabelText(label));
   fireEvent.click(await screen.findByRole('option', { name: option }));
 }
+/** The one match of the text that is not inside the collapsed (hidden) Agent context panel. */
+const shown = (text: string) => {
+  const found = screen.getAllByText(text).filter(element => !element.closest('[hidden]'));
+  expect(found).toHaveLength(1);
+  return found[0];
+};
 async function openContext() { fireEvent.click(await screen.findByRole('button', { name: 'Agent context' })); }
 
 test('there is no agent picker; the context follows the selection and Generate sends everything', async () => {
@@ -138,6 +145,37 @@ test('without a native model Generate stays disabled; a refused request shows it
   await openContext();
   expect(await screen.findByText('Add a model in Models first.')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+});
+
+test('with no model the reason is visible without opening Agent context', async () => {
+  setup({ models: [MODELS[1]] });
+  await screen.findByRole('button', { name: 'Agent context' });
+  expect(shown('Add a model in Models first.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+});
+
+test('a failed context refresh is visible without opening Agent context', async () => {
+  setup({ contextFails: true });
+  await screen.findByRole('checkbox', { name: 'Code' });
+  check('Code'); check('Payments API');
+  await waitFor(() => expect(screen.getAllByText('Context service is down').length).toBeGreaterThan(0));
+  expect(shown('Context service is down')).toBeVisible();
+});
+
+test('a context longer than 100,000 characters disables Generate and says why', async () => {
+  setup();
+  await openContext();
+  fireEvent.change(screen.getByLabelText('Prompt text'), { target: { value: 'Describe it.' } });
+  fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'Doc' } });
+  check('Code'); check('Payments API');
+  await waitFor(() => expect(screen.getByLabelText('Context')).toHaveValue('# What you are documenting\n\nrepo'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('Context'), { target: { value: 'x'.repeat(100001) } });
+  const message = 'The context is longer than 100,000 characters. Shorten it before you generate.';
+  expect(shown(message)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Agent context' }));
+  expect(shown(message)).toBeVisible();
 });
 
 test('a refused request shows its message and keeps the form', async () => {

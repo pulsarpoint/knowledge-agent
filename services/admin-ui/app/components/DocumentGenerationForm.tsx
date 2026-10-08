@@ -27,6 +27,8 @@ const KINDS: { kind: Kind; label: string; legend: string; key: keyof Selection }
 const NOTHING: Record<Kind, string[]> = { code: [], documents: [], environments: [], services: [], servers: [] };
 const OWN = 'own';
 const DEBOUNCE_MS = 300;
+const MAX_CONTEXT = 100000;
+const TOO_LONG = `The context is longer than ${MAX_CONTEXT.toLocaleString('en-US')} characters. Shorten it before you generate.`;
 const firstLine = (text: string) => text.trim().split('\n')[0] ?? '';
 
 /** A two-button question inline: nothing is replaced until the user says so. */
@@ -130,7 +132,8 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
 
   const target = folder.trim();
   const badFolder = target ? folderError(target) : '';
-  const ready = Boolean(!updating && modelId && systemPrompt.trim() && prompt.trim() && anything && documentSlug(name) && target && !badFolder);
+  const tooLong = context.length > MAX_CONTEXT;
+  const ready = Boolean(!updating && !tooLong && modelId && systemPrompt.trim() && prompt.trim() && anything && documentSlug(name) && target && !badFolder);
   const model = data?.models.find(item => item.id === modelId);
 
   async function submit() {
@@ -156,6 +159,9 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
         <Button type="button" variant="outline" className="self-start" aria-expanded={contextOpen} aria-controls="agent-context"
           onClick={() => setContextOpen(open => !open)}>Agent context</Button>
         {!contextOpen && <p className="text-sm text-muted-foreground break-words">{model ? `${model.name} · ` : ''}{firstLine(systemPrompt)}</p>}
+        {!contextOpen && data.models.length === 0 && <p className="text-sm text-destructive">Add a model in Models first.</p>}
+        {!contextOpen && contextError && <p className="text-sm text-destructive">{contextError}</p>}
+        {!contextOpen && tooLong && <p className="text-sm text-destructive">{TOO_LONG}</p>}
         <div id="agent-context" hidden={!contextOpen} className="flex flex-col gap-4 rounded-lg border p-4">
           <Field><FieldLabel htmlFor="generate-model">Model</FieldLabel>
             <Select value={modelId || 'none'} onValueChange={value => setModelId(value === 'none' ? '' : value)}>
@@ -170,6 +176,7 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
               onChange={e => { setContext(e.target.value); setContextEdited(true); latest.current++; setUpdating(false); }} />
             {updating && <FieldDescription>Updating…</FieldDescription>}
             {contextError && <FieldDescription className="text-destructive">{contextError}</FieldDescription>}
+            {tooLong && <FieldDescription className="text-destructive">{TOO_LONG}</FieldDescription>}
             {contextEdited && !askRegenerate && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>Edited — no longer follows your selection</span>
               <Button type="button" size="sm" variant="link" onClick={() => setAskRegenerate(true)}>Regenerate from selection</Button></div>}
