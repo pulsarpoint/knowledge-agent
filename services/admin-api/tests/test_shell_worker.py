@@ -14,9 +14,11 @@ import uvicorn
 
 from knowledge_admin.capabilities.shell.worker import ShellRequest, app, execute
 from knowledge_admin.agents import agent
-from knowledge_admin.tools.shell import shell_run
+from tool_helpers import tool
 from test_function_tools import context, invoke
 from test_sdk_agent import config, responses_api
+
+shell_run = tool('shell_run')
 
 pytestmark = pytest.mark.skipif(shutil.which('bwrap') is None or not Path('/work/agent-workspaces').is_dir(),
                                reason='Requires the Linux shell-worker container with /work test mounts.')

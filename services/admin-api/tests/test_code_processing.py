@@ -9,9 +9,11 @@ from agents.tool_context import ToolContext
 
 from knowledge_admin.code_processing import process_code, CodeProcessingError
 from knowledge_admin.capabilities.code_graph import load_code_graph
-from knowledge_admin.tools.code_graph import code_graph
+from tool_helpers import tool
 from test_api import _client
 from test_repositories import HEADERS
+
+code_graph = tool('code_graph')
 
 
 def test_go_module_root_resolves_package_function_instead_of_same_named_method(tmp_path, monkeypatch):

@@ -8,13 +8,11 @@ import pytest
 from agents import Agent, FunctionTool
 from agents.tool_context import ToolContext
 
-from knowledge_admin.tools.files import list_files, read_file, search_files
-from knowledge_admin.tools.ast_grep import ast_grep
-from knowledge_admin.tools.code_graph import code_graph
-from knowledge_admin.tools.code_search import code_search
-from knowledge_admin.tools.shell import shell_run
-from knowledge_admin.tools.ssh import ssh_run
+from tool_helpers import tools
 from test_ssh import ssh_server
+
+list_files, read_file, search_files, ast_grep, code_graph, code_search, shell_run, ssh_run = tools(
+    'list_files', 'read_file', 'search_files', 'ast_grep', 'code_graph', 'code_search', 'shell_run', 'ssh_run')
 
 
 @pytest.fixture

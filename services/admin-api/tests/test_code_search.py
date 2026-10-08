@@ -6,8 +6,10 @@ import json
 
 import pytest
 
-from knowledge_admin.tools.code_search import code_search
+from tool_helpers import tool
 from test_function_tools import context, invoke
+
+code_search = tool('code_search')
 
 
 def test_go_methods_imports_calls_and_complete_bodies(context, tmp_path):

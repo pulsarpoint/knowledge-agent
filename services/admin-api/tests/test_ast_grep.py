@@ -5,8 +5,10 @@ import json
 
 import pytest
 
-from knowledge_admin.tools.ast_grep import ast_grep
+from tool_helpers import tool
 from test_function_tools import context, invoke
+
+ast_grep = tool('ast_grep')
 
 
 @pytest.mark.parametrize(('language', 'extension', 'source', 'pattern', 'expected'), [

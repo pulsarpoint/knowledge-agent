@@ -15,6 +15,7 @@ class RunContext(TypedDict):
     credentials: Mapping[str, str]
     workspace: Path
     shell_enabled: bool
+    tools: frozenset[str]  # the catalog tools offered to this run
 
 
 NOTHING_GIVEN = {

@@ -35,7 +35,7 @@ def test_the_shell_worker_imports_without_the_application_config():
 
 
 def test_tools_only_wrap_capabilities():
-    for name in ('files', 'documents', 'shell', 'ssh', 'code_graph', 'code_search', 'ast_grep'):
+    for name in ('catalog',):
         source = (PACKAGE / 'tools' / f'{name}.py').read_text(encoding='utf-8')
         assert 'knowledge_admin.capabilities' in source, name
         for implementation in ('asyncio.create_subprocess_exec', 'httpx.AsyncClient(', 'SSHConnection('):

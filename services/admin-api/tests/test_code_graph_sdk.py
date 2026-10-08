@@ -10,8 +10,10 @@ import subprocess
 
 import pytest
 
-from knowledge_admin.tools.code_graph import code_graph
+from tool_helpers import tool
 from test_function_tools import context, invoke
+
+code_graph = tool('code_graph')
 
 
 @pytest.fixture

@@ -7,9 +7,12 @@ import pytest
 from agents.tool_context import ToolContext
 
 from knowledge_admin import grounding
-from knowledge_admin.agents import get_paths, get_prompt, get_tools
+from knowledge_admin.agents import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
-from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
+from knowledge_admin.tools.catalog import effective_tools
+from tool_helpers import tools
+
+read_document, report_not_covered, search_documents = tools('read_document', 'report_not_covered', 'search_documents')
 
 
 @pytest.fixture
@@ -181,11 +184,11 @@ def test_not_covered_rule(state, expected):
 
 def test_grounded_agents_get_only_citable_tools_and_policy():
     grounded = config()
-    names = {tool.name for tool in get_tools(grounded, [])}
+    names = {spec.name for spec, _ in effective_tools(grounded, [])}
     assert names == {'search_documents', 'read_document', 'report_not_covered'}
     assert grounding.POLICY in get_prompt(grounded, [], [])
     ungrounded = config(grounded=False)
-    names = {tool.name for tool in get_tools(ungrounded, [])}
+    names = {spec.name for spec, _ in effective_tools(ungrounded, [])}
     assert {'search_documents', 'read_document', 'list_files', 'shell_run'} <= names
     assert 'report_not_covered' not in names
     assert grounding.POLICY not in get_prompt(ungrounded, [], [])

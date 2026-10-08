@@ -176,7 +176,7 @@ The agent wizard and tuning reviewer use this support.
 
 Enabled code/document folders register `list_files`, `read_file` and
 `search_files` from `knowledge_admin/capabilities/files.py` (wrapped by
-`knowledge_admin/tools/files.py`). These read configured
+`knowledge_admin/tools/catalog.py`). These read configured
 absolute mounted paths. SSH registers `ssh_run`, which uses saved connection
 settings and credentials in backend context, enforces selected servers and sudo
 settings, and reuses the AsyncSSH transport. Keys are not written to disk or
