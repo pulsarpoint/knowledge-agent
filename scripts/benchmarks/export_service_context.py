@@ -17,7 +17,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from knowledge_admin.code_paths import code_root
-from knowledge_admin.capabilities.code_graph import load_code_graph
+from knowledge_admin.capabilities.code_graph import load_code_graph_hashing
 from knowledge_admin.code_processing import index_directory
 
 
@@ -80,7 +80,7 @@ def main() -> None:
         if not manifest_path.is_file():
             raise ValueError(f"Generate the graph for {project['name']} first")
         manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-        graph = load_code_graph(project, manifest['source_hash'])
+        graph = load_code_graph_hashing(project, manifest['source_hash'])
         if graph['missing_folders']:
             raise ValueError(f"Mapped folders are missing for {project['name']}")
         prefix = str(project['id'])
