@@ -3,8 +3,8 @@ tools when a capability is switched on; the wizard's tools; the list summary."""
 from uuid import uuid4
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.tools.catalog import CATALOG, effective_tools
-from knowledge_admin.tools_api import CLAUDE_CODE, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
+from knowledge_admin.tools.catalog import CATALOG, effective_tools, enabled_capability_tools, implied_tools
+from knowledge_admin.tools_api import CLAUDE_CODE, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN, flags
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_agent_resources import listed
 from test_claude_code_agents import claude_code_agent
@@ -183,6 +183,45 @@ def test_a_claude_code_agent_switched_to_native_gets_todays_tools(store, saved_a
     profile = client.get(f'/api/agents/{writer}', headers=HEADERS).json()
     assert update(client, profile, runtime='openai').status_code == 200
     assert rows(store, writer) == {'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph'}
+
+
+def test_a_per_run_claude_code_agent_switched_to_native_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
+    """Per run: every tool of each enabled capability (as a new per-run agent gets); fixed: the implied tools."""
+    client = saved_agent[0]
+    for resources in ('per_run', 'fixed'):
+        writer = claude_code_agent(client, f'Writer {resources}', resources=resources, repositories_enabled=True,
+                                   documents_enabled=True, ssh_enabled=True)
+        assert rows(store, writer) == set()
+        profile = client.get(f'/api/agents/{writer}', headers=HEADERS).json()
+        assert update(client, profile, runtime='openai').status_code == 200
+        expected = enabled_capability_tools if resources == 'per_run' else (
+            lambda config: [entry['tool'] for entry in implied_tools(config)['items'] if entry['mode'] == 'on'])
+        assert rows(store, writer) == set(expected(flags(profile_of(client, writer)))), resources
+        assert rows(store, writer) == CODE_TOOLS | {'search_documents', 'read_document', 'ssh_run'}, resources
+
+
+def test_ensure_native_tools_follows_the_resources_mode(monkeypatch):
+    """The rule itself (the two lists coincide for today's catalog, so the API test above cannot tell them apart):
+    per run takes enabled_capability_tools, fixed the implied tools."""
+    from knowledge_admin import tools_api
+    monkeypatch.setattr(tools_api, 'enabled_capability_tools', lambda config: ['ssh_run'])
+    monkeypatch.setattr(tools_api, 'implied_tools', lambda config: {'items': [{'tool': 'read_file', 'mode': 'on'}]})
+
+    class Connection:
+        def __init__(self):
+            self.switched: list[str] = []
+
+        def execute(self, sql, params):
+            if sql == tools_api.SWITCH_ON:
+                self.switched.append(params[1])
+            return self
+
+        def fetchone(self):
+            return None  # no tool rows yet
+    for resources, expected in (('per_run', ['ssh_run']), ('fixed', ['read_file'])):
+        conn = Connection()
+        tools_api.ensure_native_tools(conn, 'agent', {'runtime': 'openai', 'resources': resources})
+        assert conn.switched == expected, resources
 
 
 def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):

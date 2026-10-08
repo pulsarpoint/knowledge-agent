@@ -149,12 +149,16 @@ def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, 
 
 
 def ensure_native_tools(conn, agent_id: str, current: dict[str, Any]) -> None:
-    """An agent that becomes native without any tool rows gets the tools its capabilities give (the backfill)."""
+    """An agent that becomes native without any tool rows gets tools as a new agent would: per run, every tool of each
+    enabled capability (enabled_capability_tools); fixed, the tools its capabilities give (the backfill)."""
     if conn.execute('SELECT 1 FROM ka.agent_tools WHERE agent_id=%s LIMIT 1', (agent_id,)).fetchone():
         return
-    for entry in implied_tools(current)['items']:
-        if entry['mode'] == 'on':
-            conn.execute(SWITCH_ON, (agent_id, entry['tool']))
+    if current['resources'] == 'per_run':
+        names = enabled_capability_tools(current)
+    else:
+        names = [entry['tool'] for entry in implied_tools(current)['items'] if entry['mode'] == 'on']
+    for name in names:
+        conn.execute(SWITCH_ON, (agent_id, name))
 
 
 def build_api(app_name, store):
