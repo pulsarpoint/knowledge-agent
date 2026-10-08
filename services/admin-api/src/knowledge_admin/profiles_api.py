@@ -129,6 +129,7 @@ def build_api(app_name, store):
         row['collection_ids'] = [r['collection_id'] for r in conn.execute('SELECT a.collection_id FROM ka.agent_collections a JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY a.collection_id', (agent_id,))]
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
+        row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -140,7 +141,7 @@ def build_api(app_name, store):
     @router.get('')
     def listing():
         with database().connect() as conn:
-            rows = conn.execute('''SELECT a.*,m.name AS model_name,
+            rows = conn.execute('''SELECT a.*,m.name AS model_name,o.name AS original_name,
                 (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
                     WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
                 (SELECT count(*) FROM ka.agent_collections x JOIN ka.rag_collections c ON c.id=x.collection_id
@@ -151,6 +152,7 @@ def build_api(app_name, store):
                         ELSE c.credential_id IS NOT NULL AND c.username IS NOT NULL END)::int AS server_count,
                 (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
+                LEFT JOIN ka.agents o ON o.id=a.cloned_from
                 ORDER BY a.created_at,a.id''').fetchall()
             saved_tools: dict[str, list[dict]] = {}
             for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
