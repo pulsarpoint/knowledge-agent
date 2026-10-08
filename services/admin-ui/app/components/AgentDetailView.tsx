@@ -15,11 +15,13 @@ import AgentInstructions from './AgentInstructions';
 import PromptsView from './PromptsView';
 import OperationsView from './OperationsView';
 import AgentVersionsView from './AgentVersionsView';
+import AgentToolsView from './AgentToolsView';
+import { TOOLS_TAB_NOTE } from '../lib/tools';
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [params, setParams] = useSearchParams();
   const [profile, setProfile] = useState<AgentProfile>();
-  const sections = ['general','skills','documents','git','ssh','mcp','services','prompts','versions','test'];
+  const sections = ['general','tools','skills','documents','git','ssh','mcp','services','prompts','versions','test'];
   const selected = params.get('view') ?? '';
   const view = sections.includes(selected) ? selected : 'general';
   const claudeCode = profile?.runtime === 'claude_code';
@@ -27,6 +29,9 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [error, setError] = useState('');
   const [profileDirty, setProfileDirty] = useState(false);
   const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [toolsDirty, setToolsDirty] = useState(false);
+  const [toolsOpened, setToolsOpened] = useState(false);
+  useEffect(() => { if (view === 'tools') setToolsOpened(true); }, [view]);
   const [reload, setReload] = useState(0);
   const [promptRevision, setPromptRevision] = useState(0);
   useEffect(() => { let live = true; getAgent(agentId).then(value => { if (live) { setProfile(value); setError(''); } }).catch(e => { if (live) setError(e.message); }); return () => { live = false; }; }, [agentId, reload]);
@@ -41,8 +46,11 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
           {claudeCode && claudeCodeNotes[view] && <Alert><AlertDescription>{claudeCodeNotes[view]}</AlertDescription></Alert>}
           {profile.resources === 'per_run' && PER_RUN_NOTES[view] && <Alert><AlertDescription>{PER_RUN_NOTES[view]}</AlertDescription></Alert>}
           {profile.active_config_version_id && !['test','versions'].includes(view) && <Alert><AlertDescription>These tabs edit the working configuration. Save a draft in <Link className="underline" to="?view=versions">Versions</Link>, then activate it to use these changes in new runs.</AlertDescription></Alert>}
-          {view === 'versions' && <AgentVersionsView agentId={agentId} dirty={profileDirty || configurationDirty} onChanged={() => setReload(n => n + 1)} testable={!claudeCode} />}
-          <div hidden={['test','prompts','versions'].includes(view)}><AgentProfileSettings key={reload} profile={profile} view={view} onSaved={setProfile} onDirtyChange={setProfileDirty} configurationDirty={configurationDirty} /></div>
+          {!claudeCode && ['git','documents','ssh','mcp'].includes(view) && <p className="text-sm text-muted-foreground"><span>{TOOLS_TAB_NOTE}</span> <Link className="underline underline-offset-4" to="?view=tools">Open Tools</Link></p>}
+          {toolsOpened && <div hidden={view !== 'tools'}><AgentToolsView key={reload} agentId={agentId} revision={profile.revision} onDirtyChange={setToolsDirty}
+            onSaved={revision => setProfile(current => current && { ...current, revision })} /></div>}
+          {view === 'versions' && <AgentVersionsView agentId={agentId} dirty={profileDirty || configurationDirty || toolsDirty} onChanged={() => setReload(n => n + 1)} testable={!claudeCode} />}
+          <div hidden={['test','prompts','versions','tools'].includes(view)}><AgentProfileSettings key={reload} profile={profile} view={view} onSaved={setProfile} onDirtyChange={setProfileDirty} configurationDirty={configurationDirty} /></div>
           <div hidden={view !== 'general'}><AgentModelSelection profile={profile} onRefresh={() => setReload(n => n + 1)} onSaved={saved => { if (saved) setProfile(saved); }} /></div>
           <div hidden={!(['general','ssh','mcp'].includes(view) || nativeTest)}><OperationsView view={nativeTest ? 'test' : 'settings'} section={view} agentId={agentId} profile={profile} unsavedProfile={profileDirty} onDirtyChange={setConfigurationDirty} available={profile.enabled} active={['general','ssh','mcp'].includes(view) || nativeTest} /></div>
           {claudeCode && view === 'test' && <Card><CardHeader><CardTitle>Test in a Claude Code session</CardTitle>

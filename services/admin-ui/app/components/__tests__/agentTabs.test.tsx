@@ -120,7 +120,7 @@ test('agents are created only through one New agent panel with the wizard', asyn
 test.each(['search','operations','code','custom-code'])('every agent has the same capability tabs: %s', async id => {
   render(app(`/agents/${id}`));
   await screen.findByRole('combobox', { name: 'Model connection' });
-  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['General','Skills','Documents','Code projects','SSH','MCP','Services','Prompts','Versions','Test']);
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['General','Tools','Skills','Documents','Code projects','SSH','MCP','Services','Prompts','Versions','Test']);
 });
 
 test('Documents tab picks RAG collections by name without subfolder options', async () => {

@@ -37,7 +37,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/agents/:id" element={<Detail />} /></Routes><Toaster /></MemoryRouter>);
-const TABS = ['General', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Prompts', 'Versions', 'Test'];
+const TABS = ['General', 'Tools', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Prompts', 'Versions', 'Test'];
 
 test.each(['writer', 'search'])('both agent types show the same tabs: %s', async id => {
   open(`/agents/${id}`);
