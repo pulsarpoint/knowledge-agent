@@ -46,7 +46,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 - `agent-session-worker` runs native agents' **Generate documents** sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
-  Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds.
+  Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds. A turn runs at most `AGENT_MAX_SUBAGENTS` (default 4) subagents at once.
 - Phoenix has its own authenticated UI and volume. The admin API exports
   OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
 - Each service receives an explicit subset of environment variables. The complete

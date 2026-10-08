@@ -446,13 +446,13 @@ saved but runs only after you choose one on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
+| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; **May start subagents** (native agents: the agent can hand separate parts of its work to helpers that run in parallel); the model filtered by type and **Model connection** (required to run); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP. For a per-run agent: what callers may pass (the tab says so) |
 | **MCP** | Pick tested MCP servers (and their tools) |
-| **Tools** | Native agents: switch tools on or off (Code, Documents, Servers, MCP groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools** |
+| **Tools** | Native agents: switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. |
 | **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
 | **Test** | Native: chat with the agent (a per-run agent first picks **Resources for this run**). Claude Code: **Start a session** opens **Docs → Generate documents → New** with this agent |
 
@@ -473,7 +473,18 @@ editing, then **Apply to this agent** or **Apply to a new clone**.
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
-**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with the tools their capabilities imply. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
+**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; switching a capability on switches all of its tools on, and a per-run agent gets all tools of the capabilities it uses when it becomes per run or gets one switched on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
+
+**Subagents.** With **May start subagents** on (General, or the wizard's Tools page) a native agent can start helpers
+with `run_subagent`: each gets a complete task, the tools you allow under **A subagent may use** that the agent passes
+it, and some or all of the agent's resources, but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
+default 4, at once; at most 16 per turn) and their final answer comes back to the agent. In the Test tab and on the
+session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
+history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
+answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
+the main turn's Worked line counts only the agent's own work. **Stop** stops the agent and all of its helpers.
+Switching an agent to Claude Code and back removes the switch; turn it on again. In the wizard, a hand-picked tool
+list wins over the "all tools" default.
 
 **Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, the line **Resources: …** (with **Choose resources**) appears before the first message only and opens **Resources for this run**, one list per kind the agent uses; the choice is kept for the session and shown in the header and in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
@@ -731,6 +742,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `CLAUDE_CODE_MAX_SESSIONS` | Running Claude Code processes per `claude-code-worker` (default 4) |
 | `AGENT_SESSION_MAX_SESSIONS` | Native sessions running at once per agent-session-worker (default 4) |
+| `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 per turn) |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
@@ -803,6 +815,7 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
+| `run_subagent` | **May start subagents** on (native agents, sessions only) | Starts a helper with a subset of the agent's tools and resources and no conversation; at most 16 per turn, `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
 
 For a per-run agent every tool works on the run's resources only; a kind with nothing given is refused with `No … was given for this run`.
 

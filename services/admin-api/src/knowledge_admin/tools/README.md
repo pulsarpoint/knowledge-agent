@@ -22,6 +22,13 @@ tool's own description still comes from the server. `code_graph` is offered only
 current generated graph that ended ready or partial (see below); the prompt lists code graphs only when `code_graph`
 or `shell_run` is offered.
 
+`run_subagent` (group `agents`, needs none, never on by default) is on exactly when the agent's `run_subagent` row is
+(**May start subagents**). Its run is `knowledge_agents/subagents.run_subagent`, which finds the turn's `Subagents` in
+the run context (`context['subagents']`, native sessions only) and the call id in `capabilities.context.TOOL_CALL_ID`
+(set by `tools/sdk.py` around each invocation). `subagent_config` checks the given tools against `context['tools']` and
+`context['mcp_tools']` (the MCP tools as the model sees them, built by `agents.mcp_tool_names`) and `subagent_allowed`,
+and narrows the resources to the parent's current lists.
+
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.

@@ -31,7 +31,13 @@ The Test tab and the Generate documents session page share `RunWorkspace` (`serv
 a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer
 with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
 box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream; `groupTurns`
-turns events into turns.
+turns events into turns. A `run_subagent` call shows in the Worked block as `Subagent · <task> · <n> tool calls ·
+<tokens> tokens · <status>` with **Open**; **Agents in this run** lists the main agent and every subagent (working,
+done, failed or stopped, with tokens and tool calls, live), and selecting one shows its own history in the main pane
+with the breadcrumb **Main agent › Subagent: <task>**. `groupTurns` puts events with a `parent_call_id` into the
+turn's subagents. The sidebar lists the subagents in the loaded events, so earlier ones appear when older history
+loads. The header and the main agent's sidebar entry show the session totals including subagents; the main turn's
+Worked line counts only its own work.
 
 Test chats from before migration 0081 were deleted with their tables; their run records (`run:<id>`) stay in Agent runs.
 `scripts/migrate_agent_session_history.py` (the one-off importer of pre-0036 session history files) reads the dropped
@@ -81,6 +87,21 @@ all), the run record, the session page and the Test tab show a line such as `cod
 or `No tools used`. The workspace counts live: the session detail returns its counts with the id of the
 last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
 once; earlier activity loaded by scrolling up is already counted).
+
+**Subagents (`run_subagent`).** An agent with **May start subagents** gets `run_subagent(task, tools, resources)`. A
+subagent works on one task (at most 20,000 characters) without the conversation: its configuration is a copy of the
+agent's pinned configuration with only the given tools on (names as the agent sees them; MCP servers kept only for the
+given MCP tools, their other tools off; never `run_subagent`, never a tool not allowed for subagents), the resource
+lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a per-run run, so
+an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, skills off
+and the same model. It gets only the turn's already decrypted credentials its configuration references (SSH private
+keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
+most 16 subagents ("This turn already started 16 subagents.") and runs `AGENT_MAX_SUBAGENTS` (default 4) at once; later
+calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
+errors naming the tool or resource. Subagents run only in native agent sessions (Test and Generate documents). Their
+events go into the turn's record (`cc:<session>:<turn>`) with `payload.parent_call_id` (the `run_subagent` call id; the
+first is `input {task, subagent}`), their model calls into the session's totals and their tool calls into the tool
+counts. **Stop** stops the agent and every subagent; a subagent of an ended turn starts no model or tool call.
 
 ## Clones
 

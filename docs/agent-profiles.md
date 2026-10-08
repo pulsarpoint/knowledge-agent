@@ -44,8 +44,8 @@ Every agent has its own configuration; no parent agent is introduced.
 
 ## Tools
 
-The **Tools** tab lists the tools of a native agent in groups (Code, Documents, Servers, MCP; empty groups are
-hidden), each with an on/off switch, a one-line summary and its usage instructions. **Edit usage** replaces the
+The **Tools** tab lists the tools of a native agent in groups (Code, Documents, Servers, MCP, Agents; empty groups are
+hidden, except Agents), each with an on/off switch, a one-line summary and its usage instructions. **Edit usage** replaces the
 built-in instructions the model reads with your own text (up to 8,000 characters; the row shows **Edited**);
 **Reset** returns to the built-in text. A tool whose capability is not available shows a "Needs …" row instead of
 a switch effect: `Needs code projects`, `Needs documents`, `Needs "Answer only from documents"`, `Needs SSH servers`,
@@ -56,13 +56,28 @@ server). **Save tools** saves the whole list with the agent's revision (`GET/PUT
 list returns 409 "The tools changed since you opened them. Reload.").
 
 Save rules: when **Answer only from documents** is on, `report_not_covered` cannot be switched off ("Grounded answers
-need report_not_covered."); switching a capability on brings its default tools on, and tools of a server that is not
-selected, or unknown tools, are refused. Step 1 offers only on and off. Claude Code agents keep their four tools
+need report_not_covered."); switching a capability on switches all
+of its tools on (replacing earlier off rows; `report_not_covered` only with **Answer only from documents**); a per-run
+agent gets all tools of every enabled capability when it is created, switched to per run or gets a capability switched
+on; agents saved before keep their tool rows. The wizard's explicit tool choice wins over these defaults (a per-run
+agent created with a hand-picked list gets just that list). Tools of a server that is not selected, or unknown tools,
+are refused. Claude Code agents keep their four tools
 (Read, Grep, Glob, Bash) on the General tab; the Tools tab shows "Claude Code agents use Claude Code's own tools on
 their working folders. Switch them on the General tab." and the API refuses tool changes for them. The agent wizard
 has a **Tools** page that follows the chosen capabilities, and **All agents** has a **Tools** column
 (for example `7 tools · Code 6 · Servers 1`, `No tools`, or `Read, Grep, Glob, Bash` for Claude Code). Tools are part
 of the configuration; conversations saved before 0078 use the tools their capabilities gave.
+
+**Subagents.** **May start subagents** (General, native agents only, off by default; the wizard asks the same on its
+Tools page) lets the agent hand separate parts of its work to helpers that run in parallel. The switch is the
+`run_subagent` row in `ka.agent_tools` (`mode = 'on'`, `subagent_allowed = false`; `GET/PUT /api/agents/{id}`
+`subagents`); turning it off deletes the row. While it is on, the Tools tab's **Agents** group lists **Start subagents**
+(its switch follows General; **Edit usage** / **Reset** change the instructions the model reads about when to start
+subagents) and **A subagent may use**: one checkbox per tool of the agent that is on (catalog and MCP tools), checked by
+default (`subagent_allowed`). While it is off, the group says "Turn on May start subagents in General to let this
+agent start helpers." and the Tools API refuses `run_subagent` ("Turn on May start subagents in General first.").
+Clone and Apply copy the row and `subagent_allowed` with the other tool rows. Switching an agent to Claude Code and back
+deletes the row, so the switch must be turned on again afterwards.
 
 ## New agent
 
