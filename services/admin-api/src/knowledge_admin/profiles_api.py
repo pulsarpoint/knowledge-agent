@@ -272,6 +272,10 @@ def build_api(app_name, store):
                 switch_on_defaults(conn, agent_id, flags(old), now)
                 if runtime == 'openai' and value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
                     switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
+                if runtime == 'claude_code' and old['runtime'] != 'claude_code':
+                    # No switch on Claude Code agents: the row goes, so a later save back to native that omits
+                    # `subagents` leaves May start subagents off.
+                    switch_subagents(conn, agent_id, False)
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

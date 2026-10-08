@@ -76,8 +76,9 @@ Tools page) lets the agent hand separate parts of its work to helpers that run i
 subagents) and **A subagent may use**: one checkbox per tool of the agent that is on (catalog and MCP tools), checked by
 default (`subagent_allowed`). While it is off, the group says "Turn on May start subagents in General to let this
 agent start helpers." and the Tools API refuses `run_subagent` ("Turn on May start subagents in General first.").
-Clone and Apply copy the row and `subagent_allowed` with the other tool rows. Switching an agent to Claude Code and back
-deletes the row, so the switch must be turned on again afterwards.
+Clone and Apply copy the row and `subagent_allowed` with the other tool rows. Switching an agent to Claude Code
+deletes the row (server side, whatever the save sends), so after switching back to native the switch is off and must be
+turned on again.
 
 ## New agent
 

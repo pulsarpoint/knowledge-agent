@@ -83,7 +83,7 @@ def subagents_on(conn, agent_id: str) -> bool:
 
 def switch_subagents(conn, agent_id: str, on: bool) -> None:
     """May start subagents on (the row, with the default usage text unless it has one) or off (the row is deleted,
-    also when the UI saves the switch off after a round trip through Claude Code)."""
+    also when the agent becomes a Claude Code agent)."""
     if on:
         conn.execute(SUBAGENT_ROW, (agent_id, None))
     else:

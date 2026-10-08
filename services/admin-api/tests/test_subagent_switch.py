@@ -123,3 +123,21 @@ def test_run_subagent_outside_a_session_is_a_tool_error():
     wrapped = ToolContext(context=context, tool_name=SUBAGENT, tool_call_id='s1', tool_arguments=payload)
     result = asyncio.run(tool.on_invoke_tool(wrapped, payload))
     assert result.startswith('An error occurred while running the tool.') and UNAVAILABLE in result
+
+
+def test_switching_to_claude_code_deletes_the_switch_and_switching_back_leaves_it_off(store, saved_agent):
+    """A save that omits `subagents` keeps the switch, so the row goes when the agent becomes a Claude Code agent: a
+    later save back to native cannot bring it back."""
+    client = saved_agent[0]
+    agent = update(client, create(client, 'Lead'), subagents=True).json()
+    assert row(store, agent['id']) is not None
+
+    def save(current, **changes):
+        body = {field: current[field] for field in ProfileInput.model_fields if field != 'subagents'}
+        response = client.put(f"/api/agents/{agent['id']}", headers=HEADERS, json={**body, **changes})
+        assert response.status_code == 200, response.text
+        return response.json()
+    writer = save(agent, runtime='claude_code')
+    assert writer['subagents'] is False and row(store, agent['id']) is None
+    back = save(writer, runtime='openai')
+    assert back['subagents'] is False and row(store, agent['id']) is None
