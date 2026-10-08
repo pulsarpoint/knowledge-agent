@@ -1,308 +1,189 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AgentTestView from '../AgentTestView';
-import * as api from '../../lib/operations';
+import * as tests from '../../lib/testSessions';
+import * as reviews from '../../lib/reviews';
+import type { SessionDetail } from '../../lib/claudeCode';
 import { getAgentConfig, getRunResourceOptions, type RunResourceOptions } from '../../lib/profiles';
-vi.mock('../../lib/operations');
+vi.mock('../../lib/testSessions');
+vi.mock('../../lib/reviews');
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgentConfig: vi.fn(), getRunResourceOptions: vi.fn() }));
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
-const run: api.OperationsRun = { id:'run-1',session_id:'session-1',task:'Initial question',status:'completed',created_at:'2026-09-11T12:00:00Z',actor_email:'admin@test',answer:'Initial answer',error:'',progress:'',commands:[],context:{servers:[],model_name:'Model',prompt:{version:1},config:{id:'custom'}} };
-const conversation: api.AgentConversation = { id:'session-1',is_test:true,title:'Initial question',status:'active',created_at:run.created_at,last_activity_at:run.created_at,expires_at:'2026-09-11T13:00:00Z',config:{id:'custom'},runs:[run],reviews:[] };
-function Page() { const location = useLocation(); return <><output aria-label="URL">{location.search}</output><AgentTestView agentId="custom" agentName="Custom agent" available ready dirty={false} active /></>; }
-function renderPage(query='?view=test') { return render(<MemoryRouter initialEntries={[query]}><Page /></MemoryRouter>); }
-beforeEach(()=>{
+class Stream extends EventTarget {
+  static instances: Stream[] = [];
+  close = vi.fn();
+  constructor(public url: string) { super(); Stream.instances.push(this); }
+}
+const session = {
+  id: 's1', title: 'How many retries?', purpose: 'test', runtime: 'openai', agent_id: 'custom', agent_name: 'Custom agent',
+  model_name: 'GPT', model_id: 'gpt', status: 'waiting', status_message: '', turns: 1, input_tokens: 120, output_tokens: 30,
+  cached_tokens: 0, cost_usd: 0, model_calls: 1, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null,
+  document_title: null, document_name: null, folder: null, worker_active: true, queued: 0, run_resources: null,
+  prompt_snapshot: { system_prompt: 'Help.' }, context_snapshot: { folders: [], code_project_ids: [] }, inputs: [], tool_counts: [],
+  tool_counts_through_id: 0, config: { id: 'custom', system_prompt: { content: 'Pinned prompt.' } }, reviews: [],
+  created_at: '2026-10-08T10:00:00Z', last_activity_at: '2026-10-08T10:00:00Z', closed_at: null,
+} as unknown as SessionDetail;
+const turn1 = [
+  { id: 1, turn: 1, seq: 1, kind: 'input', payload: { task: 'How many retries?' } },
+  { id: 2, turn: 1, seq: 2, kind: 'message', payload: { text: 'Three retries.' } },
+  { id: 3, turn: 1, seq: 3, kind: 'end', payload: { status: 'completed' } }];
+const posts: { url: string; body?: unknown }[] = [];
+let detail: SessionDetail = structuredClone(session);
+function Page(props: { available?: boolean; dirty?: boolean }) {
+  const location = useLocation();
+  return <><output aria-label="URL">{location.search}</output>
+    <AgentTestView agentId="custom" agentName="Custom agent" available={props.available ?? true} ready dirty={props.dirty ?? false} active /></>;
+}
+const renderPage = (query = '?view=test', props: { available?: boolean; dirty?: boolean } = {}) =>
+  render(<MemoryRouter initialEntries={[query]}><Page {...props} /></MemoryRouter>);
+beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.getOperationsRuns).mockResolvedValue({runs:[]});
-  vi.mocked(api.getAgentSessions).mockResolvedValue({sessions:[]});
-  vi.mocked(api.getAgentSession).mockResolvedValue(structuredClone(conversation));
-  vi.mocked(getAgentConfig).mockResolvedValue({id:'custom'});
+  Stream.instances = []; posts.length = 0; detail = structuredClone(session);
+  vi.stubGlobal('EventSource', Stream);
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') {
+      posts.push({ url, body: init.body ? JSON.parse(init.body as string) : undefined });
+      if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: false }, { status: 202 });
+      if (url.endsWith('/stop')) return Response.json({ id: 's1', discarded: 0 }, { status: 202 });
+      return Response.json({ id: 's1' });
+    }
+    if (url.includes('/events/history')) return Response.json({ events: turn1, has_more: false });
+    return Response.json(detail);
+  }));
+  vi.mocked(getAgentConfig).mockResolvedValue({ id: 'custom', system_prompt: { content: 'Current prompt.' } });
   vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
+  vi.mocked(tests.getTestSessions).mockResolvedValue({ sessions: [] });
 });
+afterEach(() => vi.unstubAllGlobals());
 
-it('creates a session URL on the first message and sends follow-ups to the same session',async()=>{
-  const saved = structuredClone(conversation); saved.runs=[];
-  vi.mocked(api.getAgentSession).mockImplementation(async()=>structuredClone(saved));
-  vi.mocked(api.startOperationsRun).mockImplementation(async(task,agentId,signal,onEvent,sessionId)=>{
-    expect(agentId).toBe('custom'); expect(signal.aborted).toBe(false);
-    expect(sessionId).toBe(saved.runs.length ? 'session-1' : undefined);
-    const result = {...run,id:`run-${saved.runs.length+1}`,task,answer:`Answer ${saved.runs.length+1}`};
-    onEvent({event:'started',data:{...result,status:'running',answer:''}});
-    saved.runs.push(result);
-    onEvent({event:'completed',data:result});
-  });
+it('the first message starts a Test session and opens it; a follow-up goes to the same session', async () => {
+  vi.mocked(tests.createTestSession).mockResolvedValue(structuredClone(session));
   renderPage();
-  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'First message'}});
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Run task'})).toBeEnabled());  // after the run resource options load
-  fireEvent.click(screen.getByRole('button',{name:'Run task'}));
-  expect(await screen.findByText('Answer 1')).toBeVisible();
-  expect(screen.getByLabelText('URL')).toHaveTextContent('session_id=session-1');
-  expect(screen.getByLabelText('Task')).toHaveValue('');
-  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Follow up'}});
-  fireEvent.click(screen.getByRole('button',{name:'Send message'}));
-  expect(await screen.findByText('Answer 2')).toBeVisible();
-  expect(screen.getByText('Answer 1')).toBeVisible();
-  expect(api.startOperationsRun).toHaveBeenCalledTimes(2);
-});
-
-it('restores the full conversation by URL without sending another message',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation,runs:[run,{...run,id:'run-2',task:'Second question',answer:'Second answer'}]});
-  renderPage('?view=test&session_id=session-1');
-  expect(await screen.findByText('Initial answer')).toBeVisible();
-  expect(screen.getByText('Second answer')).toBeVisible();
-  expect(api.startOperationsRun).not.toHaveBeenCalled();
-  expect(api.getAgentSession).toHaveBeenCalledWith('custom','session-1');
-});
-
-it('closes explicitly with confirmation and starts new conversations without the old session ID',async()=>{
-  vi.mocked(api.closeAgentSession).mockImplementation(async()=>{vi.mocked(api.getAgentSession).mockResolvedValue({...conversation,status:'closed'});});
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Initial answer');
-  fireEvent.click(screen.getByRole('button',{name:'Close session'}));
-  expect(api.closeAgentSession).not.toHaveBeenCalled();
-  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Close session'}));
-  expect(await screen.findByText('This session is closed or expired. Start a new session to continue.')).toBeVisible();
-  expect(api.closeAgentSession).toHaveBeenCalledWith('custom','session-1');
-  fireEvent.click(screen.getByRole('button',{name:'New session'}));
-  await waitFor(()=>expect(screen.getByLabelText('URL')).not.toHaveTextContent('session_id'));
-  expect(screen.queryByText('Initial answer')).not.toBeInTheDocument();
-});
-
-it('shows reviewable tuning suggestions and preserves feedback after a failed review',async()=>{
-  vi.mocked(api.reviewAgentSession).mockRejectedValueOnce(new Error('Review unavailable')).mockResolvedValueOnce({id:'review-1',comment:'Be concise',suggestion:'Suggested instructions: report evidence first.',created_at:run.created_at});
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Initial answer');
-  expect(screen.queryByLabelText('Your feedback')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button',{name:'Add feedback'}));
-  fireEvent.change(screen.getByLabelText('Your feedback'),{target:{value:'Be concise'}});
-  fireEvent.click(screen.getByRole('button',{name:'Suggest improvements'}));
-  expect(await screen.findByText('Review unavailable')).toBeVisible();
-  expect(screen.getByLabelText('Your feedback')).toHaveValue('Be concise');
-  fireEvent.click(screen.getByRole('button',{name:'Suggest improvements'}));
-  expect(await screen.findByText('Suggested instructions: report evidence first.')).toBeVisible();
-  expect(api.reviewAgentSession).toHaveBeenLastCalledWith('custom','session-1','Be concise','run-1');
-  expect(screen.getByRole('button',{name:'Review and apply'})).toBeVisible();
-  expect(screen.getByLabelText('Your feedback')).toHaveValue('');
-});
-
-it('reconnects to a running session and updates progress without retrying execution',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValueOnce({...conversation,runs:[{...run,status:'running',answer:'',progress:'Inspecting files'}]}).mockResolvedValue(conversation);
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Inspecting files');
-  vi.useFakeTimers();
-  try { await act(async()=>{await vi.advanceTimersByTimeAsync(2000);}); }
-  finally { vi.useRealTimers(); }
-  expect(await screen.findByText('Initial answer')).toBeVisible();
-  expect(api.startOperationsRun).not.toHaveBeenCalled();
-});
-
-it('previews the pinned session configuration instead of newly edited settings',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation, config:{id:'custom',instructions:'Pinned instructions'}});
-  renderPage('?view=test&session_id=session-1');
-  expect(await screen.findByText('Saved session configuration')).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'Show config'}));
-  expect(await screen.findByLabelText('Agent configuration')).toHaveTextContent('Pinned instructions');
-  expect(getAgentConfig).not.toHaveBeenCalled();
-});
-
-it('a new test sends no version',async()=>{
-  renderPage('?view=test&version_id=v2');
-  expect(await screen.findByText('Current agent configuration')).toBeVisible();
-  expect(screen.queryByRole('link',{name:'Choose version'})).toBeNull();
-  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Try it'}});
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Run task'})).toBeEnabled());
-  expect(getRunResourceOptions).toHaveBeenCalledWith('custom');
-  fireEvent.click(screen.getByRole('button',{name:'Run task'}));
-  await waitFor(()=>expect(api.startOperationsRun).toHaveBeenCalledWith('Try it','custom',expect.any(AbortSignal),expect.any(Function),undefined,undefined));
-});
-
-it('totals recorded session usage across turns without double-counting cache or reasoning',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation,runs:[
-    {...run,context:{...run.context,usage:{requests:2,input_tokens:1200,output_tokens:300,total_tokens:1500,
-      input_tokens_details:{cached_tokens:800,cache_write_tokens:100},output_tokens_details:{reasoning_tokens:120}}}},
-    {...run,id:'run-2',context:{...run.context,usage:{requests:1,input_tokens:600,output_tokens:200,total_tokens:800}}},
-  ]});
-  renderPage('?view=test&session_id=session-1');
-  const stats = await screen.findByRole('region',{name:'Session usage'});
-  expect(within(stats).getByText('2,300')).toBeVisible();
-  expect(within(stats).getByText('1,800')).toBeVisible();
-  expect(within(stats).getByText('500')).toBeVisible();
-  expect(within(stats).getByText('3')).toBeVisible();
-  expect(stats).toHaveTextContent('800 cached input tokens · 100 cache-write tokens · 120 reasoning tokens');
-  expect(stats).not.toHaveTextContent('partial');
-});
-
-it('marks missing and old zero usage as unavailable, and mixed totals as partial',async()=>{
-  const saved = {...conversation,runs:[{...run,context:{...run.context,usage:{requests:0,input_tokens:0,output_tokens:0,total_tokens:0}}}]};
-  vi.mocked(api.getAgentSession).mockResolvedValue(saved);
-  renderPage('?view=test&session_id=session-1');
-  const stats = await screen.findByRole('region',{name:'Session usage'});
-  expect(within(stats).getAllByText('Unavailable')).toHaveLength(4);
-  expect(stats).toHaveTextContent('Usage was not recorded for 1 turn.');
-  vi.mocked(api.startOperationsRun).mockImplementation(async(task,agentId,signal,onEvent)=>{
-    const next = {...run,id:'run-2',task,context:{...run.context,usage:{requests:1,input_tokens:80,output_tokens:20,total_tokens:100}}};
-    onEvent({event:'started',data:{...next,status:'running',answer:'',context:run.context}});
-    saved.runs.push(next);
-    onEvent({event:'completed',data:next});
-    onEvent({event:'completed',data:next});
-  });
-  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Follow up'}});
-  fireEvent.click(screen.getByRole('button',{name:'Send message'}));
-  await waitFor(()=>expect(stats).toHaveTextContent('Totals are partial.'));
-  expect(within(stats).getByText('100')).toBeVisible();
-  expect(within(stats).getByText('80')).toBeVisible();
-  expect(within(stats).getByText('20')).toBeVisible();
-  expect(within(stats).getByText('1')).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'New session'}));
-  await waitFor(()=>expect(screen.queryByRole('region',{name:'Session usage'})).not.toBeInTheDocument());
-});
-
-it('keeps completed usage visible while a new reply is pending',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation,runs:[
-    {...run,context:{...run.context,usage:{requests:1,input_tokens:80,output_tokens:20,total_tokens:100}}},
-    {...run,id:'run-2',status:'running',answer:'',progress:'Working'},
-  ]});
-  renderPage('?view=test&session_id=session-1');
-  const stats = await screen.findByRole('region',{name:'Session usage'});
-  expect(within(stats).getByText('100')).toBeVisible();
-  expect(stats).toHaveTextContent('Current reply’s usage is pending.');
-  expect(stats).not.toHaveTextContent('not recorded');
-});
-
-
-it('links every reply to its full run record',async()=>{
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Initial answer');
-  expect(screen.getByRole('link',{name:'Full record'})).toHaveAttribute('href','/activity/runs/run%3Arun-1');
-});
-
-const ANALYST: RunResourceOptions = { resources: 'per_run', collections: null, servers: [], services: null,
-  code_projects: [{ id: 'repo', name: 'Payments API' }, { id: 'worker', name: 'Payments worker' }] };
-const ONLY_REPO = { code_project_ids: ['repo'], collection_ids: [], server_ids: [], service_ids: [] };
-
-it('a per-run agent picks the resources for the run and shows them in the configuration', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  renderPage();
-  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
-  expect(within(picker).queryByText('Collections')).toBeNull();  // a kind the agent does not use
-  expect(within(picker).getByText('None allowed. Choose them in the agent’s tabs.')).toBeVisible();  // servers
-  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-  const shown = await screen.findByLabelText('Agent configuration');
-  expect(JSON.parse(shown.textContent!).run_resources).toEqual(ONLY_REPO);
-});
-
-it('the chosen resources start the conversation once and stay with it', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  const saved = structuredClone(conversation); saved.runs = [];
-  saved.config = { id: 'custom', code: { projects: [{ id: 'repo', name: 'Payments API' }] }, run_resources: ONLY_REPO };
-  vi.mocked(api.getAgentSession).mockImplementation(async () => structuredClone(saved));
-  vi.mocked(api.startOperationsRun).mockImplementation(async (task, _agentId, _signal, onEvent) => {
-    const result = { ...run, id: `run-${saved.runs.length + 1}`, task, answer: `Answer ${saved.runs.length + 1}`,
-      context: { ...run.context, config: saved.config } };
-    onEvent({ event: 'started', data: { ...result, status: 'running', answer: '' } });
-    saved.runs.push(result);
-    onEvent({ event: 'completed', data: result });
-  });
-  renderPage();
-  fireEvent.click(within(await screen.findByRole('region', { name: 'Resources for this run' })).getByRole('checkbox', { name: 'Payments API' }));
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
+  expect(screen.getByText('Chat with Custom agent')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'How many retries?' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled());  // after the run resource options load
   fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
-  expect(await screen.findByText('Answer 1')).toBeVisible();
-  expect(vi.mocked(api.startOperationsRun).mock.calls[0][5]).toEqual(ONLY_REPO);
-  expect(screen.queryByRole('region', { name: 'Resources for this run' })).toBeNull();  // fixed for the conversation
-  expect(screen.getByLabelText('Resources for this run')).toHaveTextContent('Resources for this run: Payments API');
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'And the callers?' } });
+  await waitFor(() => expect(screen.getByLabelText('URL')).toHaveTextContent('session_id=s1'));
+  expect(tests.createTestSession).toHaveBeenCalledWith('custom', 'How many retries?', undefined);
+  expect(await screen.findByText('Three retries.')).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Full record' })).toHaveAttribute('href', '/activity/runs/cc%3As1%3A1');
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'And timeouts?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(await screen.findByText('Answer 2')).toBeVisible();
-  expect(vi.mocked(api.startOperationsRun).mock.calls[1][5]).toBeUndefined();  // follow-ups never pass resources
+  await waitFor(() => expect(posts).toContainEqual({ url: '/api/claude-code/sessions/s1/messages', body: { text: 'And timeouts?' } }));
+  expect(await screen.findByText('Sent. The agent starts a new turn with your message.')).toBeVisible();
+  expect(tests.createTestSession).toHaveBeenCalledTimes(1);
 });
 
-it('a per-run agent waits for its resource options before the first message can be sent', async () => {
-  let resolve!: (value: RunResourceOptions) => void;
-  vi.mocked(getRunResourceOptions).mockReturnValue(new Promise(done => { resolve = done; }));
+it('History lists this agent\'s Test sessions and opens one; New session starts empty', async () => {
+  vi.mocked(tests.getTestSessions).mockResolvedValue({ sessions: [{ id: 's1', title: 'How many retries?', status: 'waiting',
+    created_at: '2026-10-08T10:00:00Z', last_activity_at: '2026-10-08T10:00:00Z', actor_email: 'admin@test' }] });
   renderPage();
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Too early' } });
-  expect(screen.getByText('Loading the resources for this run…')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
-  await act(async () => resolve(structuredClone(ANALYST)));
-  expect(await screen.findByRole('region', { name: 'Resources for this run' })).toBeVisible();
-  expect(screen.queryByText('Loading the resources for this run…')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'History' }));
+  const sheet = within(await screen.findByRole('dialog'));
+  expect(await sheet.findByText('How many retries?')).toBeVisible();
+  expect(sheet.getByText(/Waiting for you · admin@test/)).toBeVisible();
+  expect(tests.getTestSessions).toHaveBeenCalledWith('custom');
+  fireEvent.click(sheet.getByRole('button', { name: 'Open session' }));
+  await waitFor(() => expect(screen.getByLabelText('URL')).toHaveTextContent('session_id=s1'));
+  expect(await screen.findByText('Three retries.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+  await waitFor(() => expect(screen.getByLabelText('URL')).not.toHaveTextContent('session_id'));
+  expect(screen.queryByText('Three retries.')).toBeNull();
 });
 
-it('a reopened conversation shows the resources it started with, whatever the agent uses now', async () => {
-  vi.mocked(api.getAgentSession).mockResolvedValue({ ...structuredClone(conversation),
-    config: { id: 'custom', code: { projects: [{ id: 'repo', name: 'Payments API' }] }, run_resources: ONLY_REPO } });
-  renderPage('?view=test&session_id=session-1');  // the agent is fixed now
-  expect(await screen.findByLabelText('Resources for this run')).toHaveTextContent('Resources for this run: Payments API');
-});
-
-it('a fixed conversation shows no run resources, even if the agent is per-run now', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Initial answer');
-  await waitFor(() => expect(getRunResourceOptions).toHaveBeenCalled());
-  expect(screen.queryByLabelText('Resources for this run')).toBeNull();
-});
-
-it('a choice the reloaded options no longer offer is not sent, and the options stay visible while reloading', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  const view = (revision: number) => <MemoryRouter initialEntries={['?view=test']}><AgentTestView agentId="custom" agentName="Custom agent" available ready dirty={false} active revision={revision} /></MemoryRouter>;
-  const { rerender } = render(view(1));
-  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
-  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
-  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments worker' }));
-  let resolve!: (value: RunResourceOptions) => void;
-  vi.mocked(getRunResourceOptions).mockReturnValue(new Promise(done => { resolve = done; }));
-  rerender(view(2));
-  expect(screen.getByRole('region', { name: 'Resources for this run' })).toBeVisible();
-  await act(async () => resolve({ ...structuredClone(ANALYST), code_projects: [{ id: 'repo', name: 'Payments API' }] }));
-  await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Payments worker' })).toBeNull());
-  vi.mocked(api.startOperationsRun).mockResolvedValue(undefined);
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
-  await waitFor(() => expect(api.startOperationsRun).toHaveBeenCalled());
-  expect(vi.mocked(api.startOperationsRun).mock.calls[0][5]).toEqual(ONLY_REPO);
-});
-
-it('says when nothing is chosen for the run', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  renderPage();
-  const picker = await screen.findByRole('region', { name: 'Resources for this run' });
-  const note = 'Nothing chosen: the agent’s tools will have nothing to work on';
-  expect(within(picker).getByText(note)).toBeVisible();
-  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Payments API' }));
-  expect(within(picker).queryByText(note)).toBeNull();
-});
-
-it('blocks the first message until the run resource options load, with a retry', async () => {
-  vi.mocked(getRunResourceOptions).mockRejectedValueOnce(new Error('Options unavailable')).mockResolvedValue(structuredClone(ANALYST));
-  renderPage();
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Too early' } });
-  expect(await screen.findByRole('button', { name: 'Retry' })).toBeVisible();
-  expect(screen.getAllByText('Options unavailable').length).toBeGreaterThan(0);
-  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByRole('region', { name: 'Resources for this run' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
-});
-
-it('keeps the message box with the picker, in a shorter conversation area', async () => {
-  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
-  renderPage();
-  await screen.findByRole('region', { name: 'Resources for this run' });
-  expect(screen.getByLabelText('Task')).toBeVisible();
-  expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain('h-[calc(100dvh-30rem)]');
-});
-
-it('a Test chat answer shows its tools and Show config lists the conversation\'s', async () => {
-  vi.mocked(api.getAgentSession).mockResolvedValue({ ...conversation, tool_counts: [{ name: 'read_file', calls: 2 }],
-    runs: [{ ...run, tool_counts: [{ name: 'read_file', calls: 2 }] }, { ...run, id: 'run-2', task: 'Second', answer: 'Second answer', tool_counts: [] }] });
-  renderPage('?view=test&session_id=session-1');
-  await screen.findByText('Second answer');
-  expect(screen.getAllByLabelText('Tools used').map(line => line.textContent)).toEqual(['read_file 2', 'No tools used']);
+it('Show config shows the current configuration before the first message and the pinned one in a session', async () => {
+  const view = renderPage();
   fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-  await waitFor(() => expect(screen.getByLabelText('Agent configuration')).toHaveTextContent('"tool_counts"'));
+  expect(await screen.findByText('Current agent configuration')).toBeVisible();
+  expect(JSON.parse((await screen.findByLabelText('Agent configuration')).textContent!).config.system_prompt.content).toBe('Current prompt.');
+  view.unmount();
+  renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
+  expect(await screen.findByText('Saved session configuration')).toBeVisible();
+  expect(JSON.parse(screen.getByLabelText('Agent configuration').textContent!).config.system_prompt.content).toBe('Pinned prompt.');
+  expect(getAgentConfig).toHaveBeenCalledTimes(1);
+});
+
+it('a per-run agent chooses its resources from the Resources line before the first message only', async () => {
+  const chosen = { code_project_ids: ['app'], collection_ids: [], server_ids: [], service_ids: [] };
+  vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'per_run', code_projects: [{ id: 'app', name: 'Payments API' },
+    { id: 'worker', name: 'Worker' }] } as RunResourceOptions);
+  detail = { ...structuredClone(session), run_resources: chosen,
+    config: { id: 'custom', run_resources: chosen, code: { projects: [{ id: 'app', name: 'Payments API' }] } } };
+  vi.mocked(tests.createTestSession).mockResolvedValue(structuredClone(detail));
+  renderPage();
+  expect(await screen.findByLabelText('Resources for this run')).toHaveTextContent('Resources: nothing');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose resources' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByLabelText('Resources for this run')).toHaveTextContent('Resources: Payments API');
+  expect(screen.getByText('Resources: Per run: Payments API')).toBeVisible();  // the header
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Where are the limits?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
+  await waitFor(() => expect(tests.createTestSession).toHaveBeenCalledWith('custom', 'Where are the limits?', chosen));
+  expect(await screen.findByText('Three retries.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Choose resources' })).toBeNull();  // fixed for the session
+  expect(screen.getByText('Resources: Per run: Payments API')).toBeVisible();  // from the pinned configuration
+});
+
+it('feedback on an answer is reviewed, listed under Suggestions and opens Review and apply', async () => {
+  const review = { id: 'review-1', comment: 'Cite sources', suggestion: 'Cite the runbook.', response_turn: 1, created_at: '2026-10-08T10:00:00Z' };
+  vi.mocked(tests.reviewTestSession).mockRejectedValueOnce(new Error('Review unavailable')).mockResolvedValueOnce(review);
+  vi.mocked(reviews.getReviewSource).mockReturnValue(new Promise(() => {}));
+  renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  expect(screen.getByRole('button', { name: 'Suggestions (0)' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add feedback' }));
+  fireEvent.change(screen.getByLabelText('Your feedback'), { target: { value: 'Cite sources' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Suggest improvements' }));
+  expect(await screen.findByText('Review unavailable')).toBeVisible();
+  expect(screen.getByLabelText('Your feedback')).toHaveValue('Cite sources');  // kept for another try
+  fireEvent.click(screen.getByRole('button', { name: 'Suggest improvements' }));
+  expect(await screen.findByText('Cite the runbook.')).toBeVisible();
+  expect(tests.reviewTestSession).toHaveBeenLastCalledWith('custom', 's1', 'Cite sources', 1);
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Suggestions (1)' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Review and apply' }));
+  expect(await screen.findByText('Apply suggestions')).toBeVisible();
+  expect(reviews.getReviewSource).toHaveBeenCalledWith('custom', 'review-1');
+});
+
+it('blocked reasons: a disabled agent, unsaved changes and a closed session; Close session asks first', async () => {
+  const disabled = renderPage('?view=test', { available: false });
+  expect(screen.getByText('This agent is disabled. Enable it in General to run a task.')).toBeVisible();
+  disabled.unmount();
+  const dirty = renderPage('?view=test', { dirty: true });
+  expect(screen.getByText('Save or discard changes in the configuration tabs before starting a task.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Show config' })).toBeDisabled();
+  dirty.unmount();
+  renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
+  expect(posts).toEqual([]);
+  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Close session' }));
+  await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/api/claude-code/sessions/s1/close']));
+  expect(await screen.findByText('This session is closed. Start a new session to continue.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Close session' })).toBeNull();
+});
+
+it('Stop asks the working agent to stop', async () => {
+  detail = { ...structuredClone(session), status: 'working' };
+  renderPage('?view=test&session_id=s1');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/stop'));
+  expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
+});
+
+it('a session of another agent is not opened here', async () => {
+  detail = { ...structuredClone(session), agent_id: 'other' };
+  renderPage('?view=test&session_id=s1');
+  expect(await screen.findByText('Session not found for this agent.')).toBeVisible();
+  expect(screen.queryByText('Three retries.')).toBeNull();
 });

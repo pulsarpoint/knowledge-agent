@@ -6,16 +6,17 @@ import OperationsView from '../OperationsView';
 import ServerSSHForm from '../ServerSSHForm';
 import * as api from '../../lib/operations';
 import { getAgentConfig, getRunResourceOptions, type AgentProfile } from '../../lib/profiles';
+import { createTestSession } from '../../lib/testSessions';
+import type { SessionDetail } from '../../lib/claudeCode';
 vi.mock('../../lib/operations');
 vi.mock('../../lib/profiles');
+vi.mock('../../lib/testSessions');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 const server: api.SSHServer = { id: 'server-1', name: 'Staging', hostname: 'staging.internal', port: 22, username: 'operator', revision: 2, ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: 'staging.internal ssh-ed25519 test', has_private_key: true, last_tested_at: null, last_test_error: null };
 const settings: api.OperationsSettings = { revision: 1, instructions: '', server_ids: [], mcp_server_ids: [], skill_ids: [] };
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getOperationsSettings).mockResolvedValue({ settings, configs: [], mcp_servers: [], servers: [server, { ...server, id: 'server-2', name: 'Disabled', ssh_allowed: false }], skills: [{ id: 'skill-1', name: 'service-checks', description: 'Verify services', enabled: true }] });
-  vi.mocked(api.getOperationsRuns).mockResolvedValue({ runs: [] });
-  vi.mocked(api.getAgentSessions).mockResolvedValue({ sessions: [] });
   vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
   vi.mocked(api.getSSH).mockResolvedValue(server);
   vi.mocked(getAgentConfig).mockResolvedValue({ id: 'operations', system_prompt: { content: 'Use the saved system prompt.', version: 2 }, ssh: { enabled: true, servers: [] } });
@@ -25,7 +26,7 @@ describe('Operations configuration', () => {
     render(<MemoryRouter><OperationsView view="test" agentId="custom-agent" /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
     expect(getAgentConfig).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Inspect service status.\nDo not restart it.' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.\nDo not restart it.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
     const preview = await screen.findByLabelText('Agent configuration');
     expect(getAgentConfig).toHaveBeenCalledWith('custom-agent');
@@ -33,9 +34,9 @@ describe('Operations configuration', () => {
       prompt: 'Inspect service status.\nDo not restart it.',
       config: { system_prompt: { content: 'Use the saved system prompt.', version: 2 } },
     });
-    expect(api.startOperationsRun).not.toHaveBeenCalled();
+    expect(createTestSession).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Updated task' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Updated task' } });
     expect(getAgentConfig).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Agent configuration')).not.toBeInTheDocument();
     vi.mocked(getAgentConfig).mockResolvedValue({ system_prompt: { content: 'New active prompt', version: 3 } });
@@ -70,10 +71,10 @@ describe('Operations configuration', () => {
     render(<MemoryRouter><OperationsView view="test" /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Inspect service status.' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
     expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
     expect(screen.queryByText(/Enable the agent/)).toBeNull();
-    expect(api.startOperationsRun).not.toHaveBeenCalled();
+    expect(createTestSession).not.toHaveBeenCalled();
   });
 
   it.each(['no selection', 'SSH disabled', 'no credentials'])('starts the selected agent without imposing SSH prerequisites: %s', async state => {
@@ -81,24 +82,15 @@ describe('Operations configuration', () => {
     data.settings = { ...settings, server_ids: state === 'no selection' ? [] : [server.id] };
     data.servers = [{ ...server, ssh_allowed: state !== 'SSH disabled', enabled: state !== 'no credentials' }];
     vi.mocked(api.getOperationsSettings).mockResolvedValue(data);
-    vi.mocked(api.startOperationsRun).mockImplementation(async (_task, agentId, _signal, onEvent) => {
-      expect(agentId).toBe('specific-agent');
-      const run: api.OperationsRun = { id: 'new-run', task: _task, status: 'running', created_at: new Date().toISOString(), actor_email: 'admin@test', answer: '', error: '', progress: '', commands: [], context: { servers: [], model_name: 'Test model', prompt: { version: 1 } } };
-      onEvent({ event: 'started', data: run });
-      onEvent({ event: 'completed', data: { ...run, status: 'completed', answer: 'Direct agent result' } });
-    });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Session not found.' } }, { status: 404 })));
+    vi.mocked(createTestSession).mockResolvedValue({ id: 'new-session' } as SessionDetail);
     render(<MemoryRouter><OperationsView view="test" agentId="specific-agent" profile={{ model_id: null } as AgentProfile} /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Inspect service status.' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
-    expect(await screen.findByText('Direct agent result')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
-    expect(screen.getByLabelText('Task')).toHaveValue('');
-    expect(api.getOperationsRun).not.toHaveBeenCalled();
-    expect(api.getOperationsRuns).toHaveBeenCalledTimes(2);
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Next task' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
-    await waitFor(() => expect(api.startOperationsRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(createTestSession).toHaveBeenCalledWith('specific-agent', 'Inspect service status.', undefined));
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    vi.unstubAllGlobals();
   });
   it('lists only SSH-enabled servers and creates optional overrides with field inheritance', async () => {
     const user = userEvent.setup();
@@ -185,7 +177,7 @@ describe('Operations configuration', () => {
     view.rerender(<MemoryRouter><OperationsView view="test" /></MemoryRouter>);
     expect(screen.queryByRole('textbox', { name: 'Instructions' })).not.toBeInTheDocument();
     expect(screen.getByText('Save or discard changes in the configuration tabs before starting a task.')).toBeVisible();
-    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Inspect disk usage.' } });
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect disk usage.' } });
     expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
     view.rerender(<MemoryRouter><OperationsView view="settings" /></MemoryRouter>);
     expect(screen.getByRole('textbox', { name: 'Instructions' })).toHaveValue('Preserve this runbook.');
@@ -204,16 +196,6 @@ describe('Operations configuration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save agent configuration' }));
     await waitFor(() => expect(api.saveOperationsSettings).toHaveBeenCalledWith({ ...settings, server_ids: ['server-1'], skill_ids: ['skill-1'], instructions: 'Verify before restarting.' }, "operations"));
     expect(screen.getByRole('link', { name: 'Server SSH settings' })).toHaveAttribute('href', '/servers');
-  });
-  it('shows completed command history and the agent answer', async () => {
-    vi.mocked(api.getOperationsRuns).mockResolvedValue({ runs: [{ id: 'run-1', task: 'Inspect service', status: 'completed', created_at: '2026-09-09T10:00:00Z', actor_email: 'admin@test' }] });
-    vi.mocked(api.getOperationsRun).mockResolvedValue({ id: 'run-1', task: 'Inspect service', status: 'completed', created_at: '2026-09-09T10:00:00Z', actor_email: 'admin@test', answer: 'Service is active.', error: '', progress: '', context: { servers: [{ name: 'Staging' }], model_name: 'Claude', prompt: { version: 1 } }, commands: [{ id: 'cmd-1', server_name: 'Staging', username: 'operator', command: 'service app status', as_root: false, status: 'completed', exit_code: 0, stdout: 'active', stderr: '', error: '' }] });
-    render(<MemoryRouter><OperationsView view="test" /></MemoryRouter>);
-    fireEvent.click(screen.getByRole('button', { name: 'History' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'View run' }));
-    expect(await screen.findByText('Service is active.')).toBeInTheDocument();
-    expect(screen.getByText('service app status')).toBeInTheDocument();
-    expect(screen.getByLabelText('Standard output')).toHaveTextContent('active');
   });
 });
 describe('SSH settings', () => {
@@ -403,28 +385,5 @@ it('allows configuring a server before enabling the agent SSH capability', async
   await screen.findByText('Server configuration saved. New runs use its resolved instructions and skills.');
   expect(api.saveOperationsServerConfig).toHaveBeenCalledWith(server.id, expect.objectContaining({ instructions: 'Check the deployment logs.' }), 'code');
   expect(screen.getByText(/SSH access is off for this agent/)).toBeVisible();
-  expect(api.startOperationsRun).not.toHaveBeenCalled();
-});
-
-it('loads historical records and refreshes their status after cancellation', async () => {
-  const historical: api.OperationsRun = { id: 'old-run', task: 'Old task', status: 'running', created_at: '2026-09-01T12:00:00Z', actor_email: 'admin@example.com', answer: '', error: '', progress: 'Saved progress', commands: [], context: { servers: [], model_name: 'Old model', prompt: { version: 1 } } };
-  vi.mocked(api.getOperationsRuns).mockResolvedValue({ runs: [historical] });
-  vi.mocked(api.getOperationsRun).mockResolvedValue(historical);
-  vi.mocked(api.cancelOperationsRun).mockImplementation(async () => { vi.mocked(api.getOperationsRun).mockResolvedValue({ ...historical, status: 'cancelled' }); return { id: historical.id }; });
-  render(<MemoryRouter><OperationsView view="test" /></MemoryRouter>);
-  fireEvent.click(screen.getByRole('button', { name: 'History' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'View run' }));
-  expect(await screen.findByText('Saved progress')).toBeVisible();
-  expect(api.getOperationsRun).toHaveBeenCalledTimes(1);
-  vi.useFakeTimers();
-  try {
-    await vi.advanceTimersByTimeAsync(6000);
-    expect(api.getOperationsRun).toHaveBeenCalledTimes(1);
-  } finally { vi.useRealTimers(); }
-  fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'New test' } });
-  expect(screen.queryByRole('button', { name: 'Run task' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
-  expect(await screen.findByText('cancelled')).toBeVisible();
-  expect(api.getOperationsRun).toHaveBeenCalledTimes(2);
-  expect(screen.queryByText('Saved progress')).not.toBeInTheDocument();
+  expect(createTestSession).not.toHaveBeenCalled();
 });

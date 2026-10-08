@@ -62,7 +62,6 @@ it('inherits global MCP connections on SSH servers and saves an explicit empty o
   const user = userEvent.setup();
   const data: operations.OperationsConfiguration = { settings: { revision: 1, instructions: '', server_ids: ['ssh-1'], skill_ids: [], mcp_server_ids: ['mcp-1'] }, configs: [], skills: [], mcp_servers: [connection], servers: [{ id: 'ssh-1', name: 'Staging', hostname: 'staging.test', port: 22, username: 'test', revision: 1, ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: '', has_private_key: true, last_tested_at: null, last_test_error: null }] };
   vi.mocked(operations.getOperationsSettings).mockResolvedValue(data);
-  vi.mocked(operations.getOperationsRuns).mockResolvedValue({ runs: [] });
   render(<MemoryRouter><OperationsView view="settings" /></MemoryRouter>);
   await user.click(await screen.findByRole('combobox', { name: 'SSH configuration' }));
   await user.click(screen.getByRole('option', { name: 'Staging' }));
