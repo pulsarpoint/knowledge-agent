@@ -66,7 +66,7 @@ test('a native agent shows its type, every compatible model and no Claude Code t
   expect(screen.getByRole('option', { name: 'Claude on Bedrock' })).toBeVisible();
 });
 
-test('tool tabs say what Claude Code gets now, and Test starts a session', async () => {
+test('tool tabs say what Claude Code gets now, and Test no longer starts sessions', async () => {
   const user = userEvent.setup();
   open('/agents/writer?view=documents');
   expect(await screen.findByText(/get these tools in the next update/)).toBeVisible();

@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 
+from knowledge_admin.agents import load_credentials
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
@@ -87,3 +88,13 @@ def test_a_server_that_cannot_be_used_is_refused_by_name(sessions):
         conn.execute('UPDATE ka.servers SET ssh_allowed=false WHERE id=%s', (s.server['id'],))
     with pytest.raises(RunResourceError, match='Server prod-1 is not available'):
         build(s, chosen(server_ids=[s.server['id']]))
+
+
+def test_a_saved_agent_called_ad_hoc_never_blocks_ad_hoc_turns(sessions):
+    s = sessions
+    config = build(s, chosen(code_project_ids=[s.repo]))
+    with s.store.connect() as conn:
+        conn.execute("INSERT INTO ka.agents(id,name,system_prompt,enabled) VALUES ('ad-hoc','Saved lookalike','x',false),('saved-off','Saved off','x',false)")
+    assert isinstance(load_credentials(s.store, config), dict)  # no 'Agent is disabled.'
+    with pytest.raises(ValueError, match='Agent is disabled.'):
+        load_credentials(s.store, {**config, 'id': 'saved-off'})
