@@ -9,7 +9,6 @@ import pytest
 
 from knowledge_admin.agent_sessions import NO_MODEL
 from knowledge_admin.claude_code_api import ONLY_DOCUMENTS
-from knowledge_admin.knowledge_agents.config import NATIVE_ONLY
 from knowledge_admin.knowledge_agents.run_resources import FIXED
 from test_api import _client
 from test_profiles import create
@@ -91,10 +90,6 @@ def test_test_sessions_are_refused_with_todays_messages(tester):
     with t.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=%s,enabled=false WHERE id=%s', (t.model, t.agent))
     assert refused(t, 409) == 'Agent is disabled.'
-    with t.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET enabled=true,runtime='claude_code',claude_code_tools='{Read}' WHERE id=%s",
-                     (t.agent,))
-    assert refused(t, 409) == NATIVE_ONLY
     with t.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 

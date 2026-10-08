@@ -3,11 +3,10 @@ tools when a capability is switched on; the wizard's tools; the list summary."""
 from uuid import uuid4
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.tools.catalog import CATALOG, effective_tools, enabled_capability_tools, implied_tools
-from knowledge_admin.tools_api import CLAUDE_CODE, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN, flags
+from knowledge_admin.tools.catalog import CATALOG, effective_tools
+from knowledge_admin.tools_api import GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_agent_resources import listed
-from test_claude_code_agents import claude_code_agent
 from test_profiles import create, update, wizard_payload
 from test_repositories import HEADERS
 
@@ -101,16 +100,6 @@ def test_a_stale_revision_is_refused(store, saved_agent):
     assert update(client, profile).status_code == 409  # General must reload the new revision
 
 
-def test_claude_code_agents_keep_their_claude_code_tools(store, saved_agent):
-    client = saved_agent[0]
-    writer = claude_code_agent(client)
-    current = view(client, writer)
-    assert current['runtime'] == 'claude_code' and current['tools'] == []
-    assert current['claude_code_tools'] == ['Read', 'Grep', 'Glob', 'Bash']
-    refused = put(client, writer, current['revision'], [{'tool': 'read_file', 'mode': 'on', 'usage': None}])
-    assert refused.status_code == 400 and refused.json()['error']['message'] == CLAUDE_CODE
-
-
 def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent):
     client = saved_agent[0]
     blank = create(client, 'Blank')
@@ -176,54 +165,6 @@ def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_age
         assert rows(store, agent['id']) == set(), resources
 
 
-def test_a_claude_code_agent_switched_to_native_gets_todays_tools(store, saved_agent):
-    client = saved_agent[0]
-    writer = claude_code_agent(client, 'Writer', repositories_enabled=True)
-    assert rows(store, writer) == set()
-    profile = client.get(f'/api/agents/{writer}', headers=HEADERS).json()
-    assert update(client, profile, runtime='openai').status_code == 200
-    assert rows(store, writer) == {'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph'}
-
-
-def test_a_per_run_claude_code_agent_switched_to_native_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
-    """Per run: every tool of each enabled capability (as a new per-run agent gets); fixed: the implied tools."""
-    client = saved_agent[0]
-    for resources in ('per_run', 'fixed'):
-        writer = claude_code_agent(client, f'Writer {resources}', resources=resources, repositories_enabled=True,
-                                   documents_enabled=True, ssh_enabled=True)
-        assert rows(store, writer) == set()
-        profile = client.get(f'/api/agents/{writer}', headers=HEADERS).json()
-        assert update(client, profile, runtime='openai').status_code == 200
-        expected = enabled_capability_tools if resources == 'per_run' else (
-            lambda config: [entry['tool'] for entry in implied_tools(config)['items'] if entry['mode'] == 'on'])
-        assert rows(store, writer) == set(expected(flags(profile_of(client, writer)))), resources
-        assert rows(store, writer) == CODE_TOOLS | {'search_documents', 'read_document', 'ssh_run'}, resources
-
-
-def test_ensure_native_tools_follows_the_resources_mode(monkeypatch):
-    """The rule itself (the two lists coincide for today's catalog, so the API test above cannot tell them apart):
-    per run takes enabled_capability_tools, fixed the implied tools."""
-    from knowledge_admin import tools_api
-    monkeypatch.setattr(tools_api, 'enabled_capability_tools', lambda config: ['ssh_run'])
-    monkeypatch.setattr(tools_api, 'implied_tools', lambda config: {'items': [{'tool': 'read_file', 'mode': 'on'}]})
-
-    class Connection:
-        def __init__(self):
-            self.switched: list[str] = []
-
-        def execute(self, sql, params):
-            if sql == tools_api.SWITCH_ON:
-                self.switched.append(params[1])
-            return self
-
-        def fetchone(self):
-            return None  # no tool rows yet
-    for resources, expected in (('per_run', ['ssh_run']), ('fixed', ['read_file'])):
-        conn = Connection()
-        tools_api.ensure_native_tools(conn, 'agent', {'runtime': 'openai', 'resources': resources})
-        assert conn.switched == expected, resources
-
-
 def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     client = saved_agent[0]
     options = client.get('/api/agents/wizard/options', headers=HEADERS).json()
@@ -235,13 +176,9 @@ def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     assert rows(store, chosen['id']) == {'read_file', 'code_graph'}
     refused = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Odd', tools=['grep']))
     assert refused.status_code == 400 and refused.json()['error']['message'] == UNKNOWN.format(tool='grep')
-    writer = claude_code_agent(client, 'Writer', repositories_enabled=True)
-    assert rows(store, writer) == set()
-    empty = claude_code_agent(client, 'Empty', tools=[])  # the wizard may send no tools for Claude Code
-    assert rows(store, empty) == set()
-    some = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Some', description='', when_to_use='', runtime='claude_code', tools=['read_file']))
-    assert some.status_code == 400 and some.json()['error']['message'] == CLAUDE_CODE
+    empty = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
+        'Empty', repositories_enabled=True, tools=[])).json()
+    assert rows(store, empty['id']) == set()  # an explicit empty selection is kept
 
 
 def test_the_list_summarises_the_tools_that_run(store, saved_agent):
@@ -251,8 +188,6 @@ def test_the_list_summarises_the_tools_that_run(store, saved_agent):
                                          {'tool': 'ssh_run', 'mode': 'on', 'usage': None}])
     summary = listed(client)['operations']['tools_summary']
     assert summary == {'on': 3, 'per_run': 0, 'groups': {'code': 1, 'documents': 0, 'servers': 1, 'mcp': 1, 'agents': 0}}
-    writer = claude_code_agent(client)
-    assert listed(client)[writer]['tools_summary'] == {'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}
 
 
 def offered(store, agent_id, ssh_servers=()) -> set[str]:

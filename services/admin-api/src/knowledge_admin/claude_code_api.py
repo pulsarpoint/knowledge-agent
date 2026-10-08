@@ -195,7 +195,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
             model = load_model(conn, value.model_id)
-            if model is None or not model['enabled'] or not model_fits('openai', model):
+            if model is None or not model['enabled'] or not model_fits(model):
                 raise HTTPException(400, NO_MODEL)
             described = subjects(conn, project, value)  # unknown ids: 400 naming the kind
             system_prompt = '\n\n'.join(part for part in (value.system_prompt, value.context) if part)

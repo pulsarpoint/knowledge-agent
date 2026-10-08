@@ -1,9 +1,8 @@
-"""The configuration carries the agent's tools; Claude Code agents have none."""
+"""The configuration carries the agent's tools."""
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.tools.catalog import CATALOG
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_claude_code_agents import claude_code_agent
 
 
 def modes(config) -> dict[str, str]:
@@ -23,7 +22,3 @@ def test_the_configuration_lists_every_catalog_tool_and_the_changed_mcp_tools(st
                                            'usage': 'Read narrowly.', 'subagent_allowed': True}
     assert config['tools']['items'][-1]['group'] == 'mcp' and modes(config)[f"mcp:{mcp['id']}:lookup"] == 'off'
 
-
-def test_claude_code_agents_have_no_catalog_tools(store, saved_agent):
-    writer = claude_code_agent(saved_agent[0])
-    assert get_agent_config(writer, conninfo=store.conninfo)['tools'] == {'items': []}

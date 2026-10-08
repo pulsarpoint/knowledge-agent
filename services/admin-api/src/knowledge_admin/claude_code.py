@@ -1,21 +1,13 @@
-"""Claude Code sessions: fixed tools, the built-in system prompt, the final-answer rule and idle closing (admin-api and worker)."""
+"""Session text: the final-answer rule, the agent's system prompt and idle closing (admin-api and worker)."""
 from typing import Any
 
-from knowledge_admin.knowledge_agents.config import CLAUDE_CODE_TOOLS
-
-SYSTEM_PROMPT = ('You are an expert technical writer. You explore the provided folders and context to write accurate '
-                 'documentation; everything you state must be grounded in what you read.')
-BUILT_IN_PROMPT_TITLE = 'Built-in documentation writer'  # prompt version 1 of agents created before 0072
-ALLOWED_TOOLS = CLAUDE_CODE_TOOLS  # the four tools a Claude Code agent can be given, defined once
-DISALLOWED_TOOLS = ('Edit', 'Write', 'NotebookEdit', 'Agent', 'Task', 'Skill', 'WebFetch', 'WebSearch', 'TodoWrite')
 FINAL_ANSWER = ('When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. '
                 'After each later message, reply again with the complete updated document.')
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 
 
 def agent_system_prompt(config: dict[str, Any]) -> str:
-    """The agent's instructions for Claude Code, appended to its preset: the active prompt, the agent's instructions
-    and its enabled skills. What to write in this session stays in the first message."""
+    """The agent's instructions for a session: the active prompt, the agent's instructions and its enabled skills. What to write in this session stays in the first message."""
     parts = [config['system_prompt']['content'].strip()]
     if config['instructions'].strip():
         parts.append('## Instructions\n\n' + config['instructions'].strip())

@@ -17,7 +17,7 @@ APPLY_WORKING = ('The original agent is working right now. Wait for its document
                  'then apply.')
 ORIGINAL_CHANGED = 'The original changed; review again.'
 # Everything an agent runs with on ka.agents. Name, description, enabled and cloned_from belong to the agent itself.
-CONFIGURATION = ('when_to_use', 'model_id', 'runtime', 'claude_code_tools', 'resources', 'system_prompt',
+CONFIGURATION = ('when_to_use', 'model_id', 'resources', 'system_prompt',
                  'documents_enabled', 'documents_grounded', 'repositories_enabled', 'ssh_enabled', 'skills_enabled',
                  'mcp_enabled', 'services_enabled', 'all_collections', 'all_repositories')
 SELECTIONS = (('agent_collections', 'collection_id'), ('agent_repositories', 'repository_id'),

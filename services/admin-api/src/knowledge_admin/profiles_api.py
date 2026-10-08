@@ -10,11 +10,10 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run, tool_items
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 from knowledge_admin.tools.catalog import tools_summary
-from knowledge_admin.tools_api import (CLAUDE_CODE, ensure_native_tools, flags, subagents_on, switch_on_defaults,
-                                       switch_subagents)
+from knowledge_admin.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
 
 
 class ProfileInput(BaseModel):
@@ -37,8 +36,6 @@ class ProfileInput(BaseModel):
     skills_enabled: bool = Field(strict=True)
     mcp_enabled: bool = Field(strict=True)
     services_enabled: bool = Field(strict=True)
-    runtime: Literal['openai', 'claude_code'] | None = None  # None keeps the agent type
-    claude_code_tools: list[ClaudeCodeTool] | None = Field(default=None, max_length=8)  # None keeps the saved tools
     resources: Literal['fixed', 'per_run'] | None = None  # None keeps the setting
     subagents: bool | None = Field(default=None, strict=True)  # May start subagents; None keeps the switch
     model_id: UUID | None = None  # Left out keeps the model; null clears it
@@ -58,14 +55,13 @@ class DeleteInput(BaseModel):
     with_history: bool = Field(default=False, strict=True)
 
 
-def check_model(conn, runtime: str, model_id) -> None:
-    """Refuse a model this agent type cannot run: missing, disabled, embeddings, or not a Claude model for Claude Code."""
+def check_model(conn, model_id) -> None:
+    """Refuse a model an agent cannot run: missing, disabled, embeddings, or not a Responses or Claude connection."""
     selected = conn.execute('SELECT * FROM ka.llm_models WHERE id=%s FOR SHARE', (model_id,)).fetchone()
     if selected is None or not selected['enabled'] or selected['api_format'] == 'embeddings':
         raise HTTPException(400, 'Choose an enabled model compatible with this agent.')
-    if not model_fits(runtime, selected):
-        raise HTTPException(400, CHOOSE_CLAUDE if runtime == 'claude_code'
-                            else 'Choose an enabled model compatible with this agent.')
+    if not model_fits(selected):
+        raise HTTPException(400, 'Choose an enabled model compatible with this agent.')
 
 
 class ModelInput(BaseModel):
@@ -135,7 +131,8 @@ def build_api(app_name, store):
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
         row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
-        row['subagents'] = row['runtime'] == 'openai' and subagents_on(conn, agent_id)  # native agents only
+        row['subagents'] = subagents_on(conn, agent_id)
+        row.pop('runtime'), row.pop('claude_code_tools')  # columns kept until the schema drops them
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -169,13 +166,14 @@ def build_api(app_name, store):
                     WHERE c.server_id IS NULL AND m.enabled'''):
                 agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
+                row.pop('runtime'), row.pop('claude_code_tools')
                 row.pop('system_prompt')  # read with the agent, not in the list
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
                           'documents': 'any' if row['all_collections'] else collection_count,
                           'servers': row.pop('server_count'), 'services': row.pop('service_count')}
                 row['tools_summary'] = tools_summary({
-                    **flags(row), 'claude_code_tools': row['claude_code_tools'],
+                    **flags(row),
                     'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
                     'tools': tool_items(saved_tools.get(row['id'], []))})
                 enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
@@ -238,25 +236,15 @@ def build_api(app_name, store):
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
-                runtime = value.runtime or old['runtime']
                 resources = value.resources or old['resources']
-                if value.subagents and runtime != 'openai':
-                    raise HTTPException(400, CLAUDE_CODE)
                 model_id = str(value.model_id) if value.model_id else None
                 new_model = 'model_id' in value.model_fields_set and model_id != (str(old['model_id']) if old['model_id'] else None)
                 if not new_model:
                     model_id = old['model_id']
                 if new_model and model_id is not None:
-                    check_model(conn, runtime, model_id)
-                elif runtime != old['runtime'] and runtime == 'claude_code' and model_id is not None:
-                    current = conn.execute('SELECT provider,api_format,model FROM ka.llm_models WHERE id=%s',
-                                           (model_id,)).fetchone()
-                    if not model_fits('claude_code', current):
-                        raise HTTPException(400, CHOOSE_CLAUDE)
-                tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
+                    check_model(conn, model_id)
                 project = store.project(conn, app_name)
-                switch = {**({'runtime': {'from': old['runtime'], 'to': runtime}} if runtime != old['runtime'] else {}),
-                          **({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {}),
+                switch = {**({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {}),
                           **({'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}} if new_model else {})}
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
@@ -280,23 +268,17 @@ def build_api(app_name, store):
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,resources=%s,model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,resources,model_id,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,resources=%s,model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,resources,model_id,actor,agent_id))
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
-                now = flags({'runtime': runtime, 'resources': resources,
+                now = flags({'resources': resources,
                              'repositories_enabled': value.repositories_enabled,
                              'documents_enabled': value.documents_enabled, 'documents_grounded': grounded,
                              'ssh_enabled': value.ssh_enabled})
-                if runtime == 'openai' and old['runtime'] != 'openai':
-                    ensure_native_tools(conn, agent_id, now)
                 switch_on_defaults(conn, agent_id, flags(old), now)
-                if runtime == 'openai' and value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
+                if value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
                     switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
-                if runtime == 'claude_code' and old['runtime'] != 'claude_code':
-                    # No switch on Claude Code agents: the row goes, so a later save back to native that omits
-                    # `subagents` leaves May start subagents off.
-                    switch_subagents(conn, agent_id, False)
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
@@ -362,7 +344,7 @@ def build_api(app_name, store):
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Refresh before saving its model.')
             if value.model_id is not None:
-                check_model(conn, old['runtime'], value.model_id)
+                check_model(conn, value.model_id)
             actor = audit(conn, request, agent_id, 'agent.model.updated')
             conn.execute('UPDATE ka.agents SET model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s', (value.model_id,actor,agent_id))
             conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))

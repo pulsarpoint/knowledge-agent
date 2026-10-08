@@ -212,30 +212,6 @@ def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch
     assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Too long', 'system_prompt': long + 'p'}).status_code == 400
 
 
-def test_wizard_creates_claude_code_agents_with_claude_models_only(store, wizard):
-    client, catalog, proposal, _ = wizard
-    assert 'runtime' not in client.get('/api/agents/wizard/options', headers=HEADERS).json()['schema']['properties']
-    created = client.post('/api/agents/wizard', headers=HEADERS, json={
-        **proposal, 'name': 'Payments writer', 'runtime': 'claude_code', 'claude_code_tools': ['Bash', 'Read', 'Read']})
-    assert created.status_code == 201, created.text
-    config = get_agent_config(created.json()['id'], conninfo=store.conninfo)
-    assert (config['runtime'], config['claude_code_tools'], config['system_prompt']['content'], config['instructions']) == (
-        'claude_code', ['Read', 'Bash'], proposal['system_prompt'], proposal['instructions'])
-    assert config['ssh']['enabled'] and config['skills']['items'] and config['code']['projects']  # saved like native
-    gpt = client.post('/api/llm/models', headers=HEADERS, json={'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5',
-                      'api_format': 'responses', 'base_url': 'http://model.test/v1'}).json()['id']
-    refused = client.post('/api/agents/wizard', headers=HEADERS, json={
-        **proposal, 'name': 'GPT writer', 'model_id': gpt, 'runtime': 'claude_code'})
-    assert refused.status_code == 400 and refused.json()['error']['message'] == 'Choose a Claude model for Claude Code agents'
-    native = client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'name': 'GPT helper', 'model_id': gpt})
-    assert native.status_code == 201, native.text
-    assert get_agent_config(native.json()['id'], conninfo=store.conninfo)['runtime'] == 'openai'
-    for bad in ({'runtime': 'other'}, {'claude_code_tools': ['Edit']}, {'claude_code_tools': 'Read'}):
-        assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'name': 'Bad', **bad}).status_code == 400
-    with store.connect() as conn:
-        assert conn.execute("SELECT count(*) AS n FROM ka.agents WHERE name IN ('GPT writer','Bad')").fetchone()['n'] == 0
-
-
 def test_proposal_rejects_all_and_specific_collections(wizard):
     _, _, proposal, _ = wizard
     from pydantic import ValidationError
@@ -257,7 +233,7 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
     assert any('not both' in e['message'] for e in calls[1]['correction']['errors'])
 
 
-def test_claude_code_generation_offers_only_claude_models_and_clears_another(store, wizard, monkeypatch):
+def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypatch):
     client, catalog, proposal, _ = wizard
     with store.connect() as conn:
         actor = conn.execute('SELECT created_by FROM ka.llm_models LIMIT 1').fetchone()['created_by']
@@ -274,13 +250,4 @@ def test_claude_code_generation_offers_only_claude_models_and_clears_another(sto
     assert native.status_code == 200, native.text
     assert gpt in {m['id'] for m in tasks[0]['catalog']['models']}
     assert native.json()['proposal']['model_id'] == gpt
-
-    claude = client.post('/api/agents/wizard/generate', headers=HEADERS,
-                         json={'role': 'Payments', 'model_id': proposal['model_id'], 'runtime': 'claude_code'})
-    assert claude.status_code == 200, claude.text
-    assert {m['id'] for m in tasks[1]['catalog']['models']} == {proposal['model_id']}
-    assert tasks[1]['agent_type'] == 'claude_code'
-    assert claude.json()['proposal']['model_id'] is None  # a non-Claude proposal is cleared, not refused
-
-    assert client.post('/api/agents/wizard/generate', headers=HEADERS,
-                       json={'role': 'Payments', 'model_id': proposal['model_id'], 'runtime': 'other'}).status_code in (400, 422)
+    assert 'agent_type' not in tasks[0]  # the designer is not told an agent type

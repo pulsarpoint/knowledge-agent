@@ -180,9 +180,7 @@ def test_loader_reads_sync_time_and_takes_projects_added_after_the_snapshot(stor
         conn.execute("INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'added')", (added, project))
         write_graph(tmp_path / 'indexes', str(added), ['added'])
         run = resolve(conn, project, config, RunResources(code_project_ids=[added]))
-        native_only = resolve(conn, project, {**config, 'runtime': 'claude_code'}, RunResources(code_project_ids=[added]))
     assert [(graph['id'], graph['name']) for graph in run['code']['graphs']] == [(str(added), 'Added')]
-    assert native_only['code']['graphs'] == []
 
 
 def test_a_generated_graph_answers_code_queries_end_to_end(context, tmp_path, monkeypatch):

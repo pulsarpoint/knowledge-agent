@@ -22,7 +22,7 @@ from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_admin.claude_code import agent_system_prompt, close_idle
 from knowledge_admin.claude_code_api import session_detail
-from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run, require_native,
+from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run,
                                                      require_run_resources)
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.knowledge_agents.session_worker import run_key
@@ -129,13 +129,12 @@ def build_api(app_name, store):
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
             try:
-                require_native(config)
                 pinned = resolve(conn, project, config, value.run_resources)
                 require_run_resources(pinned)
                 if not pinned['enabled']:
                     raise ValueError('Agent is disabled.')
                 model = pinned['model']
-                if model is None or not model['enabled'] or not model_fits('openai', model):
+                if model is None or not model['enabled'] or not model_fits(model):
                     raise ValueError(NO_MODEL)
             except RunResourceError as exc:  # a ValueError: caught first
                 raise HTTPException(400, str(exc)) from None

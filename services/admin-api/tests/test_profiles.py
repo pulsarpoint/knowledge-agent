@@ -183,3 +183,61 @@ def test_plain_create_endpoint_is_removed(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     response = client.post('/api/agents', headers=HEADERS, json={'name': 'Direct', 'system_prompt': 'x'})
     assert response.status_code == 405
+
+
+def models(client) -> tuple[str, str]:
+    claude = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Claude', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-secret-token'}).json()['id']
+    gpt = client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
+        'base_url': 'http://model.test/v1'}).json()['id']
+    return claude, gpt
+
+
+def test_save_details_sets_the_model(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    claude, gpt = models(client)
+    agent = create(client, 'One save')
+    with_gpt = update(client, agent, model_id=gpt)
+    assert with_gpt.status_code == 200 and with_gpt.json()['model_id'] == gpt, with_gpt.text
+    with_claude = update(client, with_gpt.json(), model_id=claude)
+    assert with_claude.status_code == 200 and with_claude.json()['model_id'] == claude, with_claude.text
+    value = {field: with_claude.json()[field] for field in ProfileInput.model_fields if field != 'model_id'}
+    kept = client.put(f"/api/agents/{agent['id']}", headers=HEADERS, json={**value, 'description': 'kept'})
+    assert kept.status_code == 200 and kept.json()['model_id'] == claude, kept.text
+    cleared = update(client, kept.json(), model_id=None)
+    assert cleared.status_code == 200 and cleared.json()['model_id'] is None, cleared.text
+    with store.connect() as conn:
+        details = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.updated' AND details->>'agent_id'=%s
+            ORDER BY created_at DESC,id DESC LIMIT 1""", (agent['id'],)).fetchone()['details']
+    assert details == {'agent_id': agent['id'], 'model_id': {'from': claude, 'to': None}}
+    for bad in (str(uuid4()), 'not-a-uuid'):
+        assert update(client, cleared.json(), model_id=bad).status_code == 400, bad
+
+
+def test_an_agent_without_sessions_is_deleted(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    agent = create(client, 'Short lived')
+    deleted = client.request('DELETE', f"/api/agents/{agent['id']}", headers=HEADERS,
+                             json={'revision': agent['revision'], 'confirmed': True})
+    assert deleted.status_code == 204, deleted.text
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agents WHERE id=%s', (agent['id'],)).fetchone()['n'] == 0
+
+
+def test_agents_have_no_type(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    agent = create(client, 'Plain')
+    assert 'runtime' not in agent and 'claude_code_tools' not in agent
+    listed = next(a for a in client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent['id'])
+    assert 'runtime' not in listed and 'claude_code_tools' not in listed
+    for bad in ({'runtime': 'openai'}, {'claude_code_tools': ['Read']}):
+        assert update(client, agent, **bad).status_code == 400, bad  # the validation handler answers 400
+    wizard = {**wizard_payload('Typed'), 'runtime': 'openai'}
+    assert client.post('/api/agents/wizard', headers=HEADERS, json=wizard).status_code == 400
+    generate = client.post('/api/agents/wizard/generate', headers=HEADERS,
+                           json={'role': 'x', 'model_id': str(uuid4()), 'runtime': 'openai'})
+    assert generate.status_code == 400
+    config = client.get(f"/api/agents/{agent['id']}/config", headers=HEADERS).json()
+    assert 'runtime' not in config and 'claude_code_tools' not in config

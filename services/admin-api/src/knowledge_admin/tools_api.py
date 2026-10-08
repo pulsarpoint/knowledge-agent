@@ -8,13 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, capability_tools,
-                                           catalog_listing, enabled_capability_tools, implied_tools, needs_met)
+                                           catalog_listing, enabled_capability_tools, needs_met)
 
 STALE = 'The tools changed since you opened them. Reload.'
 GROUNDED = 'Grounded answers need report_not_covered.'
 UNKNOWN = 'Unknown tool: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
-CLAUDE_CODE = 'Claude Code agents use their Claude Code tools. Switch them on the General tab.'
 MCP_REASON = 'Needs MCP'
 SUBAGENTS_OFF = 'Turn on May start subagents in General first.'
 SUBAGENT_SWITCH = 'run_subagent comes with May start subagents.'
@@ -23,7 +22,7 @@ SUBAGENT_ROW = '''INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_a
     ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',subagent_allowed=false,updated_at=now()'''
 INSERT_TOOL = 'INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed) VALUES (%s,%s,%s,%s,%s)'
 
-AGENT = '''SELECT id,runtime,revision,claude_code_tools,repositories_enabled,documents_enabled,documents_grounded,
+AGENT = '''SELECT id,revision,repositories_enabled,documents_enabled,documents_grounded,
     ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
 # As the agent configuration selects them: the application project's servers, linked in the same project.
 SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
@@ -57,7 +56,7 @@ class ToolsInput(BaseModel):
 
 def flags(row: dict[str, Any]) -> dict[str, Any]:
     """The capability switches of an agent row (or a proposal) in config shape, for the catalog rules."""
-    return {'runtime': row['runtime'], 'resources': row.get('resources', 'fixed'),
+    return {'resources': row.get('resources', 'fixed'),
             'code': {'enabled': row['repositories_enabled']},
             'documents': {'enabled': row['documents_enabled'], 'grounded': row['documents_grounded']},
             'ssh': {'enabled': row['ssh_enabled']}}
@@ -82,8 +81,7 @@ def subagents_on(conn, agent_id: str) -> bool:
 
 
 def switch_subagents(conn, agent_id: str, on: bool) -> None:
-    """May start subagents on (the row, with the default usage text unless it has one) or off (the row is deleted,
-    also when the agent becomes a Claude Code agent)."""
+    """May start subagents on (the row, with the default usage text unless it has one) or off (the row is deleted)."""
     if on:
         conn.execute(SUBAGENT_ROW, (agent_id, None))
     else:
@@ -94,9 +92,6 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     agent = conn.execute(AGENT, (agent_id,)).fetchone()
     if agent is None:
         raise HTTPException(404, 'Agent not found.')
-    if agent['runtime'] != 'openai':
-        return {'runtime': agent['runtime'], 'revision': agent['revision'],
-                'claude_code_tools': list(agent['claude_code_tools']), 'tools': []}
     saved = {row['tool']: row for row in conn.execute(
         'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))}
     current = flags(agent)
@@ -121,7 +116,7 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                           'default_usage': found.get('description', ''),
                           'subagent_allowed': row['subagent_allowed'] if row else True,
                           'available': available, 'reason': None if available else MCP_REASON, 'tab': 'mcp'})
-    return {'runtime': 'openai', 'revision': agent['revision'], 'tools': tools}
+    return {'revision': agent['revision'], 'tools': tools}
 
 
 CAPABILITIES = ('code', 'documents', 'ssh')
@@ -133,8 +128,6 @@ def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, 
     a capability is switched on, every enabled capability's tools are switched on. Grounded answers always get
     report_not_covered. Switching a capability off, and a save that switches nothing on, keep every row; edited usage
     text is kept."""
-    if new['runtime'] != 'openai':
-        return
     switched_on = [capability for capability in CAPABILITIES
                    if new[capability]['enabled'] and not old[capability]['enabled']]
     wanted: set[str] = set()
@@ -145,19 +138,6 @@ def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, 
     if new['documents']['enabled'] and new['documents']['grounded']:
         wanted.add('report_not_covered')
     for name in sorted(wanted):
-        conn.execute(SWITCH_ON, (agent_id, name))
-
-
-def ensure_native_tools(conn, agent_id: str, current: dict[str, Any]) -> None:
-    """An agent that becomes native without any tool rows gets tools as a new agent would: per run, every tool of each
-    enabled capability (enabled_capability_tools); fixed, the tools its capabilities give (the backfill)."""
-    if conn.execute('SELECT 1 FROM ka.agent_tools WHERE agent_id=%s LIMIT 1', (agent_id,)).fetchone():
-        return
-    if current['resources'] == 'per_run':
-        names = enabled_capability_tools(current)
-    else:
-        names = [entry['tool'] for entry in implied_tools(current)['items'] if entry['mode'] == 'on']
-    for name in names:
         conn.execute(SWITCH_ON, (agent_id, name))
 
 
@@ -185,8 +165,6 @@ def build_api(app_name, store):
             agent = conn.execute(AGENT + ' FOR UPDATE', (agent_id,)).fetchone()
             if agent is None:
                 raise HTTPException(404, 'Agent not found.')
-            if agent['runtime'] != 'openai':
-                raise HTTPException(400, CLAUDE_CODE)
             if agent['revision'] != value.expected_revision:
                 raise HTTPException(409, STALE)
             servers = {row['id']: {found['name'] for found in row['tools']} for row in conn.execute(SELECTED_MCP, (store.project(conn, app_name), agent_id))}

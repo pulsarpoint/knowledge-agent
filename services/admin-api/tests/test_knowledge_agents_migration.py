@@ -4,13 +4,14 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE, SYSTEM_PROMPT
-
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
 LATER = ('0081_test_sessions.down.sql', '0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0072 down drops the prompt FK that 0079 removed
 ALL_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
+BUILT_IN_PROMPT_TITLE = 'Built-in documentation writer'  # what the migration gives a 0070 registration
+SYSTEM_PROMPT = ('You are an expert technical writer. You explore the provided folders and context to write accurate '
+                 'documentation; everything you state must be grounded in what you read.')
 
 
 def run(conn, name: str):

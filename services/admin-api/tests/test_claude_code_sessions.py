@@ -10,18 +10,17 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
-from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
+from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED
 from knowledge_admin.claude_code_api import NO_MODEL, NOTHING_CHOSEN
 from knowledge_admin.documents import SAME_DOCUMENT_NAME
 from test_api import _client
-from test_claude_code_agents import claude_code_agent
 from test_profiles import wizard_payload
 from test_repositories import HEADERS
 
 
 @pytest.fixture
 def sessions(store, tmp_path, monkeypatch):
-    """A Claude Code agent with a Claude model; code projects Payments API (app) and Payments worker (worker); the
+    """A native agent with a Claude model; code projects Payments API (app) and Payments worker (worker); the
     Production environment with the Payments service (both projects, deployed on prod-1) and the prod-1 server."""
     data = tmp_path / 'data'
     for folder in ('code/app', 'code/worker', 'jira', 'generated-documents'):
@@ -36,7 +35,7 @@ def sessions(store, tmp_path, monkeypatch):
     gpt = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
         'base_url': 'http://model.test/v1'}).json()['id']
-    agent = claude_code_agent(client, model_id=claude)
+    agent = native_agent(client, model_id=claude)
     server = client.post('/api/servers', headers=HEADERS, json={
         'name': 'prod-1', 'hostname': '10.0.0.5', 'description': 'Payments host'}).json()
     repo, worker, environment, service = uuid4(), uuid4(), uuid4(), uuid4()
@@ -89,7 +88,7 @@ def claude_code_session(sessions, *, document_name: str = 'Payments – API refe
         conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,document_name,folder,runtime) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'claude_code')""",
             (session_id, project, sessions.agent, actor, sessions.claude, document_name,
-             Jsonb({'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}),
+             Jsonb({'system_prompt': 'You document systems.'}),
              Jsonb({'folders': [{'path': app, 'kind': 'code_project', 'name': 'Payments API',
                                  'code_project_id': sessions.repo}], 'code_project_ids': [sessions.repo]}),
              document_name, 'payments-api-docs'))
@@ -413,8 +412,8 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
 
 
 def native_agent(client, name: str = 'Native writer', **change) -> str:
-    """Create a native agent as New agent → Agent type: Native does."""
-    body = wizard_payload(name, description='', when_to_use='', system_prompt='You document systems.', runtime='openai')
+    """Create an agent as New agent does."""
+    body = wizard_payload(name, description='', when_to_use='', system_prompt='You document systems.')
     response = client.post('/api/agents/wizard', headers=HEADERS, json={**body, **change})
     assert response.status_code == 201, response.text
     return response.json()['id']
