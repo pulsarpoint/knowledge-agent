@@ -8,7 +8,7 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import { claudeCodeNotes } from '~/lib/claudeCode';
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import AgentModelSelection from './AgentModelSelection';
 import AgentProfileSettings from './AgentProfileSettings';
 import OperationsView from './OperationsView';
@@ -54,9 +54,7 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
           <div hidden={view !== 'general'}><AgentModelSelection profile={profile} onRefresh={() => setReload(n => n + 1)} onSaved={saved => { if (saved) setProfile(saved); }} /></div>
           <div hidden={!(['general','ssh','mcp'].includes(view) || nativeTest)}><OperationsView view={nativeTest ? 'test' : 'settings'} section={view} agentId={agentId} profile={profile} unsavedProfile={profileDirty || promptDirty} onDirtyChange={setConfigurationDirty} onAgentChanged={() => setReload(n => n + 1)} available={profile.enabled} active={['general','ssh','mcp'].includes(view) || nativeTest} /></div>
           {claudeCode && view === 'test' && <Card><CardHeader><CardTitle>Test in a Claude Code session</CardTitle>
-            <CardDescription>Claude Code agents are tested in an interactive session with their saved configuration: the prompt, instructions, skills, Claude Code tools and code projects. Choose what to document, then follow the agent live, send messages, stop it and save the draft.</CardDescription></CardHeader>
-            <CardFooter>{profile.enabled ? <Button asChild><Link to={`/documentation/generations/new?agent=${encodeURIComponent(agentId)}`}>Start a session</Link></Button>
-              : <p className="text-sm text-muted-foreground">Enable the agent to start a session.</p>}</CardFooter></Card>}
+            <CardDescription>Claude Code agents can no longer start sessions. Use a native agent.</CardDescription></CardHeader></Card>}
         </TabsContent>
       </Tabs>
     </>}

@@ -76,8 +76,8 @@ test('tool tabs say what Claude Code gets now, and Test starts a session', async
   expect(screen.queryByText(/next update/)).toBeNull();
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.queryByText('Native test chat')).toBeNull();
-  expect(screen.getByText('Test in a Claude Code session')).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Start a session' })).toHaveAttribute('href', '/documentation/generations/new?agent=writer');
+  expect(screen.getByText('Claude Code agents can no longer start sessions. Use a native agent.')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Start a session' })).toBeNull();
 });
 
 test('a native agent keeps its test chat', async () => {
