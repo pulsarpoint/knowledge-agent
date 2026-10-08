@@ -190,9 +190,9 @@ def test_a_capabilitys_tools_are_every_tool_of_its_needs():
     # with code projects on the file tools belong to code; report_not_covered only while grounded
     assert capability_tools('documents', config(code=True, documents=True, grounded=True)) == [
         'search_documents', 'read_document', 'report_not_covered']
-    # all of them, not only those default_on gives: grounded documents keep the file tools' rows
+    # grounded documents without code projects: no file tools (their need, files, is not met)
     assert capability_tools('documents', config(documents=True, grounded=True)) == [
-        *FILE_TOOLS, 'search_documents', 'read_document', 'report_not_covered']
+        'search_documents', 'read_document', 'report_not_covered']
     assert capability_tools('ssh', config(ssh=True)) == ['ssh_run']
     assert enabled_capability_tools(config(code=True, ssh=True)) == [*CODE_TOOLS, 'ssh_run']
     assert enabled_capability_tools(config(code=True, documents=True)) == [*CODE_TOOLS, 'search_documents',

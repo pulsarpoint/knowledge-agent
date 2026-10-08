@@ -135,6 +135,14 @@ def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent)
     assert usage_of(store, blank['id'], 'read_file') == 'Read narrowly.'  # switching on keeps edited usage
 
 
+def test_a_grounded_documents_only_agent_gets_no_file_tools_on_switch_on(store, saved_agent):
+    """The file tools come with documents only without "Answer only from documents" (their need, files)."""
+    client = saved_agent[0]
+    blank = create(client, 'Grounded')
+    update(client, blank, documents_enabled=True, documents_grounded=True)
+    assert rows(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
+
+
 def test_a_per_run_agent_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
     client = saved_agent[0]
     role = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(

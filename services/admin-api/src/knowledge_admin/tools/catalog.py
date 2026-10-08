@@ -406,9 +406,10 @@ CAPABILITY_NEEDS: dict[str, tuple[str, ...]] = {
 
 def capability_tools(capability: str, config: Mapping[str, Any]) -> list[str]:
     """All tools of one capability, by need, in catalog order (not only those default_on gives). With code projects
-    off, documents also bring the file tools. report_not_covered belongs to "Answer only from documents" and is listed
-    only while it is on."""
-    needs = CAPABILITY_NEEDS[capability] + (('files',) if capability == 'documents' and not _code(config) else ())
+    off and "Answer only from documents" off, documents also bring the file tools (their need, files).
+    report_not_covered belongs to "Answer only from documents" and is listed only while it is on."""
+    files = capability == 'documents' and not _code(config) and not _grounded(config)
+    needs = CAPABILITY_NEEDS[capability] + (('files',) if files else ())
     return [spec.name for spec in CATALOG.values()
             if spec.needs in needs and (spec.name != 'report_not_covered' or _grounded(config))]
 

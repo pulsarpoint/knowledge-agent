@@ -57,7 +57,8 @@ list returns 409 "The tools changed since you opened them. Reload.").
 
 Save rules: when **Answer only from documents** is on, `report_not_covered` cannot be switched off ("Grounded answers
 need report_not_covered."); switching a capability on switches all
-of its tools on (replacing earlier off rows; `report_not_covered` only with **Answer only from documents**); a per-run
+of its tools on (replacing earlier off rows; `report_not_covered` only with **Answer only from documents**; Documents
+bring the file tools only without code projects and without **Answer only from documents**); a per-run
 agent gets all tools of every enabled capability when it is created, switched to per run or gets a capability switched
 on; agents saved before keep their tool rows. The wizard's explicit tool choice wins over these defaults (a per-run
 agent created with a hand-picked list gets just that list). Tools of a server that is not selected, or unknown tools,
