@@ -108,7 +108,6 @@ def delete_history(conn, agent_id) -> None:
         SELECT id FROM ka.operations_runs WHERE agent=%s)''', (agent_id,))
     conn.execute('DELETE FROM ka.operations_runs WHERE agent=%s', (agent_id,))
     reviews = 'SELECT v.id FROM ka.agent_session_reviews v JOIN ka.agent_sessions s ON s.id=v.session_id WHERE s.agent=%s'
-    conn.execute(f'UPDATE ka.agent_versions SET source_review_id=NULL WHERE source_review_id IN ({reviews})', (agent_id,))
     conn.execute(f'DELETE FROM ka.agent_session_reviews WHERE id IN ({reviews})', (agent_id,))
     conn.execute('DELETE FROM ka.agent_sessions WHERE agent=%s', (agent_id,))
     conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))  # queued inputs cascade
@@ -142,7 +141,6 @@ def build_api(app_name, store):
     def listing():
         with database().connect() as conn:
             rows = conn.execute('''SELECT a.*,m.name AS model_name,
-                saved.config AS version_config,saved.version AS config_version,
                 (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
                     WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
                 (SELECT count(*) FROM ka.agent_collections x JOIN ka.rag_collections c ON c.id=x.collection_id
@@ -153,7 +151,6 @@ def build_api(app_name, store):
                         ELSE c.credential_id IS NOT NULL AND c.username IS NOT NULL END)::int AS server_count,
                 (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
-                LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
                 ORDER BY a.created_at,a.id''').fetchall()
             saved_tools: dict[str, list[dict]] = {}
             for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
@@ -169,27 +166,10 @@ def build_api(app_name, store):
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
                           'documents': 'any' if row['all_collections'] else collection_count,
                           'servers': row.pop('server_count'), 'services': row.pop('service_count')}
-                working = {**flags(row), 'claude_code_tools': row['claude_code_tools'],
-                           'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
-                           'tools': tool_items(saved_tools.get(row['id'], []))}
-                config = row.pop('version_config')
-                if config is not None:
-                    row['resources'] = config.get('resources', 'fixed')  # versions saved before 0075 are fixed
-                    row['claude_code_tools'] = config.get('claude_code_tools', row['claude_code_tools'])
-                    for key in ('name','description','when_to_use'):
-                        row[key] = config[key]
-                    row['model_id'] = config['model']['id'] if config['model'] else None
-                    row['model_name'] = config['model']['name'] if config['model'] else None
-                    for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
-                        row[flag] = config[capability]['enabled']
-                    limits = {'code': 'any' if config['code'].get('all_projects') else len(config['code']['projects']),
-                              'documents': 'any' if config['documents'].get('all_collections')
-                              else len(config['documents'].get('collections', [])),
-                              'servers': sum(1 for server in config['ssh']['servers']
-                                              if server['enabled'] and server['ssh_allowed']), 'services': len(config['services']['items'])}
-                row['tools_summary'] = tools_summary(
-                    {**config, 'runtime': row['runtime'], 'claude_code_tools': row['claude_code_tools']}
-                    if config is not None else working)
+                row['tools_summary'] = tools_summary({
+                    **flags(row), 'claude_code_tools': row['claude_code_tools'],
+                    'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
+                    'tools': tool_items(saved_tools.get(row['id'], []))})
                 enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
                            'servers': row['ssh_enabled'], 'services': row['services_enabled']}
                 row['accepts'] = ([{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
@@ -255,12 +235,6 @@ def build_api(app_name, store):
                         current = conn.execute('SELECT provider,api_format,model FROM ka.llm_models WHERE id=%s',
                                                (old['model_id'],)).fetchone()
                         if not model_fits('claude_code', current):
-                            raise HTTPException(400, CHOOSE_CLAUDE)
-                    if runtime == 'claude_code':
-                        # The active version runs with its own stored model.
-                        active = conn.execute('''SELECT v.config->'model' AS model FROM ka.agents a
-                            JOIN ka.agent_versions v ON v.id=a.active_config_version_id WHERE a.id=%s''', (agent_id,)).fetchone()
-                        if active is not None and active['model'] is not None and not model_fits('claude_code', active['model']):
                             raise HTTPException(400, CHOOSE_CLAUDE)
                 tools = normalize_tools(value.claude_code_tools) if value.claude_code_tools is not None else old['claude_code_tools']
                 project = store.project(conn, app_name)
@@ -334,7 +308,6 @@ def build_api(app_name, store):
                 if not value.with_history:
                     raise HTTPException(409, HISTORY_REFUSED)
                 delete_history(conn, agent_id)
-            conn.execute('SELECT agent FROM ka.agent_prompts WHERE agent=%s FOR UPDATE', (agent_id,))
             audit(conn, request, agent_id, 'agent.deleted', **({'history': history} if any(history.values()) else {}))
             credentials = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)).fetchall()
             for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents'):
@@ -342,9 +315,6 @@ def build_api(app_name, store):
             conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.operations_settings WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (agent_id,))
-            # Both sides of the required-prompt relationship are deferred.
-            conn.execute('DELETE FROM ka.agent_prompts WHERE agent=%s', (agent_id,))
-            conn.execute('DELETE FROM ka.agent_prompt_versions WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.agents WHERE id=%s', (agent_id,))
             for row in credentials:
                 credential = row['credential_id']

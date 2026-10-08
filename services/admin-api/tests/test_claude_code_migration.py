@@ -8,7 +8,7 @@ import pytest
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0070_claude_code_agents.up.sql', '0070_claude_code_agents.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
-LATER = ('0079_agent_system_prompt.down.sql',)  # 0072 down drops the prompt FK that 0079 removed
+LATER = ('0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0072 down drops the prompt FK that 0079 removed
 LATER_UP, LATER_DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 
 
@@ -67,7 +67,7 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         actor = store.actor(conn, 'admin-id', 'admin@example.test')
-        registration(conn, prompt=True)
+        registration(conn)  # the current schema: the prompt is the agent's column
         session = uuid4()
         conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,document_name,folder) VALUES (%s,%s,'writer',%s,%s,'Payments','{}','{}','Payments','payments-docs')""",

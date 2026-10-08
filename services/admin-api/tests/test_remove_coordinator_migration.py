@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0077_remove_coordinator.up.sql', '0077_remove_coordinator.down.sql'
+LATER = ('0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0077 reads the prompt tables and versions
 TABLES = ['agent_board_members', 'agent_board_tasks', 'coordinator_settings']
 CHECKS = sorted(['coordinator_always_enabled', 'coordinator_delegates_resources',
                  'claude_code_agent_is_not_the_coordinator', 'per_run_agent_is_not_the_coordinator'])
@@ -84,6 +85,8 @@ def test_the_board_and_coordinator_schema_is_gone(store):
 
 def test_up_removes_board_records_and_the_coordinator_with_everything_it_owns(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, DOWN)
         conn.commit()
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'alice', 'alice@test')
@@ -104,6 +107,8 @@ def test_up_removes_board_records_and_the_coordinator_with_everything_it_owns(st
 
 def test_down_restores_the_empty_schema_so_older_rollbacks_still_run(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, DOWN)
         conn.commit()
         assert schema(conn) == RESTORED

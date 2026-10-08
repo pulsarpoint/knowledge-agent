@@ -39,7 +39,7 @@ def test_historical_run_can_be_cancelled_and_history_stays_readable(store, tmp_p
     assert response.status_code == 409 and 'history' in response.text
 
 
-def test_agent_delete_preserves_prompt_invariants_and_other_agents(store, tmp_path):
+def test_agent_delete_keeps_other_agents(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     created = create(client, 'Disposable')
     agent_id = created['id']
@@ -50,8 +50,6 @@ def test_agent_delete_preserves_prompt_invariants_and_other_agents(store, tmp_pa
     assert response.status_code == 204, response.text
     assert client.get(path, headers=HEADERS).status_code == 404
     with store.connect() as conn:
-        assert conn.execute('SELECT 1 FROM ka.agent_prompts WHERE agent=%s', (agent_id,)).fetchone() is None
-        assert conn.execute('SELECT 1 FROM ka.agent_prompt_versions WHERE agent=%s', (agent_id,)).fetchone() is None
         assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 3
     response = client.request('DELETE', '/api/agents/code', headers=HEADERS, json={'revision': 1, 'confirmed': True})
     assert response.status_code == 204, response.text

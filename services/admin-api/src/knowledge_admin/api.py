@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from knowledge_admin.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin import documents, documentation_prompts, documentation_folders, environments, agent_sessions, agent_versions, claude_code_api, jira_api, repository_api, service_api, rag_api, skills, storage
+from knowledge_admin import documents, documentation_prompts, documentation_folders, environments, agent_sessions, claude_code_api, jira_api, repository_api, service_api, rag_api, skills, storage
 
 
 def build_api(apps: dict[str, App], server: ServerConfig,
@@ -31,7 +31,6 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(storage.build_api())
     from knowledge_admin import agent_runs_api
     router.include_router(agent_runs_api.build_api(app_name, repository_store))
-    router.include_router(agent_versions.build_api(app_name, repository_store))
     router.include_router(agent_sessions.build_api(app_name, repository_store))
     router.include_router(claude_code_api.build_api(app_name, repository_store))
     router.include_router(repository_api.build_api(app_name, repository_store, backoffice_client))

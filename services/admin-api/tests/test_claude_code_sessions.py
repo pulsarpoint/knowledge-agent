@@ -432,19 +432,13 @@ def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projec
     assert gone.status_code == 400 and "of the agent's code project Payments API does not exist" in gone.json()['error']['message']
 
 
-def test_session_uses_the_active_version_tools_and_code_projects(sessions):
+def test_session_uses_the_agents_tools_and_code_projects(sessions):
     from test_profiles import update
     client, data = sessions.client, sessions.data
-    agent = claude_code_agent(client, 'Versioned writer', model_id=sessions.claude, repositories_enabled=True,
-                              repository_ids=[sessions.repo], claude_code_tools=['Grep', 'Read'])
-    path = f'/api/agents/{agent}/versions'
-    source = client.get(path + '/source', headers=HEADERS).json()
-    draft = client.post(path, headers=HEADERS, json={'label': 'Draft', 'source_hash': source['source_hash'],
-                        'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
-    assert draft.status_code == 201, draft.text
-    # Working settings changed after the version was saved do not reach the session.
+    agent = claude_code_agent(client, 'Configured writer', model_id=sessions.claude, repositories_enabled=True,
+                              repository_ids=[sessions.repo], claude_code_tools=['Bash'])
     profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
-    changed = update(client, profile, repositories_enabled=False, repository_ids=[], claude_code_tools=['Bash'])
+    changed = update(client, profile, claude_code_tools=['Grep', 'Read'])  # what the tabs show is what runs
     assert changed.status_code == 200, changed.text
     body = {**sessions.body, 'code_project_ids': [], 'environment_ids': [], 'service_ids': []}
     response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent})

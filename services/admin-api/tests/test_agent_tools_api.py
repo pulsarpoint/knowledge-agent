@@ -6,7 +6,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.tools.catalog import CATALOG, effective_tools
 from knowledge_admin.tools_api import CLAUDE_CODE, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_agent_resources import listed, new_version
+from test_agent_resources import listed
 from test_claude_code_agents import claude_code_agent
 from test_profiles import create, update, wizard_payload
 from test_repositories import HEADERS
@@ -168,9 +168,6 @@ def test_the_list_summarises_the_tools_that_run(store, saved_agent):
                                          {'tool': 'ssh_run', 'mode': 'on', 'usage': None}])
     summary = listed(client)['operations']['tools_summary']
     assert summary == {'on': 3, 'per_run': 0, 'groups': {'code': 1, 'documents': 0, 'servers': 1, 'mcp': 1, 'agents': 0}}
-    new_version(client, 'Two tools')  # activates "Initial configuration" (these tools), the draft is not active
-    put(client, 'operations', view(client)['revision'], [])
-    assert listed(client)['operations']['tools_summary'] == summary  # the active version runs
     writer = claude_code_agent(client)
     assert listed(client)[writer]['tools_summary'] == {'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}
 

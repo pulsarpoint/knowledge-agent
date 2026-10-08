@@ -4,7 +4,6 @@ import os
 from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
 from typing import Any, Literal, NotRequired, TypedDict
-from uuid import UUID
 
 import psycopg
 from fastapi.encoders import jsonable_encoder
@@ -23,7 +22,7 @@ NO_RUN_RESOURCES = 'This agent receives its resources per run, and this run was 
 
 
 class AgentConfig(TypedDict):
-    """The resolved config of one agent, the same for both types. Versions store this shape."""
+    """The resolved config of one agent, the same for both types. Sessions pin this shape."""
     id: str
     name: str
     description: str
@@ -44,7 +43,6 @@ class AgentConfig(TypedDict):
     ssh: dict[str, Any]
     services: dict[str, Any]
     tools: dict[str, list[dict[str, Any]]]
-    config_version: NotRequired[dict[str, Any]]
     run_resources: NotRequired[dict[str, list[str]]]
 
 
@@ -119,9 +117,62 @@ def require_run_resources(config: Mapping[str, Any]) -> None:
         raise ValueError(NO_RUN_RESOURCES)
 
 
-def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | None = None, working_copy: bool = False) -> dict[str, object]:
+SECTIONS: dict[str, str] = {
+    'prompt': 'Prompt', 'instructions': 'Instructions', 'when_to_use': 'When to use', 'model': 'Model',
+    'type': 'Agent type', 'resources': 'Resources', 'tools': 'Tools', 'skills': 'Skills', 'documents': 'Documents',
+    'code': 'Code projects', 'ssh': 'SSH', 'mcp': 'MCP', 'services': 'Services'}
+
+
+def _ids(items: Iterable[Mapping[str, Any]]) -> list[str]:
+    return sorted(str(item['id']) for item in items)
+
+
+def _server(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A selected SSH server: only what the agent decides (inherited values are the agent's own sections)."""
+    def own(source: str) -> bool:
+        return entry.get(source, 'agent') != 'agent'
+    agent_connection = entry.get('connection_source', 'server') == 'agent'
+    return {'id': str(entry['id']),
+            'instructions': entry['instructions'] if own('instructions_source') else None,
+            'skills': _ids(entry['skills']) if own('skills_source') else None,
+            'mcp_servers': _ids(entry['mcp_servers']) if own('mcp_source') else None,
+            'connection': {'username': entry['username'], 'port': entry['port'], 'allow_sudo': entry['allow_sudo'],
+                           'known_hosts': entry['known_hosts'],
+                           'credential_id': (entry.get('private_key_ref') or {}).get('id')} if agent_connection else None}
+
+
+def sections(config: Mapping[str, Any]) -> dict[str, Any]:
+    """What an agent runs with, by section (SECTIONS): everything except its identity (id, name, description, on/off),
+    revisions and live data (graphs; the details of shared servers, collections, skills). Equal sections run the
+    same. Clone, Apply and the 0080 migration compare these."""
+    from knowledge_admin.tools.catalog import tools_of  # the catalog imports this module
+
+    documents, code = config['documents'], config['code']
+    return {
+        'prompt': config['system_prompt']['content'],
+        'instructions': config['instructions'],
+        'when_to_use': config['when_to_use'],
+        'model': str(config['model']['id']) if config['model'] else None,
+        'type': {'runtime': config['runtime'],
+                 'claude_code_tools': list(config.get('claude_code_tools', CLAUDE_CODE_TOOLS))},
+        'resources': config.get('resources', 'fixed'),
+        'tools': [{key: entry[key] for key in ('tool', 'mode', 'usage')} for entry in tools_of(config)['items']],
+        'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
+        'documents': {'enabled': documents['enabled'], 'grounded': documents.get('grounded', False),
+                      'all_collections': documents.get('all_collections', False),
+                      'collections': [] if documents.get('all_collections') else _ids(documents.get('collections', []))},
+        'code': {'enabled': code['enabled'], 'all_projects': code.get('all_projects', False),
+                 'projects': [] if code.get('all_projects') else _ids(code['projects'])},
+        'ssh': {'enabled': config['ssh']['enabled'],
+                'servers': sorted((_server(entry) for entry in config['ssh']['servers']), key=lambda s: s['id'])},
+        'mcp': {'enabled': config['mcp']['enabled'], 'servers': _ids(config['mcp']['servers'])},
+        'services': {'enabled': config['services']['enabled'], 'items': _ids(config['services']['items'])},
+    }
+
+
+def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
     """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent of
-    either type.
+    either type. The agent's own configuration: what its tabs show is what runs (0080 removed configuration versions).
 
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
@@ -135,32 +186,13 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,runtime,claude_code_tools,resources,system_prompt,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
-            all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
+            all_collections,all_repositories FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
         projects = conn.execute("SELECT id FROM ka.projects WHERE archived_at IS NULL").fetchall()
         if len(projects) > 1:
             raise ValueError("Agent configuration requires a single application database")
         project_id = projects[0]['id'] if projects else None
-        selected_version = version_id or (None if working_copy else agent['active_config_version_id'])
-        if selected_version is not None:
-            version = conn.execute('SELECT id,version,label,config FROM ka.agent_versions WHERE id=%s AND agent=%s', (selected_version,agent_id)).fetchone()
-            if version is None:
-                raise LookupError('Version not found for this agent.')
-            config = version['config']
-            config['enabled'] = agent['enabled']
-            config['runtime'] = agent['runtime']  # the agent type belongs to the agent, never to a version
-            config.setdefault('claude_code_tools', list(CLAUDE_CODE_TOOLS))  # versions saved before 0072
-            config.setdefault('resources', 'fixed')  # versions saved before 0075
-            if agent['runtime'] != 'openai':
-                config['tools'] = {'items': []}
-            else:
-                from knowledge_admin.tools.catalog import implied_tools  # the catalog imports this module
-                config.setdefault('tools', implied_tools(config))  # versions saved before 0078
-            config['code']['graphs'] = (load_graphs(conn, project_id, [p['id'] for p in config['code']['projects']])
-                                        if config['runtime'] == 'openai' and config['code']['enabled'] else [])
-            config['config_version'] = jsonable_encoder({key:version[key] for key in ('id','version','label')})
-            return config
         code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
         if code_root.anchor != '/' or '..' in code_root.parts:
             raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')

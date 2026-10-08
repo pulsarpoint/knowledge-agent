@@ -68,15 +68,9 @@ def test_claude_code_agents_are_configured_like_native_agents(store, writer):
     assert put.status_code == 200, put.text
     for path in (f"/api/agents/{agent_id}/servers/{server['id']}/ssh", f'/api/mcp/code?agent_id={agent_id}'):
         assert client.get(path, headers=HEADERS).status_code == 200, path
-    source = client.get(f'/api/agents/{agent_id}/versions/source', headers=HEADERS)
-    assert source.status_code == 200, source.text
-    config = source.json()['config']
+    config = client.get(f'/api/agents/{agent_id}/config', headers=HEADERS).json()
     assert (config['runtime'], config['claude_code_tools'], config['instructions']) == ('claude_code', ['Read', 'Bash'], 'Write for operators.')
     assert [s['id'] for s in config['ssh']['servers']] == [server['id']]
-    draft = client.post(f'/api/agents/{agent_id}/versions', headers=HEADERS, json={
-        'label': 'First', 'source_hash': source.json()['source_hash'],
-        'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
-    assert draft.status_code == 201, draft.text
 
 
 def test_switching_the_type_keeps_the_config_and_needs_a_claude_model(store, tmp_path):
@@ -118,56 +112,14 @@ def test_claude_code_agent_with_retained_sessions_cannot_be_deleted(store, write
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,)).fetchone()['n'] == 1
 
 
-def test_claude_code_agent_without_sessions_is_deleted_with_its_prompt(store, writer):
+def test_claude_code_agent_without_sessions_is_deleted(store, writer):
     client, agent_id = writer
     detail = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
     deleted = client.request('DELETE', f'/api/agents/{agent_id}', headers=HEADERS,
                              json={'revision': detail['revision'], 'confirmed': True})
     assert deleted.status_code == 204, deleted.text
     with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_prompt_versions WHERE agent=%s', (agent_id,)).fetchone()['n'] == 0
-
-
-def test_the_version_model_must_fit_the_agent_type(store, tmp_path, monkeypatch):
-    for variable in ('CODE_ROOT', 'DATA_ROOT_DIR'):
-        monkeypatch.setenv(variable, str(tmp_path.resolve()))
-    client = _client(tmp_path, repository_store=store)
-    claude, gpt = models(client)
-    native = create(client, 'Versioned helper')
-    path = f"/api/agents/{native['id']}/versions"
-
-    def set_model(model_id):
-        profile = client.get(f"/api/agents/{native['id']}", headers=HEADERS).json()
-        saved = client.put(f"/api/agents/{native['id']}/model", headers=HEADERS,
-                           json={'revision': profile['revision'], 'model_id': model_id})
-        assert saved.status_code == 200, saved.text
-        return saved.json()
-
-    def draft(label):
-        source = client.get(path + '/source', headers=HEADERS).json()
-        created = client.post(path, headers=HEADERS, json={'label': label, 'source_hash': source['source_hash'],
-            'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
-        assert created.status_code == 201, created.text
-        return created.json()['id']
-
-    def activate(version_id):
-        active = client.get(path, headers=HEADERS).json()['active_id']
-        return client.post(f'{path}/{version_id}/activate', headers=HEADERS, json={'expected_active_id': active})
-
-    set_model(gpt)
-    draft('GPT draft')  # the initial configuration (GPT) becomes the active version
-    gpt_version = client.get(path, headers=HEADERS).json()['active_id']
-    profile = set_model(claude)
-    # The working model is Claude, but the active version still runs GPT.
-    refused = update(client, profile, runtime='claude_code')
-    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
-    claude_version = draft('Claude draft')
-    assert activate(claude_version).status_code == 200
-    switched = update(client, client.get(f"/api/agents/{native['id']}", headers=HEADERS).json(), runtime='claude_code')
-    assert switched.status_code == 200, switched.text
-    refused = activate(gpt_version)
-    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
-    assert client.get(path, headers=HEADERS).json()['active_id'] == claude_version
+        assert conn.execute('SELECT count(*) AS n FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()['n'] == 0
 
 
 def test_a_model_used_by_a_claude_code_agent_stays_a_claude_model(store, writer):

@@ -1,26 +1,15 @@
-"""Draft snapshots, explicit activation, and session isolation through the native SDK."""
+"""Tuning reviews: the reviewer's output shape, its correction, and (Task 6) applying a reviewed suggestion."""
 import json
-from agents import AgentOutputSchema, ModelBehaviorError
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from agents import AgentOutputSchema, ModelBehaviorError
 
-from knowledge_admin.agent_versions import TuningSuggestion
-from test_agent_runs import direct, events
-from test_sdk_agent import responses_api
+from knowledge_admin.agent_reviews import TuningSuggestion
+from test_agent_runs import direct, events  # noqa: F401  (fixture)
+from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
-
-
-def draft(client, agent_id, instructions='Draft instructions', **source):
-    path = f'/api/agents/{agent_id}/versions'
-    prepared = client.get(path+'/source', headers=HEADERS, params=source).json()
-    value = {'label':instructions,'source_hash':prepared['source_hash'],
-             **{'source_'+key:value for key,value in source.items()},
-             'changes':{'system_prompt':None,'instructions':instructions,'server_instructions':[]}}
-    result = client.post(path, headers=HEADERS, json=value)
-    assert result.status_code == 201,result.text
-    return result.json()
 
 
 def test_sdk_tuning_schema_decodes_nested_changes_and_server_instructions():
@@ -47,24 +36,6 @@ def test_sdk_tuning_schema_still_rejects_invalid_encoded_changes(changes):
     schema = AgentOutputSchema(TuningSuggestion, strict_json_schema=False)
     with pytest.raises(ModelBehaviorError):
         schema.validate_json(json.dumps({'suggestion':'Suggested changes.','changes':changes}))
-
-
-def test_draft_validation_cross_agent_and_stale_source(direct, store):
-    client, agent_id, _ = direct
-    path = f'/api/agents/{agent_id}/versions'
-    prepared = client.get(path+'/source',headers=HEADERS).json()
-    payload = {'label':'Draft','source_hash':prepared['source_hash'],
-               'changes':{'system_prompt':None,'instructions':'Changed','server_instructions':[]}}
-    assert client.post(path,json=payload).status_code == 403
-    assert client.post(path,headers=HEADERS,json={**payload,'config':{'ssh':{'enabled':True}}}).status_code == 400
-    assert client.post(path,headers=HEADERS,json={**payload,'changes':{**payload['changes'],'system_prompt':'  '}}).status_code == 422
-    assert client.post(path,headers=HEADERS,json={**payload,'changes':{**payload['changes'],'server_instructions':[{'server_id':str(uuid4()),'instructions':'Forged'}]}}).status_code == 422
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_configs SET instructions='Concurrent edit' WHERE agent=%s AND server_id IS NULL",(agent_id,))
-    assert client.post(path,headers=HEADERS,json=payload).status_code == 409
-    created = draft(client,agent_id)
-    assert client.get('/api/agents/code/versions/source',headers=HEADERS,params={'version_id':created['id']}).status_code == 404
-    assert client.post(f"/api/agents/code/versions/{created['id']}/activate",headers=HEADERS,json={'expected_active_id':None}).status_code == 404
 
 
 def test_invalid_tuning_output_is_corrected_once_before_saving(direct, monkeypatch):

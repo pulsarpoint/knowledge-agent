@@ -264,31 +264,6 @@ def test_load_by_id_is_read_only_independent_and_uses_pg_environment(store, tmp_
             get_agent_config(missing)
 
 
-def test_version_captures_all_resources_and_updates_only_inherited_server_instructions(store, saved_agent):
-    client, server, *_ = saved_agent
-    original = get_agent_config('operations',conninfo=store.conninfo)
-    path = '/api/agents/operations/versions'
-    source = client.get(path+'/source',headers=HEADERS).json()
-    response = client.post(path,headers=HEADERS,json={'label':'Instruction tuning','source_hash':source['source_hash'],
-        'changes':{'system_prompt':None,'instructions':'Gather evidence first.','server_instructions':[]}})
-    assert response.status_code == 201,response.text
-    draft = get_agent_config('operations',conninfo=store.conninfo,version_id=response.json()['id'])
-    assert draft['ssh']['servers'][0]['instructions'] == 'Gather evidence first.'
-    assert draft['ssh']['servers'][0]['private_key_ref'] == original['ssh']['servers'][0]['private_key_ref']
-    assert draft['ssh']['servers'][0]['username'] == original['ssh']['servers'][0]['username']
-    for capability in ('code','documents','skills','mcp','services','model'):
-        assert draft[capability] == original[capability]
-    copied = client.get(path+'/source',headers=HEADERS,params={'version_id':response.json()['id']}).json()
-    override = client.post(path,headers=HEADERS,json={'label':'Server override','source_version_id':response.json()['id'],
-        'source_hash':copied['source_hash'],'changes':{'system_prompt':None,'instructions':'Short summary.',
-        'server_instructions':[{'server_id':server['id'],'instructions':'Check only the queue.'}]}})
-    assert override.status_code == 201,override.text
-    snapshot = get_agent_config('operations',conninfo=store.conninfo,version_id=override.json()['id'])
-    assert snapshot['instructions'] == 'Short summary.'
-    assert snapshot['ssh']['servers'][0]['instructions'] == 'Check only the queue.'
-    assert snapshot['ssh']['servers'][0]['instructions_source'] == 'agent_version'
-
-
 def test_agent_service_context_includes_dependency_directions(store, saved_agent):
     client = saved_agent[0]
     service = get_agent_config('operations', conninfo=store.conninfo)['services']['items'][0]

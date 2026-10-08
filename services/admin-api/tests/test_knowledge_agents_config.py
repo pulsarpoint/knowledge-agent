@@ -10,8 +10,6 @@ from knowledge_admin.knowledge_agents.config import (CLAUDE_CODE_TOOLS, NATIVE_O
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
-EMPTY_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
-
 
 def test_both_types_load_the_same_config_shape(store, saved_agent):
     assert agents_loader is get_agent_config  # moved; existing imports keep working
@@ -25,18 +23,6 @@ def test_both_types_load_the_same_config_shape(store, saved_agent):
     shared = lambda config: {key: value for key, value in config.items() if key not in ('runtime', 'claude_code_tools', 'tools')}
     assert shared(claude) == shared(native)  # switching the type changes only the runtime and its tools
     assert claude['tools'] == {'items': []} and native['tools']['items']
-
-
-def test_a_version_keeps_its_tools_and_follows_the_agent_type(store, saved_agent):
-    client = saved_agent[0]
-    source = client.get('/api/agents/operations/versions/source', headers=HEADERS).json()
-    created = client.post('/api/agents/operations/versions', headers=HEADERS, json={
-        'label': 'Before the switch', 'source_hash': source['source_hash'], 'changes': EMPTY_CHANGES})
-    assert created.status_code == 201, created.text
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET runtime='claude_code',claude_code_tools='{Read}' WHERE id='operations'")
-    version = get_agent_config('operations', conninfo=store.conninfo, version_id=created.json()['id'])
-    assert (version['runtime'], version['claude_code_tools']) == ('claude_code', list(CLAUDE_CODE_TOOLS))
 
 
 def test_model_rules_and_tool_names():

@@ -1,5 +1,5 @@
-"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved and
-versioned; a per-run agent never runs with its whole selection."""
+"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved;
+a per-run agent never runs with its whole selection."""
 import asyncio
 from pathlib import Path
 
@@ -17,7 +17,7 @@ from test_repositories import HEADERS
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0075_agent_resources.up.sql', '0075_agent_resources.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0075 down drops a check 0077 removed
-EMPTY_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
+LATER = '0080_clone_agents.down.sql'  # 0075 down reads ka.agent_versions
 
 
 def run(conn, name: str):
@@ -33,14 +33,6 @@ def listed(client) -> dict:
     return {row['id']: row for row in client.get('/api/agents', headers=HEADERS).json()['agents']}
 
 
-def new_version(client, label: str) -> dict:
-    source = client.get('/api/agents/operations/versions/source', headers=HEADERS).json()
-    created = client.post('/api/agents/operations/versions', headers=HEADERS, json={
-        'label': label, 'source_hash': source['source_hash'], 'changes': EMPTY_CHANGES})
-    assert created.status_code == 201, created.text
-    return {**created.json(), 'source': source}
-
-
 def test_agents_are_fixed_by_default(store):
     with store.connect() as conn:
         assert {row['resources'] for row in conn.execute('SELECT resources FROM ka.agents')} == {'fixed'}
@@ -52,24 +44,17 @@ def test_agents_are_fixed_by_default(store):
                 conn.execute(statement)
 
 
-def test_down_refuses_per_run_agents_and_versions_then_up_makes_every_agent_fixed(store, saved_agent):
-    client = saved_agent[0]
+def test_down_refuses_per_run_agents_then_up_makes_every_agent_fixed(store, saved_agent):
     with store.connect() as conn:
+        run(conn, LATER)
         run(conn, REMOVED)
         conn.commit()
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
-    assert new_version(client, 'Per run')['source']['config']['resources'] == 'per_run'
-    with store.connect() as conn:
+        conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='Per-run agents'):
             run(conn, DOWN)
         conn.rollback()
         conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id='operations'")
-        conn.commit()
-        with pytest.raises(psycopg.errors.RaiseException, match='Per-run agents'):  # its versions are still per run
-            run(conn, DOWN)
-        conn.rollback()
-        conn.execute("UPDATE ka.agents SET active_config_version_id=NULL WHERE id='operations'")
-        conn.execute("DELETE FROM ka.agent_versions WHERE agent='operations'")
         conn.commit()
         run(conn, DOWN)
         conn.commit()
@@ -80,7 +65,7 @@ def test_down_refuses_per_run_agents_and_versions_then_up_makes_every_agent_fixe
         assert conn.execute("SELECT resources FROM ka.agents WHERE id='operations'").fetchone()['resources'] == 'fixed'
 
 
-def test_the_setting_is_saved_versioned_and_listed(store, saved_agent):
+def test_the_setting_is_saved_and_listed(store, saved_agent):
     client = saved_agent[0]
     operations = client.get('/api/agents/operations', headers=HEADERS).json()
     assert operations['resources'] == 'fixed'
@@ -90,17 +75,9 @@ def test_the_setting_is_saved_versioned_and_listed(store, saved_agent):
     assert update(client, saved.json(), resources=None).json()['resources'] == 'per_run'  # omitted: kept
     assert get_agent_config('operations', conninfo=store.conninfo)['resources'] == 'per_run'
     assert listed(client)['operations']['resources'] == 'per_run'
-    # The first draft also activates "Initial configuration" (per run). A version keeps its mode; the list shows what
-    # runs (the active version), General the working copy.
-    version = new_version(client, 'Per run analyst')
-    assert get_agent_config('operations', conninfo=store.conninfo, version_id=version['id'])['resources'] == 'per_run'
     back = update(client, client.get('/api/agents/operations', headers=HEADERS).json(), resources='fixed')
     assert back.json()['resources'] == 'fixed'
-    assert listed(client)['operations']['resources'] == 'per_run'
-    with store.connect() as conn:  # versions saved before 0075 have no mode: they are fixed
-        conn.execute("UPDATE ka.agent_versions SET config=config-'resources' WHERE agent='operations'")
-    assert get_agent_config('operations', conninfo=store.conninfo)['resources'] == 'fixed'
-    assert listed(client)['operations']['resources'] == 'fixed'
+    assert listed(client)['operations']['resources'] == 'fixed'  # the list shows the agent: what runs
     created = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Code analyst', resources='per_run'))
     assert created.status_code == 201, created.text
     assert client.get(f"/api/agents/{created.json()['id']}", headers=HEADERS).json()['resources'] == 'per_run'
@@ -142,10 +119,9 @@ def test_the_list_says_what_a_per_run_agent_accepts(store, saved_agent):
         conn.execute("DELETE FROM ka.agent_repositories WHERE agent_id='operations'")
     expected = [{'kind': 'code', 'limit': 'any'}, {'kind': 'documents', 'limit': 1}, {'kind': 'services', 'limit': 1}]
     assert listed(client)['operations']['accepts'] == expected
-    new_version(client, 'Code, documents and services')  # activates "Initial configuration": the active version decides
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET documents_enabled=false,services_enabled=false WHERE id='operations'")
-    assert listed(client)['operations']['accepts'] == expected
+    assert listed(client)['operations']['accepts'] == [{'kind': 'code', 'limit': 'any'}]
 
 
 def test_the_list_counts_only_servers_a_run_may_use(store, saved_agent):
@@ -163,8 +139,4 @@ def test_the_list_counts_only_servers_a_run_may_use(store, saved_agent):
     with store.connect() as conn:
         conn.execute("UPDATE ka.servers SET ssh_allowed=true, enabled=false")
         conn.execute("DELETE FROM ka.agent_server_connections WHERE agent_id='operations'")
-    assert servers() == 0
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.servers SET enabled=true, ssh_allowed=false")
-    new_version(client, 'No SSH')  # the active version's snapshot decides
     assert servers() == 0

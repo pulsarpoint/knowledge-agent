@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin import grounding
 from knowledge_admin.access import request_actor
-from knowledge_admin.agent_versions import TuningSuggestion
+from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agents import agent, get_agent_config, load_credentials
 from knowledge_admin.knowledge_agents.config import require_native, require_run_resources
@@ -57,11 +57,9 @@ def create_session(conn: psycopg.Connection, *, session_id: UUID, project_id: UU
     if config['model'] is None or not config['model']['enabled']:
         raise ValueError('Select an enabled model in this agent’s General tab.')
     return conn.execute('''INSERT INTO ka.agent_sessions
-        (id,project_id,agent,actor_id,title,config,agent_version_id,is_test,run_resources)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,
-        last_activity_at+idle_timeout AS expires_at,config->'config_version' AS config_version''',
-        (session_id,project_id,config['id'],actor_id,title,Jsonb(config),
-         config.get('config_version',{}).get('id'),is_test,
+        (id,project_id,agent,actor_id,title,config,is_test,run_resources)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *,last_activity_at+idle_timeout AS expires_at''',
+        (session_id,project_id,config['id'],actor_id,title,Jsonb(config),is_test,
          Jsonb(config['run_resources']) if 'run_resources' in config else None)).fetchone()
 
 
@@ -323,7 +321,7 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         expire_sessions(database())
         with store.connect() as conn:
-            return {'sessions': conn.execute("""SELECT id,title,status,is_test,agent_version_id,config->'config_version' AS config_version,created_at,last_activity_at,
+            return {'sessions': conn.execute("""SELECT id,title,status,is_test,created_at,last_activity_at,
                 last_activity_at+idle_timeout AS expires_at FROM ka.agent_sessions
                 WHERE agent=%s AND project_id=%s AND (%s::boolean IS NULL OR is_test=%s)
                 ORDER BY created_at DESC LIMIT 100""",

@@ -1,7 +1,6 @@
 """0078: an agent's tools, backfilled from today's capability rule; the checks; up and down."""
 import itertools
 from pathlib import Path
-from uuid import uuid4
 
 import psycopg
 import pytest
@@ -20,10 +19,6 @@ def run(conn, name):
 def add_agent(conn, agent_id, *, runtime='openai', code=False, documents=False, grounded=False, ssh=False):
     conn.execute('''INSERT INTO ka.agents(id,name,runtime,repositories_enabled,documents_enabled,documents_grounded,ssh_enabled)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''', (agent_id, agent_id, runtime, code, documents, grounded, ssh))
-    version = uuid4()
-    conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)', (agent_id, version))
-    conn.execute('''INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,published_at)
-        VALUES (%s,%s,1,'Prompt','Answer.',now())''', (version, agent_id))
 
 
 def flags(code, documents, grounded, ssh):

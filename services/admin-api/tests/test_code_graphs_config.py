@@ -17,9 +17,7 @@ from knowledge_admin.capabilities import code_graph
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_agent_resources import EMPTY_CHANGES, new_version
 from test_function_tools import context, invoke  # noqa: F401  (fixture)
-from test_repositories import HEADERS
 from tool_helpers import tool
 
 GRAPH = {'name': 'Payments', 'graph_path': '/index/g.sqlite', 'code_root': '/work/code/managed/payments', 'source_hash': 'abc'}
@@ -44,27 +42,6 @@ def test_projects_with_a_current_graph_are_listed(store, saved_agent, graphs):
         conn.execute("UPDATE ka.agents SET repositories_enabled=false WHERE id='operations'")
     graphs[repo['id']] = {'id': repo['id'], **GRAPH}
     assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
-
-
-def test_versions_get_the_current_graphs(store, saved_agent, graphs):
-    client, repo = saved_agent[0], saved_agent[5]
-    version = new_version(client, 'Before the graph')
-    graphs[repo['id']] = {'id': repo['id'], **GRAPH}
-    pinned = get_agent_config('operations', conninfo=store.conninfo, version_id=version['id'])
-    assert pinned['code']['graphs'] == [{'id': repo['id'], **GRAPH}]
-
-
-def test_versions_never_store_graphs(store, saved_agent, graphs):
-    client, repo = saved_agent[0], saved_agent[5]
-    graphs[repo['id']] = {'id': repo['id'], **GRAPH}
-    source = client.get('/api/agents/operations/versions/source', headers=HEADERS).json()
-    graphs[repo['id']] = {'id': repo['id'], **GRAPH, 'source_hash': 'regenerated'}  # an open draft stays current
-    created = client.post('/api/agents/operations/versions', headers=HEADERS, json={
-        'label': 'With a graph', 'source_hash': source['source_hash'], 'changes': EMPTY_CHANGES})
-    assert created.status_code == 201, created.text
-    with store.connect() as conn:
-        stored = conn.execute("SELECT config FROM ka.agent_versions WHERE agent='operations'").fetchall()
-    assert stored and all('graphs' not in row['config']['code'] for row in stored)
 
 
 def test_a_per_run_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, graphs):

@@ -29,9 +29,6 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
     review = conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
         VALUES (%s,%s,'Too long','{}','Be brief') RETURNING id''', (sessions[0], actor)).fetchone()['id']
     ids['review'] = review
-    # A saved configuration version made from that review (versions go with the agent).
-    conn.execute('''INSERT INTO ka.agent_versions(agent,version,label,config,created_by,source_review_id)
-        VALUES (%s,99,'From review','{}',%s,%s)''', (agent_id, actor, review))
     runs = []
     for session in (sessions[0], None):
         run = uuid4()
@@ -123,7 +120,6 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
             assert count('ka.agent_sessions_cc WHERE agent_id=%s', agent_id) == expected
             assert count('ka.agent_session_inputs WHERE session_id=%s', ids['cc']) == expected
             assert count('ka.agent_run_events WHERE run_key=ANY(%s)', ids['keys']) == 4 * expected
-            assert (count('ka.agent_versions WHERE agent=%s', agent_id) > 0) == bool(expected)
             # Saved documents stay.
             assert count('ka.documents WHERE id=%s', ids['document']) == 1
         audit = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.deleted'

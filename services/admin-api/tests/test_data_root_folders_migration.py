@@ -44,6 +44,7 @@ def at_0066(store):
     """Rolled back to 0066 with the jira folder, a look-alike, a whole rag-data folder that shares the Jira file,
     their file log rows and a saved agent version."""
     with store.connect() as conn:
+        run(conn, '0080_clone_agents.down.sql')  # restores ka.agent_versions
         run(conn, DOWN)
         project = store.project(conn, 'shop')
         conn.execute("""INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{"max_file_bytes":2000000}')

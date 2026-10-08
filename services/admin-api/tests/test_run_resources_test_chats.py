@@ -5,13 +5,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_sessions import KEEPS_RESOURCES
 from knowledge_admin.knowledge_agents.config import NATIVE_ONLY
 from knowledge_admin.knowledge_agents.run_resources import FIXED
 from test_agent_runs import direct, events  # noqa: F401  (fixture)
-from test_agent_versions import draft
 from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
@@ -94,54 +92,6 @@ def test_the_test_tab_offers_what_a_run_may_be_given(analyst, store):
         conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
     assert a.client.get(f'/api/agents/{a.agent}/run-resources', headers=HEADERS).json() == {'resources': 'fixed'}
     assert a.client.get('/api/agents/missing/run-resources', headers=HEADERS).status_code == 404
-
-
-def test_a_suggestion_from_a_per_run_chat_drafts_the_whole_configuration(analyst, store):
-    a = analyst
-    session = events(a.client.post(a.path, headers=HEADERS, json={
-        'task': 'Where are the limits?', 'resources': {'code_project_ids': [a.app]}}))[0]['session_id']
-    with store.connect() as conn:
-        row = conn.execute('SELECT actor_id,config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
-        review = conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
-            VALUES (%s,%s,'Shorter','{}','Be shorter.') RETURNING id''', (session, row['actor_id'])).fetchone()['id']
-        conn.execute('UPDATE ka.agent_session_reviews SET context=%s WHERE id=%s', (Jsonb({
-            'agent_config': row['config'], 'changes': {'system_prompt': None, 'instructions': 'Be brief.',
-                                                       'server_instructions': []}}), review))
-    source = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS, params={'review_id': str(review)}).json()
-    assert 'run_resources' not in source['config']
-    assert source['config']['code']['all_projects'] is True  # the agent's own selection, not one run's
-    assert source['changes']['instructions'] == 'Be brief.'
-
-
-def review_of(store, session):
-    """A saved tuning suggestion for one conversation, made from the configuration it pinned."""
-    with store.connect() as conn:
-        row = conn.execute('SELECT actor_id,config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
-        return str(conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
-            VALUES (%s,%s,'Shorter',%s,'Be shorter.') RETURNING id''', (session, row['actor_id'], Jsonb({
-            'agent_config': row['config'], 'changes': {'system_prompt': None, 'instructions': 'Be brief.',
-                                                       'server_instructions': []}}))).fetchone()['id'])
-
-
-def test_a_versionless_per_run_chat_drafts_from_its_snapshot_with_the_working_selection(analyst, store):
-    a = analyst
-    session = events(a.client.post(a.path, headers=HEADERS, json={
-        'task': 'Where are the limits?', 'resources': {'code_project_ids': [a.app]}}))[0]['session_id']
-    with store.connect() as conn:
-        pinned = conn.execute('SELECT agent_version_id,config FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
-    assert pinned['agent_version_id'] is None
-    published = draft(a.client, a.agent, 'Published instructions')
-    active = a.client.get(f'/api/agents/{a.agent}/versions', headers=HEADERS).json()['active_id']
-    assert a.client.post(f'/api/agents/{a.agent}/versions/{published["id"]}/activate', headers=HEADERS,
-                         json={'expected_active_id': active}).status_code == 200
-    working = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS).json()['config']
-    source = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS,
-                          params={'review_id': review_of(store, session)}).json()['config']
-    assert source['instructions'] == pinned['config']['instructions'] != 'Published instructions'
-    assert 'run_resources' not in source
-    for section in ('code', 'documents', 'ssh', 'services'):
-        assert source[section] == working[section], section
-    assert source['code']['all_projects'] is True
 
 
 def test_a_refused_start_leaves_no_conversation_and_claude_code_agents_stay_native_only(analyst, store):
