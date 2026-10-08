@@ -93,14 +93,15 @@ def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
 
 def clone(conn, source_id: str, actor_id) -> dict[str, str]:
     """A new agent with the source's configuration and on/off switch, named after it. History is not copied."""
-    source = conn.execute('SELECT name,description,enabled FROM ka.agents WHERE id=%s FOR UPDATE',
+    source = conn.execute('SELECT name,description,enabled,system_prompt FROM ka.agents WHERE id=%s FOR UPDATE',
                           (source_id,)).fetchone()
     if source is None:
         raise LookupError('Agent not found')
     created = {'id': str(uuid4()), 'name': clone_name(conn, source['name'])}
-    conn.execute('''INSERT INTO ka.agents(id,name,description,enabled,cloned_from,created_by,updated_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (created['id'], created['name'], source['description'], source['enabled'], source_id, actor_id, actor_id))
+    conn.execute('''INSERT INTO ka.agents(id,name,description,enabled,system_prompt,cloned_from,created_by,updated_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (created['id'], created['name'], source['description'], source['enabled'], source['system_prompt'], source_id,
+         actor_id, actor_id))
     copy_configuration(conn, source_id, created['id'], actor_id)
     return created
 

@@ -17,8 +17,8 @@ def run(conn, name):
 
 
 def add_agent(conn, agent_id, *, runtime='openai', code=False, documents=False, grounded=False, ssh=False):
-    conn.execute('''INSERT INTO ka.agents(id,name,runtime,repositories_enabled,documents_enabled,documents_grounded,ssh_enabled)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)''', (agent_id, agent_id, runtime, code, documents, grounded, ssh))
+    conn.execute('''INSERT INTO ka.agents(id,name,runtime,repositories_enabled,documents_enabled,documents_grounded,ssh_enabled,
+        system_prompt) VALUES (%s,%s,%s,%s,%s,%s,%s,'Be brief.')''', (agent_id, agent_id, runtime, code, documents, grounded, ssh))
 
 
 def flags(code, documents, grounded, ssh):

@@ -67,7 +67,7 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         actor = store.actor(conn, 'admin-id', 'admin@example.test')
-        registration(conn)  # the current schema: the prompt is the agent's column
+        registration(conn, system_prompt='Write documentation.')  # the current schema: the prompt is the agent's column
         session = uuid4()
         conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,document_name,folder) VALUES (%s,%s,'writer',%s,%s,'Payments','{}','{}','Payments','payments-docs')""",

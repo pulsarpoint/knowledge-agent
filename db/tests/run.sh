@@ -75,6 +75,12 @@ coordinator_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.agent_prompt_versions') IS NULL")
 [ "$coordinator_removed" = t ]
 printf '%s\n' 'PASS: the board and coordinator schema rolls back to version 29 and is removed again on upgrade.'
+# 0079 fills agents.system_prompt and then drops its temporary default: every new agent names its prompt.
+prompt_default=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT column_default IS NULL AND is_nullable = 'NO' FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'system_prompt'")
+[ "$prompt_default" = t ] || { echo 'FAIL: agents.system_prompt still has a default' >&2; exit 1; }
+printf '%s\n' 'PASS: agents.system_prompt is required and has no default.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

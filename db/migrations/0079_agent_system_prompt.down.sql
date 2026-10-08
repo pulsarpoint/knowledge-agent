@@ -2,6 +2,7 @@ BEGIN;
 SET search_path = ka, public;
 SET CONSTRAINTS ALL IMMEDIATE;
 
+ALTER TABLE agents ALTER COLUMN system_prompt SET DEFAULT '';
 -- 0078 reads the prompt from the active prompt version. A prompt edited after 0079 becomes a new active version;
 -- an agent without prompt rows (created after 0079, or after 0080 down) gets its prompt as published version 1.
 -- A version needs text (an empty prompt becomes a placeholder) and at most 40 000 characters.
