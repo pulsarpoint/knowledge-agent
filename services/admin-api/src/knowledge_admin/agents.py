@@ -128,7 +128,7 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
                        timeout_seconds: float, output_type: type[BaseModel] | None = None) -> AsyncIterator[Agent]:
     """Instantiate a native Agent and keep its model/MCP connections open for the caller.
 
-    Shared by direct tests and the board's Agent.as_tool() specialists. This does
+    Used by agent() for test chats, live runs and native sessions. This does
     not run the agent or read the database; credentials stay in backend objects.
     """
     if not config['enabled']:

@@ -146,7 +146,6 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
     assert audit['agent_id'] == target
     assert audit['history'] == {'test_chats': 2, 'chats': 1, 'claude_code_sessions': 1, 'runs': 2,
                                 'board_tasks': 1, 'board_memberships': 1}
-    assert client.get('/api/agent-board/tasks', headers=HEADERS).status_code == 200
     assert client.get(f'/api/agents/{other}/history', headers=HEADERS).json()['runs'] == 2
 
 

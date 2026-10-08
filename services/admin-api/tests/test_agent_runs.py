@@ -60,8 +60,6 @@ def test_direct_endpoint_runs_official_sdk_and_keeps_scoped_history(direct, stor
     assert client.post(f'/api/agents/code/runs/{run_id}/cancel', headers=HEADERS).status_code == 404
     assert client.post(path, headers=HEADERS, json={'id':run_id,'task':'Duplicate'}).status_code == 409
     assert len(requests) == 1
-    with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_board_tasks').fetchone()['n'] == 0
 
 
 @pytest.mark.parametrize('change, expected', [

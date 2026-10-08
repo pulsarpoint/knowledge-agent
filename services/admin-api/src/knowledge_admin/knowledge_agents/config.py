@@ -64,7 +64,7 @@ def model_fits(runtime: str, model: Mapping[str, Any], *, coordinator: bool = Fa
 
 
 def require_native(config: Mapping[str, Any]) -> None:
-    """Refuse a Claude Code agent where the native runtime would run it (test chats, live runs, the board)."""
+    """Refuse a Claude Code agent where the native runtime would run it (test chats, live runs)."""
     if config.get('runtime', 'openai') != 'openai':
         raise ValueError(NATIVE_ONLY)
 

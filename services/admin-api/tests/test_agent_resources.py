@@ -2,7 +2,6 @@
 and refused for the coordinator; a per-run agent never runs with its whole selection."""
 import asyncio
 from pathlib import Path
-from uuid import uuid4
 
 import psycopg
 import pytest
@@ -127,9 +126,6 @@ def test_a_per_run_agent_never_runs_with_its_whole_selection(store, saved_agent)
             pass
     with pytest.raises(ValueError, match='per run'):
         asyncio.run(build())
-    board = client.post('/api/agent-board/tasks', headers=HEADERS,
-                        json={'id': str(uuid4()), 'task': 'Check the queue', 'subagent_ids': ['operations']})
-    assert board.status_code == 400 and board.json()['error']['message'] == 'Per-run agents cannot join the multi-agent board yet.'
     with store.connect() as conn:
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)

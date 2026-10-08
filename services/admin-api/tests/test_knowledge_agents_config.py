@@ -1,5 +1,4 @@
 """One agent config for both agent types: the shape, the type and model rules, and the native-only guard."""
-from uuid import uuid4
 
 import pytest
 from knowledge_llm import ModelUnavailable
@@ -62,9 +61,6 @@ def test_claude_code_agents_stay_out_of_native_runs(store, saved_agent):
     assert created.status_code == 409 and created.json()['error']['message'] == NATIVE_ONLY
     run = client.post('/api/agents/operations/runs', headers=HEADERS, json={'task': 'Check the queue', 'is_test': True})
     assert run.status_code == 409 and NATIVE_ONLY in run.text
-    board = client.post('/api/agent-board/tasks', headers=HEADERS,
-                        json={'id': str(uuid4()), 'task': 'Check the queue', 'subagent_ids': ['operations']})
-    assert board.status_code == 400 and 'Claude Code agents' in board.json()['error']['message']
     with store.connect() as conn:
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
