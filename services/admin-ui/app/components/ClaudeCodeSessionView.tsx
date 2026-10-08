@@ -74,7 +74,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
       answerActions={turn => <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
       empty={<p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}
       composer={{ value: message, onChange: setMessage, onSend: () => void send(), onStop: () => void stop(), busy,
-        blockedReason: closed ? 'This session is closed. Start a new session.' : null, label: 'Message',
+        blockedReason: closed ? 'This session is closed. Start a new session to continue.' : null, label: 'Message',
         placeholder: 'For example: shorten the API section' }} />
     <Sheet open={draftOpen} onOpenChange={setDraftOpen}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">

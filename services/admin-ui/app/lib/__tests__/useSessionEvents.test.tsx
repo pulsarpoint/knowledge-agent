@@ -88,6 +88,50 @@ test('live tool counts: earlier pages are never added; one earlier page loads at
   expect(before).not.toHaveBeenCalled();
 });
 
+test('live tool counts: a session loaded after the stream counts its streamed calls once', async () => {
+  let resolve: (response: Response) => void = () => {};
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/events/history') ? Promise.resolve(page([]))
+    : new Promise<Response>(done => { resolve = done; })));
+  const { result } = renderHook(() => useSessionEvents('s1'));
+  const stream = await opened();
+  act(() => { stream.emit('run_event', call(1, 'Read')); stream.emit('run_event', call(2, 'Bash')); stream.emit('run_event', call(3, 'Read'));
+    stream.emit('session', { ...state, status: 'working', turns: 1 }); });  // the stream's state arrives before the detail
+  await waitFor(() => expect(ids(result.current.events)).toEqual([1, 2, 3]));
+  await act(async () => {  // the counts already include calls 1 and 2
+    resolve(Response.json({ ...detail, tool_counts: [{ name: 'Bash', calls: 1 }, { name: 'Read', calls: 1 }], tool_counts_through_id: 2 }));
+  });
+  await waitFor(() => expect(result.current.toolCounts).toEqual([{ name: 'Read', calls: 2 }, { name: 'Bash', calls: 1 }]));
+});
+
+test('live tool counts: an earlier page loaded on demand is never added', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('before=150')) return page([call(120, 'Glob')]);
+    if (url.includes('/events/history')) return page([message(150), message(151)], true);
+    return Response.json({ ...detail, tool_counts: [], tool_counts_through_id: 0 });
+  }));
+  const { result } = renderHook(() => useSessionEvents('s1'));
+  await opened();
+  await waitFor(() => expect(result.current.toolCounts).toEqual([]));
+  await act(async () => { await result.current.loadOlder(); });
+  expect(ids(result.current.events)).toEqual([120, 150, 151]);
+  expect(result.current.toolCounts).toEqual([]);
+});
+
+test('live tool counts: the session state never replaces the counts, and they re-sort as calls stream in', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([call(9, 'Read'), call(11, 'Grep')])
+    : Response.json({ ...detail, tool_counts_through_id: 10 })));
+  const { result } = renderHook(() => useSessionEvents('s1'));
+  const stream = await opened();
+  await waitFor(() => expect(result.current.toolCounts).toEqual([{ name: 'Read', calls: 5 }, { name: 'Grep', calls: 1 }]));
+  act(() => {
+    stream.emit('run_event', call(12, 'Bash')); stream.emit('run_event', call(13, 'Bash'));
+    stream.emit('session', { ...state, status: 'working', turns: 1 });
+  });
+  await waitFor(() => expect(result.current.toolCounts).toEqual([{ name: 'Read', calls: 5 }, { name: 'Bash', calls: 2 }, { name: 'Grep', calls: 1 }]));
+  act(() => { ['Grep', 'Grep', 'Grep', 'Grep'].forEach((name, i) => stream.emit('run_event', call(14 + i, name))); });
+  await waitFor(() => expect(result.current.toolCounts).toEqual([{ name: 'Grep', calls: 5 }, { name: 'Read', calls: 5 }, { name: 'Bash', calls: 2 }]));
+});
+
 test('the session notice: Stop and send notices, cleared by the next status but not by other notices', () => {
   expect(sentNotice(false)).toBe('Sent. The agent starts a new turn with your message.');
   expect(sentNotice(true, 'openai')).toBe('Queued. Your comment reaches the agent at its next step.');
