@@ -3,14 +3,11 @@ detail, send, stop, close, the event stream and saving the draft as a document. 
 agent-session-worker; existing Claude Code sessions in claude-code-worker."""
 import asyncio
 import json
-import time
 from uuid import UUID, uuid4
 
-import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -139,14 +136,10 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     return row
 
 
-STREAM_POLL_SECONDS = 1.0
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
 HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
-STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.model_calls,s.reasoning_tokens,s.draft,
-    s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
-    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
-    FROM ka.agent_sessions_cc s WHERE s.id=%s"""
+LIVE_UNAVAILABLE = 'Live session updates are not running.'
 
 
 def stream_event(row: dict) -> dict:
@@ -342,50 +335,45 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.get('/sessions/{session_id}/events')
     async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):
+        """The session's live stream: run events after Last-Event-ID (or `after`), the state when it changes, `closed`
+        at the end, `unavailable` once while the database cannot be reached, `: keepalive` after KEEPALIVE_SECONDS of
+        quiet, and `retry: 1000` ending a stream that fell behind (the browser reconnects from its last id). The
+        process's SessionHub reads the database; the stream holds no connection."""
         db = database()
         with db.connect() as conn:
             if conn.execute('SELECT 1 FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
                             (session_id, db.project(conn, app_name))).fetchone() is None:
                 raise HTTPException(404, 'Session not found.')
+        hub = getattr(request.app.state, 'session_hub', None)
+        if hub is None:
+            raise HTTPException(503, LIVE_UNAVAILABLE)
         last = request.headers.get('last-event-id', '')
         start_after = int(last) if last.isdigit() else after
 
         async def stream():
-            # Poll by event id over this session's turn keys (cc:<session>:<turn>) and the session row; leaving the
-            # page closes only this subscriber.
-            position, state, quiet_since = start_after, None, time.monotonic()
-            try:
-                async with await psycopg.AsyncConnection.connect(db.conninfo, autocommit=True, row_factory=dict_row,
-                                                                 connect_timeout=5) as conn:
-                    while True:
-                        current = await (await conn.execute(STATE, (session_id,))).fetchone()
-                        if current is None:  # the session was removed
-                            yield 'event: closed\ndata: {}\n\n'
-                            return
-                        keys = [f'cc:{session_id}:{turn}' for turn in range(1, current['turns'] + 1)]
-                        rows = await (await conn.execute('''SELECT id,run_key,seq,kind,payload,created_at
-                            FROM ka.agent_run_events WHERE run_key=ANY(%s) AND id>%s ORDER BY id LIMIT 500''',
-                            (keys, position))).fetchall()
-                        for row in rows:
-                            position, quiet_since = row['id'], time.monotonic()
-                            yield f'id: {position}\nevent: run_event\ndata: {json.dumps(jsonable_encoder(stream_event(row)))}\n\n'
-                        if len(rows) == 500:
-                            continue
-                        public = jsonable_encoder(current)
-                        if public != state:
-                            state, quiet_since = public, time.monotonic()
-                            yield f'event: session\ndata: {json.dumps(public)}\n\n'
-                        if current['status'] == 'closed':
-                            yield 'event: closed\ndata: {}\n\n'
-                            return
+            # Leaving the page cancels this generator, which unsubscribes only this page.
+            async with hub.subscribe(session_id, start_after) as subscription:
+                while True:
+                    try:
+                        kind, value = await asyncio.wait_for(subscription.get(), KEEPALIVE_SECONDS)
+                    except TimeoutError:
                         if await request.is_disconnected():
                             return
-                        if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
-                            quiet_since = time.monotonic()
-                            yield ': keepalive\n\n'
-                        await asyncio.sleep(STREAM_POLL_SECONDS)
-            except psycopg.Error:
-                yield 'event: unavailable\ndata: {}\n\n'
+                        yield ': keepalive\n\n'
+                        continue
+                    if kind == 'event':
+                        yield (f"id: {value['id']}\nevent: run_event\n"
+                               f'data: {json.dumps(jsonable_encoder(stream_event(value)))}\n\n')
+                    elif kind == 'session':
+                        yield f'event: session\ndata: {json.dumps(value)}\n\n'
+                    elif kind == 'unavailable':
+                        yield 'event: unavailable\ndata: {}\n\n'
+                    elif kind == 'resync':
+                        yield 'retry: 1000\n\n'
+                        return
+                    else:  # closed
+                        yield 'event: closed\ndata: {}\n\n'
+                        return
 
         return StreamingResponse(stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})

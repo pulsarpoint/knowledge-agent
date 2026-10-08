@@ -73,17 +73,25 @@ class SessionHub:
         self.listening = asyncio.Event()  # set while LISTEN is active
         self.listener_pid: int | None = None
         self.reads = 0  # per-session reads so far (tests and diagnostics)
+        self._stopped = False
 
     async def start(self) -> None:
         """Start the listener and the reader; returns at once (the database may still be unreachable)."""
+        self._stopped = False
         self._tasks = [asyncio.create_task(self._listen(), name='session-hub-listener'),
                        asyncio.create_task(self._read_loop(), name='session-hub-reader')]
 
     async def stop(self) -> None:
+        """Stop listening and reading. Every open subscription (and any made later) gets resync: its stream ends and
+        the browser reconnects from its last event id, to this process once it runs again or to another one."""
+        self._stopped = True
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
+        for session_id, watched in list(self._watched.items()):
+            for subscription in list(watched.subscribers):
+                self._resync(session_id, subscription)
 
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, after_id: int) -> AsyncIterator[Subscription]:
@@ -93,6 +101,8 @@ class SessionHub:
         if watched is None:
             watched = self._watched[session_id] = Watched(after_id)
         watched.subscribers.append(subscription)
+        if self._stopped:  # nothing would ever read for it
+            self._resync(session_id, subscription)
         self._mark([session_id])
         try:
             yield subscription
@@ -132,12 +142,17 @@ class SessionHub:
         if subscription.dropped:
             return False
         if subscription.queue.qsize() >= QUEUE_SIZE:
-            subscription.dropped = True
-            subscription.queue.put_nowait(('resync', None))
-            self._leave(session_id, subscription)
+            self._resync(session_id, subscription)
             return False
         subscription.queue.put_nowait(message)
         return True
+
+    def _resync(self, session_id: UUID, subscription: Subscription) -> None:
+        """End a subscription with resync (in the queue's extra place) and drop it."""
+        if not subscription.dropped:
+            subscription.dropped = True
+            subscription.queue.put_nowait(('resync', None))
+            self._leave(session_id, subscription)
 
     def _outage(self) -> None:
         """The database cannot be reached: every subscriber hears it once; everything watched is read on recovery."""

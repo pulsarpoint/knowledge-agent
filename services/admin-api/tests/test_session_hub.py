@@ -472,3 +472,18 @@ def test_a_failing_reader_retries_at_once_when_the_database_is_back(store):
         finally:
             await hub.stop()
     asyncio.run(scenario())
+
+
+def test_stopping_the_hub_ends_every_subscription_with_resync(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = await running(store)
+        async with hub.subscribe(session, 0) as page:
+            assert summary(await take(page, 1)) == [('session', 'working')]
+            await hub.stop()
+            assert summary(await take(page, 1, timeout=1)) == [('resync', None)]
+            assert hub.subscribers(session) == 0
+        async with hub.subscribe(session, 0) as late:  # after stop: nobody would ever read for it
+            assert summary(await take(late, 1, timeout=1)) == [('resync', None)]
+    asyncio.run(scenario())

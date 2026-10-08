@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
 from knowledge_admin.documents import backfill_exports
+from knowledge_admin.live.session_hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -36,11 +37,17 @@ def create_app(cfg: Config, *, server: ServerConfig,
     @asynccontextmanager
     async def lifespan(app):
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
+        hub = None
+        if repository_store is not None:  # live session pages: one database listener per process
+            hub = app.state.session_hub = SessionHub(repository_store.conninfo)
+            await hub.start()
         try:
             yield
         finally:
             backfill.cancel()
             await asyncio.gather(backfill, return_exceptions=True)
+            if hub is not None:
+                await hub.stop()
 
     app = FastAPI(title="Knowledge Agent Administration", docs_url=None,
                   redoc_url=None, openapi_url=None, lifespan=lifespan)

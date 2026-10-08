@@ -3,6 +3,9 @@ import { getSession, getSessionHistory, sessionEventsUrl, type SessionDetail, ty
 import type { AgentRuntime } from './profiles';
 import { withLaterCalls, type ToolCount } from './runs';
 
+/** Shown while the server cannot reach the database; the stream stays open and its next message clears it. */
+export const UNAVAILABLE = 'The session stream is unavailable. Reload the page.';
+
 export type OlderState = 'more' | 'loading' | 'start';
 export interface SessionRun {
   session: SessionDetail | null;
@@ -67,6 +70,7 @@ export function useSessionEvents(sessionId: string | null): SessionRun {
       stream = source;
       source.addEventListener('run_event', e => {
         setReconnecting(false);
+        setError(c => c === UNAVAILABLE ? '' : c);
         const event = JSON.parse((e as MessageEvent).data) as SessionEvent;
         if (event.id <= lastId) return;
         lastId = event.id;
@@ -75,6 +79,7 @@ export function useSessionEvents(sessionId: string | null): SessionRun {
       });
       source.addEventListener('session', e => {
         setReconnecting(false);
+        setError(c => c === UNAVAILABLE ? '' : c);
         const next = JSON.parse((e as MessageEvent).data) as SessionState;
         streamed = next;
         setSession(current => current && { ...current, ...next, tool_counts: current.tool_counts,
@@ -83,7 +88,7 @@ export function useSessionEvents(sessionId: string | null): SessionRun {
       source.addEventListener('open', () => setReconnecting(false));
       source.addEventListener('error', () => { if (source.readyState !== 2) setReconnecting(true); });
       source.addEventListener('closed', () => { setReconnecting(false); source.close(); });
-      source.addEventListener('unavailable', () => setError('The session stream is unavailable. Reload the page.'));
+      source.addEventListener('unavailable', () => setError(UNAVAILABLE));
     }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load the session activity'); });
     return () => {
       controller.abort(); loadingOlder.current?.abort(); loadingOlder.current = null;

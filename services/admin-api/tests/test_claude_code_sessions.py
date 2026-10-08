@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from psycopg.types.json import Jsonb
@@ -65,6 +65,14 @@ def sessions(store, tmp_path, monkeypatch):
             'document_name': 'Payments – API reference', 'folder': 'payments-api-docs'}
     return SimpleNamespace(client=client, store=store, body=body, agent=agent, claude=claude, gpt=gpt, repo=str(repo),
                            worker=str(worker), environment=str(environment), service=str(service), server=server, data=data)
+
+
+@pytest.fixture
+def live(sessions):
+    """The sessions client with its lifespan running, so its session hub listens; yields the hub. Stream tests need it:
+    a TestClient used without `with` never starts the lifespan."""
+    with sessions.client as client:
+        yield client.app.state.session_hub
 
 
 def start(sessions, **change) -> dict:
@@ -250,8 +258,7 @@ def record(conn, session_id, turn: int, seq: int, kind: str, payload: dict) -> N
         (f'cc:{session_id}:{turn}', seq, kind, Jsonb(payload), session_id))
 
 
-def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkeypatch):
-    monkeypatch.setattr(claude_code_api, 'STREAM_POLL_SECONDS', 0.02)
+def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, live):
     client, store = sessions.client, sessions.store
     sid = start(sessions)['id']
     other = start(sessions)['id']
@@ -384,16 +391,8 @@ def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
     assert sent.status_code == 409 and sent.json()['error']['message'] == 'This session is closed. Start a new session.'
 
 
-def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(sessions, monkeypatch):
-    monkeypatch.setattr(claude_code_api, 'STREAM_POLL_SECONDS', 0.02)
+def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(sessions, live, monkeypatch):
     monkeypatch.setattr(claude_code_api, 'KEEPALIVE_SECONDS', 60)
-    connected = []
-    original = claude_code_api.psycopg.AsyncConnection.connect
-
-    async def connect(*args, **kwargs):
-        connected.append(kwargs.get('connect_timeout'))
-        return await original(*args, **kwargs)
-    monkeypatch.setattr(claude_code_api.psycopg.AsyncConnection, 'connect', connect)
     sid = start(sessions)['id']
 
     def remove():
@@ -408,7 +407,8 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
     thread.join()
     assert parse(response.text)[-1]['event'] == 'closed'
     assert ': keepalive' not in response.text  # well under KEEPALIVE_SECONDS
-    assert connected == [5]
+    assert live.subscribers(UUID(sid)) == 0  # unsubscribed and forgotten
+    assert not hasattr(claude_code_api, 'STREAM_POLL_SECONDS')
     assert claude_code_api.KEEPALIVE_SECONDS == 60 and 10 <= claude_code_api.DEFAULT_KEEPALIVE_SECONDS <= 20
 
 

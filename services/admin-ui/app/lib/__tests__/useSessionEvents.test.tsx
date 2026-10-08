@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { SessionStatus } from '../claudeCode';
-import { sentNotice, STOPPING, useSessionEvents, useSessionNotice } from '../useSessionEvents';
+import { sentNotice, STOPPING, UNAVAILABLE, useSessionEvents, useSessionNotice } from '../useSessionEvents';
 
 class Stream extends EventTarget {
   static instances: Stream[] = [];
@@ -57,6 +57,23 @@ test('a replayed batch is kept once, a stale session load does not undo the stre
   act(() => { [1, 2, 3, 4].forEach(id => stream.emit('run_event', message(id))); });
   await waitFor(() => expect(ids(result.current.events)).toEqual([1, 2, 3, 4]));
   expect(result.current.reconnecting).toBe(false);
+});
+
+test('the stream stays open across an outage: its next message clears the unavailable error, never other errors', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
+  const { result } = renderHook(() => useSessionEvents('s1'));
+  const stream = await opened();
+  await waitFor(() => expect(result.current.session).not.toBeNull());
+  act(() => stream.dispatchEvent(new Event('unavailable')));
+  expect(result.current.error).toBe(UNAVAILABLE);
+  act(() => stream.emit('run_event', message(1)));
+  expect(result.current.error).toBe('');
+  act(() => stream.dispatchEvent(new Event('unavailable')));
+  act(() => stream.emit('session', { ...state, status: 'working', turns: 1 }));
+  expect(result.current.error).toBe('');
+  act(() => result.current.setError('Could not stop the turn'));
+  act(() => { stream.emit('run_event', message(2)); stream.emit('session', { ...state, status: 'waiting', turns: 1 }); });
+  expect(result.current.error).toBe('Could not stop the turn');
 });
 
 test('live tool counts: the loaded counts plus streamed calls after the last one counted, replays counted once', async () => {
