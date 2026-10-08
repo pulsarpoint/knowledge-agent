@@ -105,7 +105,7 @@ coordinator agent with everything it owned, and drops `agents.is_coordinator` wi
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
-- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools`,, and `resources`.
+- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools` and `resources`.
 - `GET /api/agents` returns `resources` and `accepts` (from the active version).
 - `GET /api/agents/{id}/run-resources?version_id=` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
 - `POST /api/agents/{id}/runs` and `POST /api/agents/{id}/sessions` accept `resources` with a new conversation only (follow-ups: 409); sessions and runs return `run_resources`.
