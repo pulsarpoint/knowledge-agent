@@ -1,5 +1,6 @@
 """The catalog: SDK-independent tools with usage text, the "offered today" rule, selection and the adapter."""
 import asyncio
+import dataclasses
 import itertools
 import json
 
@@ -121,3 +122,39 @@ def test_the_prompt_no_longer_carries_tool_sentences():
                      'Use search_documents to find', 'Use ssh_run with the configured server ID'):
         assert sentence not in prompt
     assert 'Use only the configured resources and tools.' in prompt and '"ssh_servers"' in prompt
+
+
+def test_a_refused_tool_answers_not_offered_even_with_invalid_arguments():
+    context = {'config': config(code=True), 'credentials': {}, 'workspace': None, 'shell_enabled': False,
+               'tools': frozenset()}
+    read = function_tool(CATALOG['read_file'], CATALOG['read_file'].usage)
+    payload = json.dumps({'offset': 1})
+    wrapped = ToolContext(context=context, tool_name='read_file', tool_call_id='t1', tool_arguments=payload)
+    assert NOT_OFFERED.format(name='read_file') in asyncio.run(read.on_invoke_tool(wrapped, payload))
+
+
+def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monkeypatch):
+    from knowledge_admin.tools import sdk
+    errors = []
+
+    class Span:
+        def set_error(self, error):
+            errors.append(error)
+
+    monkeypatch.setattr(sdk, 'get_current_span', lambda: Span())
+    context = {'config': config(code=True), 'credentials': {'key': 'TOP-SECRET'}, 'workspace': None,
+               'shell_enabled': False, 'tools': frozenset({'read_file'})}
+    async def fail(context, arguments):
+        raise ValueError('cannot read with key TOP-SECRET')
+    read = function_tool(dataclasses.replace(CATALOG['read_file'], run=fail), CATALOG['read_file'].usage)
+    payload = json.dumps({'path': '/a.txt'})
+    wrapped = ToolContext(context=context, tool_name='read_file', tool_call_id='t1', tool_arguments=payload)
+    with caplog.at_level('ERROR', logger=sdk.logger.name):
+        result = asyncio.run(read.on_invoke_tool(wrapped, payload))
+    assert result.startswith('An error occurred while running the tool.')
+    assert 'TOP-SECRET' in result  # the model's error text is redacted later, by the run's activity
+    [record] = [r for r in caplog.records if r.name == sdk.logger.name]
+    assert 'Tool read_file failed' in record.getMessage() and 'TOP-SECRET' not in record.getMessage()
+    [error] = errors
+    assert error['message'] == 'Error running tool (non-fatal)' and error['data']['tool_name'] == 'read_file'
+    assert 'TOP-SECRET' not in error['data']['error'] and '[redacted]' in error['data']['error']

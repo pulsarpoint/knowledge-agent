@@ -160,8 +160,8 @@ result = await agent(config, "Explain how this project starts.", credentials=dec
 print(result.final_output)
 ```
 
-Setup is split into `get_model`, `get_paths`, `get_ssh`, `get_tools`,
-and `get_prompt` in `agents.py` (MCP server selection is in
+Setup is split into `get_model`, `get_paths`, `get_ssh` and `get_prompt` in
+`agents.py`; tools come from `tools/catalog.py` through `tools/sdk.py` (MCP server selection is in
 `knowledge_admin/capabilities/mcp.py`). These select the saved settings and enabled
 resources. Provider connections still belong to `model_adapter.agent_model()`;
 the main runner owns connection cleanup and streaming. The session API owns
