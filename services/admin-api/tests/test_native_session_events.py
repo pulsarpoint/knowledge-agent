@@ -52,9 +52,9 @@ def test_a_native_turn_becomes_the_events_of_a_claude_code_turn():
     assert (failed['is_error'], failed['output']) == (True, SDK_ERROR)
     assert [payload['text'] for kind, payload in recorder.events if kind == 'message'] == ['Draft below.', '# Payments API']
     assert [payload for kind, payload in recorder.events if kind == 'usage'] == [  # one per model call
-        {'input_tokens': 100, 'output_tokens': 20, 'cached_tokens': 60, 'total_tokens': 120, 'cost_usd': 0.0},
-        {'input_tokens': 50, 'output_tokens': 30, 'cached_tokens': 0, 'total_tokens': 80, 'cost_usd': 0.0}]
-    assert events.usage == {'input_tokens': 150, 'output_tokens': 50, 'cached_tokens': 60, 'total_tokens': 200,
+        {'input_tokens': 100, 'output_tokens': 20, 'cached_tokens': 60, 'reasoning_tokens': 0, 'total_tokens': 120, 'cost_usd': 0.0},
+        {'input_tokens': 50, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 80, 'cost_usd': 0.0}]
+    assert events.usage == {'input_tokens': 150, 'output_tokens': 50, 'cached_tokens': 60, 'reasoning_tokens': 0, 'total_tokens': 200,
                             'cost_usd': 0.0}
     assert recorder.flushes == 6  # after the first agent start, each model call and each tool result
     assert events.draft('# Payments API\n\nFinal.') == '# Payments API\n\nFinal.'
@@ -68,7 +68,7 @@ def test_each_model_call_records_its_usage_through_the_runner():
     recorder, recorded = Recorder(), []
     events = native_sessions.SessionEvents(recorder, secrets=[], first=False, record_usage=recorded.append)
     asyncio.run(events.on_llm_end(None, WRITER, response(message('Hi'), input_tokens=5, output_tokens=2, cached=1)))
-    assert recorded == [{'input_tokens': 5, 'output_tokens': 2, 'cached_tokens': 1, 'total_tokens': 7, 'cost_usd': 0.0}]
+    assert recorded == [{'input_tokens': 5, 'output_tokens': 2, 'cached_tokens': 1, 'reasoning_tokens': 0, 'total_tokens': 7, 'cost_usd': 0.0}]
     assert recorder.flushes == 0
 
 
@@ -104,7 +104,7 @@ def test_fakes_match_the_sdk_types():
     from agents.usage import Usage
     from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseReasoningItem
     assert {'output', 'usage'} <= {field.name for field in dataclasses.fields(ModelResponse)}
-    assert {'input_tokens', 'output_tokens', 'total_tokens', 'input_tokens_details'} <= {
+    assert {'input_tokens', 'output_tokens', 'total_tokens', 'input_tokens_details', 'output_tokens_details'} <= {
         field.name for field in dataclasses.fields(Usage)}
     assert 'tool_call_id' in {field.name for field in dataclasses.fields(ToolContext)}
     assert {'type', 'call_id', 'name', 'arguments'} <= set(ResponseFunctionToolCall.model_fields)

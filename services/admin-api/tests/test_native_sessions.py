@@ -112,8 +112,8 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert turn1[2]['payload']['text'] == 'Native prompt for Native writer'
     assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
     assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
-        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'total_tokens': 110, 'cost_usd': 0.0},
-        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'total_tokens': 150, 'cost_usd': 0.0}]
+        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110, 'cost_usd': 0.0},
+        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150, 'cost_usd': 0.0}]
     assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == ['start', 'input', 'message', 'usage', 'end']
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']

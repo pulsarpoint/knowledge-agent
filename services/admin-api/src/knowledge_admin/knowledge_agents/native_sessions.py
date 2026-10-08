@@ -19,7 +19,7 @@ from agents import RunHooks
 from agents.run_config import CallModelData, ModelInputData
 from cryptography.exceptions import InvalidTag
 
-from knowledge_admin import agent_tracing, run_record
+from knowledge_admin import agent_tracing, grounding, run_record
 from knowledge_admin.agent_activity import tool_failed
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -86,7 +86,8 @@ class SessionEvents(RunHooks):
         self.recorder, self.secrets, self.first, self.record_usage = recorder, secrets, first, record_usage
         self.texts: list[str] = []
         self.closed = False  # the turn ended: a turn that outlived Stop records nothing more and starts no tool call
-        self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'total_tokens': 0, 'cost_usd': 0.0}
+        self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'reasoning_tokens': 0,
+                      'total_tokens': 0, 'cost_usd': 0.0}
 
     async def _flush(self) -> None:
         await asyncio.to_thread(self.recorder.flush)
@@ -120,8 +121,10 @@ class SessionEvents(RunHooks):
                                                 'summary': summary(item.name, arguments)})
         usage = response.usage
         details = getattr(usage, 'input_tokens_details', None)
+        output_details = getattr(usage, 'output_tokens_details', None)
         call = {'input_tokens': int(usage.input_tokens or 0), 'output_tokens': int(usage.output_tokens or 0),
                 'cached_tokens': int(getattr(details, 'cached_tokens', 0) or 0),
+                'reasoning_tokens': int(getattr(output_details, 'reasoning_tokens', 0) or 0),
                 'total_tokens': int(usage.total_tokens or 0), 'cost_usd': 0.0}
         for key, value in call.items():
             self.usage[key] += value
@@ -163,6 +166,13 @@ def failure(exc: BaseException, secrets: Iterable[str]) -> str:
         if reason:
             return reason
     return f'Agent execution failed ({type(exc).__name__}). Check the model connection and agent resources.'
+
+
+def grounding_of(result: Any, answer: str) -> dict[str, Any] | None:
+    """The cited sources and coverage of a grounded turn, from its run context's grounding state (the documents tools
+    keep it there), or None for an ungrounded turn."""
+    context = getattr(getattr(result, 'context_wrapper', None), 'context', None)
+    return grounding.result(answer, context.get('grounding') if isinstance(context, dict) else None)
 
 
 def _retrieve(task: asyncio.Task) -> None:
@@ -260,9 +270,11 @@ class NativeRunner(shared.SessionRunner):
             recorder.flush_in(conn)
             conn.execute('''UPDATE ka.agent_sessions_cc SET input_tokens=input_tokens+%(input)s,
                 output_tokens=output_tokens+%(output)s, cached_tokens=cached_tokens+%(cached)s,
+                reasoning_tokens=reasoning_tokens+%(reasoning)s, model_calls=model_calls+1,
                 cost_usd=cost_usd+%(cost)s::numeric, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s''',
                 {'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'cost': usage['cost_usd'], 'id': self.id, 'worker': self.worker_id})
+                 'reasoning': usage['reasoning_tokens'], 'cost': usage['cost_usd'], 'id': self.id,
+                 'worker': self.worker_id})
 
     async def run_turn(self, number: int, text: str) -> None:
         # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
@@ -270,7 +282,8 @@ class NativeRunner(shared.SessionRunner):
         self.secrets = secrets
         recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
                                agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=secrets)
-        recorder.add('start', {'kind': 'native_session', 'title': self.session['title'], 'agent': self.session['agent_name'],
+        kind = 'test_session' if self.session.get('purpose') == 'test' else 'native_session'
+        recorder.add('start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'],
                                'turn': number})
         recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
@@ -279,13 +292,13 @@ class NativeRunner(shared.SessionRunner):
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
-        status, message, final = 'failed', '', None
+        status, message, result = 'failed', '', None
         try:
             try:
                 config, credentials, history = await asyncio.to_thread(self.load)
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
-                status, final = await self.drive(config, text, credentials, history, events, comments)
+                status, result = await self.drive(config, text, credentials, history, events, comments)
                 message = STOPPED if status == 'stopped' else ''
             except Exception as exc:
                 status, message = 'failed', failure(exc, secrets)
@@ -296,7 +309,12 @@ class NativeRunner(shared.SessionRunner):
             if comments is not None:
                 comments.closed = True
                 await comments.settle()
-            recorder.add('end', {'status': END_STATUS[status]})
+            answer = clean_text(events.draft(None if result is None else result.final_output), secrets)
+            end = {'status': END_STATUS[status]}
+            sources = grounding_of(result, answer) if status == 'waiting' else None
+            if sources is not None:
+                end['grounding'] = sources  # the recorder redacts it with the turn's secrets
+            recorder.add('end', end)
             recorder.close()  # no event after 'end'
             await asyncio.to_thread(recorder.flush)
             if status != 'waiting' and comments is not None:
@@ -307,7 +325,7 @@ class NativeRunner(shared.SessionRunner):
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             # usage=None: every model call already added its tokens (add_usage)
             await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit,
-                                    draft=clean_text(events.draft(final), secrets))
+                                    draft=answer)
         finally:
             if history is not None:
                 history.drop()
@@ -316,7 +334,7 @@ class NativeRunner(shared.SessionRunner):
 
     async def drive(self, config: dict, text: str, credentials: dict[str, str], history: HistorySession,
                     events: SessionEvents, comments: Comments) -> tuple[str, Any]:
-        """Run the turn without time or model-call limits: ('waiting', final answer) or ('stopped', None). Stop, Close or
+        """Run the turn without time or model-call limits: ('waiting', the run result) or ('stopped', None). Stop, Close or
         a lost lease cancels it wherever it is (connecting, in a model request, in a tool call); a runner that is itself
         cancelled (the worker stops) cancels it too."""
         turn = asyncio.create_task(self.run_agent(
@@ -328,7 +346,7 @@ class NativeRunner(shared.SessionRunner):
                 if not turn.done() and await asyncio.to_thread(self.stop_requested):
                     await _cancel(turn, self.id)
                     return 'stopped', None
-            return 'waiting', turn.result().final_output  # raises the turn's error
+            return 'waiting', turn.result()  # raises the turn's error
         finally:
             if not turn.done():
                 await _cancel(turn, self.id)

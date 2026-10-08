@@ -202,9 +202,9 @@ class SessionRunner:
     def finish_turn(self, number: int, status: str, message: str, *, draft: str, usage: dict[str, Any] | None,
                     claude_session_id: str | None = None, commit: Callable[[Any], None] | None = None) -> None:
         """Record the turn's outcome. The draft (already cleaned) replaces the previous one only after a successful turn
-        with text. `commit(conn)` runs in the same transaction, only for a successful turn this worker still owns: a
-        lease lost after the turn completed leaves the comments delivered inside it delivered and its history
-        uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
+        with text; a Test session (purpose 'test') never gets a draft. `commit(conn)` runs in the same transaction,
+        only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
+        delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again."""
         usage = usage or NO_USAGE
         draft = draft if status == 'waiting' and draft.strip() else None
@@ -212,8 +212,8 @@ class SessionRunner:
             updated = conn.execute("""UPDATE ka.agent_sessions_cc SET
                 status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
                 status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
-                draft=coalesce(%(draft)s::text, draft),
-                draft_turn=CASE WHEN %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
+                draft=CASE WHEN purpose='test' THEN draft ELSE coalesce(%(draft)s::text, draft) END,
+                draft_turn=CASE WHEN purpose='test' OR %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
                 claude_session_id=coalesce(%(cli)s::text, claude_session_id),
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s, cost_usd=cost_usd+%(cost)s::numeric,

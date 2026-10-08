@@ -32,11 +32,12 @@ def call(call_id: str, name: str, arguments: dict):
     return SimpleNamespace(type='function_call', call_id=call_id, name=name, arguments=json.dumps(arguments))
 
 
-def response(*items, input_tokens: int = 0, output_tokens: int = 0, cached: int = 0):
+def response(*items, input_tokens: int = 0, output_tokens: int = 0, cached: int = 0, reasoning: int = 0):
     """A ModelResponse: its output items and its Usage."""
     return SimpleNamespace(output=list(items), usage=SimpleNamespace(
         input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=input_tokens + output_tokens,
-        input_tokens_details=SimpleNamespace(cached_tokens=cached)))
+        input_tokens_details=SimpleNamespace(cached_tokens=cached),
+        output_tokens_details=SimpleNamespace(reasoning_tokens=reasoning)))
 
 
 class Turn:
@@ -90,7 +91,9 @@ class FakeAgent:
             if 'error' in script:
                 raise script['error']
             await session.add_items([{'role': 'assistant', 'content': script['answer']}])
-            return SimpleNamespace(final_output=script['answer'])
+            # A grounded turn's run context holds the documents tools' state (capabilities.documents).
+            context = {'grounding': script['grounding']} if 'grounding' in script else {}
+            return SimpleNamespace(final_output=script['answer'], context_wrapper=SimpleNamespace(context=context))
         finally:
             self.running -= 1
 
