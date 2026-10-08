@@ -11,7 +11,7 @@ from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
 from knowledge_admin.tools.catalog import effective_tools
-from test_claude_code_sessions import sessions  # noqa: F401  (fixture)
+from test_generations import sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 
 

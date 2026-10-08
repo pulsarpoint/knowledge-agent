@@ -1,7 +1,7 @@
 """Test sessions: the agent Test tab's conversations, run by agent-session-worker like native Generate documents
 sessions (ka.agent_sessions with purpose 'test'). Here: creating one (the first message becomes input 1), listing
 an agent's, and Suggest improvements (a tuning review of the conversation). Everything else — detail, messages, Stop,
-Close, the event history and stream — is the session API in claude_code_api."""
+Close, the event history and stream — is the session API in generations_api."""
 import asyncio
 import copy
 import json
@@ -20,8 +20,8 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agents import agent, load_credentials
-from knowledge_admin.claude_code import agent_system_prompt, close_idle
-from knowledge_admin.claude_code_api import session_detail
+from knowledge_admin.session_text import agent_system_prompt, close_idle
+from knowledge_admin.generations_api import session_detail
 from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run,
                                                      require_run_resources)
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve

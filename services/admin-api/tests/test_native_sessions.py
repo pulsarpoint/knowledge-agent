@@ -18,7 +18,7 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
 from run_helpers import events, post, session_row, wait_for
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -55,7 +55,7 @@ def leftover_tasks() -> list[asyncio.Task]:
 
 def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     sessions, sid = native
-    store, url, data = sessions.store, f'/api/claude-code/sessions/{sid}', sessions.data
+    store, url, data = sessions.store, f'/api/generations/sessions/{sid}', sessions.data
     with store.connect() as conn:  # a run record setting never reaches a session turn (agent() would record it)
         conn.execute('UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
                      (Jsonb({'record': {'run_key': 'run:x'}}), sid))
@@ -121,7 +121,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
 
 def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     fake = FakeAgent([
         {'steps': [llm(message('# Draft one'), input_tokens=10, output_tokens=5)], 'answer': '# Draft one'},
         {'steps': [llm(message('Reading more'), input_tokens=7, output_tokens=1)], 'error': RuntimeError('boom')},
@@ -167,7 +167,7 @@ def test_a_grounding_failure_still_finishes_the_turn_as_waiting_with_its_answer(
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
         done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
         return done
 
@@ -182,7 +182,7 @@ def test_session_tokens_rise_after_every_model_call_and_count_once(native):
     """The session page's In/Out/Cached follow the turn live; the end of the turn adds nothing more, and a stopped turn
     keeps the tokens of its finished model calls."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     reached, go = [asyncio.Event() for _ in range(4)], [asyncio.Event() for _ in range(4)]
 
     def pause(n: int):
@@ -234,7 +234,7 @@ def test_session_tokens_rise_after_every_model_call_and_count_once(native):
 def test_stop_ends_the_turn_wherever_it_is_and_leaves_nothing_running(native, where):
     """Before the first model call (MCP connections), during a model request, during a slow tool call."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, cancelled = asyncio.Event(), []
     steps = [hang(where, started, cancelled)]
     if where == 'tool':
@@ -269,7 +269,7 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     """After Stop and the grace, the turn left running starts no tool call and no model request, and records
     nothing."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.2)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
     after = [tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]
@@ -352,7 +352,7 @@ def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_star
     """While a turn that ignores cancellation is in its Stop grace, a model call it still makes gets no message sent
     after Stop: the message stays queued and becomes the next turn's task."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
     fake = FakeAgent([{'steps': [stubborn(started, ignored, release), llm(message('Late'))], 'answer': 'Late'},
@@ -382,7 +382,7 @@ def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_star
 
 def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -421,7 +421,7 @@ def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
 
 def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_turn(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -449,7 +449,7 @@ def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_tur
 
 def test_a_comment_delivered_to_a_turn_the_user_stopped_is_discarded_like_queued_messages(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate, waiting, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -479,7 +479,7 @@ def test_returned_comments_are_queued_again_only_into_an_open_session_without_st
     store = sessions.store
     runner = native_sessions.NativeRunner(store, claimed(store), FakeAgent([]))
     assert runner.next_turn()[0] == 1
-    url = f'/api/claude-code/sessions/{sid}'
+    url = f'/api/generations/sessions/{sid}'
     for text in ('One', 'Two'):
         sessions.client.post(url + '/messages', headers=HEADERS, json={'text': text})
     ids = []
@@ -497,7 +497,7 @@ def test_comments_are_marked_delivered_only_with_their_input_event(native):
     store = sessions.store
     runner = native_sessions.NativeRunner(store, claimed(store), FakeAgent([]))
     assert runner.next_turn()[0] == 1  # turn 1 is running
-    sessions.client.post(f'/api/claude-code/sessions/{sid}/messages', headers=HEADERS, json={'text': 'Also cover retries.'})
+    sessions.client.post(f'/api/generations/sessions/{sid}/messages', headers=HEADERS, json={'text': 'Also cover retries.'})
 
     def broken(conn, delivered):
         raise RuntimeError('recording failed')
@@ -514,7 +514,7 @@ def test_comments_are_marked_delivered_only_with_their_input_event(native):
 def test_no_credential_reaches_events_history_the_draft_or_the_status(native, caplog):
     caplog.set_level('DEBUG')
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': f'echo {KEY}'})),
                    tool('c1', 'shell_run', f'{KEY}\x00 printed'), llm(message(f'Key {KEY}'))],
@@ -566,7 +566,7 @@ def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
         failed = await wait_for(store, sid, lambda s: s['status'] == 'failed')
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
         return failed
 
@@ -646,7 +646,7 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
         serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
                                                             poll=0.02))
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await wait_for(store, sid, lambda s: s['worker_id'] is None)
         stopped.set()
         await asyncio.wait_for(serving, 5)

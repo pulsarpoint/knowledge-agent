@@ -19,7 +19,7 @@ def run(conn, name: str):
 
 
 def ad_hoc_before_0083(conn, project, actor, model_id):
-    """An ad-hoc session as POST /api/claude-code/sessions inserted it before 0083 (ka.agent_sessions_cc, native)."""
+    """An ad-hoc session as POST /api/generations/sessions inserted it before 0083 (ka.agent_sessions_cc, native)."""
     conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
         context_snapshot,document_name,folder,runtime,agent_config)
         VALUES (%s,%s,NULL,%s,%s,'Payments','{}','{}','Payments','payments','openai',%s)''',

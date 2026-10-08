@@ -40,7 +40,7 @@ def add_review(conn, session_id, actor, *, changes: dict[str, Any], agent_config
 
 
 def add_ad_hoc_session(conn, project, actor, model_id, *, message: str | None = None) -> UUID:
-    """A Generate documents session of an ad-hoc agent as POST /api/claude-code/sessions inserts it (no agents row)."""
+    """A Generate documents session of an ad-hoc agent as POST /api/generations/sessions inserts it (no agents row)."""
     session = uuid4()
     conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
         context_snapshot,document_name,folder,agent_config)

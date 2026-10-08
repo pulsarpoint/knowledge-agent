@@ -5,7 +5,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.run_record import tool_counts
 from test_agent_runs_api import seed
 from test_api import _client
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 
@@ -49,7 +49,7 @@ def test_sessions_count_only_their_own_turns_and_runs(store, sessions):
     calls(store, f'cc:{sid}:2', ['Read'])
     calls(store, f'cc:{sid}:3', ['Bash'])  # not a turn of this session yet
     calls(store, f'cc:{sid}0:1', ['Glob'])  # another session sharing the prefix
-    detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
+    detail = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
     assert detail['tool_counts'] == [{'name': 'Read', 'calls': 2}, {'name': 'Grep', 'calls': 1}]
     with store.connect() as conn:  # the last tool_call counted, so a live view adds only later streamed calls
         last = conn.execute("SELECT max(id) AS id FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'",
@@ -59,5 +59,5 @@ def test_sessions_count_only_their_own_turns_and_runs(store, sessions):
 
 def test_a_session_without_tool_calls_counts_through_zero(store, sessions):
     sid = start(sessions)['id']
-    detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
+    detail = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
     assert detail['tool_counts'] == [] and detail['tool_counts_through_id'] == 0

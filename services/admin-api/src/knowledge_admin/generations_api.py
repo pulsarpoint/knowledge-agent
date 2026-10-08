@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.claude_code import FINAL_ANSWER, close_idle
+from knowledge_admin.session_text import FINAL_ANSWER, close_idle
 from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
 from knowledge_admin.generate_documents import resource_context, subjects
@@ -159,11 +159,11 @@ def stream_event(row: dict) -> dict:
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
-    router = APIRouter(prefix='/claude-code')
+    router = APIRouter(prefix='/generations')
 
     def database() -> RepositoryStore:
         if store is None:
-            raise HTTPException(503, 'Claude Code storage is not configured.')
+            raise HTTPException(503, 'Generate documents storage is not configured.')
         return store
 
     def audit(conn, actor, action: str, resource_type: str, details: dict, resource_id=None) -> None:
@@ -216,7 +216,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                  Jsonb(jsonable_encoder(pinned['run_resources']))))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, f'{value.prompt}\n\n{FINAL_ANSWER}'))
-            audit(conn, actor, 'claude_code.session.created', 'agent_session',
+            audit(conn, actor, 'generation.session.created', 'agent_session',
                   jsonable_encoder({'ephemeral': True, 'model_id': model['id'],
                                     'prompt_id': value.prompt_id}), session_id)
             return session_detail(conn, project, session_id)
@@ -265,7 +265,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             actor = db.actor(conn, *request_actor(request))
             conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
             discarded = discard(conn, session_id)
-            audit(conn, actor, 'claude_code.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
+            audit(conn, actor, 'generation.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
             return {'id': session_id, 'discarded': discarded}
 
     @router.post('/sessions/{session_id}/document', status_code=201)
@@ -299,7 +299,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 existing['id'] if existing is not None else None, folder=session['folder'])
             conn.execute('UPDATE ka.agent_sessions SET document_id=%s,last_activity_at=now() WHERE id=%s',
                          (saved['id'], session_id))
-            audit(conn, actor, 'claude_code.session.document_saved', 'agent_session',
+            audit(conn, actor, 'generation.session.document_saved', 'agent_session',
                   {'document_id': str(saved['id']), 'revision': saved['revision']}, session_id)
             try:
                 output, export_error = export_document(**export_args(export_input(conn, saved['id']))), None
@@ -318,7 +318,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
                     WHERE id=%s""", (session_id,))
                 discard(conn, session_id)
-                audit(conn, actor, 'claude_code.session.closed', 'agent_session', {}, session_id)
+                audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
 
     @router.get('/sessions/{session_id}/events/history')

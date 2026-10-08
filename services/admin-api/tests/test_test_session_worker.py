@@ -14,7 +14,7 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from run_helpers import events, post, wait_for
-from test_claude_code_sessions import native_agent, sessions  # noqa: F401  (fixture)
+from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 
 KEY = 'bedrock-secret-token'  # the Claude connection's key, decrypted for each turn
 SOURCES = {'excerpts': [{'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Three retries.'},
@@ -42,7 +42,7 @@ def claimed(store) -> dict:
 
 def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tested):
     sessions, sid = tested
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate, hung, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'search_documents', {'query': 'retries'}), input_tokens=100, output_tokens=10,
@@ -88,7 +88,7 @@ def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tes
 
 def test_grounding_in_the_end_event_is_redacted(tested):
     sessions, sid = tested
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     leaked = {**SOURCES, 'excerpts': [{'n': 1, 'path': f'keys/{KEY}.md', 'collection': 'payments', 'text': KEY}]}
     fake = FakeAgent([{'steps': [llm(message('See [1].'), input_tokens=3, output_tokens=2)], 'answer': 'See [1].',
                        'grounding': leaked},
@@ -111,7 +111,7 @@ def test_grounding_in_the_end_event_is_redacted(tested):
 def test_a_session_pinned_before_claude_code_was_removed_still_runs(tested):
     """Configs pinned before 0083 may keep runtime and claude_code_tools keys; the worker ignores them and runs."""
     sessions, sid = tested
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     with store.connect() as conn:
         conn.execute('''UPDATE ka.agent_sessions SET agent_config=agent_config
             || '{"runtime": "claude_code", "claude_code_tools": ["Read", "Grep"]}' WHERE id=%s''', (sid,))

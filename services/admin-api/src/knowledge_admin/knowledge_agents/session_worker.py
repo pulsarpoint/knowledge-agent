@@ -1,4 +1,4 @@
-"""What the Claude Code and native session workers share: claiming the sessions of one agent type with a lease,
+"""What the session workers share: claiming the sessions of one agent type with a lease,
 delivering queued messages as turns, Stop, finishing a turn (draft, tokens and, for native sessions, history in one
 transaction), the idle release and the serve loop. A worker only adds how it runs a turn."""
 import asyncio
@@ -13,7 +13,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.claude_code import close_idle
+from knowledge_admin.session_text import close_idle
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
 

@@ -9,7 +9,7 @@ import pytest
 from knowledge_admin.agents import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import FIXED, RunResourceError, RunResources, options, resolve
-from test_claude_code_sessions import native_agent, sessions  # noqa: F401  (fixture)
+from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 from test_repositories import HEADERS
 

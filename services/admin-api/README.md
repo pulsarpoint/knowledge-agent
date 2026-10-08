@@ -126,7 +126,7 @@ the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
 `POST /api/agents/{id}/sessions` with `{ "message": "...", "run_resources": {...}? }`, which pins this saved
 configuration (credential references only) in a Test session (`ka.agent_sessions_cc`, `purpose = 'test'`) that
-`agent-session-worker` runs; the Test tab then uses the session routes under `/api/claude-code/sessions`. Runs and safe
+`agent-session-worker` runs; the Test tab then uses the session routes under `/api/generations/sessions`. Runs and safe
 activity are retained in PostgreSQL; full SDK traces go to Phoenix.
 
 The first message creates a session. Follow-ups continue its Agents SDK conversation

@@ -145,6 +145,6 @@ def test_a_session_pinned_with_claude_code_keys_still_loads(store, tmp_path):
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         session = add_test_session(conn, project, actor, 'search', a_model(conn, actor), message='Hello', config={
             'id': 'search', 'runtime': 'claude_code', 'claude_code_tools': ['Read', 'Grep']})
-    response = client.get(f'/api/claude-code/sessions/{session}', headers=HEADERS)
+    response = client.get(f'/api/generations/sessions/{session}', headers=HEADERS)
     assert response.status_code == 200, response.text
     assert response.json()['config']['claude_code_tools'] == ['Read', 'Grep']

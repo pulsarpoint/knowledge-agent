@@ -256,7 +256,7 @@ The recorded migration version stays 71.
 
 ## Upgrading to Generate documents
 
-Docs → Generate documents now runs a Claude Code agent; the one-shot generation and its worker are gone. After pulling this version on an existing installation:
+Docs → Generate documents now runs an agent session; the one-shot generation and its worker are gone. After pulling this version on an existing installation:
 
 1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0073
    deletes the one-shot generation's workflows, jobs, job events and run records;
@@ -275,7 +275,7 @@ Back up the database first: rolling 0073 back restores only the empty tables, no
 Generate documents now also runs native agents. After pulling this version on an existing installation:
 
 1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0074 adds three columns to
-   `agent_sessions_cc` (`runtime`, `agent_config`, `history`); existing sessions are Claude Code sessions.
+   `agent_sessions_cc` (`runtime`, `agent_config`, `history`); existing sessions are kept.
 2. Start the new service:
    `docker compose --env-file .env -f deploy/compose.yaml up -d agent-session-worker`
 
@@ -332,11 +332,11 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
   turn limit.
 - A saved credential that cannot be decrypted no longer refuses the start: the first turn fails with the worker's
   message.
-- Header and per-turn model calls are not shown for Claude Code sessions.
+- Header and per-turn model calls are not shown for sessions started before native sessions.
 - `scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table: run it only on databases before
   0081 (before the upgrade), never after.
 - `POST /api/agents/{id}/runs` and the other `/api/agents/{id}/runs*` routes are gone, as are
   `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
-  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/claude-code/sessions`.
+  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/generations/sessions`.
 - Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
   the Test chats deleted by the upgrade do not come back.

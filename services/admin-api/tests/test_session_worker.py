@@ -3,7 +3,7 @@ successful turn this worker still owns."""
 from uuid import UUID
 
 from knowledge_admin.knowledge_agents import session_worker as shared
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_generations import sessions, start  # noqa: F401  (fixture)
 from session_rows import a_model, add_ad_hoc_session
 from test_repositories import HEADERS
 
@@ -42,7 +42,7 @@ def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(ses
     runner = shared.SessionRunner(store, row)
     assert runner.next_turn()[0] == 1  # the first message starts turn 1
     assert runner.queued_comments(1) == []
-    url = f'/api/claude-code/sessions/{sid}/messages'
+    url = f'/api/generations/sessions/{sid}/messages'
     for text in ('Also cover retries.', 'And errors.'):
         assert sessions.client.post(url, headers=HEADERS, json={'text': text}).status_code == 202
     assert runner.queued_comments(2) == []  # not the running turn

@@ -8,7 +8,7 @@ import pytest
 from agents import ModelBehaviorError
 
 from knowledge_admin.agent_sessions import NO_RESPONSE, NO_TURNS, NOT_A_TEST, REVIEW_BUSY
-from test_claude_code_sessions import record
+from test_generations import record
 from test_repositories import HEADERS
 from test_test_sessions import start, tester  # noqa: F401  (fixture)
 
@@ -65,7 +65,7 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
     assert (context['conversation'], context['turn'], context['comment']) == (TURNS, 1, 'Cite your sources.')
     assert context['agent_config']['id'] == chat.agent and 'output_schema' in context
     assert 'tester-model-secret' not in json.dumps(context)
-    detail = chat.client.get(f'/api/claude-code/sessions/{chat.session}', headers=HEADERS).json()
+    detail = chat.client.get(f'/api/generations/sessions/{chat.session}', headers=HEADERS).json()
     assert [(row['id'], row['response_turn']) for row in detail['reviews']] == [(saved['id'], 1)]
     source = chat.client.get(f"/api/agents/{chat.agent}/reviews/{saved['id']}", headers=HEADERS)
     assert source.status_code == 200 and source.json()['changes']['instructions'] == 'Cite sources.'  # Review and apply
