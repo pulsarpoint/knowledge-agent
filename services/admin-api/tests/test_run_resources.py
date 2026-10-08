@@ -178,3 +178,15 @@ def test_options_list_what_a_caller_may_pass(per_run):
     config['ssh']['servers'][0]['ssh_allowed'] = False  # as a saved version may have it, whatever the server says now
     with s.store.connect() as conn:
         assert options(conn, s.store.project(conn, 'shop'), config)['servers'] == []
+
+
+def test_a_brought_server_without_a_usable_connection_is_left_out_but_a_chosen_one_is_refused(per_run):
+    s = per_run  # prod-1 allows SSH here, but has no username: the agent's snapshot lists it as not enabled
+    with s.store.connect() as conn:
+        conn.execute('UPDATE ka.servers SET ssh_allowed=true WHERE id=%s', (s.server['id'],))
+        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (s.analyst, s.worker))
+        conn.execute('INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,%s,%s)',
+                     (s.store.project(conn, 'shop'), s.analyst, s.server['id']))
+    brought = effective(s, None, environment_ids=[UUID(s.environment)])['run_resources']['server_ids']
+    assert s.server['id'] not in brought
+    assert 'Server prod-1 is not available' in refusal(s, RunResources(server_ids=[s.server['id']]))
