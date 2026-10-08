@@ -2,6 +2,7 @@ import { request } from './api';
 import type { ToolCount } from './runs';
 import type { ModelProfile } from './llm';
 import type { AgentRuntime, RunResourcesInput } from './profiles';
+import type { SessionReview } from './testSessions';
 
 /** The server's Claude connection rule (knowledge_llm.claude_model). */
 export const claudeModel = (model: { provider: string; api_format: string; model: string }) =>
@@ -17,6 +18,7 @@ export const formatTokens = (value: number) => value.toLocaleString('en-US');
 export const sessionTypeLabel = (runtime?: AgentRuntime) => runtime === 'openai' ? 'Native' : 'Claude Code';
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
+export type SessionPurpose = 'documents' | 'test';
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
 export const statusLabels: Record<SessionStatus, string> = {
   starting: 'Starting', working: 'Working', waiting: 'Waiting for you', stopped: 'Stopped', failed: 'Failed', closed: 'Finished',
@@ -25,14 +27,16 @@ export interface SessionFolder { path: string; kind: 'code_project' | 'folder'; 
 export interface SessionSummary {
   id: string; title: string; runtime?: AgentRuntime; agent_id: string; agent_name: string; model_name: string; status: SessionStatus; status_message: string;
   turns: number; input_tokens: number; output_tokens: number; cached_tokens: number; cost_usd: number;
-  document_id: string | null; document_title: string | null; folder: string; worker_active: boolean; queued: number;
+  purpose: SessionPurpose; model_calls: number; reasoning_tokens: number;
+  document_id: string | null; document_title: string | null; folder: string | null;  // null for a Test session
+  worker_active: boolean; queued: number;
   created_at: string; last_activity_at: string; closed_at: string | null;
 }
 export interface SessionDetail extends SessionSummary {
   tool_counts?: ToolCount[];
   /** The id of the last tool_call event the counts include (0: none). */
   tool_counts_through_id?: number;
-  document_name: string; draft: string | null; draft_turn: number | null; model_id: string;
+  document_name: string | null; draft: string | null; draft_turn: number | null; model_id: string;
   /** The agent's own instructions when the session started (earlier sessions also hold their documentation prompt;
    *  only sessions saved before migration 0080 may carry `agent_version`). */
   prompt_snapshot: { system_prompt: string; claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };
@@ -40,10 +44,14 @@ export interface SessionDetail extends SessionSummary {
   context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; instructions?: string };
   /** What a per-run agent was given for this session (null: an agent with fixed resources). */
   run_resources?: RunResourcesInput | null;
+  /** Test sessions: the configuration pinned when the session started (credential references only). */
+  config?: Record<string, unknown>;
+  /** Test sessions: their saved suggestions, oldest first. */
+  reviews?: SessionReview[];
   inputs: { seq: number; text: string; status: 'queued' | 'delivered' | 'discarded'; turn: number | null; created_at: string }[];
 }
 export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'turns' | 'input_tokens' | 'output_tokens' | 'cached_tokens'
-  | 'cost_usd' | 'draft' | 'draft_turn' | 'document_id' | 'worker_active' | 'queued'>;
+  | 'cost_usd' | 'draft' | 'draft_turn' | 'document_id' | 'worker_active' | 'queued' | 'model_calls' | 'reasoning_tokens'>;
 export interface SessionEvent { id: number; turn: number; seq: number; kind: string; payload: Record<string, unknown>; created_at: string }
 /** Docs → Generate documents → New: the agent runs with its own model, prompt, instructions, skills and tools. */
 export interface SessionInput {
