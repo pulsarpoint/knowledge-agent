@@ -288,3 +288,11 @@ it('blocks the first message until the run resource options load, with a retry',
   expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
 });
+
+it('keeps the message box with the picker, in a shorter conversation area', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  await screen.findByRole('region', { name: 'Resources for this run' });
+  expect(screen.getByLabelText('Task')).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain('h-[calc(100dvh-30rem)]');
+});
