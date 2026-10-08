@@ -4,11 +4,12 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
+import psycopg
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.agent_clones import clone
+from knowledge_admin.agent_clones import NAME_TAKEN, clone
 from knowledge_admin.knowledge_agents.config import fingerprint, get_agent_config
 
 
@@ -42,6 +43,7 @@ REVIEW_NOT_FOUND = 'Suggestion not found for this agent.'
 AGENT_CHANGED = 'The agent changed since you opened the suggestion. Review it again.'
 UNKNOWN_SERVER = 'Instructions refer to a server outside this agent.'
 PROMPT_REQUIRED = 'Enter a system prompt.'
+INVALID_TEXT = 'Instructions cannot contain NUL characters.'
 NO_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
 
 
@@ -116,6 +118,9 @@ def build_api(app_name, store):
         changes = value.changes
         if changes.system_prompt is not None and (not changes.system_prompt.strip() or '\x00' in changes.system_prompt):
             raise HTTPException(400, PROMPT_REQUIRED)
+        texts = [changes.instructions or '', *(change.instructions for change in changes.server_instructions)]
+        if any('\x00' in text for text in texts):
+            raise HTTPException(400, INVALID_TEXT)
         with database().connect() as conn:
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
             review_of(conn, agent_id, review_id)
@@ -128,13 +133,17 @@ def build_api(app_name, store):
             actor, project = store.actor(conn, *request_actor(request)), store.project(conn, app_name)
             target = agent_id
             if value.target == 'clone':
-                target = clone(conn, agent_id, actor)['id']
+                try:
+                    target = clone(conn, agent_id, actor)['id']
+                except psycopg.errors.UniqueViolation:
+                    raise HTTPException(409, NAME_TAKEN) from None
                 conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
                     VALUES (%s,%s,'agent.cloned','agent',%s)''', (project, actor, Jsonb({'agent_id': target, 'cloned_from': agent_id})))
             write_changes(conn, project, target, changes, actor)
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
                 VALUES (%s,%s,'agent.suggestion.applied','agent',%s)''',
-                (project, actor, Jsonb({'agent_id': target, 'review_id': str(review_id), 'target': value.target})))
+                (project, actor, Jsonb({'agent_id': target, 'source_agent_id': agent_id, 'review_id': str(review_id),
+                       'target': value.target})))
             return {'agent_id': target}
 
     return router

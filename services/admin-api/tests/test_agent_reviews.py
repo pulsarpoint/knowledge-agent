@@ -7,7 +7,12 @@ import pytest
 from agents import AgentOutputSchema, ModelBehaviorError
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.agent_reviews import AGENT_CHANGED, PROMPT_REQUIRED, UNKNOWN_SERVER, TuningSuggestion
+import psycopg
+
+from knowledge_admin import agent_reviews
+from knowledge_admin.agent_clones import NAME_TAKEN
+from knowledge_admin.agent_reviews import (AGENT_CHANGED, INVALID_TEXT, PROMPT_REQUIRED, REVIEW_NOT_FOUND, UNKNOWN_SERVER,
+                                          TuningSuggestion)
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from test_agents import agent_mounts, saved_agent  # noqa: F401
 from test_agent_runs import direct, events  # noqa: F401  (fixture)
@@ -112,7 +117,7 @@ def test_a_suggestion_is_applied_to_this_agent_after_review(store, saved_agent):
     assert again.status_code == 409 and again.json()['error']['message'] == AGENT_CHANGED
     with store.connect() as conn:
         audit = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent.suggestion.applied'").fetchall()
-    assert [row['details'] for row in audit] == [{'agent_id': 'operations', 'review_id': review, 'target': 'agent'}]
+    assert [row['details'] for row in audit] == [{'agent_id': 'operations', 'source_agent_id': 'operations', 'review_id': review, 'target': 'agent'}]
 
 
 def test_server_instructions_become_an_override_and_unknown_servers_are_refused(store, saved_agent):
@@ -146,6 +151,13 @@ def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, s
     assert copied['system_prompt'] == {'content': 'Answer from evidence.'}
     assert without(copied, 'prompt') == without(before, 'prompt')
     assert client.get(f'/api/agents/{clone_id}', headers=HEADERS).json()['cloned_from'] == 'operations'
+    with store.connect() as conn:
+        audit = conn.execute('''SELECT action,details FROM ka.audit_events
+            WHERE action IN ('agent.cloned','agent.suggestion.applied') ORDER BY id''').fetchall()
+    assert [(row['action'], row['details']) for row in audit] == [
+        ('agent.cloned', {'agent_id': clone_id, 'cloned_from': 'operations'}),
+        ('agent.suggestion.applied', {'agent_id': clone_id, 'source_agent_id': 'operations', 'review_id': review,
+                                      'target': 'clone'})]
 
 
 def test_a_suggestion_from_a_per_run_chat_never_narrows_the_agent(store, saved_agent):
@@ -159,3 +171,56 @@ def test_a_suggestion_from_a_per_run_chat_never_narrows_the_agent(store, saved_a
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert without(after, 'instructions') == without(before, 'instructions')
     assert after['code']['projects'] == before['code']['projects']
+
+
+
+def test_a_clone_name_taken_concurrently_is_a_conflict(store, saved_agent, monkeypatch):
+    client = saved_agent[0]
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+
+    def taken(*_):
+        raise psycopg.errors.UniqueViolation('duplicate name')
+    monkeypatch.setattr(agent_reviews, 'clone', taken)
+    conflict = apply_review(client, 'operations', review, body, target='clone', instructions='Be brief.')
+    assert conflict.status_code == 409 and conflict.json()['error']['message'] == NAME_TAKEN
+
+
+def test_invalid_texts_are_refused(store, saved_agent):
+    client, server = saved_agent[0], saved_agent[1]
+    before = get_agent_config('operations', conninfo=store.conninfo)
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    for change in ({'instructions': 'Be\x00brief.'},
+                   {'servers': [{'server_id': server['id'], 'instructions': 'Read\x00logs.'}]}):
+        refused = apply_review(client, 'operations', review, body, **change)
+        assert refused.status_code == 400 and refused.json()['error']['message'] == INVALID_TEXT
+    for change in ({'instructions': 'x' * 40001}, {'system_prompt': 'x' * 100001},
+                   {'servers': [{'server_id': server['id'], 'instructions': 'x' * 40001}]}):
+        assert apply_review(client, 'operations', review, body, **change).status_code == 400
+    assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(before)
+
+
+def test_instructions_saved_elsewhere_make_the_suggestion_stale(store, saved_agent):
+    client = saved_agent[0]
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    with store.connect() as conn:  # as the instructions endpoint does: agents.revision stays
+        conn.execute("""UPDATE ka.agent_configs SET instructions='Saved meanwhile.',revision=revision+1
+            WHERE agent='operations' AND server_id IS NULL""")
+    assert get_agent_config('operations', conninfo=store.conninfo)['revision'] == body['revision']
+    stale = apply_review(client, 'operations', review, body, instructions='Be brief.')
+    assert stale.status_code == 409 and stale.json()['error']['message'] == AGENT_CHANGED
+    assert get_agent_config('operations', conninfo=store.conninfo)['instructions'] == 'Saved meanwhile.'
+
+
+def test_a_deleted_agent_has_no_suggestions(store, saved_agent):
+    client = saved_agent[0]
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    revision = client.get('/api/agents/operations', headers=HEADERS).json()['revision']
+    assert client.request('DELETE', '/api/agents/operations', headers=HEADERS,
+                          json={'revision': revision, 'confirmed': True, 'with_history': True}).status_code == 204
+    for response in (client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS),
+                     apply_review(client, 'operations', review, body, instructions='Be brief.')):
+        assert response.status_code == 404 and response.json()['error']['message'] == REVIEW_NOT_FOUND
