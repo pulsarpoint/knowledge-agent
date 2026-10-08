@@ -284,10 +284,11 @@ class Subagents:
         finally:
             credentials.clear()
 
-    async def close(self) -> None:
+    async def close(self, deadline: float | None = None) -> None:
         """The turn ends (Stop, Close, a lost lease or its answer): no more subagents start, running ones are cancelled
-        and waited for at most STOP_GRACE_SECONDS (one still running then is left to end by itself, recording
-        nothing), and every credential map handed to a subagent is emptied before the wait: a subagent that ignores
+        and waited for at most STOP_GRACE_SECONDS, and never past `deadline` (loop time: the end of the grace that
+        started at Stop, so Stop takes about STOP_GRACE_SECONDS in all); one still running then is left to end by
+        itself, recording nothing. Every credential map handed to a subagent is emptied before the wait: a subagent that ignores
         its cancellation starts no tool or model call meanwhile (SubagentEvents and model_filter follow `closed`)
         and has no credentials for a new connection."""
         self.closed = True
@@ -297,10 +298,13 @@ class Subagents:
         for credentials in self.issued:
             credentials.clear()
         if running:
-            await asyncio.wait(running, timeout=native_sessions.STOP_GRACE_SECONDS)
+            grace = native_sessions.STOP_GRACE_SECONDS
+            if deadline is not None:
+                grace = min(grace, max(0.0, deadline - asyncio.get_running_loop().time()))
+            if grace > 0:
+                await asyncio.wait(running, timeout=grace)
             if any(not task.done() for task in running):
-                logger.warning('A subagent did not end within %ss of the end of its turn; it is left to end',
-                               native_sessions.STOP_GRACE_SECONDS)
+                logger.warning('A subagent did not end within the grace period of its turn; it is left to end')
             for task in running:
                 _abandon(task)
         self.forget()

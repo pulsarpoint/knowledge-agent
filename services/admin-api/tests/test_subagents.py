@@ -14,7 +14,7 @@ import pytest
 from agents import RunHooks
 from agents.tool_context import ToolContext
 
-from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, hang, llm, message, together, tool
+from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, hang, llm, message, stubborn, together, tool
 from knowledge_admin import agent_tracing, run_record
 from knowledge_admin.agent_activity import tool_failed
 from knowledge_admin.agent_tracing import trace_secrets
@@ -447,3 +447,46 @@ def test_a_subagent_ignoring_cancellation_starts_no_tool_call_while_close_waits_
     assert seen == [{}]
     assert fake.calls[0]['tools'] == []
     assert 'tool_result' not in [kind for kind, _ in recorder.events]
+
+
+def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore_cancellation(native, monkeypatch):
+    """close() gets only what is left of the grace that started at Stop, so Stop ends the turn within about
+    STOP_GRACE_SECONDS, not twice that."""
+    sessions, sid = native
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    grace = 0.8
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', grace)
+    lead_started, sub_started, ignored, release = asyncio.Event(), asyncio.Event(), [], asyncio.Event()
+    subagent = FakeSubagent({'Stubborn': {'steps': [stubborn(sub_started, ignored, release)], 'answer': 'late'}})
+
+    async def lead(turn):  # the run_subagent call, in a turn that ignores its own cancellation
+        call = asyncio.ensure_future(delegate('s1', 'Stubborn', ['read_file'])(turn))
+        lead_started.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                ignored.append('lead')
+                call.cancel()  # Stop cancels the tool call; the subagent ignores it
+        await asyncio.gather(call, return_exceptions=True)
+    fake = FakeAgent([{'offered': ['read_file'], 'steps': [
+        llm(call('s1', 'run_subagent', {'task': 'Stubborn', 'tools': ['read_file'], 'resources': None})), lead],
+        'answer': 'late'}])
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
+                                                                  poll=0.02).run())
+        await asyncio.wait_for(asyncio.gather(lead_started.wait(), sub_started.wait()), 5)
+        stopping = loop.time()
+        assert (await post(sessions, url + '/stop')).status_code == 202
+        await wait_for(store, sid, lambda s: s['status'] == 'stopped', timeout=5)
+        took = loop.time() - stopping
+        release.set()
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+        return took
+
+    took = asyncio.run(scenario())
+    assert 'lead' in ignored and 'cancel' in ignored  # both the turn and the subagent ignored their cancellation
+    assert took < grace * 1.6, took

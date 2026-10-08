@@ -263,6 +263,7 @@ class NativeRunner(shared.SessionRunner):
         super().__init__(store, session, poll=poll, idle_release=idle_release, slot=slot)
         self.run_agent = run_agent
         self.run_subagent = run_subagent or run_agent  # how subagents run (tests pass a stand-in)
+        self.stop_deadline: float | None = None  # loop time when the grace that started at this turn's Stop ends
 
     def load(self) -> tuple[dict, dict[str, str], HistorySession]:
         """The pinned config, its credentials (decrypted now, for this turn) and the saved history. load_credentials
@@ -293,6 +294,7 @@ class NativeRunner(shared.SessionRunner):
         # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
         secrets: list[str] = []
         self.secrets = secrets
+        self.stop_deadline = None
         recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
                                agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=secrets)
         kind = 'test_session' if self.session.get('purpose') == 'test' else 'native_session'
@@ -323,7 +325,9 @@ class NativeRunner(shared.SessionRunner):
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
                 logger.warning('Agent session %s turn %s failed (%s)', self.id, number, type(exc).__name__)
             if subagents is not None:
-                await subagents.close()  # none outlives the turn with credentials or records events after it
+                # None outlives the turn with credentials or records events after it; after Stop, close() waits only
+                # for what is left of the turn's grace, so Stop takes about STOP_GRACE_SECONDS in all.
+                await subagents.close(self.stop_deadline)
             events.closed = True
             credentials.clear()  # a turn that outlived Stop cannot use them for new connections (such as ssh_run)
             if comments is not None:
@@ -372,11 +376,12 @@ class NativeRunner(shared.SessionRunner):
             while not turn.done():
                 await asyncio.wait({turn}, timeout=self.poll)
                 if not turn.done() and await asyncio.to_thread(self.stop_requested):
+                    self.stop_deadline = asyncio.get_running_loop().time() + STOP_GRACE_SECONDS
                     await _cancel(turn, self.id)
                     return 'stopped', None
             return 'waiting', turn.result()  # raises the turn's error
         finally:
-            if not turn.done():
+            if not turn.done() and self.stop_deadline is None:  # after Stop, _cancel has already waited its grace
                 await _cancel(turn, self.id)
 
 
