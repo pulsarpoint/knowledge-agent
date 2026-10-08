@@ -62,6 +62,7 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const latest = useRef(0);
+  const loadedPrompt = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,12 +113,15 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
     }
   }
   async function applyPrompt(value: string) {
-    setAskPrompt(null); setPromptChoice(value); setPromptEdited(false);
-    if (value === OWN) { setPrompt(''); return; }
+    const request = ++loadedPrompt.current;
+    setAskPrompt(null);
+    if (value === OWN) { setPromptChoice(OWN); setPromptEdited(false); setPrompt(''); return; }
     try {
       const detail = await getDocumentationPrompt(value);
+      if (request !== loadedPrompt.current) return;
       setPrompt(detail.versions.find(version => version.id === detail.active_version_id)?.content ?? '');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load the prompt'); }
+      setPromptChoice(value); setPromptEdited(false);
+    } catch (e) { if (request === loadedPrompt.current) setError(e instanceof Error ? e.message : 'Could not load the prompt'); }
   }
   function choosePrompt(value: string) {
     if (value === promptChoice) return;
@@ -126,7 +130,7 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
 
   const target = folder.trim();
   const badFolder = target ? folderError(target) : '';
-  const ready = Boolean(modelId && systemPrompt.trim() && prompt.trim() && anything && documentSlug(name) && target && !badFolder);
+  const ready = Boolean(!updating && modelId && systemPrompt.trim() && prompt.trim() && anything && documentSlug(name) && target && !badFolder);
   const model = data?.models.find(item => item.id === modelId);
 
   async function submit() {

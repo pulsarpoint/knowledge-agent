@@ -26,7 +26,7 @@ const bodies: Record<string, unknown> = {
 };
 type Pending = { body: Record<string, string[]>; resolve: (r: Response) => void };
 
-function setup({ models = MODELS, hold = false, error = '' } = {}) {
+function setup({ models = MODELS, hold = false, error = '', failPrompt = '' } = {}) {
   const posts: Record<string, unknown>[] = [];
   const held: Pending[] = [];
   const contextText = (body: Record<string, string[]>) =>
@@ -42,6 +42,7 @@ function setup({ models = MODELS, hold = false, error = '' } = {}) {
       return error ? Response.json({ error: { message: error } }, { status: 400 }) : Response.json({ id: 'session-1' }, { status: 201 });
     }
     if (url === '/api/llm') return Response.json({ models, assignments: {} });
+    if (failPrompt && url === `/api/documentation/prompts/${failPrompt}`) return Response.json({ error: { message: 'Prompt is gone' } }, { status: 500 });
     return Response.json(bodies[url] ?? {});
   }));
   render(<MemoryRouter initialEntries={['/documentation/generations/new']}><Routes>
@@ -144,7 +145,29 @@ test('a refused request shows its message and keeps the form', async () => {
   await screen.findByRole('checkbox', { name: 'Servers' }); check('Servers'); check('prod-1 (10.0.0.5)');
   fireEvent.change(screen.getByLabelText('Prompt text'), { target: { value: 'Describe the host.' } });
   fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'prod-1' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
   expect(await screen.findByText(/Server prod-1 is not available/)).toBeVisible();
   expect(screen.getByLabelText('Document name')).toHaveValue('prod-1');
+});
+
+test('Generate is disabled while the context is updating', async () => {
+  const { held, contextText } = setup({ hold: true });
+  fireEvent.change(await screen.findByLabelText('Prompt text'), { target: { value: 'Describe it.' } });
+  fireEvent.change(screen.getByLabelText('Document name'), { target: { value: 'Doc' } });
+  check('Code'); check('Payments API');
+  await waitFor(() => expect(held).toHaveLength(1));
+  expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  held[0].resolve(Response.json({ text: contextText(held[0].body) }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled());
+});
+
+test('a failed prompt load keeps the previous choice and text', async () => {
+  setup({ failPrompt: 'p2' });
+  await select('Prompt', 'API reference · code');
+  await waitFor(() => expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference.'));
+  await select('Prompt', 'Runbook · service');
+  expect(await screen.findByText('Prompt is gone')).toBeVisible();
+  expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference.');
+  expect(screen.getByLabelText('Prompt')).toHaveTextContent('API reference · code');
 });
