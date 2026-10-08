@@ -125,7 +125,7 @@ def test_the_state_is_sent_only_when_it_changed(store):
             async with hub.subscribe(session, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
                 before = hub.reads
-                await db(write, store, ('UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s', (session,)))
+                await db(write, store, ("UPDATE ka.agent_sessions_cc SET title='Renamed' WHERE id=%s", (session,)))
                 await until(lambda: hub.reads > before)
                 assert await nothing_more(page)  # read, but nothing the page shows changed
                 await db(write, store, ("UPDATE ka.agent_sessions_cc SET status='waiting',draft='# Draft',draft_turn=1 "

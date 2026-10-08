@@ -61,7 +61,7 @@ rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
 [ "$rolled_back_version" = 82 ]
 notices_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN
-            ('notify_session_events', 'notify_session_change', 'notify_session_input'))
+            ('notify_session_events', 'notify_session_change', 'notify_session_removal', 'notify_session_input'))
         AND to_regprocedure('ka.notify_session_events()') IS NULL
         AND to_regprocedure('ka.notify_session_change()') IS NULL
         AND to_regprocedure('ka.notify_session_input()') IS NULL")
@@ -96,13 +96,13 @@ test_sessions=$(docker exec "$test_container" psql -X -U postgres -Atc \
             WHERE table_schema = 'ka' AND table_name = 'agent_sessions_cc' AND column_name = 'purpose')")
 [ "$test_sessions" = t ] || { echo 'FAIL: the old Test chat tables are still there' >&2; exit 1; }
 printf '%s\n' 'PASS: Test chats are sessions; the old Test chat tables are gone.'
-# 0083 announces session changes on ka_sessions: run events, session rows and queued messages.
+# 0083 announces session changes on ka_sessions: run events, session rows (not lease-only updates) and queued messages.
 session_notices=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT count(*) = 3 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+    "SELECT count(*) = 4 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'ka' AND NOT t.tgisinternal AND (c.relname, t.tgname) IN
             (('agent_run_events', 'notify_session_events'), ('agent_sessions_cc', 'notify_session_change'),
-             ('agent_session_inputs', 'notify_session_input'))")
+             ('agent_sessions_cc', 'notify_session_removal'), ('agent_session_inputs', 'notify_session_input'))")
 [ "$session_notices" = t ] || { echo 'FAIL: the session notice triggers are missing' >&2; exit 1; }
 printf '%s\n' 'PASS: session changes are announced on ka_sessions.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \

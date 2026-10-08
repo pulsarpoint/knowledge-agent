@@ -21,7 +21,9 @@ END $$;
 CREATE TRIGGER notify_session_events AFTER INSERT ON agent_run_events
     REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION notify_session_events();
 
--- Any change to a session row (status, tokens, draft, turns, leases, stop, close) and its removal.
+-- Any change to a session row (status, tokens, draft, turns, worker claim and release, stop, close) and its removal.
+-- An update of only the lease or the last activity (a worker renewing its lease; updated_at moves with it) is silent:
+-- a lease that expires is noticed by the hub's 30 s check.
 CREATE FUNCTION notify_session_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
@@ -31,7 +33,11 @@ BEGIN
     END IF;
     RETURN NULL;
 END $$;
-CREATE TRIGGER notify_session_change AFTER UPDATE OR DELETE ON agent_sessions_cc
+CREATE TRIGGER notify_session_change AFTER UPDATE ON agent_sessions_cc FOR EACH ROW
+    WHEN ((to_jsonb(OLD) - 'lease_expires_at' - 'last_activity_at' - 'updated_at')
+        IS DISTINCT FROM (to_jsonb(NEW) - 'lease_expires_at' - 'last_activity_at' - 'updated_at'))
+    EXECUTE FUNCTION notify_session_change();
+CREATE TRIGGER notify_session_removal AFTER DELETE ON agent_sessions_cc
     FOR EACH ROW EXECUTE FUNCTION notify_session_change();
 
 -- Queued messages: the queued count is part of the session state.

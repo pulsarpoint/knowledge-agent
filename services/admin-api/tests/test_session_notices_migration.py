@@ -1,6 +1,7 @@
 """0083: changes to a session are announced on ka_sessions — run events (one notice per statement and session, with
-the newest id), session rows (update, delete) and queued messages (insert, update, delete); other run keys are silent
-and nothing is sent before commit. Down removes the triggers; up restores them."""
+the newest id), session rows (update, delete; an update of only the lease or last activity is silent) and queued
+messages (insert, update, delete); other run keys are silent and nothing is sent before commit. Down removes the
+triggers; up restores them."""
 import json
 from pathlib import Path
 
@@ -77,6 +78,25 @@ def test_session_rows_and_queued_messages_notify_their_session(store):
         conn.execute('DELETE FROM ka.agent_sessions_cc WHERE id=%s', (first,))
         conn.commit()
         assert notices(listener) == [{'s': str(first)}]
+
+
+def test_lease_only_session_updates_are_silent(store):
+    _, _, (first, _) = two_sessions(store)
+    with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
+        listener.execute('LISTEN ka_sessions')
+        conn.execute("UPDATE ka.agent_sessions_cc SET lease_expires_at=now()+interval '1 minute' WHERE id=%s", (first,))
+        conn.commit()
+        assert notices(listener) == []  # a lease renewal (updated_at moves too) is not news
+        conn.execute('UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s', (first,))
+        conn.commit()
+        assert notices(listener) == []
+        conn.execute('UPDATE ka.agent_sessions_cc SET lease_expires_at=NULL,last_activity_at=now() WHERE id=%s', (first,))
+        conn.commit()
+        assert notices(listener) == []
+        for change in ("status='working'", 'turns=1', 'output_tokens=7', "worker_id='w1'"):
+            conn.execute(f"UPDATE ka.agent_sessions_cc SET {change},lease_expires_at=now() WHERE id=%s", (first,))
+            conn.commit()
+            assert notices(listener) == [{'s': str(first)}], change
 
 
 def test_down_removes_the_notices_and_up_restores_them(store):
