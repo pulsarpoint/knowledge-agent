@@ -5,6 +5,7 @@ import pytest
 
 from knowledge_admin.claude_code import SYSTEM_PROMPT
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE
+from knowledge_admin.profiles_api import ProfileInput
 from test_api import _client
 from test_profiles import create, update, wizard_payload
 from test_repositories import HEADERS
@@ -157,3 +158,29 @@ def test_a_type_switch_is_audited(store, tmp_path):
     switched = update(client, edited.json(), runtime='claude_code')
     assert switched.status_code == 200, switched.text
     assert last_update() == {'agent_id': native['id'], 'runtime': {'from': 'openai', 'to': 'claude_code'}}
+
+
+def test_save_details_sets_the_model_with_the_type(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    claude, gpt = models(client)
+    native = create(client, 'One save')
+    with_gpt = update(client, native, model_id=gpt)
+    assert with_gpt.status_code == 200 and with_gpt.json()['model_id'] == gpt, with_gpt.text
+    # Switching to Claude Code and choosing a Claude model is one save.
+    switched = update(client, with_gpt.json(), runtime='claude_code', model_id=claude)
+    assert switched.status_code == 200, switched.text
+    assert (switched.json()['runtime'], switched.json()['model_id']) == ('claude_code', claude)
+    refused = update(client, switched.json(), model_id=gpt)
+    assert refused.status_code == 400 and refused.json()['error']['message'] == CHOOSE_CLAUDE
+    # Leaving model_id out keeps the model; null clears it.
+    value = {field: switched.json()[field] for field in ProfileInput.model_fields if field != 'model_id'}
+    kept = client.put(f"/api/agents/{native['id']}", headers=HEADERS, json={**value, 'description': 'kept'})
+    assert kept.status_code == 200 and kept.json()['model_id'] == claude, kept.text
+    cleared = update(client, kept.json(), model_id=None)
+    assert cleared.status_code == 200 and cleared.json()['model_id'] is None, cleared.text
+    with store.connect() as conn:
+        details = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.updated' AND details->>'agent_id'=%s
+            ORDER BY created_at DESC,id DESC LIMIT 1""", (native['id'],)).fetchone()['details']
+    assert details == {'agent_id': native['id'], 'model_id': {'from': claude, 'to': None}}
+    for bad in (str(uuid4()), 'not-a-uuid'):
+        assert update(client, cleared.json(), model_id=bad).status_code == 400, bad

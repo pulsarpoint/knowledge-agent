@@ -51,7 +51,7 @@ test('General shows the agent type, Claude models only and the Claude Code tools
   await user.click(within(tools).getByRole('switch', { name: 'Bash' }));
   await user.click(screen.getByRole('button', { name: 'Save details' }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob'] })));
-  await user.click(await screen.findByRole('combobox', { name: 'Model connection' }));
+  await user.click(await screen.findByRole('combobox', { name: 'Model' }));
   expect(screen.getByRole('option', { name: 'Claude on Bedrock' })).toBeVisible();
   expect(screen.queryByRole('option', { name: 'GPT' })).toBeNull();
 });
@@ -61,9 +61,27 @@ test('a native agent shows its type, every compatible model and no Claude Code t
   open('/agents/search');
   expect(await screen.findByRole('combobox', { name: 'Agent type' })).toHaveTextContent('Native');
   expect(screen.queryByRole('group', { name: 'Claude Code tools' })).toBeNull();
-  await user.click(await screen.findByRole('combobox', { name: 'Model connection' }));
+  await user.click(await screen.findByRole('combobox', { name: 'Model' }));
   expect(screen.getByRole('option', { name: 'GPT' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'Claude on Bedrock' })).toBeVisible();
+  expect(screen.queryByText('Save model')).toBeNull();
+});
+
+test('General saves the model with the details, and a type switch clears a model that no longer fits', async () => {
+  const user = userEvent.setup();
+  open('/agents/search');
+  await user.click(await screen.findByRole('combobox', { name: 'Model' }));
+  await user.click(screen.getByRole('option', { name: 'Claude on Bedrock' }));
+  await user.click(screen.getByRole('button', { name: 'Save details' }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ runtime: 'openai', model_id: 'claude' })));
+  expect(profiles.saveProfileModel).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('combobox', { name: 'Model' }));
+  await user.click(screen.getByRole('option', { name: 'GPT' }));
+  await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
+  await user.click(screen.getByRole('option', { name: 'Claude Code' }));
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Not configured');
+  await user.click(screen.getByRole('button', { name: 'Save details' }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ runtime: 'claude_code', model_id: null })));
 });
 
 test('tool tabs say what Claude Code gets now, and Test no longer starts sessions', async () => {

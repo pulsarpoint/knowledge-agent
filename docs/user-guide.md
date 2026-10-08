@@ -431,7 +431,7 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 `/agents` lists agents with **Agent type**, **Resources**, capabilities, model, active system prompt and status. **Resources** shows `Fixed`, or what a per-run agent accepts, for example `Per run · code (any) · servers (2)`.
 
-**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first two fields are **Agent type** (Native or Claude Code) and **Resources** (Fixed or Per run). The review shows them as one line (for example `Native · Per run`); to change them go back with **Edit role**. For Claude Code, the generator may only propose a Claude model (a different one is cleared so you can choose), and **Start blank** keeps the generator model only when it is a Claude model:
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first fields are **Agent type** (Native or Claude Code), **Agent model** (the model the agent runs on; it defaults to the first model that fits the type, and switching to Claude Code clears a model that is not a Claude connection) and **Resources** (Fixed or Per run). Both a generated proposal and **Start blank** use that model. The review shows the three as one line (for example `Native · Claude Opus · Per run`); to change them go back with **Edit role**:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
@@ -439,14 +439,14 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
   yourself.
 
 Review and edit the tabs, then **Create agent** (enabled once name and system prompt are
-filled in). The agent model is optional at this point — an agent without a model is
-saved but runs only after you choose one on its General tab.
+filled in). The agent model is optional — an agent without a model is
+saved but runs only after you choose one with **Model** on its General tab.
 
 **Agent detail tabs** (`/agents/:id`):
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Agent type** (Native or Claude Code; switching keeps every setting except **May start subagents**, which switching to Claude Code turns off), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; **May start subagents** (native agents: the agent can hand separate parts of its work to helpers that run in parallel; it stays off after a switch to Claude Code and back); the model filtered by type and **Model connection** (required to run); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
+| **General** | **Agent type** (Native or Claude Code; switching keeps every setting except **May start subagents**, which switching to Claude Code turns off), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (filtered by the agent type; required to run; switching to Claude Code clears a model that is not a Claude connection; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (native agents: the agent can hand separate parts of its work to helpers that run in parallel; it stays off after a switch to Claude Code and back); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |

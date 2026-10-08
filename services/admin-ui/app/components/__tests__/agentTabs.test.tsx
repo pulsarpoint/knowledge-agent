@@ -31,13 +31,14 @@ beforeEach(() => {
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} /></Routes></AdminLayout></MemoryRouter>; }
 
-test('catalog opens distinct agents with one model card and preserves SSH tasks across sections', async () => {
+test('catalog opens distinct agents with one model field and preserves SSH tasks across sections', async () => {
   const user = userEvent.setup();
   render(app('/agents'));
   await user.click(await screen.findByRole('link', { name: 'SSH agent' }));
-  await screen.findByRole('combobox', { name: 'Model connection' });
+  await screen.findByRole('combobox', { name: 'Model' });
   expect(screen.getByRole('switch', { name: 'Enable agent' })).toBeEnabled();
-  expect(screen.getAllByRole('button', { name: 'Save model', hidden: true })).toHaveLength(1);
+  expect(screen.getAllByRole('combobox', { name: 'Model', hidden: true })).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Save model', hidden: true })).toBeNull();  // saved with the details
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   await user.type(screen.getByRole('textbox', { name: 'SSH task' }), 'Inspect disk usage');
   await user.click(screen.getByRole('tab', { name: 'General' }));
@@ -47,8 +48,8 @@ test('catalog opens distinct agents with one model card and preserves SSH tasks 
   expect(await screen.findByRole('textbox', { name: 'System prompt' })).toHaveValue('operations instructions');
   await user.click(within(screen.getByRole('region', { name: 'Agent details' })).getByRole('link', { name: 'All agents' }));
   await user.click(await screen.findByRole('link', { name: 'Payments code' }));
-  await screen.findByRole('combobox', { name: 'Model connection' });
-  expect(screen.getAllByRole('combobox', { name: 'Model connection', hidden: true })).toHaveLength(1);
+  await screen.findByRole('combobox', { name: 'Model' });
+  expect(screen.getAllByRole('combobox', { name: 'Model', hidden: true })).toHaveLength(1);
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.getByText('SSH test custom-code')).toBeVisible();
 });
@@ -73,7 +74,7 @@ test('agents are created only through one New agent panel with the wizard', asyn
 
 test.each(['search','operations','code','custom-code'])('every agent has the same capability tabs: %s', async id => {
   render(app(`/agents/${id}`));
-  await screen.findByRole('combobox', { name: 'Model connection' });
+  await screen.findByRole('combobox', { name: 'Model' });
   expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['General','Tools','Skills','Documents','Code projects','SSH','MCP','Services','Test']);
 });
 
