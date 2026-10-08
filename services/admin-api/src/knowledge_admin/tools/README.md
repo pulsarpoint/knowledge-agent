@@ -1,9 +1,25 @@
 # Agent function tools
 
-Implementations live in `knowledge_admin/capabilities/`. `catalog.py` describes each built-in tool
-without the Agents SDK (`ToolSpec`: usage text, argument model, needed capability, the capability rule that
-switched it on); `sdk.py` turns a catalog entry into an SDK `FunctionTool` and refuses a tool missing from the
-run context's `tools`. `catalog.effective_tools(config, ssh_servers)` returns the tools a run offers.
+Implementations live in `knowledge_admin/capabilities/`:
+`files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
+`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `ssh.py`, `mcp.py`
+(MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
+`worker.py` for the shell worker service). They do not import the Agents SDK.
+
+`tools/catalog.py` describes each built-in tool without the SDK: `ToolSpec` (name, group, label, usage text,
+argument model, the capability it `needs`, `default_on`), `NEED_REASONS` for the Tools tab, `implied_tools(config)`
+(the tools a configuration's capabilities gave before tools were chosen; it is the 0078 backfill rule and what
+configurations saved before 0078 use) and `effective_tools(config, ssh_servers)` (the tools a run offers: switched
+on and their need met). `mcp_blocked` and `mcp_notes` do the same for MCP tools.
+
+`tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool`, and the
+adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
+
+`create_agent` (`knowledge_admin/agents.py`) builds the tools from `effective_tools`; MCP servers get a static
+`tool_filter` that blocks the tools switched off on the Tools tab (a tool without a row is on). Edited usage text
+of an MCP tool that is on is added to the prompt under `Tool notes:` as `- <server name>/<tool>: <usage>`; the
+tool's own description still comes from the server. `code_graph` is offered only when a selected code project has a
+current generated graph (see below).
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked
@@ -41,21 +57,7 @@ run context's `tools`. `catalog.effective_tools(config, ssh_servers)` returns th
 resolved credentials, workspace, shell switch and offered tool names. The SDK injects it; none of these values
 appear in the model-facing tool argument schema. Tools do not query PostgreSQL or decrypt keys.
 
-```python
-from agents import Agent, Runner
-from knowledge_admin.tools.catalog import effective_tools
-from knowledge_admin.tools.sdk import function_tool
-
-tools = [function_tool(spec, usage) for spec, usage in effective_tools(config, ssh_servers)]
-assistant = Agent(name=config['name'], model=model, instructions=instructions, tools=tools)
-names = frozenset(tool.name for tool in tools)
-run = Runner.run_streamed(assistant, task, context={
-    'config': config, 'credentials': credentials, 'workspace': workspace,
-    'shell_enabled': 'shell_run' in names, 'tools': names,
-})
-```
-
-The specialist runner in `knowledge_admin.agents.agent` builds its tools this way. Shell commands execute in the worker; the SDK stays in the administration
+Shell commands execute in the worker; the SDK stays in the administration
 process. MCP uses
 SDK integration; skills and Mermaid guidance remain instructions.
 

@@ -174,7 +174,14 @@ turn limits raise exceptions. Token usage is in `result.context_wrapper.usage`.
 pass an existing Pydantic class as `output_type`; `final_output` is that model.
 The agent wizard and tuning reviewer use this support.
 
-Enabled code/document folders register `list_files`, `read_file` and
+Which tools an agent gets is chosen on its Tools tab (saved in `ka.agent_tools`, `config['tools']`; a configuration
+saved before migration 0078 uses the tools its capabilities gave, `catalog.implied_tools`). Tool implementations
+are in `knowledge_admin/capabilities/` (`files`, `ast_grep`, `code_search`, `code_graph`, `documents`, `ssh`, `mcp`,
+`shell/`); `tools/catalog.py` is the SDK-free catalog and `tools/sdk.py` the single Agents SDK adapter. MCP tools of a
+selected server are filtered with the same switches, and edited usage text goes into the prompt as `Tool notes:`.
+`code_graph` is offered when a selected code project has a current generated graph (`current_graph`, read live from
+the manifest; a sync after generation adds a note). The Tools API is `knowledge_admin/tools_api.py`.
+Enabled code/document folders offer `list_files`, `read_file` and
 `search_files` from `knowledge_admin/capabilities/files.py` (wrapped by
 `knowledge_admin/tools/catalog.py`). These read configured
 absolute mounted paths. SSH registers `ssh_run`, which uses saved connection

@@ -452,6 +452,7 @@ saved but runs only after you choose one on its General tab.
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP. For a per-run agent: what callers may pass (the tab says so) |
 | **MCP** | Pick tested MCP servers (and their tools) |
+| **Tools** | Native agents: switch tools on or off (Code, Documents, Servers, MCP groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools** |
 | **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
 | **Prompts** | System prompt versions: new draft, edit draft, **Set active**, delete inactive versions |
 | **Versions** | Snapshot the whole configuration as a version; **Test vN**, **Copy as draft**, **Activate vN** |
@@ -469,7 +470,9 @@ configuration, secrets as references), **Close session**, **New session**, **Can
 run**, and token usage. **Add feedback** → **Suggest improvements** runs a reviewer
 that proposes prompt/instruction changes you can copy or **Save as new version**.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The active version decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with the tools their capabilities imply. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
+
+**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The active version decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it is a compact picker (kinds side by side) that appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire after
 1 hour idle, one running message per session. A run is blocked if the agent is
@@ -782,10 +785,13 @@ before exposing it beyond localhost.
 
 ## Appendix A: Agent tools and safety
 
+Which of these a native agent actually gets is chosen on its **Tools** tab; the "Given when" column is the default.
+
 | Tool | Given when | Safety limits |
 | --- | --- | --- |
 | `list_files`, `read_file`, `search_files` | Code or Documents capability on | Only selected roots plus a scratch workspace; symlinks resolved; binaries refused; reads ≤ 64 KiB; secrets redacted |
 | `shell_run` | Code or Documents capability on | Runs in the separate `shell-worker` in a bubblewrap sandbox: no network, no capabilities, empty environment, sources mounted read-only, only the scratch workspace writable; 1–300 s; 32 KiB output |
+| `code_graph` | Code capability on and a selected project has a generated graph | Indexed symbol, route and call queries on a disposable snapshot copy |
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |

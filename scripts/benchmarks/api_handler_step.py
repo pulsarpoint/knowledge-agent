@@ -8,8 +8,8 @@ from pathlib import Path
 from agents.tool_context import ToolContext
 
 from knowledge_admin.capabilities.ast_grep import scan_source
-from knowledge_admin.tools.code_graph import code_graph
-from knowledge_admin.tools.code_search import code_search
+from knowledge_admin.capabilities.code_graph import code_graph
+from knowledge_admin.capabilities.code_search import code_search
 
 
 async def main() -> None:

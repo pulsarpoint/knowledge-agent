@@ -32,7 +32,7 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
 
 
 def todays_tools(c, ssh_servers) -> set[str]:
-    """agents.get_tools before this change, kept here as the reference."""
+    """the former agents tool selection before this change, kept here as the reference."""
     names = set()
     grounded = c['documents']['enabled'] and c['documents'].get('grounded', False)
     if c['code']['enabled'] or c['documents']['enabled'] and not grounded:

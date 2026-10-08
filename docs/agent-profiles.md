@@ -15,6 +15,7 @@ inherited from another agent. Agents share these tabs:
 | Git paths | Enable read-only Git access; choose repositories |
 | SSH | Enable SSH access; choose multiple servers, optional SSH connection overrides, and per-server instructions, skills and MCP selections |
 | MCP | Enable MCP tools; choose this agent’s HTTP connections |
+| Tools | Choose which tools the agent gets, edit their usage instructions (native agents) |
 | Services | Enable context from selected service descriptions |
 | Prompts | View the active system prompt; create, edit, activate and delete inactive versions |
 | Versions | Save complete configurations, test drafts independently, activate and roll back |
@@ -40,6 +41,28 @@ Prompt versions belong to one profile. Creating an agent requires an explicit, n
 
 The default IDs `search`, `code`, and `operations` preserve existing integrations.
 Every agent has its own configuration; no parent agent is introduced.
+
+## Tools
+
+The **Tools** tab lists the tools of a native agent in groups (Code, Documents, Servers, MCP; empty groups are
+hidden), each with an on/off switch, a one-line summary and its usage instructions. **Edit usage** replaces the
+built-in instructions the model reads with your own text (up to 8,000 characters; the row shows **Edited**);
+**Reset** returns to the built-in text. A tool whose capability is not available shows a "Needs …" row instead of
+a switch effect: `Needs code projects`, `Needs documents`, `Needs "Answer only from documents"`, `Needs SSH servers`,
+`Needs MCP`; it stays saved but is not offered until the need is met. Capability tabs (native) say
+"Tools for these projects are chosen on the Tools tab." MCP tools of the selected servers are on by default; an
+edited usage text for one is added to the prompt as **Tool notes** (the tool's own description still comes from the
+server). **Save tools** saves the whole list with the agent's revision (`GET/PUT /api/agents/{id}/tools`; a stale
+list returns 409 "The tools changed since you opened them. Reload.").
+
+Save rules: when **Answer only from documents** is on, `report_not_covered` cannot be switched off ("Grounded answers
+need report_not_covered."); switching a capability on brings its default tools on, and tools of a server that is not
+selected, or unknown tools, are refused. Step 1 offers only on and off. Claude Code agents keep their four tools
+(Read, Grep, Glob, Bash) on the General tab; the Tools tab shows "Claude Code agents use Claude Code's own tools on
+their working folders. Switch them on the General tab." and the API refuses tool changes for them. The agent wizard
+has a **Tools** page that follows the chosen capabilities, and **All agents** has a **Tools** column
+(for example `7 tools · Code 6 · Servers 1`, `No tools`, or `Read, Grep, Glob, Bash` for Claude Code). Tools are part
+of the configuration and of every version; versions saved before 0078 use the tools their capabilities gave.
 
 ## New agent
 
@@ -101,6 +124,8 @@ Migration `0077_remove_coordinator` removes the multi-agent board and the coordi
 records (`board:*`), drops `agent_board_tasks`, `agent_board_members` and `coordinator_settings`, deletes the
 coordinator agent with everything it owned, and drops `agents.is_coordinator` with the coordinator-only rules that
 0031, 0032, 0072 and 0075 added. Audit events stay. Its down migration restores the empty schema only.
+
+Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode` on/off/per_run, `usage`, `subagent_allowed`) and backfills every native agent with the tools its capabilities gave it, so nothing changes at upgrade; `code_graph` stays offered only when a selected code project has a generated graph. Its down migration drops the table and any edited usage text.
 
 - `GET /api/agents` lists profiles and active model/prompt summaries.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
