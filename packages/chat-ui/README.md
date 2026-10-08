@@ -8,8 +8,7 @@ streaming content and lets the reader scroll back or jump to the latest message.
 
 Callers supply messages, response actions, composer state and send/stop callbacks.
 The component does not load agents, call APIs, store sessions or perform tuning.
-The administration Test page owns these operations. The multi-agent board uses
-the same conversation renderer for the main task and coordinator response.
+The administration Test page owns these operations.
 The client application can use this export with its own request callbacks.
 
 As with the existing `ChatPanel`, imports under `~/components` and `~/lib` resolve

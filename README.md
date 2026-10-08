@@ -9,8 +9,7 @@ and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
 Git sync, Jira ticket import/export, RAG file processing/search, source browsing,
-and connection tests work. Agent Test (Admin → Agents) and the multi-agent board run
-models; agents can be set to answer only from documents with citations.
+and connection tests work. Agent Test (Admin → Agents) runs models; agents can be set to answer only from documents with citations.
 See [agent administration](docs/agent-profiles.md) and [execution routes](docs/agents.md).
 
 **New here? Start with the [User Guide](docs/user-guide.md)** — how to use the
@@ -245,7 +244,3 @@ Administration → Skills manages reusable Markdown instructions with descriptio
 
 [Agents](http://localhost:8183/agents) provides a Prompts tab for each agent, with draft and active versions. Search diagrams are
 optional and checked with Mermaid before rendering. See [the prompts guide](docs/prompts.md).
-
-The [multi-agent board](docs/agent-board.md) runs each task through a dedicated
-Agents SDK coordinator and a selected team of Agents SDK specialists, showing
-live activity, delegated results, and the final answer at `/agent-board`.

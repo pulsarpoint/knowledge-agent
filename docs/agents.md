@@ -1,15 +1,9 @@
 # Agent execution status
 
-The [multi-agent board](agent-board.md) uses an Agents SDK coordinator to delegate
-to configured Agents SDK specialists, storing their results and a combined answer.
-The coordinator is a protected record in **All agents**. Its **General** tab edits
-identity, model, notes, and limits; **Prompts** manages its draft/active system
-prompt versions. Its execution routes use `/api/agent-board/tasks`.
-
 Specialist **Test** conversations run the selected agent directly using the official
 Agents SDK. It loads the saved active prompt, model, enabled capabilities, resource
 selections and SSH overrides, then decrypts only their required credentials.
-The coordinator is not involved in a direct test. Test chats, live runs and the board refuse Claude Code agents with `Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
+Test chats and live runs refuse Claude Code agents with `Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
 
 - `POST /api/agents/{id}/runs` accepts a task, optional UUID request
   ID, optional `session_id`, and optional `version_id` and `is_test` for a new conversation. The first message creates a session; follow-ups
@@ -23,8 +17,8 @@ The coordinator is not involved in a direct test. Test chats, live runs and the 
   leaving its session open. Disconnecting the browser does not cancel execution;
   reopening the URL restores messages and polls any running turn. Interrupted
   turns are marked failed and are never automatically retried.
-- A disabled agent, missing active prompt, missing/disabled model, unavailable
-  credential, or coordinator profile cannot start a specialist test. Duplicate
+- A disabled agent, missing active prompt, missing/disabled model or unavailable
+  credential cannot start a test. Duplicate
   request IDs are rejected rather than executing the same task again.
 
 Sessions remain active until **Close session** or one hour without a message or
@@ -53,8 +47,8 @@ context; it does not implicitly close another active session.
 The Test UI is a chat timeline with a persistent composer. Enter sends and
 Shift+Enter adds a newline. **Add feedback** beneath a response opens the optional
 review panel. **Suggestions**, **History** and **Show config** open side panels;
-ordinary chatting does not require a review. The conversation renderer is shared
-with the multi-agent board through `packages/chat-ui/Conversation.tsx`.
+ordinary chatting does not require a review. The conversation renderer is
+`packages/chat-ui/Conversation.tsx`.
 
 `ka.agent_sessions` is the common table for live and test conversations. It stores
 the owner, pinned configuration/version, timestamps, status, `is_test`, and complete
@@ -98,8 +92,7 @@ removed; agents read code with their own tools (`list_files`, `read_file`,
 `code_search`, `ast_grep`, `code_graph`).
 
 `knowledge_admin.agents.agent()` runs a configured specialist with the Agents SDK.
-The caller provides a saved config, task, history, and decrypted credentials. The
-board shares its native `create_agent()` constructor. Responses and Chat Completions
+The caller provides a saved config, task, history, and decrypted credentials. Responses and Chat Completions
 connections use the corresponding SDK model classes; native Anthropic/Bedrock uses
 `LitellmModel`. See [the runtime documentation](../services/admin-api/README.md).
 
@@ -131,7 +124,6 @@ a combined side-by-side comparison view is not included. Saved snapshots cannot
 be edited in place: **Copy as draft** creates a revised snapshot. Settings tabs
 remain the working configuration editor; use **Create draft from settings** to
 capture changed models, resources or permissions, then activate that draft.
-Coordinator configuration continues to use its existing settings/prompt workflow.
 
 - `GET /api/agents/{id}/versions`: version history and active ID.
 - `GET /api/agents/{id}/versions/source`: working config for a new draft; optional

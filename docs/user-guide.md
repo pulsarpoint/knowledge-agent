@@ -21,11 +21,10 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.9 Skills](#49-skills)
   - [4.10 MCP servers](#410-mcp-servers)
   - [4.11 Agents](#411-agents)
-  - [4.12 Multi-agent board](#412-multi-agent-board)
-  - [4.13 Generate documents](#413-generate-documents)
-  - [4.14 Documents and documentation prompts](#414-documents-and-documentation-prompts)
-  - [4.15 Storage](#415-storage)
-  - [4.16 Agent runs](#416-agent-runs)
+  - [4.12 Generate documents](#412-generate-documents)
+  - [4.13 Documents and documentation prompts](#413-documents-and-documentation-prompts)
+  - [4.14 Storage](#414-storage)
+  - [4.15 Agent runs](#415-agent-runs)
 - [5. End-to-end workflows](#5-end-to-end-workflows)
 - [6. Operations](#6-operations)
 - [7. Current limitations](#7-current-limitations)
@@ -59,8 +58,7 @@ What you can actually do today:
 - **Generate documents with a native or Claude Code agent**: pick an agent and what to document
   (code projects, environments, services, servers), follow the session and save the draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
-  and MCP tools, and run them interactively (agent **Test** chat) or as a team on the
-  **multi-agent board**.
+  and MCP tools, and run them interactively (agent **Test** chat).
 - **Import Jira tickets** into the knowledge base as Markdown.
 
 Generated documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs), after a **Refresh** or with Auto-sync in RAG → Collections
@@ -137,7 +135,6 @@ Most features depend on earlier ones. A sensible order in the Administration app
 7. **Services** → describe applications, link code projects, add deployments and dependencies.
 8. **Docs → Generate documents** → **New**: choose a native or Claude Code agent and what to document → **Generate**.
 9. **Agents** → create agents, assign a model, enable capabilities, test them.
-10. **Multi-agent board** → give the Coordinator a model and run team tasks.
 
 ---
 
@@ -162,7 +159,7 @@ General conventions throughout the admin app:
 | Group | Items |
 | --- | --- |
 | Administration | Storage · Skills · MCP servers · Agent runs |
-| Agents | All agents · Multi-agent board |
+| Agents | All agents |
 | LLM Settings | Models |
 | Jira | Tickets · Settings |
 | Environments | Environments · Services · Servers |
@@ -196,10 +193,9 @@ and RAG embeddings.
 Changing provider, URL or region requires re-entering or removing the key. There is
 no delete — disable a model instead.
 
-> **Compatibility rule.** Agents (other than the Coordinator) and documentation
-> generation require a "code-compatible" model: OpenAI **Responses** API, Anthropic,
-> or Bedrock `anthropic.claude*`. OpenAI **Chat Completions** models can only be used
-> by the Coordinator.
+> **Compatibility rule.** Native agents and documentation generation require a "code-compatible" model: OpenAI
+> **Responses** API, Anthropic, or Bedrock `anthropic.claude*`; Claude Code agents require a Claude model. OpenAI
+> **Chat Completions** models can be assigned only as the Search model in LLM Settings.
 
 ### 4.3 RAG: collections, processing, settings, search
 
@@ -315,7 +311,7 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 lists every project's graph (status, files, symbols, relationships, languages, last
 generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
 directly. The graph is a
-prerequisite for code documentation phases ([4.13](#413-documentation-generation)).
+prerequisite for code documentation phases ([4.12](#412-generate-documents)).
 
 Code projects only clone and pull into `code/…`. To search code, add the project's folders
 to a collection in RAG → Collections; removing a project does not change RAG.
@@ -450,7 +446,7 @@ saved but runs only after you choose one on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections; the coordinator is always Fixed), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
+| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
@@ -473,7 +469,7 @@ configuration, secrets as references), **Close session**, **New session**, **Can
 run**, and token usage. **Add feedback** → **Suggest improvements** runs a reviewer
 that proposes prompt/instruction changes you can copy or **Save as new version**.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The active version decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Per-run agents cannot join the multi-agent board yet. Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The active version decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire after
 1 hour idle, one running message per session. A run is blocked if the agent is
@@ -485,36 +481,16 @@ on. Settings changes touch only the agent's working copy: if the Search agent ha
 active configuration version, runs keep using that version's snapshot until you save
 and activate a new version.
 
-**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, prompt versions, versions). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the active prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats or on the multi-agent board. Agents created before this release got the built-in documentation prompt as prompt version 1.
+**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, prompt versions, versions). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the active prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats. Agents created before this release got the built-in documentation prompt as prompt version 1.
 
-Removing an agent that has history (test chats, chats, Claude Code sessions, runs or board tasks) lists that
+Removing an agent that has history (test chats, chats, Claude Code sessions or runs) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
-documents are kept, and so is the coordinator's own record of a board task it delegated to this agent. To keep the
-history, cancel and disable the agent instead. An agent that is working right now (a Claude Code session that is starting
-or working, a running run, or a queued or running board task it belongs to) cannot be removed; stop that work or wait for
+documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
+(a Claude Code session that is starting or working, or a running run) cannot be removed; stop that work or wait for
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
-### 4.12 Multi-agent board
-
-`/agent-board` — give one task to a **Coordinator** agent, which delegates subtasks
-to selected specialist agents and then writes a final summary.
-
-Prerequisites: the built-in Coordinator agent must have an enabled model (any
-tool-capable chat model). Specialists need to be enabled, with a model and an active prompt.
-
-1. **New task** → enter the main task, tick 1–10 subagents → **Start task**.
-2. Watch the phase: *Planning subtasks → Subagents working → Reviewing results → Finished*.
-3. Follow live **Coordinator activity**, and the kanban columns *Queued / Running /
-   Results*; **View work** opens a subtask's activity and result. **View trace** opens
-   Phoenix if `PHOENIX_PUBLIC_URL` is set.
-4. Read the final answer; **Stop task** or **Use task again** as needed.
-
-Coordinator settings (Coordinator's General tab): max model turns (1–30), max subagent
-calls (1–50), task timeout (30–3600 s), notes, and the final-summary prompt. Up to 3
-main tasks run concurrently, with at most 30 unfinished tasks.
-
-### 4.13 Generate documents
+### 4.12 Generate documents
 
 **Docs → Generate documents** (`/documentation/generations`) lists sessions of native and Claude Code agents in which an agent writes one
 document: status, agent, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
@@ -616,7 +592,7 @@ and run records. Saved documents, their versions and exported files stay, and do
 exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect. Bookmarks of old generations
 (`/documentation/generations/<id>`) open a page that shows "Session not found".
 
-### 4.14 Documents and documentation prompts
+### 4.13 Documents and documentation prompts
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
 title/slug/description and filter by linked resources. **Create document** writes one
@@ -644,18 +620,17 @@ document keeps it in its folder.
 directly: copy one into a documentation agent's prompt. Saving changed text creates a draft version; **Activate vN** makes
 it the active one; inactive versions can be deleted.
 
-### 4.15 Storage
+### 4.14 Storage
 
 `/storage` — read-only overview of the data folder (`DATA_ROOT`) and its five folders: source code
 (`CODE_FOLDER`), code graphs (`CODE_INDEX_FOLDER`), Jira exports (`JIRA_FOLDER`), document
 exports (`GENERATED_DOCS_FOLDER`) and bootstrap docs (`DOCS_FOLDER`). Each shows host and
 container paths, availability, and a file browser with text preview.
 
-### 4.16 Agent runs
+### 4.15 Agent runs
 
 `/activity/runs` — a complete record of every agent run: agent Test
-conversations, multi-agent board tasks (coordinator, every specialist and
-the summary in one record) and Generate documents sessions. Each record shows, in order:
+conversations and Generate documents sessions. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
 - the model's reasoning when the provider returns it (otherwise "Reasoning not returned
@@ -665,8 +640,9 @@ the summary in one record) and Generate documents sessions. Each record shows, i
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Agent test**, **Board task**, **Claude Code** and **Native session** (Generate documents turns); you can also filter by user. **Full record** links lead here from each reply in
-an agent's Test tab, from a board task, and from each Generate documents session turn.
+characters. The run type filter offers **Agent test**, **Claude Code** and **Native session** (Generate documents turns); you
+can also filter by user. **Full record** links lead here from each reply in an agent's Test tab and from each
+Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
 
 ---
@@ -708,25 +684,20 @@ Records are kept until deleted; only administrators can see them.
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect **View activity**.
 4. Use **Add feedback → Suggest improvements**, then **Versions → Save draft → Activate**.
 
-### E. Run a team task
-
-1. Open the **Coordinator** agent → assign a model; adjust coordinator settings.
-2. **Multi-agent board → New task**, pick specialists, **Start task**, follow the board.
-
-### F. Bring Jira knowledge into RAG
+### E. Bring Jira knowledge into RAG
 
 **Jira Settings** → save and test → **Tickets** → fetch with JQL → select → **Export
 selected** → make sure a collection holds `jira` (RAG → Collections → Add
 folder) → **Refresh** it or let Auto-sync pick it up.
 
-### G. Make one code project's documentation searchable
+### F. Make one code project's documentation searchable
 
 1. **Generate documents** → **New** → **Code**: the project → **Generate** → **Save document**.
 2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
 
-### H. Write documentation interactively with Claude Code
+### G. Write documentation interactively with Claude Code
 
 1. **Agents → New agent**, **Agent type: Claude Code**, choose a Claude model and write the
    system prompt → **Create agent**.
@@ -756,7 +727,6 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
 | `APP_ADMIN_*`, `KEYCLOAK_ADMIN_PASSWORD`, `PHOENIX_*`, `*_OAUTH2_PROXY_*` | Bootstrap credentials and gateway secrets |
-| `PHOENIX_PUBLIC_URL` | Enables "View trace" links on the agent board |
 | `DOCKER_DNS_SEARCH` | DNS search domain so short SSH/Jira host names resolve in containers |
 
 Model credentials are **not** in `.env`; they are configured in LLM Settings.
@@ -844,7 +814,7 @@ and always save trusted host keys.
 
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
-| README.md | Agent Chat/Test returns `TODO` | Agent **Test** and the **multi-agent board** really run models |
+| README.md | Agent Chat/Test returns `TODO` | Agent **Test** really runs models |
 | docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |

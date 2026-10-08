@@ -97,7 +97,7 @@ its own model, prompt, instructions, skills and tools; the form has no model or 
 required. Refusals (400): `NOTHING_CHOSEN` (nothing chosen), `NO_FOLDER` (Claude Code agents only: at least one working
 folder: code projects, or environments or services linked to code projects, or an agent with code projects), `AGENT_MODEL`
 ("The agent has no enabled model for its agent type…": Claude Code needs a Claude connection, native a Responses or Claude
-connection), `NO_AGENT` ("Select an enabled agent.": unknown, disabled or the coordinator), and unknown or unavailable ids
+connection), `NO_AGENT` ("Select an enabled agent.": unknown or disabled), and unknown or unavailable ids
 ("Select available ..."). For per-run agents it also refuses `This agent does not use <kind>.`, `<label> <name> is not allowed for this agent.`, `<label> <name> is not available: it was removed, archived or disabled.` and, for Claude Code, `NO_RUN_FOLDER` (no working folder among the run's code projects).
 
 The session stores two snapshots and a `runtime` (`openai` | `claude_code`). `prompt_snapshot` holds `system_prompt` and

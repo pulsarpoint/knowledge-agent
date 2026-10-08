@@ -296,3 +296,19 @@ Generate documents now also runs native agents. After pulling this version on an
    `docker compose --env-file .env -f deploy/compose.yaml up -d agent-session-worker`
 
 Rolling 0074 back refuses while native sessions exist: delete them first.
+
+## Upgrading to the removal of the multi-agent board
+
+The multi-agent board and the coordinator are gone; every agent is an ordinary agent. After pulling this version on an
+existing installation, run the database migration (`make up` runs it, or `make db-migrate`).
+
+- Migration 0077 deletes the coordinator agent and the board's tables and history (`agent_board_tasks`,
+  `agent_board_members`, `coordinator_settings` and the `board:*` run records). Back up the database first: rolling
+  0077 back is not a restore.
+- Rolling back below 0077 restores only the empty schema; the deleted coordinator agent, board tasks and history do
+  not come back.
+- A rollback that stops exactly at version 30 cannot be upgraded again. Roll back to 29 or below, or stay at 31 or
+  above.
+- OpenAI Chat Completions models can no longer be assigned to any agent, because only the coordinator could use them.
+  They remain usable as the Search model in LLM Settings.
+- `PHOENIX_PUBLIC_URL` is no longer read; remove it from `.env`.
