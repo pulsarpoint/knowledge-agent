@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
 import ClaudeCodeSessionView from '../ClaudeCodeSessionView';
@@ -212,4 +212,15 @@ test('the session page fills the screen below the app header, so the message box
     const box = await screen.findByRole('form', { name: 'Message box' });
     expect(box.closest<HTMLElement>('[style]')?.style.height).toBe('576px');  // 700 - 100 - 24 (the main padding)
   } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
+});
+
+test('a Test session opened here goes to its agent Test tab', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
+    : Response.json({ ...detail, purpose: 'test', runtime: 'openai', agent_id: 'custom agent' })));
+  function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname + location.search}</output>; }
+  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
+    <Route path="/documentation/generations/:id" element={<ClaudeCodeSessionView sessionId="s1" />} />
+    <Route path="*" element={<Where />} />
+  </Routes></MemoryRouter>);
+  expect(await screen.findByLabelText('URL')).toHaveTextContent('/agents/custom%20agent?view=test&session_id=s1');
 });

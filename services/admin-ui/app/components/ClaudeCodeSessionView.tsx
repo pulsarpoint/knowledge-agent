@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, Navigate } from 'react-router';
 import { ApiError } from '~/lib/api';
 import { closeSession, saveSessionDocument, sendMessage, sessionTypeLabel, stopSession, type SavedDocument } from '~/lib/claudeCode';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
@@ -52,6 +52,9 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   }
 
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
+  // A Test session belongs to its agent's Test tab (an old link, or one from Agent runs).
+  if (session.purpose === 'test') return <Navigate replace
+    to={`/agents/${encodeURIComponent(session.agent_id)}?view=test&session_id=${encodeURIComponent(session.id)}`} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
