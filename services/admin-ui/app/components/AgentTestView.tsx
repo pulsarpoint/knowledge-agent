@@ -51,6 +51,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const [applying, setApplying] = useState<SessionReview | null>(null);
   const [closing, setClosing] = useState(false);
   const [history, setHistory] = useState<TestSessionSummary[] | null>(null);
+  const [historyError, setHistoryError] = useState('');
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configError, setConfigError] = useState('');
   const [runOptions, setRunOptions] = useState<RunResourceOptions | null>(null);
@@ -85,9 +86,9 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   }, [panel, agentId, active, dirty, revision, session?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (panel !== 'history') return;
-    let live = true; setHistory(null);
+    let live = true; setHistory(null); setHistoryError('');
     getTestSessions(agentId).then(value => { if (live) setHistory(value.sessions); })
-      .catch(reason => { if (live) setError(reason instanceof Error ? reason.message : 'Could not load the sessions.'); });
+      .catch(reason => { if (live) setHistoryError(reason instanceof Error ? reason.message : 'Could not load the sessions.'); });
     return () => { live = false; };
   }, [panel, agentId]);
 
@@ -124,7 +125,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const blockReason = !available ? 'This agent is disabled. Enable it in General to run a task.'
     : !ready ? 'Loading agent configuration…'
     : dirty ? 'Save or discard changes in the configuration tabs before starting a task.'
-    : sessionId && !session ? 'Loading conversation…'
+    : sessionId && !session ? (run.error ? 'Could not open this session. Start a new session.' : 'Loading conversation…')
     : closed ? 'This session is closed. Start a new session to continue.'
     : !sessionId && runOptionsError ? runOptionsError
     : !sessionId && !runOptions ? 'Loading the resources for this run…'
@@ -192,7 +193,8 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
               : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(preview, null, 2)}</pre>
               : <p role="status"><Spinner />Loading configuration…</p>}
           </>}
-          {panel === 'history' && (history === null ? <p role="status"><Spinner />Loading sessions…</p>
+          {panel === 'history' && (historyError ? <Alert variant="destructive"><AlertDescription>{historyError}</AlertDescription></Alert>
+            : history === null ? <p role="status"><Spinner />Loading sessions…</p>
             : history.length ? history.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">
               <div className="min-w-0"><p className="break-words text-sm">{saved.title}</p>
                 <p className="text-xs text-muted-foreground">{statusLabels[saved.status]} · {saved.actor_email} · {new Date(saved.created_at).toLocaleString()}</p></div>

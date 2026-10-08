@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AgentTestView from '../AgentTestView';
@@ -186,4 +186,125 @@ it('a session of another agent is not opened here', async () => {
   renderPage('?view=test&session_id=s1');
   expect(await screen.findByText('Session not found for this agent.')).toBeVisible();
   expect(screen.queryByText('Three retries.')).toBeNull();
+});
+
+const ANALYST: RunResourceOptions = { resources: 'per_run', collections: null, servers: [], services: null,
+  code_projects: [{ id: 'app', name: 'Payments API' }, { id: 'worker', name: 'Worker' }] } as RunResourceOptions;
+const ONLY_APP = { code_project_ids: ['app'], collection_ids: [], server_ids: [], service_ids: [] };
+const chooseResources = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose resources' }));
+  return within(await screen.findByRole('dialog'));
+};
+
+it('the first message waits for the resource options: a load failure blocks it until Retry', async () => {
+  let resolve!: (value: RunResourceOptions) => void;
+  vi.mocked(getRunResourceOptions).mockReturnValueOnce(new Promise(done => { resolve = done; }))
+    .mockRejectedValueOnce(new Error('Options unavailable')).mockResolvedValue(structuredClone(ANALYST));
+  const view = (revision: number) => <MemoryRouter initialEntries={['?view=test']}><AgentTestView agentId="custom" agentName="Custom agent" available ready dirty={false} active revision={revision} /></MemoryRouter>;
+  const { rerender } = render(view(1));
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Too early' } });
+  expect(screen.getByText('Loading the resources for this run…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+  await act(async () => resolve(structuredClone(ANALYST)));
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
+  rerender(view(2));
+  expect(await screen.findByRole('button', { name: 'Retry' })).toBeVisible();
+  expect(screen.getAllByText('Options unavailable').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled());
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+});
+
+it('a choice the reloaded options no longer offer is not sent; the old options stay while reloading', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  vi.mocked(tests.createTestSession).mockResolvedValue(structuredClone(session));
+  const view = (revision: number) => <MemoryRouter initialEntries={['?view=test']}><AgentTestView agentId="custom" agentName="Custom agent" available ready dirty={false} active revision={revision} /></MemoryRouter>;
+  const { rerender } = render(view(1));
+  const picker = await chooseResources();
+  fireEvent.click(picker.getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.click(picker.getByRole('checkbox', { name: 'Worker' }));
+  let resolve!: (value: RunResourceOptions) => void;
+  vi.mocked(getRunResourceOptions).mockReturnValue(new Promise(done => { resolve = done; }));
+  rerender(view(2));
+  expect(screen.getByRole('checkbox', { name: 'Worker' })).toBeVisible();
+  await act(async () => resolve({ ...structuredClone(ANALYST), code_projects: [{ id: 'app', name: 'Payments API' }] }));
+  await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Worker' })).toBeNull());
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Where are the limits?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
+  await waitFor(() => expect(tests.createTestSession).toHaveBeenCalledWith('custom', 'Where are the limits?', ONLY_APP));
+});
+
+it('the resource picker hides unused kinds, explains empty ones and says when nothing is chosen', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  const picker = await chooseResources();
+  expect(picker.queryByText('Collections')).toBeNull();  // a kind the agent does not use
+  expect(picker.getByText('None allowed. Choose them in the agent’s tabs.')).toBeVisible();  // servers
+  const note = 'Nothing chosen: the agent’s tools will have nothing to work on';
+  expect(picker.getByText(note)).toBeVisible();
+  fireEvent.click(picker.getByRole('checkbox', { name: 'Payments API' }));
+  expect(picker.queryByText(note)).toBeNull();
+});
+
+it('Show config lists the chosen run resources before the first message and the tool counts in a session', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  const view = renderPage();
+  fireEvent.click((await chooseResources()).getByRole('checkbox', { name: 'Payments API' }));
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
+  expect(JSON.parse((await screen.findByLabelText('Agent configuration')).textContent!).run_resources).toEqual(ONLY_APP);
+  view.unmount();
+  detail = { ...structuredClone(session), tool_counts: [{ name: 'read_file', calls: 2 }], tool_counts_through_id: 3 };
+  renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
+  expect(JSON.parse((await screen.findByLabelText('Agent configuration')).textContent!).tool_counts).toEqual([{ name: 'read_file', calls: 2 }]);
+});
+
+it('the header shows the resources a session started with, whatever the agent uses now', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  const fixed = renderPage('?view=test&session_id=s1');  // a fixed session; the agent is per-run now
+  await screen.findByText('Three retries.');
+  expect(screen.getByText('Resources: Fixed')).toBeVisible();
+  fixed.unmount();
+  vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
+  detail = { ...structuredClone(session), config: { id: 'custom', run_resources: ONLY_APP, code: { projects: [{ id: 'app', name: 'Payments API' }] } } };
+  renderPage('?view=test&session_id=s1');
+  expect(await screen.findByText('Resources: Per run: Payments API')).toBeVisible();
+});
+
+it('feedback is cleared after a review, and an answer takes no feedback while the agent works', async () => {
+  vi.mocked(tests.reviewTestSession).mockResolvedValue({ id: 'review-1', comment: 'Cite sources', suggestion: 'Cite the runbook.', response_turn: 1, created_at: '2026-10-08T10:00:00Z' });
+  const idle = renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  fireEvent.click(screen.getByRole('button', { name: 'Add feedback' }));
+  fireEvent.change(screen.getByLabelText('Your feedback'), { target: { value: 'Cite sources' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Suggest improvements' }));
+  expect(await screen.findByText('Cite the runbook.')).toBeVisible();
+  expect(screen.getByLabelText('Your feedback')).toHaveValue('');
+  idle.unmount();
+  detail = { ...structuredClone(session), status: 'working' };
+  renderPage('?view=test&session_id=s1');
+  await screen.findByText('Three retries.');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add feedback' })).toBeDisabled());
+});
+
+it('a session that cannot be opened says so and blocks the message box', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Session not found.' } }, { status: 404 })));
+  renderPage('?view=test&session_id=missing');
+  expect(await screen.findByText('Could not open this session. Start a new session.')).toBeVisible();
+  expect(screen.queryByText('Loading conversation…')).toBeNull();
+});
+
+it('a History load failure shows in the History panel', async () => {
+  vi.mocked(tests.getTestSessions).mockRejectedValue(new Error('Sessions unavailable'));
+  renderPage();
+  fireEvent.click(screen.getByRole('button', { name: 'History' }));
+  const sheet = within(await screen.findByRole('dialog'));
+  expect(await sheet.findByText('Sessions unavailable')).toBeVisible();
+  expect(sheet.queryByText('Loading sessions…')).toBeNull();
 });
