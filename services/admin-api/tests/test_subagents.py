@@ -330,7 +330,7 @@ def test_a_model_calls_events_and_tokens_commit_while_no_other_flush_can_run(mon
     recorder.add('usage', {'input_tokens': 1})
     runner = SimpleNamespace(store=SimpleNamespace(connect=Connection), id='x', worker_id='w')
     native_sessions.NativeRunner.add_usage(runner, recorder, {'input_tokens': 1, 'output_tokens': 1, 'cached_tokens': 0,
-                                                              'reasoning_tokens': 0, 'cost_usd': 0.0})
+                                                              'reasoning_tokens': 0})
     assert blocked == [True] and recorder.flushed == 1
 
 

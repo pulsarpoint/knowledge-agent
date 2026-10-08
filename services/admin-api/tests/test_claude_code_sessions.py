@@ -13,6 +13,7 @@ from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED
 from knowledge_admin.claude_code_api import NO_MODEL, NOTHING_CHOSEN
 from knowledge_admin.documents import SAME_DOCUMENT_NAME
+from session_rows import add_test_session
 from test_api import _client
 from test_profiles import wizard_payload
 from test_repositories import HEADERS
@@ -78,31 +79,12 @@ def refused(sessions, **change) -> str:
     return response.json()['error']['message']
 
 
-def claude_code_session(sessions, *, document_name: str = 'Payments – API reference') -> dict:
-    """A Claude Code documentation session as the removed saved-agent path inserted it: the Claude Code worker still
-    runs existing ones."""
-    session_id, app = uuid4(), f'{sessions.data}/code/app'
-    with sessions.store.connect() as conn:
-        project = sessions.store.project(conn, 'shop')
-        actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
-        conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,document_name,folder,runtime) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'claude_code')""",
-            (session_id, project, sessions.agent, actor, sessions.claude, document_name,
-             Jsonb({'system_prompt': 'You document systems.'}),
-             Jsonb({'folders': [{'path': app, 'kind': 'code_project', 'name': 'Payments API',
-                                 'code_project_id': sessions.repo}], 'code_project_ids': [sessions.repo]}),
-             document_name, 'payments-api-docs'))
-        conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
-                     (session_id, actor, f'Document the Payments API.\n\n{FINAL_ANSWER}'))
-    return {'id': str(session_id)}
-
-
 def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context_and_selection(sessions):
     s = sessions
     session = start(s, prompt_id=None)
     app, worker = f'{s.data}/code/app', f'{s.data}/code/worker'
-    assert (session['agent_id'], session['agent_name'], session['model_name'], session['runtime']) == (
-        None, 'Ad-hoc agent', 'GPT', 'openai')
+    assert (session['agent_id'], session['agent_name'], session['model_name']) == (None, 'Ad-hoc agent', 'GPT')
+    assert 'runtime' not in session and 'cost_usd' not in session
     assert (session['title'], session['folder'], session['status']) == ('Payments – API reference', 'payments-api-docs', 'starting')
     assert session['prompt_snapshot'] == {'system_prompt': 'You document systems.',
                                           'context': '# What you are documenting\n\nPayments', 'prompt_id': None}
@@ -122,15 +104,15 @@ def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context
                        'credential'):
             assert secret not in serialized
     with s.store.connect() as conn:
-        row = conn.execute('SELECT agent_id,agent_config FROM ka.agent_sessions_cc WHERE id=%s', (session['id'],)).fetchone()
+        row = conn.execute('SELECT agent_id,agent_config FROM ka.agent_sessions WHERE id=%s', (session['id'],)).fetchone()
         audit = conn.execute("SELECT details FROM ka.audit_events WHERE resource_id=%s", (session['id'],)).fetchone()
         assert conn.execute('SELECT count(*) AS n FROM ka.agents WHERE id=%s', ('ad-hoc',)).fetchone()['n'] == 0
     assert row['agent_id'] is None
     assert row['agent_config']['system_prompt']['content'] == 'You document systems.\n\n# What you are documenting\n\nPayments'
-    assert audit['details'] == {'runtime': 'openai', 'ephemeral': True, 'model_id': s.gpt, 'prompt_id': None}
+    assert audit['details'] == {'ephemeral': True, 'model_id': s.gpt, 'prompt_id': None}
     no_context = start(s, context='  ')
     with s.store.connect() as conn:
-        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s', (no_context['id'],)).fetchone()
+        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (no_context['id'],)).fetchone()
     assert pinned['agent_config']['system_prompt']['content'] == 'You document systems.'
     listed = s.client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
     assert {row['agent_name'] for row in listed} == {'Ad-hoc agent'}
@@ -161,7 +143,7 @@ def test_ad_hoc_sessions_refuse_what_cannot_run(sessions):
     # prod-1 has no SSH connection: brought by Production it is left out, chosen directly it is refused by name.
     assert refused(s, server_ids=[s.server['id']]) == 'Server prod-1 is not available: it was removed, archived or disabled.'
     with s.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
 
 
 @pytest.mark.parametrize('change, status', [
@@ -179,7 +161,7 @@ def test_session_input_is_validated(sessions, change, status):
     if change == {'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}:
         assert NOTHING_CHOSEN in response.json()['error']['message']
     with sessions.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
 
 
 def test_messages_stop_and_close(sessions):
@@ -191,7 +173,7 @@ def test_messages_stop_and_close(sessions):
     assert client.post(url + '/messages', headers=HEADERS, json={'text': '   '}).status_code == 400
     assert client.post(url + '/stop', headers=HEADERS).status_code == 409  # starting: nothing runs yet
     with store.connect() as conn:  # a worker delivered both messages as turn 1
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=%s", (session['id'],))
+        conn.execute("UPDATE ka.agent_sessions SET status='working',turns=1 WHERE id=%s", (session['id'],))
         conn.execute("UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now() WHERE session_id=%s", (session['id'],))
     assert client.post(url + '/messages', headers=HEADERS, json={'text': 'Shorten it.'}).json()['working'] is True
     stopped = client.post(url + '/stop', headers=HEADERS)
@@ -200,7 +182,7 @@ def test_messages_stop_and_close(sessions):
     assert [(i['seq'], i['text'], i['status'], i['turn']) for i in detail['inputs'][1:]] == [
         (2, 'Also cover retries.', 'delivered', 1), (3, 'Shorten it.', 'discarded', None)]
     with store.connect() as conn:
-        assert conn.execute('SELECT stop_requested_at FROM ka.agent_sessions_cc WHERE id=%s', (session['id'],)).fetchone()['stop_requested_at']
+        assert conn.execute('SELECT stop_requested_at FROM ka.agent_sessions WHERE id=%s', (session['id'],)).fetchone()['stop_requested_at']
     assert client.post(url + '/close', headers=HEADERS).status_code == 200
     detail = client.get(url, headers=HEADERS).json()
     assert (detail['status'], detail['status_message'], bool(detail['closed_at'])) == ('closed', 'Closed.', True)
@@ -215,7 +197,9 @@ def test_messages_stop_and_close(sessions):
     for path in (url + '/messages', url + '/stop', url + '/close'):
         assert client.post(path, json={'text': 'x'}).status_code == 403
     assert client.get('/api/claude-code/sessions').status_code == 403
-    claude_code_session(sessions)  # an agent with a session keeps it
+    with sessions.store.connect() as conn:  # an agent with a session keeps it
+        project, actor = sessions.store.project(conn, 'shop'), sessions.store.actor(conn, 'admin-id', 'admin@example.test')
+        add_test_session(conn, project, actor, sessions.agent, sessions.claude, status='waiting')
     revision = client.get(f'/api/agents/{sessions.agent}', headers=HEADERS).json()['revision']
     assert client.request('DELETE', f'/api/agents/{sessions.agent}', headers=HEADERS,
                           json={'revision': revision, 'confirmed': True}).status_code == 409  # retained session history
@@ -224,8 +208,8 @@ def test_messages_stop_and_close(sessions):
 def test_idle_sessions_close_after_24_hours(sessions):
     ids = [start(sessions)['id'] for _ in range(3)]
     with sessions.store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=ANY(%s::uuid[])", (ids[:2],))
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working' WHERE id=%s", (ids[1],))  # a running turn is never idle
+        conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=ANY(%s::uuid[])", (ids[:2],))
+        conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (ids[1],))  # a running turn is never idle
     listed = {s['id']: s for s in sessions.client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']}
     assert (listed[ids[0]]['status'], listed[ids[0]]['status_message']) == ('closed', IDLE_CLOSED)
     assert (listed[ids[1]]['status'], listed[ids[2]]['status']) == ('working', 'starting')
@@ -245,7 +229,7 @@ def parse(text: str) -> list[dict]:
 
 def record(conn, session_id, turn: int, seq: int, kind: str, payload: dict) -> None:
     conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        SELECT project_id,%s,%s,%s,coalesce(agent_id,'ad-hoc'),%s FROM ka.agent_sessions_cc WHERE id=%s''',
+        SELECT project_id,%s,%s,%s,coalesce(agent_id,'ad-hoc'),%s FROM ka.agent_sessions WHERE id=%s''',
         (f'cc:{session_id}:{turn}', seq, kind, Jsonb(payload), session_id))
 
 
@@ -255,7 +239,7 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkey
     sid = start(sessions)['id']
     other = start(sessions)['id']
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=ANY(%s::uuid[])", ([sid, other],))
+        conn.execute("UPDATE ka.agent_sessions SET status='working',turns=1 WHERE id=ANY(%s::uuid[])", ([sid, other],))
         record(conn, sid, 1, 1, 'start', {'kind': 'claude_code', 'title': 'Payments'})
         record(conn, other, 1, 1, 'start', {'kind': 'claude_code', 'title': 'Another session'})
         record(conn, sid, 1, 2, 'tool_call', {'name': 'Read', 'summary': '/work/data/code/app/main.py'})
@@ -265,10 +249,10 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, monkey
         time.sleep(0.3)
         with store.connect() as conn:
             record(conn, sid, 1, 4, 'message', {'text': '# Payments API'})
-            conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',draft='# Payments API',draft_turn=1 WHERE id=%s", (sid,))
+            conn.execute("UPDATE ka.agent_sessions SET status='waiting',draft='# Payments API',draft_turn=1 WHERE id=%s", (sid,))
         time.sleep(0.3)
         with store.connect() as conn:
-            conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+            conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (sid,))
 
     thread = threading.Thread(target=worker)
     thread.start()
@@ -299,7 +283,7 @@ def test_event_history_pages_backwards_like_the_stream(sessions):
     sid = start(sessions)['id']
     other = start(sessions)['id']
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=2 WHERE id=ANY(%s::uuid[])", ([sid, other],))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting',turns=2 WHERE id=ANY(%s::uuid[])", ([sid, other],))
         for seq in (1, 2, 3):
             record(conn, sid, 1, seq, 'message', {'text': f'one {seq}'})
         record(conn, other, 1, 1, 'message', {'text': 'another session'})
@@ -333,7 +317,7 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     empty = client.post(url + '/document', headers=HEADERS, json={})
     assert empty.status_code == 409 and empty.json()['error']['message'] == 'There is no draft yet. Wait for the agent to finish a turn.'
     with store.connect() as conn:
-        conn.execute("""UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft=%s,draft_turn=1 WHERE id=%s""",
+        conn.execute("""UPDATE ka.agent_sessions SET status='waiting',turns=1,draft=%s,draft_turn=1 WHERE id=%s""",
                      ('# Payments API\n\nRetries back off.', sid))
     first = client.post(url + '/document', headers=HEADERS, json={})
     assert first.status_code == 201, first.text
@@ -350,7 +334,7 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     again = client.post(url + '/document', headers=HEADERS, json={})
     assert again.status_code == 409 and again.json()['error']['message'] == SAME_DOCUMENT_NAME
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET draft='# Payments API\n\nShorter.' WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET draft='# Payments API\n\nShorter.' WHERE id=%s", (sid,))
     second = client.post(url + '/document', headers=HEADERS, json={'update_existing': True})
     assert second.status_code == 201 and (second.json()['id'], second.json()['revision']) == (saved['id'], 2)
     assert readme.read_text() == '# Payments API\n\nShorter.'
@@ -358,11 +342,11 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     # 'explanation'.
     other = start(sessions, code_project_ids=[])['id']
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft='# Other' WHERE id=%s", (other,))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting',turns=1,draft='# Other' WHERE id=%s", (other,))
     assert client.post(f'/api/claude-code/sessions/{other}/document', headers=HEADERS, json={}).status_code == 409
     renamed = start(sessions, code_project_ids=[], document_name='Jira overview')['id']
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting',turns=1,draft='# Jira' WHERE id=%s", (renamed,))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting',turns=1,draft='# Jira' WHERE id=%s", (renamed,))
     created = client.post(f'/api/claude-code/sessions/{renamed}/document', headers=HEADERS, json={}).json()
     overview = client.get(f"/api/documentation/documents/{created['id']}", headers=HEADERS).json()
     assert (overview['purpose'], overview['code_project_ids']) == ('explanation', [])
@@ -373,12 +357,12 @@ def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
     sid = start(sessions)['id']
     url = f'/api/claude-code/sessions/{sid}'
     with sessions.store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (sid,))
     detail = sessions.client.get(url, headers=HEADERS).json()
     assert (detail['status'], detail['status_message']) == ('closed', IDLE_CLOSED)
     other = start(sessions)['id']
     with sessions.store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (other,))
+        conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (other,))
     sent = sessions.client.post(f'/api/claude-code/sessions/{other}/messages', headers=HEADERS, json={'text': 'Hello?'})
     assert sent.status_code == 409 and sent.json()['error']['message'] == 'This session is closed. Start a new session.'
 
@@ -399,7 +383,7 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
         time.sleep(0.3)
         with sessions.store.connect() as conn:
             conn.execute('DELETE FROM ka.agent_session_inputs WHERE session_id=%s', (sid,))
-            conn.execute('DELETE FROM ka.agent_sessions_cc WHERE id=%s', (sid,))
+            conn.execute('DELETE FROM ka.agent_sessions WHERE id=%s', (sid,))
 
     thread = threading.Thread(target=remove)
     thread.start()

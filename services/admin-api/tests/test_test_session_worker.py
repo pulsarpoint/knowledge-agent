@@ -36,7 +36,7 @@ def tested(sessions, monkeypatch):
 
 
 def claimed(store) -> dict:
-    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
+    [row] = shared.claim(store, 'worker-1', [], 4)
     return row
 
 
@@ -106,3 +106,24 @@ def test_grounding_in_the_end_event_is_redacted(tested):
     first, second = [e['payload'] for e in events(store, sid) if e['kind'] == 'end']
     assert KEY not in json.dumps(first) and first['grounding']['sources'][0]['n'] == 1
     assert second == {'status': 'completed'}  # an ungrounded turn has no grounding
+
+
+def test_a_session_pinned_before_claude_code_was_removed_still_runs(tested):
+    """Configs pinned before 0083 may keep runtime and claude_code_tools keys; the worker ignores them and runs."""
+    sessions, sid = tested
+    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    with store.connect() as conn:
+        conn.execute('''UPDATE ka.agent_sessions SET agent_config=agent_config
+            || '{"runtime": "claude_code", "claude_code_tools": ["Read", "Grep"]}' WHERE id=%s''', (sid,))
+    fake = FakeAgent([{'steps': [llm(message('Three retries.'))], 'answer': 'Three retries.'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+        return done
+
+    assert asyncio.run(scenario())['status_message'] == ''
+    assert fake.calls[0]['config']['claude_code_tools'] == ['Read', 'Grep']
+    assert [e['payload'] for e in events(store, sid) if e['kind'] == 'end'] == [{'status': 'completed'}]

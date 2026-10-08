@@ -48,8 +48,8 @@ def refused(t, status: int, **body) -> str:
 def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
     t = tester
     session = start(t, '  How many retries?  ')
-    assert (session['purpose'], session['runtime'], session['status'], session['title'], session['agent_id']) == (
-        'test', 'openai', 'starting', 'How many retries?', t.agent)
+    assert (session['purpose'], session['status'], session['title'], session['agent_id']) == (
+        'test', 'starting', 'How many retries?', t.agent)
     assert (session['document_name'], session['folder'], session['draft'], session['model_calls'],
             session['reasoning_tokens'], session['run_resources']) == (None, None, None, 0, 0, None)
     assert [(i['seq'], i['text'], i['status']) for i in session['inputs']] == [(1, 'How many retries?', 'queued')]
@@ -62,7 +62,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
                            json={'revision': profile['revision'], 'system_prompt': 'A changed prompt.'})
     assert changed.status_code == 200, changed.text
     with t.store.connect() as conn:
-        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
+        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                               (session['id'],)).fetchone()['agent_config']
     assert pinned['system_prompt'] == {'content': 'Instructions for Tester.'}  # the session keeps what it started with
     later = start(t, 'x' * 250)
@@ -91,7 +91,7 @@ def test_test_sessions_are_refused_with_todays_messages(tester):
         conn.execute('UPDATE ka.agents SET model_id=%s,enabled=false WHERE id=%s', (t.model, t.agent))
     assert refused(t, 409) == 'Agent is disabled.'
     with t.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
 
 
 @pytest.fixture

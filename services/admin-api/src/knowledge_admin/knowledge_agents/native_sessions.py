@@ -90,7 +90,7 @@ class SessionEvents(RunHooks):
         self.texts: list[str] = []
         self.closed = False  # the turn ended: a turn that outlived Stop records nothing more and starts no tool call
         self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'reasoning_tokens': 0,
-                      'total_tokens': 0, 'cost_usd': 0.0}
+                      'total_tokens': 0}
 
     async def _flush(self) -> None:
         await asyncio.to_thread(self.recorder.flush)
@@ -132,7 +132,7 @@ class SessionEvents(RunHooks):
         call = {'input_tokens': int(usage.input_tokens or 0), 'output_tokens': int(usage.output_tokens or 0),
                 'cached_tokens': int(getattr(details, 'cached_tokens', 0) or 0),
                 'reasoning_tokens': int(getattr(output_details, 'reasoning_tokens', 0) or 0),
-                'total_tokens': int(usage.total_tokens or 0), 'cost_usd': 0.0}
+                'total_tokens': int(usage.total_tokens or 0)}
         for key, value in call.items():
             self.usage[key] += value
         self.add('usage', call)
@@ -279,7 +279,7 @@ class NativeRunner(shared.SessionRunner):
         """The pinned config, its credentials (decrypted now, for this turn) and the saved history. load_credentials
         refuses a disabled agent, model, SSH server or MCP server."""
         with self.store.connect() as conn:
-            config = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
+            config = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                                   (self.id,)).fetchone()['agent_config']
             history = HistorySession.load(conn, self.id)
         config.pop('record', None)  # the turn's events are recorded here, not by agent()
@@ -292,12 +292,12 @@ class NativeRunner(shared.SessionRunner):
         event ids skips none."""
         with recorder._lock, self.store.connect() as conn:
             recorder.flush_in(conn)
-            conn.execute('''UPDATE ka.agent_sessions_cc SET input_tokens=input_tokens+%(input)s,
+            conn.execute('''UPDATE ka.agent_sessions SET input_tokens=input_tokens+%(input)s,
                 output_tokens=output_tokens+%(output)s, cached_tokens=cached_tokens+%(cached)s,
                 reasoning_tokens=reasoning_tokens+%(reasoning)s, model_calls=model_calls+1,
-                cost_usd=cost_usd+%(cost)s::numeric, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s''',
+                last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s''',
                 {'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'reasoning': usage['reasoning_tokens'], 'cost': usage['cost_usd'], 'id': self.id,
+                 'reasoning': usage['reasoning_tokens'], 'id': self.id,
                  'worker': self.worker_id})
 
     async def run_turn(self, number: int, text: str) -> None:
@@ -408,7 +408,7 @@ async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Eve
     limit = limit or int(os.environ.get('AGENT_SESSION_MAX_SESSIONS', '4'))
     await shared.serve(
         store, lambda session, slot: NativeRunner(store, session, run_agent, poll=poll, idle_release=idle_release, slot=slot),
-        runtime='openai', label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
+        label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
 
 
 def main() -> None:

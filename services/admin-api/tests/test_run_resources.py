@@ -15,7 +15,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0076_run_resources.up.sql', '0076_run_resources.down.sql'
-TABLES = {'agent_sessions_cc', 'agent_sessions', 'operations_runs'}
+TABLES = {'agent_sessions_cc', 'agent_sessions', 'operations_runs'}  # as 0076 left them (before 0081 and 0083)
 NOTHING = {'code_project_ids': [], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
 
 
@@ -63,7 +63,8 @@ def run_resource_columns(conn) -> set[str]:
 
 def test_runs_record_their_resources_and_down_drops_only_the_records(store):
     with store.connect() as conn:
-        conn.execute((MIGRATIONS / '0081_test_sessions.down.sql').read_text(), prepare=False)
+        for later in ('0083_remove_claude_code.down.sql', '0081_test_sessions.down.sql'):  # newest first
+            conn.execute((MIGRATIONS / later).read_text(), prepare=False)
         conn.commit()
         assert run_resource_columns(conn) == TABLES
         for name in ('agent_sessions_cc_run_resources', 'agent_sessions_run_resources', 'operations_runs_run_resources'):

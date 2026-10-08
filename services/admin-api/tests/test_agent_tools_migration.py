@@ -1,4 +1,5 @@
-"""0078: an agent's tools, backfilled from today's capability rule; the checks; up and down."""
+"""0078: an agent's tools, backfilled from today's capability rule; the checks; up and down. Rollbacks run 0083 down
+first, as golang-migrate does."""
 import itertools
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from knowledge_admin.tools.catalog import implied_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0078_agent_tools.up.sql', '0078_agent_tools.down.sql'
+LATER = '0083_remove_claude_code.down.sql'
 COMBINATIONS = list(itertools.product([False, True], repeat=4))  # code, documents, grounded, ssh
 
 
@@ -16,13 +18,13 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-def add_agent(conn, agent_id, *, runtime='openai', code=False, documents=False, grounded=False, ssh=False):
-    conn.execute('''INSERT INTO ka.agents(id,name,runtime,repositories_enabled,documents_enabled,documents_grounded,ssh_enabled,
-        system_prompt) VALUES (%s,%s,%s,%s,%s,%s,%s,'Be brief.')''', (agent_id, agent_id, runtime, code, documents, grounded, ssh))
+def add_agent(conn, agent_id, *, code=False, documents=False, grounded=False, ssh=False):
+    conn.execute('''INSERT INTO ka.agents(id,name,repositories_enabled,documents_enabled,documents_grounded,ssh_enabled,
+        system_prompt) VALUES (%s,%s,%s,%s,%s,%s,'Be brief.')''', (agent_id, agent_id, code, documents, grounded, ssh))
 
 
 def flags(code, documents, grounded, ssh):
-    return {'runtime': 'openai', 'code': {'enabled': code}, 'documents': {'enabled': documents, 'grounded': grounded},
+    return {'code': {'enabled': code}, 'documents': {'enabled': documents, 'grounded': grounded},
             'ssh': {'enabled': ssh}}
 
 
@@ -33,11 +35,11 @@ def rows(conn, agent_id):
 
 def test_backfill_reproduces_todays_tools_for_every_capability_combination(store):
     with store.connect() as conn:
+        run(conn, LATER)
         run(conn, DOWN)
         conn.commit()
         for index, combination in enumerate(COMBINATIONS):
             add_agent(conn, f'agent-{index}', **dict(zip(('code', 'documents', 'grounded', 'ssh'), combination)))
-        add_agent(conn, 'writer', runtime='claude_code', code=True, documents=True)  # Claude Code: no rows
         conn.commit()
         run(conn, UP)
         conn.commit()
@@ -46,7 +48,6 @@ def test_backfill_reproduces_todays_tools_for_every_capability_combination(store
             saved = rows(conn, f'agent-{index}')
             assert set(saved) == expected, combination
             assert all(row['mode'] == 'on' and row['usage'] is None and row['subagent_allowed'] for row in saved.values())
-        assert rows(conn, 'writer') == {}
         # the seeded Search agent answers only from documents
         assert set(rows(conn, 'search')) == {'search_documents', 'read_document', 'report_not_covered'}
 
@@ -69,6 +70,7 @@ def test_checks_and_cascade(store):
 
 def test_down_drops_the_table_and_up_backfills_again(store):
     with store.connect() as conn:
+        run(conn, LATER)
         run(conn, DOWN)
         conn.commit()
         assert conn.execute("SELECT to_regclass('ka.agent_tools') AS t").fetchone()['t'] is None

@@ -110,12 +110,12 @@ class MessageInput(BaseModel):
 
 
 def _select(extra: str = '') -> str:
-    return f"""SELECT s.id,s.title,s.runtime,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
-        s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
+    return f"""SELECT s.id,s.title,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
+        s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
         (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
         s.created_at,s.last_activity_at,s.closed_at{extra}
-        FROM ka.agent_sessions_cc s LEFT JOIN ka.agents a ON a.id=s.agent_id JOIN ka.llm_models m ON m.id=s.model_id
+        FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id JOIN ka.llm_models m ON m.id=s.model_id
         LEFT JOIN ka.document_details d ON d.id=s.document_id"""
 
 
@@ -132,7 +132,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
     if row['purpose'] == 'test':  # its pinned configuration (credential references only) and its suggestions
-        row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
+        row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                                      (session_id,)).fetchone()['agent_config']
         row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
             FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id''', (session_id,)).fetchall()
@@ -143,10 +143,10 @@ STREAM_POLL_SECONDS = 1.0
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
 HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
-STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.model_calls,s.reasoning_tokens,s.draft,
+STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.model_calls,s.reasoning_tokens,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
-    FROM ka.agent_sessions_cc s WHERE s.id=%s"""
+    FROM ka.agent_sessions s WHERE s.id=%s"""
 
 
 def stream_event(row: dict) -> dict:
@@ -171,7 +171,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             VALUES (%s,%s,%s,%s,%s,%s)''', (store.project(conn, app_name), actor, action, resource_type, resource_id, Jsonb(details)))
 
     def locked(conn, project, session_id: UUID) -> dict:
-        row = conn.execute('SELECT id,status FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s FOR UPDATE',
+        row = conn.execute('SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
                            (session_id, project)).fetchone()
         if row is None:
             raise HTTPException(404, 'Session not found.')
@@ -208,16 +208,16 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
             session_id = uuid4()
             # The worker decrypts per turn: the pinned config holds credential references only.
-            conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-                context_snapshot,document_name,folder,runtime,agent_config,run_resources)
-                VALUES (%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,'openai',%s,%s)""",
+            conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+                context_snapshot,document_name,folder,agent_config,run_resources)
+                VALUES (%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (session_id, project, actor, model['id'], value.document_name, Jsonb(jsonable_encoder(snapshot)),
                  Jsonb(context), value.document_name, value.folder, Jsonb(jsonable_encoder(pinned)),
                  Jsonb(jsonable_encoder(pinned['run_resources']))))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, f'{value.prompt}\n\n{FINAL_ANSWER}'))
             audit(conn, actor, 'claude_code.session.created', 'agent_session',
-                  jsonable_encoder({'runtime': 'openai', 'ephemeral': True, 'model_id': model['id'],
+                  jsonable_encoder({'ephemeral': True, 'model_id': model['id'],
                                     'prompt_id': value.prompt_id}), session_id)
             return session_detail(conn, project, session_id)
 
@@ -252,7 +252,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                (session_id,)).fetchone()['seq']
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
                          (session_id, seq, actor, value.text))
-            conn.execute('UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s', (session_id,))
+            conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
             return {'seq': seq, 'status': 'queued', 'working': row['status'] == 'working'}
 
     @router.post('/sessions/{session_id}/stop', status_code=202)
@@ -263,7 +263,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['status'] != 'working':
                 raise HTTPException(409, NOTHING_TO_STOP)
             actor = db.actor(conn, *request_actor(request))
-            conn.execute('UPDATE ka.agent_sessions_cc SET stop_requested_at=now() WHERE id=%s', (session_id,))
+            conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
             discarded = discard(conn, session_id)
             audit(conn, actor, 'claude_code.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
             return {'id': session_id, 'discarded': discarded}
@@ -274,7 +274,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app_name)
-            session = conn.execute('SELECT * FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s FOR UPDATE',
+            session = conn.execute('SELECT * FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
                                    (session_id, project)).fetchone()
             if session is None:
                 raise HTTPException(404, 'Session not found.')
@@ -297,7 +297,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 markdown=session['draft'], code_project_ids=linked,
                 revision=existing['revision'] if existing is not None else None),
                 existing['id'] if existing is not None else None, folder=session['folder'])
-            conn.execute('UPDATE ka.agent_sessions_cc SET document_id=%s,last_activity_at=now() WHERE id=%s',
+            conn.execute('UPDATE ka.agent_sessions SET document_id=%s,last_activity_at=now() WHERE id=%s',
                          (saved['id'], session_id))
             audit(conn, actor, 'claude_code.session.document_saved', 'agent_session',
                   {'document_id': str(saved['id']), 'revision': saved['revision']}, session_id)
@@ -315,7 +315,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             row = locked(conn, db.project(conn, app_name), session_id)
             actor = db.actor(conn, *request_actor(request))
             if row['status'] != 'closed':
-                conn.execute("""UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now(),status_message='Closed.'
+                conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
                     WHERE id=%s""", (session_id,))
                 discard(conn, session_id)
                 audit(conn, actor, 'claude_code.session.closed', 'agent_session', {}, session_id)
@@ -329,7 +329,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
-            row = conn.execute('SELECT turns FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
+            row = conn.execute('SELECT turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
                                (session_id, db.project(conn, app_name))).fetchone()
             if row is None:
                 raise HTTPException(404, 'Session not found.')
@@ -344,7 +344,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):
         db = database()
         with db.connect() as conn:
-            if conn.execute('SELECT 1 FROM ka.agent_sessions_cc WHERE id=%s AND project_id=%s',
+            if conn.execute('SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
                             (session_id, db.project(conn, app_name))).fetchone() is None:
                 raise HTTPException(404, 'Session not found.')
         last = request.headers.get('last-event-id', '')

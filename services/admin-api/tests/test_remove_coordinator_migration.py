@@ -9,7 +9,8 @@ from psycopg.types.json import Jsonb
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0077_remove_coordinator.up.sql', '0077_remove_coordinator.down.sql'
-LATER = ('0081_test_sessions.down.sql', '0080_clone_agents.down.sql', '0079_agent_system_prompt.down.sql')  # 0077 reads the prompt tables and versions
+LATER = ('0083_remove_claude_code.down.sql', '0081_test_sessions.down.sql', '0080_clone_agents.down.sql',
+         '0079_agent_system_prompt.down.sql')  # 0077 reads the prompt tables and versions
 TABLES = ['agent_board_members', 'agent_board_tasks', 'coordinator_settings']
 CHECKS = sorted(['coordinator_always_enabled', 'coordinator_delegates_resources',
                  'claude_code_agent_is_not_the_coordinator', 'per_run_agent_is_not_the_coordinator'])

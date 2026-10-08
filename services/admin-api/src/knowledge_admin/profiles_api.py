@@ -91,15 +91,15 @@ HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its hi
 WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions and runs, '
                    'or wait for them to finish, then delete it.')
 # Anything still in progress for the agent: Test and documentation sessions run in the session workers.
-WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1'''
+WORKING = '''SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1'''
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:
     """What deleting the agent with its history removes; saved documents are not part of it. `run_records` are the
     records of Test chats from before migration 0081 (run:<id> keys)."""
     return conn.execute('''SELECT
-        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s AND purpose='test')::int AS test_chats,
-        (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s AND purpose='documents')::int
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='test')::int AS test_chats,
+        (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='documents')::int
             AS documentation_sessions,
         (SELECT count(*) FROM ka.agent_run_events WHERE agent_id=%(agent)s AND kind='start'
             AND starts_with(run_key, 'run:'))::int AS run_records''', {'agent': agent_id}).fetchone()
@@ -110,8 +110,8 @@ def delete_history(conn, agent_id) -> None:
     to the agent by agent_id, cc:<session>:<turn> by their session; inputs and suggestions cascade with the session."""
     conn.execute('''DELETE FROM ka.agent_run_events WHERE (starts_with(run_key, 'run:') AND agent_id=%s)
         OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (
-            SELECT id::text FROM ka.agent_sessions_cc WHERE agent_id=%s))''', (agent_id, agent_id))
-    conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))
+            SELECT id::text FROM ka.agent_sessions WHERE agent_id=%s))''', (agent_id, agent_id))
+    conn.execute('DELETE FROM ka.agent_sessions WHERE agent_id=%s', (agent_id,))
 
 
 def build_api(app_name, store):
@@ -132,8 +132,6 @@ def build_api(app_name, store):
         row['skill_ids'] = [r['id'] for r in row['skills']]
         row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
         row['subagents'] = subagents_on(conn, agent_id)
-        for retired in ('runtime', 'claude_code_tools'):  # columns kept until the schema drops them
-            row.pop(retired, None)
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -167,8 +165,6 @@ def build_api(app_name, store):
                     WHERE c.server_id IS NULL AND m.enabled'''):
                 agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
-                for retired in ('runtime', 'claude_code_tools'):
-                    row.pop(retired, None)
                 row.pop('system_prompt')  # read with the agent, not in the list
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,

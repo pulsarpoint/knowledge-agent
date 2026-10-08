@@ -18,6 +18,7 @@ def column(conn, table, name):
 
 def test_reader_schema_is_gone_and_grounding_stays(store):
     with store.connect() as conn:
+        conn.execute(sql('0083_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         assert conn.execute("SELECT to_regclass('ka.reader_settings') AS t").fetchone()['t'] is None
         assert not column(conn, 'agent_sessions', 'channel') and not column(conn, 'agent_sessions', 'hidden_by_owner_at')
@@ -27,6 +28,7 @@ def test_reader_schema_is_gone_and_grounding_stays(store):
 
 def test_up_deletes_reader_conversations_and_keeps_admin_sessions(store):
     with store.connect() as conn:
+        conn.execute(sql('0083_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         conn.execute(sql('0071_remove_reader.down.sql'), prepare=False)
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'alice', 'alice@test')
@@ -47,6 +49,7 @@ def test_up_deletes_reader_conversations_and_keeps_admin_sessions(store):
 
 def test_down_restores_the_reader_schema(store):
     with store.connect() as conn:
+        conn.execute(sql('0083_remove_claude_code.down.sql'), prepare=False)
         conn.execute(sql('0081_test_sessions.down.sql'), prepare=False)
         conn.execute(sql('0071_remove_reader.down.sql'), prepare=False)
         assert conn.execute('SELECT knowledge_agent_id FROM ka.reader_settings').fetchone()['knowledge_agent_id'] == 'search'

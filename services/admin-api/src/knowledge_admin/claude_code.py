@@ -21,7 +21,7 @@ def agent_system_prompt(config: dict[str, Any]) -> str:
 
 def close_idle(conn) -> int:
     """Close sessions without activity for 24 hours (never one with a running turn); their history is kept."""
-    rows = conn.execute("""UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now(),status_message=%s
+    rows = conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message=%s
         WHERE status IN ('starting','waiting','stopped','failed') AND last_activity_at < now() - interval '24 hours'
         RETURNING id""", (IDLE_CLOSED,)).fetchall()
     if rows:

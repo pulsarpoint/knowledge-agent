@@ -35,7 +35,7 @@ def native(sessions, monkeypatch):
 
 
 def claimed(store) -> dict:
-    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
+    [row] = shared.claim(store, 'worker-1', [], 4)
     return row
 
 
@@ -57,7 +57,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     sessions, sid = native
     store, url, data = sessions.store, f'/api/claude-code/sessions/{sid}', sessions.data
     with store.connect() as conn:  # a run record setting never reaches a session turn (agent() would record it)
-        conn.execute('UPDATE ka.agent_sessions_cc SET agent_config=agent_config || %s WHERE id=%s',
+        conn.execute('UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
                      (Jsonb({'record': {'run_key': 'run:x'}}), sid))
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'read_file', {'path': f'{data}/code/app/main.py'}), input_tokens=100, output_tokens=10,
@@ -93,8 +93,8 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     code = first['config']['code']
     assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
     row = session_row(store, sid)
-    assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'], row['cached_tokens'],
-            row['cost_usd']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40, 0)
+    assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'],
+            row['cached_tokens']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40)
     assert row['history'] == [*second['history'], {'role': 'user', 'content': 'Shorten it.'},
                               {'role': 'assistant', 'content': '# Payments API\n\nShort.'}]
     recorded = events(store, sid)
@@ -107,8 +107,8 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
     assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
     assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
-        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110, 'cost_usd': 0.0},
-        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150, 'cost_usd': 0.0}]
+        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110},
+        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150}]
     assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == ['start', 'input', 'message', 'usage', 'end']
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']
@@ -486,7 +486,7 @@ def test_returned_comments_are_queued_again_only_into_an_open_session_without_st
     runner.queued_comments(1, on_delivered=lambda conn, rows: ids.extend(r['id'] for r in rows))
     runner.return_comments(1, ids[:1])  # failed turn, open session: queued again
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (sid,))
     runner.return_comments(1, ids[1:])  # closed session: discarded
     assert inputs(store, sid)[1:] == [('One', 'queued', None), ('Two', 'discarded', None)]
 
@@ -638,7 +638,7 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
     row = claimed(store)
     assert (row['id'], row['agent_id'], row['agent_name']) == (sid, None, 'Ad-hoc agent')
     with store.connect() as conn:  # hand the claimed session back so serve() claims it itself
-        conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
+        conn.execute('UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
     fake = FakeAgent([{'steps': [llm(message('# Draft'))], 'answer': '# Draft'}])
 
     async def scenario():

@@ -41,7 +41,7 @@ def chat(tester):
                 (2, 3, 'error', {'type': 'RuntimeError', 'message': 'Agent execution failed (RuntimeError).'}),
                 (2, 4, 'end', {'status': 'failed'})):
             record(conn, sid, turn, seq, kind, payload)
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='failed',turns=2 WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET status='failed',turns=2 WHERE id=%s", (sid,))
     t.session, t.review = sid, f'{t.path}/{sid}/review'
     return t
 
@@ -101,16 +101,16 @@ def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(
     post(chat.review, {'comment': 'x', 'turn': 0}, 400)
     assert chat.client.post(chat.review, json={'comment': 'x'}).status_code == 403
     with chat.store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working' WHERE id=%s", (chat.session,))
-        documents = conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,
-            prompt_snapshot,context_snapshot,document_name,folder) SELECT %s,project_id,agent_id,actor_id,model_id,'Docs',
-            '{}','{}','Docs','docs' FROM ka.agent_sessions_cc WHERE id=%s RETURNING id''',
+        conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (chat.session,))
+        documents = conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,
+            prompt_snapshot,context_snapshot,document_name,folder,agent_config) SELECT %s,project_id,agent_id,actor_id,model_id,'Docs',
+            '{}','{}','Docs','docs',agent_config FROM ka.agent_sessions WHERE id=%s RETURNING id''',
             (uuid4(), chat.session)).fetchone()['id']
     assert post(chat.review, {'comment': 'x'}, 409) == REVIEW_BUSY
     assert post(f'{chat.path}/{documents}/review', {'comment': 'x'}, 400) == NOT_A_TEST
     fresh = start(chat)['id']
     with chat.store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting' WHERE id=%s", (fresh,))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (fresh,))
     assert post(f'{chat.path}/{fresh}/review', {'comment': 'x'}, 409) == NO_TURNS
     with chat.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_session_reviews').fetchone()['n'] == 0

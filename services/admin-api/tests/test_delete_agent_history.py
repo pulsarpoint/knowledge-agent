@@ -32,9 +32,9 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
         (version, document, project, Jsonb({'code_projects': []}), actor))
     ids['document'] = document
     cc = uuid4()
-    conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,document_name,folder,turns,document_id,status) VALUES (%s,%s,%s,%s,%s,'Payments','{}','{}',
-        'Payments','payments',2,%s,'waiting')''', (cc, project, agent_id, actor, model_id, document))
+    conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,document_name,folder,turns,document_id,status,agent_config) VALUES (%s,%s,%s,%s,%s,'Payments','{}','{}',
+        'Payments','payments',2,%s,'waiting',%s)''', (cc, project, agent_id, actor, model_id, document, Jsonb({'id': agent_id})))
     conn.execute("INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Write it')", (cc, actor))
     ids['cc'] = cc
     old = [uuid4(), uuid4()]  # Test chat turns from before 0081: only their run records are left
@@ -99,9 +99,9 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
             return conn.execute(f'SELECT count(*) AS n FROM {sql}', args).fetchone()['n']
         for agent_id, expected in ((target, 0), (other, 1)):
             ids = mine if agent_id == target else theirs
-            assert count("ka.agent_sessions_cc WHERE agent_id=%s AND purpose='test'", agent_id) == 2 * expected
+            assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='test'", agent_id) == 2 * expected
             assert count('ka.agent_session_reviews WHERE id=%s', ids['review']) == expected
-            assert count("ka.agent_sessions_cc WHERE agent_id=%s AND purpose='documents'", agent_id) == expected
+            assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='documents'", agent_id) == expected
             assert count('ka.agent_session_inputs WHERE session_id=ANY(%s)', [ids['cc'], *ids['tests']]) == 3 * expected
             assert count('ka.agent_run_events WHERE run_key=ANY(%s)', ids['keys']) == 5 * expected
             # Saved documents stay.
@@ -122,9 +122,9 @@ def test_delete_with_history_still_checks_the_revision(agents):
 
 
 @pytest.mark.parametrize('working', [
-    "UPDATE ka.agent_sessions_cc SET status='working' WHERE agent_id=%(a)s",
-    "UPDATE ka.agent_sessions_cc SET status='starting' WHERE agent_id=%(a)s",
-    "UPDATE ka.agent_sessions_cc SET status='working' WHERE agent_id=%(a)s AND purpose='test'",
+    "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s",
+    "UPDATE ka.agent_sessions SET status='starting' WHERE agent_id=%(a)s",
+    "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s AND purpose='test'",
 ])
 def test_a_working_agent_is_not_deleted(agents, store, working):
     client, target, _, _, _ = agents
@@ -138,8 +138,8 @@ def test_a_working_agent_is_not_deleted(agents, store, working):
     assert history == FULL
 
 
-def test_waiting_or_closed_claude_code_sessions_do_not_block(agents, store):
+def test_waiting_or_closed_documentation_sessions_do_not_block(agents, store):
     client, target, _, _, _ = agents
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE agent_id=%s", (target,))
+        conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE agent_id=%s", (target,))
     assert delete(client, target, with_history=True).status_code == 204

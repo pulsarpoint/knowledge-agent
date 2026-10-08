@@ -11,7 +11,7 @@ def post(sessions, path: str, body: dict | None = None):
 
 def session_row(store, session_id) -> dict:
     with store.connect() as conn:
-        return conn.execute('SELECT * FROM ka.agent_sessions_cc WHERE id=%s', (session_id,)).fetchone()
+        return conn.execute('SELECT * FROM ka.agent_sessions WHERE id=%s', (session_id,)).fetchone()
 
 
 async def wait_for(store, session_id, predicate, timeout: float = 5.0) -> dict:

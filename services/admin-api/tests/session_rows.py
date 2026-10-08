@@ -1,4 +1,4 @@
-"""Rows for tests that need a Test session (ka.agent_sessions_cc, purpose 'test') or a suggestion without running
+"""Rows for tests that need a Test session (ka.agent_sessions, purpose 'test') or a suggestion without running
 one."""
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,9 +20,9 @@ def add_test_session(conn, project, actor, agent_id: str, model_id, *, config: d
                      message: str | None = None, status: str = 'starting', turns: int = 0) -> UUID:
     """A Test session of the agent as POST /api/agents/{id}/sessions inserts it; `message` queues input 1."""
     session = uuid4()
-    conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,purpose,runtime,agent_config,status,turns,closed_at)
-        VALUES (%s,%s,%s,%s,%s,%s,'{}',%s,'test','openai',%s,%s,%s,CASE WHEN %s='closed' THEN now() END)''',
+    conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,purpose,agent_config,status,turns,closed_at)
+        VALUES (%s,%s,%s,%s,%s,%s,'{}',%s,'test',%s,%s,%s,CASE WHEN %s='closed' THEN now() END)''',
         (session, project, agent_id, actor, model_id, (message or 'Test chat')[:200],
          Jsonb({'folders': [], 'code_project_ids': []}), Jsonb(config or {'id': agent_id}), status, turns, status))
     if message is not None:
@@ -42,9 +42,9 @@ def add_review(conn, session_id, actor, *, changes: dict[str, Any], agent_config
 def add_ad_hoc_session(conn, project, actor, model_id, *, message: str | None = None) -> UUID:
     """A Generate documents session of an ad-hoc agent as POST /api/claude-code/sessions inserts it (no agents row)."""
     session = uuid4()
-    conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,document_name,folder,runtime,agent_config)
-        VALUES (%s,%s,NULL,%s,%s,'Payments','{}',%s,'Payments','payments','openai',%s)''',
+    conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,document_name,folder,agent_config)
+        VALUES (%s,%s,NULL,%s,%s,'Payments','{}',%s,'Payments','payments',%s)''',
         (session, project, actor, model_id, Jsonb({'folders': [], 'code_project_ids': []}), Jsonb({'id': 'ad-hoc'})))
     if message is not None:
         conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',

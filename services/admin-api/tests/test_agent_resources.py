@@ -17,7 +17,7 @@ from test_repositories import HEADERS
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0075_agent_resources.up.sql', '0075_agent_resources.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0075 down drops a check 0077 removed
-LATER = ('0081_test_sessions.down.sql', '0080_clone_agents.down.sql')  # 0075 down reads ka.agent_versions
+LATER = ('0083_remove_claude_code.down.sql', '0081_test_sessions.down.sql', '0080_clone_agents.down.sql')  # 0075 down reads ka.agent_versions
 
 
 def run(conn, name: str):

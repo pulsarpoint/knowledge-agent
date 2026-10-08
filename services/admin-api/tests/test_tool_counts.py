@@ -44,7 +44,7 @@ def test_sessions_count_only_their_own_turns_and_runs(store, sessions):
     session = start(sessions)
     sid = session['id']
     with store.connect() as conn:
-        conn.execute('UPDATE ka.agent_sessions_cc SET turns=2 WHERE id=%s', (sid,))
+        conn.execute('UPDATE ka.agent_sessions SET turns=2 WHERE id=%s', (sid,))
     calls(store, f'cc:{sid}:1', ['Read', 'Grep'])
     calls(store, f'cc:{sid}:2', ['Read'])
     calls(store, f'cc:{sid}:3', ['Bash'])  # not a turn of this session yet

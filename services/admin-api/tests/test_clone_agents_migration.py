@@ -17,6 +17,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0080_clone_agents.up.sql', '0080_clone_agents.down.sql'
+REMOVED = '0083_remove_claude_code.down.sql'  # renames ka.agent_sessions back to agent_sessions_cc
 LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (('agents', 'active_config_version_id'), ('agents', 'next_config_version'),
@@ -27,8 +28,10 @@ BEFORE = {'tables': list(TABLES), 'function': 1, 'columns': [
 
 
 def run(conn, name: str):
+    if name == DOWN and conn.execute("SELECT to_regclass('ka.agent_sessions_cc') AS r").fetchone()['r'] is None:
+        conn.execute((MIGRATIONS / REMOVED).read_text(), prepare=False)  # newest first, as golang-migrate does
     if name == DOWN and conn.execute("SELECT to_regclass('ka.operations_runs') AS r").fetchone()['r'] is None:
-        conn.execute((MIGRATIONS / LATER).read_text(), prepare=False)  # newest first, as golang-migrate does
+        conn.execute((MIGRATIONS / LATER).read_text(), prepare=False)
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
