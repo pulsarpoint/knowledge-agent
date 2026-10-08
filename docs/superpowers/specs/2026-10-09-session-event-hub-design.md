@@ -24,8 +24,10 @@ Out of scope: other pages' polling; a connection pool for the rest of the API; c
   notice per session among the inserted rows whose `run_key` matches `cc:<uuid>:<turn>`, with the highest inserted id
   for that session. Other run keys send nothing.
 - **Session rows:** an `AFTER UPDATE` trigger on `ka.agent_sessions_cc` sends `{"s": id}` for each changed row (status,
-  tokens, draft, turns, leases, stop, close — any update). `AFTER DELETE` sends it too, so streams of a removed session
-  end.
+  tokens, draft, turns, worker claim and release, stop, close). An update that changes nothing but `lease_expires_at`,
+  `last_activity_at` (and the `updated_at` that moves with every update) is silent (`WHEN` clause): a lease renewal is
+  not news, and a lease that runs out (`worker_active` turns false) is caught by the 30 s check. A separate
+  `AFTER DELETE` trigger sends it too, so streams of a removed session end.
 - **Queued messages:** `AFTER INSERT OR UPDATE OR DELETE` on `ka.agent_session_inputs` sends `{"s": session_id}` (the
   queued count is part of the session state).
 - Notices are delivered on commit, so readers never see an id before its row is visible.
@@ -51,7 +53,8 @@ Out of scope: other pages' polling; a connection pool for the rest of the API; c
 - **Back-pressure:** if a subscriber's queue is full, it gets `resync` and is dropped; the stream ends with a
   `resync` instruction (below) and the browser reconnects from its last id.
 - **Database unreachable:** subscribers get `unavailable` once; the hub keeps retrying; when it recovers it reads all
-  watched sessions.
+  watched sessions and sends the state again (even unchanged) to every subscriber that was told `unavailable`, so the
+  page clears "Reconnecting…".
 
 ## The stream endpoint
 
