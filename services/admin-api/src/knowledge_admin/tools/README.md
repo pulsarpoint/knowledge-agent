@@ -19,14 +19,15 @@ adapter refuses a tool missing from `context['tools']` (`Tool <name> is not avai
 `tool_filter` that blocks the tools switched off on the Tools tab (a tool without a row is on). Edited usage text
 of an MCP tool that is on is added to the prompt under `Tool notes:` as `- <server name>/<tool>: <usage>`; the
 tool's own description still comes from the server. `code_graph` is offered only when a selected code project has a
-current generated graph (see below).
+current generated graph that ended ready or partial (see below); the prompt lists code graphs only when `code_graph`
+or `shell_run` is offered.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
 - `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.
-  Registered for code-enabled agents. Uses the file tools' selected-root checks,
+  Offered when it is switched on on the Tools tab and code projects are enabled. Uses the file tools' selected-root checks,
   secret redaction, and a 30-second timeout; it does not enable general shell
   access. Its SDK tool description includes patterns and a function-name rule.
 - `code_search`. Searches functions and methods by literal name
@@ -46,7 +47,8 @@ current generated graph (see below).
   the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.
 - `shell_run`. A normal function tool sending Bash commands to the
-  internal `shell-worker` service. Registered when code or documents are enabled.
+  internal `shell-worker` service. Offered when it is switched on on the Tools tab and code
+  projects, or documents without "Answer only from documents", are enabled.
   The worker provides Bash, Python, `rg`, `ast-grep`, Git and standard utilities.
   Each command sees only selected source/document/graph paths, mounted read-only,
   plus writable scratch files shared with the file tools for the duration of a run.
