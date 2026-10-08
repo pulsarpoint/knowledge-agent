@@ -14,7 +14,14 @@ const proposal: api.AgentProposal = {
   collection_ids: ['jira'], repository_ids: ['repo'], skill_ids: ['skill'], mcp_server_ids: ['mcp'], service_ids: ['service'],
   servers: [{ server_id: 'server', instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }],
 };
+const catalogTools = [
+  { name: 'read_file', group: 'code', label: 'Read file', summary: 'Read a file.', usage: '', needs: 'files' },
+  { name: 'code_search', group: 'code', label: 'Code search', summary: 'Find functions.', usage: '', needs: 'code' },
+  { name: 'search_documents', group: 'documents', label: 'Search documents', summary: 'Search.', usage: '', needs: 'documents' },
+  { name: 'ssh_run', group: 'servers', label: 'SSH', summary: 'Run a command.', usage: '', needs: 'ssh' },
+] as const;
 const options: api.WizardOptions = {
+  tools: [...catalogTools],
   prompt: 'Design a specialist.', schema: { type: 'object' },
   catalog: {
     models: [{ id: 'model', name: 'Claude', model: 'claude-test', provider: 'bedrock', api_format: 'native' }],
@@ -186,4 +193,37 @@ test('a blank Claude Code agent does not take a non-Claude generator model', asy
   await user.click(screen.getByRole('option', { name: 'Claude Code' }));
   await user.click(screen.getByRole('button', { name: 'Start blank' }));
   expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('No model (choose later)');
+});
+
+test('the wizard Tools page follows the capabilities until changed and sends the choice', async () => {
+  const { user } = await open();
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  await screen.findByLabelText('Agent name');
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  const checked = () => ['Read file', 'Code search', 'Search documents', 'SSH'].filter(name => screen.getByRole('switch', { name }).getAttribute('aria-checked') === 'true');
+  expect(checked()).toEqual(['Read file', 'Code search', 'Search documents', 'SSH']);
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  await user.click(screen.getByRole('switch', { name: 'Enable SSH' }));
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  expect(checked()).toEqual(['Read file', 'Code search', 'Search documents']);
+  await user.click(screen.getByRole('switch', { name: 'Code search' }));
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  await user.click(screen.getByRole('switch', { name: 'Enable SSH' }));
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  expect(checked()).toEqual(['Read file', 'Search documents']);
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ tools: ['read_file', 'search_documents'] }));
+});
+
+test('an untouched Tools page lets the backend apply the capabilities; Claude Code agents have no Tools page', async () => {
+  const { user } = await open();
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  await screen.findByLabelText('Agent name');
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(vi.mocked(api.createWizardAgent).mock.calls[0][0]).not.toHaveProperty('tools');
+  await user.click(screen.getByRole('button', { name: 'Edit role' }));
+  await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
+  await user.click(screen.getByRole('option', { name: 'Claude Code' }));
+  await user.click(screen.getByRole('button', { name: 'Back to proposal' }));
+  expect(screen.queryByRole('tab', { name: 'Tools' })).toBeNull();
 });

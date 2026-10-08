@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { AgentResources, AgentRuntime, ClaudeCodeTool } from './profiles';
+import type { CatalogTool } from './tools';
 
 export interface WizardResource { id: string; name: string; description?: string }
 export interface WizardConnection {
@@ -19,7 +20,7 @@ export interface AgentProposal {
   mcp_server_ids: string[]; service_ids: string[]; servers: WizardServer[];
 }
 export interface WizardOptions {
-  prompt: string; schema: Record<string, unknown>;
+  prompt: string; schema: Record<string, unknown>; tools?: CatalogTool[];
   catalog: {
     models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
@@ -29,7 +30,7 @@ export interface WizardOptions {
     services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];
   };
 }
-export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[] };
+export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[]; tools?: string[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
 /** The designer proposes the agent's model only among models that fit the chosen agent type. */
 export const generateAgent = (role: string, model_id: string, runtime: AgentRuntime) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {

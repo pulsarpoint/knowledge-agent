@@ -1,4 +1,5 @@
 import { request } from './api';
+import type { ToolsSummary } from './tools';
 export type AgentRuntime = 'openai' | 'claude_code';
 export const AGENT_TYPES: [AgentRuntime, string][] = [['openai', 'Native'], ['claude_code', 'Claude Code']];
 export const agentTypeLabel = (runtime?: AgentRuntime) => runtime === 'claude_code' ? 'Claude Code' : 'Native';
@@ -45,7 +46,7 @@ export interface AgentProfile {
   collection_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
   active_prompt: { id: string; title: string; version: number } | null;
 }
-export interface AgentSummary extends AgentProfile { accepts?: ResourceLimit[]; config_version?: number | null; model_name: string | null; prompt_title: string | null; prompt_version: number | null }
+export interface AgentSummary extends AgentProfile { accepts?: ResourceLimit[]; config_version?: number | null; model_name: string | null; prompt_title: string | null; prompt_version: number | null; tools_summary?: ToolsSummary }
 export interface AgentOptions {
   collections: { id: string; name: string; description: string }[];
   repositories: { id: string; name: string }[];
