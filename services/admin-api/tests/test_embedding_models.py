@@ -29,9 +29,8 @@ def test_embedding_credentials_edits_and_agent_assignments(store, tmp_path):
     assert client.put(endpoint, headers=HEADERS, json={**OPENAI, 'revision': 2}).status_code == 400
     for role in ('search', 'code', 'operations'):
         assert client.put('/api/llm/assignments', headers=HEADERS, json={'revision': 1, f'{role}_model_id': model['id']}).status_code == 400
-    for agent in ('code', 'coordinator'):
-        row = client.get('/api/agents/' + agent, headers=HEADERS).json()
-        assert client.put(f'/api/agents/{agent}/model', headers=HEADERS, json={'revision': row['revision'], 'model_id': model['id']}).status_code == 400
+    row = client.get('/api/agents/code', headers=HEADERS).json()
+    assert client.put('/api/agents/code/model', headers=HEADERS, json={'revision': row['revision'], 'model_id': model['id']}).status_code == 400
     updated = client.put(endpoint, headers=HEADERS, json={**draft, 'revision': 2, 'api_key': None})
     assert updated.status_code == 200 and not updated.json()['has_api_key']
 

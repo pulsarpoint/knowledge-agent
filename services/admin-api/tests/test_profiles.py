@@ -41,7 +41,7 @@ def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     assert client.get('/api/agents').status_code == 403
     original = client.get('/api/agents', headers=HEADERS).json()['agents']
-    assert {a['id'] for a in original} == {'search', 'code', 'operations', 'coordinator'}
+    assert {a['id'] for a in original} == {'search', 'code', 'operations'}
     first = create(client, 'Payments')
     second = create(client, 'Documentation')
     assert first['id'] != second['id'] and 'kind' not in first
@@ -118,7 +118,7 @@ def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
     for payload in [missing]:
         response = client.post('/api/agents/wizard', headers=HEADERS, json=payload)
         assert response.status_code == 400, response.text
-    assert len(client.get('/api/agents', headers=HEADERS).json()['agents']) == 4
+    assert len(client.get('/api/agents', headers=HEADERS).json()['agents']) == 3
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with store.connect() as conn:
             conn.execute("INSERT INTO ka.agents(id,name) VALUES ('missing-prompt','Missing prompt')")

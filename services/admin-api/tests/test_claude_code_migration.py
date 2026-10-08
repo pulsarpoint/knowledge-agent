@@ -7,6 +7,7 @@ import pytest
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0070_claude_code_agents.up.sql', '0070_claude_code_agents.down.sql'
+REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
 LATER_UP, LATER_DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 
 
@@ -33,6 +34,8 @@ def model(conn, actor):
 
 def test_claude_code_agents_are_registrations_only(store):
     with store.connect() as conn:
+        run(conn, REMOVED)
+        conn.commit()
         run(conn, LATER_DOWN)
         conn.commit()
         registration(conn)  # no system prompt row: the prompt FK applies to OpenAI agents only
@@ -41,7 +44,7 @@ def test_claude_code_agents_are_registrations_only(store):
             'runtime': 'claude_code', 'prompt_agent': None}
         assert conn.execute("SELECT runtime FROM ka.agents WHERE id='search'").fetchone()['runtime'] == 'openai'
         for column in ('ssh_enabled', 'documents_enabled', 'documents_grounded', 'repositories_enabled', 'skills_enabled',
-                       'mcp_enabled', 'services_enabled', 'all_collections', 'all_repositories', 'is_coordinator'):
+                       'mcp_enabled', 'services_enabled', 'all_collections', 'all_repositories'):
             with pytest.raises(psycopg.errors.CheckViolation, match='claude_code_agent_is_a_registration'):
                 with conn.transaction():
                     registration(conn, 'other', **{column: True})
@@ -86,6 +89,8 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
 
 def test_down_refuses_claude_code_agents_and_restores_the_prompt_rule(store):
     with store.connect() as conn:
+        run(conn, REMOVED)
+        conn.commit()
         run(conn, LATER_DOWN)
         conn.commit()
         registration(conn)

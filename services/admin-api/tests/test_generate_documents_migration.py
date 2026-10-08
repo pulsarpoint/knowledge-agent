@@ -63,7 +63,7 @@ def unrelated_history(conn, project, workflow) -> dict:
         conn.execute("INSERT INTO ka.job_events(job_id,event_type,message) VALUES (%s,'queued','Queued')", (job,))
     conn.execute('INSERT INTO ka.documentation_workflow_jobs(workflow_id,job_id,project_id) VALUES (%s,%s,%s)',
                  (workflow, jobs['code_index'], project))
-    keys = [f'cc:{uuid4()}', f'run:{uuid4()}', f'board:{uuid4()}']
+    keys = [f'cc:{uuid4()}', f'run:{uuid4()}', f'cc:{uuid4()}:2']
     for key in keys:
         conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
             VALUES (%s,%s,1,'start','search','{}')""", (project, key))

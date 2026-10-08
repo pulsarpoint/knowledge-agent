@@ -16,6 +16,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0075_agent_resources.up.sql', '0075_agent_resources.down.sql'
+REMOVED = '0077_remove_coordinator.down.sql'  # 0075 down drops a check 0077 removed
 EMPTY_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
 
 
@@ -54,6 +55,8 @@ def test_agents_are_fixed_by_default(store):
 def test_down_refuses_per_run_agents_and_versions_then_up_makes_every_agent_fixed(store, saved_agent):
     client = saved_agent[0]
     with store.connect() as conn:
+        run(conn, REMOVED)
+        conn.commit()
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
     assert new_version(client, 'Per run')['source']['config']['resources'] == 'per_run'
     with store.connect() as conn:
