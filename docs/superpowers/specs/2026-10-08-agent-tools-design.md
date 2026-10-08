@@ -400,6 +400,11 @@ The migration is `0080_run_tools`:
   - Its final output is returned as the tool result.
 - **Stop, recording, tokens and the block view** work as for subagents: `parent_call_id`, with
   `payload.agent = <callee name>`. The parent's record and session hold the callee's events and tokens.
+- **The callee's own history (user decision):** each call is also recorded as a separate run of the callee, with
+  kind `asked` and run key `asked:<parent run key>:<call_id>`. It holds the question (input), the callee's events and
+  its answer, and links back to the caller's run. It shows in **Activity → Agent runs** filtered by the callee, so a
+  role agent like the Code analyst can be tuned from how other agents use it. Its tokens are counted once: in the
+  caller's totals, and shown (not added again) in the callee's run.
 
 ## Errors
 
