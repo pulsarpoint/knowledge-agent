@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentDetailView from '../AgentDetailView';
+import { keepChoices } from '../AgentToolsView';
 import * as profiles from '../../lib/profiles';
 import * as tools from '../../lib/tools';
 import * as llm from '../../lib/llm';
@@ -179,4 +180,12 @@ test('a stale save keeps the draft so a retry saves it, and Reload tools discard
   await waitFor(() => expect(screen.getByRole('switch', { name: 'Read file' })).toBeChecked());
   expect(screen.queryByText(/The tools changed/)).toBeNull();
   expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+});
+
+test('fresh rows keep only the choices the user touched', () => {
+  const fresh = [tool({}), tool({ tool: 'shell_run', mode: 'off' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'on' })];
+  const draft = [tool({ usage: 'Narrow reads.' }), tool({ tool: 'shell_run', mode: 'on' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'off' })];
+  // ssh_run was switched on by a General save; its stale 'off' in the draft was never touched.
+  expect(keepChoices(fresh, draft, new Set(['read_file', 'shell_run'])).map(item => [item.tool, item.mode, item.usage])).toEqual([
+    ['read_file', 'on', 'Narrow reads.'], ['shell_run', 'on', null], ['ssh_run', 'on', null]]);
 });

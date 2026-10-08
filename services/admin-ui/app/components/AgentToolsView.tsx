@@ -41,9 +41,10 @@ function ToolRow({ tool, editing, disabled, onEdit, onChange }: { tool: AgentToo
   </div>;
 }
 
-/** Fresh rows from the server with the draft's choices (mode, usage) put back on top. */
-export function keepChoices(fresh: AgentTool[], draft: AgentTool[]): AgentTool[] {
-  const mine = new Map(draft.map(item => [item.tool, item]));
+/** Fresh rows from the server with the choices (mode, usage) the user touched in the draft put back on top; untouched
+ * rows take the server's, so defaults a General save switched on are not undone by a stale 'off'. */
+export function keepChoices(fresh: AgentTool[], draft: AgentTool[], touched: ReadonlySet<string>): AgentTool[] {
+  const mine = new Map(draft.filter(item => touched.has(item.tool)).map(item => [item.tool, item]));
   return fresh.map(item => { const own = mine.get(item.tool); return own ? { ...item, mode: own.mode, usage: own.usage } : item; });
 }
 
@@ -60,6 +61,7 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
   const latest = useRef({ draft, dirty });
   latest.current = { draft, dirty };
   const request = useRef(0);
+  const touched = useRef(new Set<string>());  // tools whose mode or usage the user changed since the last save or reload
   const requested = useRef<number | undefined>(undefined);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   /** Loads the tools; `discard` drops the draft, otherwise unsaved choices stay on the fresh rows. */
@@ -69,8 +71,8 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
       const value = await getAgentTools(agentId);
       if (ticket !== request.current) return;
       setSaved(value);
-      if (discard || !latest.current.dirty) { setDraft(value.tools); setDirty(false); setEditing(null); }
-      else setDraft(keepChoices(value.tools, latest.current.draft));
+      if (discard || !latest.current.dirty) { setDraft(value.tools); setDirty(false); setEditing(null); touched.current = new Set(); }
+      else setDraft(keepChoices(value.tools, latest.current.draft, touched.current));
       if (discard) { setError(''); setStale(false); }
     } catch (reason) { if (ticket === request.current) setError(reason instanceof Error ? reason.message : 'Could not load the tools.'); }
   }
@@ -81,6 +83,7 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
     void load(false);
   }, [revision, saved?.revision, busy]);  // eslint-disable-line react-hooks/exhaustive-deps
   function change(name: string, patch: Partial<AgentTool>) {
+    touched.current.add(name);
     setDraft(current => current.map(item => item.tool === name ? { ...item, ...patch } : item)); setDirty(true); setError(''); setStale(false);
   }
   async function save() {
@@ -88,7 +91,8 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
     setBusy(true); setError('');
     try {
       const next = await saveAgentTools(agentId, saved.revision, draft);
-      setSaved(next); setDraft(next.tools); setDirty(false); setEditing(null); setStale(false); onSaved?.(next.revision);
+      setSaved(next); setDraft(next.tools); setDirty(false); setEditing(null); setStale(false); touched.current = new Set();
+      onSaved?.(next.revision);
       toast.success('Tools saved.', { id: 'agent-tools-saved' });
     } catch (reason) {
       const conflict = reason instanceof ApiError && reason.status === 409;
