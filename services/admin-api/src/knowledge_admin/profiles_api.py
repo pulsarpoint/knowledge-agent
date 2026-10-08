@@ -60,44 +60,31 @@ class ModelInput(BaseModel):
 
 
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
-WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions, runs and board tasks, '
+WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions and runs, '
                    'or wait for them to finish, then delete it.')
-COORDINATOR_FIXED = 'The coordinator uses fixed resources.'
-# Anything still in progress for the agent, including a board task whose team it is on.
+# Anything still in progress for the agent.
 WORKING = '''SELECT 1 FROM ka.agent_sessions_cc WHERE agent_id=%(a)s AND status IN ('starting','working')
     UNION ALL SELECT 1 FROM ka.operations_runs WHERE agent=%(a)s AND status='running'
-    UNION ALL SELECT 1 FROM ka.agent_board_tasks t WHERE t.status IN ('queued','running')
-        AND (t.agent_id=%(a)s OR EXISTS (SELECT 1 FROM ka.agent_board_members m WHERE m.task_id=t.id AND m.agent_id=%(a)s))
     LIMIT 1'''
 
-# Board tasks assigned to the agent and every task below them; tasks of other agents above them stay.
-BOARD_TASKS = '''WITH RECURSIVE tree AS (SELECT id FROM ka.agent_board_tasks WHERE agent_id=%s
-    UNION SELECT t.id FROM ka.agent_board_tasks t JOIN tree ON t.parent_id=tree.id) SELECT id FROM tree'''
 
-
-def agent_history(conn, agent_id) -> tuple[dict[str, int], list]:
-    """What deleting the agent with its history removes, and its board subtree; saved documents are not part of it."""
-    tasks = [row['id'] for row in conn.execute(BOARD_TASKS, (agent_id,))]
-    counts = conn.execute('''SELECT
+def agent_history(conn, agent_id) -> dict[str, int]:
+    """What deleting the agent with its history removes; saved documents are not part of it."""
+    return conn.execute('''SELECT
         (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND is_test)::int AS test_chats,
         (SELECT count(*) FROM ka.agent_sessions WHERE agent=%(agent)s AND NOT is_test)::int AS chats,
         (SELECT count(*) FROM ka.agent_sessions_cc WHERE agent_id=%(agent)s)::int AS claude_code_sessions,
-        (SELECT count(*) FROM ka.operations_runs WHERE agent=%(agent)s)::int AS runs,
-        cardinality(%(tasks)s::uuid[]) AS board_tasks,
-        (SELECT count(*) FROM ka.agent_board_members
-            WHERE agent_id=%(agent)s OR task_id=ANY(%(tasks)s::uuid[]))::int AS board_memberships''',
-        {'agent': agent_id, 'tasks': tasks}).fetchone()
-    return counts, tasks
+        (SELECT count(*) FROM ka.operations_runs WHERE agent=%(agent)s)::int AS runs''',
+        {'agent': agent_id}).fetchone()
 
 
-def delete_history(conn, agent_id, tasks) -> None:
-    """Remove the agent's sessions, runs, board subtree (tasks) and their run records, children before their parents."""
-    # Run records have no foreign keys; their keys are run:<run id>, cc:<session id>:<turn> and board:<task id>.
+def delete_history(conn, agent_id) -> None:
+    """Remove the agent's sessions, runs and their run records, children before their parents."""
+    # Run records have no foreign keys; their keys are run:<run id> and cc:<session id>:<turn>.
     conn.execute('''DELETE FROM ka.agent_run_events WHERE run_key IN (
-        SELECT 'run:' || id FROM ka.operations_runs WHERE agent=%s
-        UNION ALL SELECT 'board:' || id FROM unnest(%s::uuid[]) AS id)
+        SELECT 'run:' || id FROM ka.operations_runs WHERE agent=%s)
         OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (
-            SELECT id::text FROM ka.agent_sessions_cc WHERE agent_id=%s))''', (agent_id, tasks, agent_id))
+            SELECT id::text FROM ka.agent_sessions_cc WHERE agent_id=%s))''', (agent_id, agent_id))
     conn.execute('''DELETE FROM ka.operations_commands WHERE run_id IN (
         SELECT id FROM ka.operations_runs WHERE agent=%s)''', (agent_id,))
     conn.execute('DELETE FROM ka.operations_runs WHERE agent=%s', (agent_id,))
@@ -106,9 +93,6 @@ def delete_history(conn, agent_id, tasks) -> None:
     conn.execute(f'DELETE FROM ka.agent_session_reviews WHERE id IN ({reviews})', (agent_id,))
     conn.execute('DELETE FROM ka.agent_sessions WHERE agent=%s', (agent_id,))
     conn.execute('DELETE FROM ka.agent_sessions_cc WHERE agent_id=%s', (agent_id,))  # queued inputs cascade
-    conn.execute('DELETE FROM ka.agent_board_members WHERE agent_id=%s OR task_id=ANY(%s)', (agent_id, tasks))
-    # One statement: the parent_id references are checked once it has removed the whole subtree.
-    conn.execute('DELETE FROM ka.agent_board_tasks WHERE id=ANY(%s)', (tasks,))
 
 
 def build_api(app_name, store):
@@ -154,7 +138,7 @@ def build_api(app_name, store):
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
                 LEFT JOIN ka.agent_prompts p ON p.agent=a.id LEFT JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id
                 LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
-                ORDER BY a.is_coordinator DESC,a.created_at,a.id''').fetchall()
+                ORDER BY a.created_at,a.id''').fetchall()
             for row in rows:
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
@@ -233,21 +217,11 @@ def build_api(app_name, store):
                 old = read(conn, agent_id)
                 if old['revision'] != value.revision:
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
-                if old['is_coordinator'] and not value.enabled:
-                    raise HTTPException(400, 'The coordinator is always enabled and cannot be disabled.')
-                if old['is_coordinator'] and any((value.documents_enabled,value.documents_grounded,value.repositories_enabled,value.ssh_enabled,
-                        value.skills_enabled,value.mcp_enabled,value.services_enabled,value.collection_ids,value.repository_ids,
-                        value.service_ids,value.skill_ids)):
-                    raise HTTPException(400, 'Configure resource access on the specialists the coordinator delegates to.')
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 runtime = value.runtime or old['runtime']
                 resources = value.resources or old['resources']
-                if old['is_coordinator'] and resources != 'fixed':
-                    raise HTTPException(400, COORDINATOR_FIXED)
                 if runtime != old['runtime']:
-                    if old['is_coordinator']:
-                        raise HTTPException(400, 'The coordinator runs on the native runtime.')
                     if runtime == 'claude_code' and old['model_id'] is not None:
                         current = conn.execute('SELECT provider,api_format,model FROM ka.llm_models WHERE id=%s',
                                                (old['model_id'],)).fetchone()
@@ -295,7 +269,7 @@ def build_api(app_name, store):
     def history(agent_id: str):
         with database().connect() as conn:
             read(conn, agent_id)
-            return agent_history(conn, agent_id)[0]
+            return agent_history(conn, agent_id)
 
     @router.delete('/{agent_id}', status_code=204)
     def delete(agent_id: str, value: DeleteInput, request: Request):
@@ -303,17 +277,15 @@ def build_api(app_name, store):
             conn.execute('SELECT singleton FROM ka.llm_assignment_revision FOR UPDATE')
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
             old = read(conn, agent_id)
-            if old['is_coordinator']:
-                raise HTTPException(409, 'The coordinator cannot be removed.')
             if old['revision'] != value.revision:
                 raise HTTPException(409, 'Agent changed. Reload before deleting.')
             if conn.execute(WORKING, {'a': agent_id}).fetchone():
                 raise HTTPException(409, WORKING_REFUSED)
-            history, tasks = agent_history(conn, agent_id)
+            history = agent_history(conn, agent_id)
             if any(history.values()):
                 if not value.with_history:
                     raise HTTPException(409, HISTORY_REFUSED)
-                delete_history(conn, agent_id, tasks)
+                delete_history(conn, agent_id)
             conn.execute('SELECT agent FROM ka.agent_prompts WHERE agent=%s FOR UPDATE', (agent_id,))
             audit(conn, request, agent_id, 'agent.deleted', **({'history': history} if any(history.values()) else {}))
             credentials = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)).fetchall()
@@ -348,7 +320,7 @@ def build_api(app_name, store):
                 selected = conn.execute('SELECT * FROM ka.llm_models WHERE id=%s FOR SHARE', (value.model_id,)).fetchone()
                 if selected is None or not selected['enabled'] or selected['api_format'] == 'embeddings':
                     raise HTTPException(400, 'Choose an enabled model compatible with this agent.')
-                if not model_fits(old['runtime'], selected, coordinator=old['is_coordinator']):
+                if not model_fits(old['runtime'], selected):
                     raise HTTPException(400, CHOOSE_CLAUDE if old['runtime'] == 'claude_code'
                                         else 'Choose an enabled model compatible with this agent.')
             actor = audit(conn, request, agent_id, 'agent.model.updated')

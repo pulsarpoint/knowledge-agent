@@ -200,9 +200,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
-            agent = conn.execute('SELECT id,enabled,runtime,is_coordinator FROM ka.agents WHERE id=%s FOR SHARE',
+            agent = conn.execute('SELECT id,enabled,runtime FROM ka.agents WHERE id=%s FOR SHARE',
                                  (value.agent_id,)).fetchone()
-            if agent is None or agent['is_coordinator'] or not agent['enabled']:
+            if agent is None or not agent['enabled']:
                 raise HTTPException(400, NO_AGENT)
             try:  # the agent's saved config: its active version, or its working settings before the first version
                 config = get_agent_config(agent['id'], conninfo=db.conninfo)

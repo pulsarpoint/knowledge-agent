@@ -53,14 +53,13 @@ def normalize_tools(values: Iterable[str]) -> list[str]:
     return [tool for tool in CLAUDE_CODE_TOOLS if tool in chosen]
 
 
-def model_fits(runtime: str, model: Mapping[str, Any], *, coordinator: bool = False) -> bool:
-    """Claude Code agents need a Claude connection; native specialists a Responses or Claude connection; the
-    coordinator any chat model."""
+def model_fits(runtime: str, model: Mapping[str, Any]) -> bool:
+    """Claude Code agents need a Claude connection; native agents a Responses or Claude connection."""
     if model['api_format'] == 'embeddings':
         return False
     if runtime == 'claude_code':
         return claude_model(model['provider'], model['api_format'], model['model'])
-    return coordinator or code_compatible(model['provider'], model['api_format'], model['model'])
+    return code_compatible(model['provider'], model['api_format'], model['model'])
 
 
 def require_native(config: Mapping[str, Any]) -> None:
@@ -94,13 +93,11 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     """
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,is_coordinator,runtime,claude_code_tools,resources,
+        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,runtime,claude_code_tools,resources,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
-        if agent['is_coordinator']:
-            raise ValueError('The coordinator uses its own Agents SDK configuration on the board.')
         selected_version = version_id or (None if working_copy else agent['active_config_version_id'])
         if selected_version is not None:
             version = conn.execute('SELECT id,version,label,config FROM ka.agent_versions WHERE id=%s AND agent=%s', (selected_version,agent_id)).fetchone()

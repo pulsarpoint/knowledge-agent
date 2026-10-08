@@ -1,5 +1,5 @@
-"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved, versioned
-and refused for the coordinator; a per-run agent never runs with its whole selection."""
+"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved and
+versioned; a per-run agent never runs with its whole selection."""
 import asyncio
 from pathlib import Path
 
@@ -10,7 +10,6 @@ from knowledge_llm.profiles import profile
 
 from knowledge_admin.agents import create_agent
 from knowledge_admin.knowledge_agents.config import get_agent_config, require_run_resources
-from knowledge_admin.profiles_api import COORDINATOR_FIXED
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_profiles import update, wizard_payload
 from test_repositories import HEADERS
@@ -41,12 +40,11 @@ def new_version(client, label: str) -> dict:
     return {**created.json(), 'source': source}
 
 
-def test_agents_are_fixed_by_default_and_the_coordinator_stays_fixed(store):
+def test_agents_are_fixed_by_default(store):
     with store.connect() as conn:
         assert {row['resources'] for row in conn.execute('SELECT resources FROM ka.agents')} == {'fixed'}
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='search'")
         for statement, error in (
-                ("UPDATE ka.agents SET resources='per_run' WHERE is_coordinator", psycopg.errors.CheckViolation),
                 ("UPDATE ka.agents SET resources='sometimes' WHERE id='code'", psycopg.errors.CheckViolation),
                 ("UPDATE ka.agents SET resources=NULL WHERE id='code'", psycopg.errors.NotNullViolation)):
             with pytest.raises(error), conn.transaction():
@@ -79,7 +77,7 @@ def test_down_refuses_per_run_agents_and_versions_then_up_makes_every_agent_fixe
         assert conn.execute("SELECT resources FROM ka.agents WHERE id='operations'").fetchone()['resources'] == 'fixed'
 
 
-def test_the_setting_is_saved_versioned_listed_and_refused_for_the_coordinator(store, saved_agent):
+def test_the_setting_is_saved_versioned_and_listed(store, saved_agent):
     client = saved_agent[0]
     operations = client.get('/api/agents/operations', headers=HEADERS).json()
     assert operations['resources'] == 'fixed'
@@ -88,11 +86,7 @@ def test_the_setting_is_saved_versioned_listed_and_refused_for_the_coordinator(s
     assert saved.json()['resources'] == 'per_run'
     assert update(client, saved.json(), resources=None).json()['resources'] == 'per_run'  # omitted: kept
     assert get_agent_config('operations', conninfo=store.conninfo)['resources'] == 'per_run'
-    coordinator = client.get('/api/agents/coordinator', headers=HEADERS).json()
-    assert coordinator['resources'] == 'fixed'
-    refusal = update(client, coordinator, resources='per_run')
-    assert refusal.status_code == 400 and refusal.json()['error']['message'] == COORDINATOR_FIXED
-    assert (listed(client)['operations']['resources'], listed(client)['coordinator']['resources']) == ('per_run', 'fixed')
+    assert listed(client)['operations']['resources'] == 'per_run'
     # The first draft also activates "Initial configuration" (per run). A version keeps its mode; the list shows what
     # runs (the active version), General the working copy.
     version = new_version(client, 'Per run analyst')

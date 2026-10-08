@@ -1,4 +1,4 @@
-"""Direct Test-tab runs use the selected saved agent, without the coordinator."""
+"""Direct Test-tab runs use the selected saved agent."""
 import asyncio
 from agents.usage import Usage
 import json
@@ -74,11 +74,10 @@ def test_unconfigured_and_disabled_agents_do_not_start(direct, store, change, ex
     assert client.get(path, headers=HEADERS).json()['runs'] == []
 
 
-def test_direct_endpoint_requires_admin_actor_and_rejects_coordinator(direct):
+def test_direct_endpoint_requires_admin_actor(direct):
     client, _, path = direct
     assert client.post(path, json={'task':'Inspect'}).status_code == 403
     assert client.post(path, headers={'X-Forwarded-Groups':'docs-admins'}, json={'task':'Inspect'}).status_code == 403
-    assert client.post('/api/agents/coordinator/runs', headers=HEADERS, json={'task':'Inspect'}).status_code == 409
     assert client.post('/api/agents/missing/runs', headers=HEADERS, json={'task':'Inspect'}).status_code == 404
     assert client.post(path, headers=HEADERS, json={'task':' '}).status_code == 400
 

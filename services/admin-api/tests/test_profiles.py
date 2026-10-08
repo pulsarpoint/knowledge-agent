@@ -32,35 +32,6 @@ def create(client, name):
     return agent.json()
 
 
-def test_coordinator_is_a_protected_agent_with_editable_identity(store, tmp_path):
-    client = _client(tmp_path, repository_store=store)
-    rows = client.get('/api/agents', headers=HEADERS).json()['agents']
-    coordinator = client.get('/api/agents/coordinator', headers=HEADERS).json()
-    assert rows[0]['is_coordinator'] and rows[0]['id'] == coordinator['id']
-    assert len([row for row in rows if row['is_coordinator']]) == 1
-    assert coordinator['active_prompt']['version'] == 1
-    result = update(client, coordinator, name='Incident coordinator', description='Coordinate incidents.')
-    assert result.status_code == 200 and result.json()['is_coordinator']
-    disabled = update(client, result.json(), enabled=False)
-    assert disabled.status_code == 400 and 'always enabled' in disabled.text
-    assert update(client, result.json(), ssh_enabled=True).status_code == 400
-    denied = client.request('DELETE', '/api/agents/coordinator', headers=HEADERS,
-        json={'revision': result.json()['revision'], 'confirmed': True})
-    assert denied.status_code == 409 and 'cannot be removed' in denied.text
-    assert client.post('/api/agents/wizard', headers=HEADERS,
-        json=wizard_payload('Another coordinator', is_coordinator=True)).status_code == 400
-    assert client.get('/api/agents/coordinator/config', headers=HEADERS).status_code == 409
-    for statement in ("DELETE FROM ka.agents WHERE is_coordinator",
-                      "UPDATE ka.agents SET enabled=false WHERE is_coordinator",
-                      "UPDATE ka.agents SET is_coordinator=false WHERE is_coordinator"):
-        with pytest.raises(psycopg.errors.CheckViolation), store.connect() as conn:
-            conn.execute(statement)
-    assert client.get('/api/agents/coordinator', headers=HEADERS).json()['name'] == 'Incident coordinator'
-    assert client.get('/api/agents/coordinator', headers=HEADERS).json()['enabled']
-    specialist = client.get('/api/agents/code', headers=HEADERS).json()
-    assert update(client, specialist, enabled=False).json()['enabled'] is False
-
-
 def update(client, profile, **changes):
     value = {field: profile[field] for field in ProfileInput.model_fields}
     return client.put(f"/api/agents/{profile['id']}", headers=HEADERS, json={**value, **changes})
