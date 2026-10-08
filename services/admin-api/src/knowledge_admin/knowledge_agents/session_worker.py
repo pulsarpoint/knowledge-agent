@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.claude_code import close_idle
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -80,9 +81,9 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int,
                 status_message=CASE WHEN s.status='working' THEN %s ELSE s.status_message END,
                 stop_requested_at=CASE WHEN s.status='working' THEN NULL ELSE s.stop_requested_at END
             FROM picked WHERE s.id=picked.id
-            RETURNING s.*,picked.previous,(SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id) AS agent_name,
+            RETURNING s.*,picked.previous,coalesce((SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id), %s) AS agent_name,
                 EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued""",
-            (runtime, active, free, worker_id, LEASE_SECONDS, INTERRUPTED)).fetchall()
+            (runtime, active, free, worker_id, LEASE_SECONDS, INTERRUPTED, AD_HOC_NAME)).fetchall()
         for row in rows:
             if row['previous'] == 'working' and not row['queued']:  # failed now; it needs a worker only for a message
                 conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
@@ -92,7 +93,7 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int,
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
                     conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
                         SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
-                        (row['project_id'], key, kind, row['agent_id'], row['actor_id'], Jsonb(payload), key))
+                        (row['project_id'], key, kind, row['agent_id'] or AD_HOC_AGENT, row['actor_id'], Jsonb(payload), key))
     return rows
 
 

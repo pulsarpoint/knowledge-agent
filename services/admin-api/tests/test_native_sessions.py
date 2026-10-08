@@ -613,3 +613,32 @@ def test_a_comment_stays_in_place_in_the_real_sdk_input_and_history(config, resp
     kinds = [item.get('type') or item.get('role') for item in history.pending]
     assert kinds == ['user', 'function_call', 'function_call_output', 'user', 'message']
     assert history.pending[0]['content'] == 'FILES_TOOL_CYCLE' and history.pending[3] == note
+
+
+def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native):
+    sessions, sid = native
+    store = sessions.store
+    row = claimed(store)
+    assert (row['id'], row['agent_id'], row['agent_name']) == (sid, None, 'Ad-hoc agent')
+    with store.connect() as conn:  # hand the claimed session back so serve() claims it itself
+        conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
+    fake = FakeAgent([{'steps': [llm(message('# Draft'))], 'answer': '# Draft'}])
+
+    async def scenario():
+        stopped = asyncio.Event()
+        serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
+                                                            poll=0.02))
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await wait_for(store, sid, lambda s: s['worker_id'] is None)
+        stopped.set()
+        await asyncio.wait_for(serving, 5)
+
+    asyncio.run(scenario())
+    assert session_row(store, sid)['draft'] == '# Draft'
+    with store.connect() as conn:
+        agents = conn.execute('SELECT DISTINCT agent_id FROM ka.agent_run_events WHERE starts_with(run_key,%s)',
+                              (f'cc:{sid}:',)).fetchall()
+    assert [a['agent_id'] for a in agents] == ['ad-hoc']
+    [start_event] = [e for e in events(store, sid) if e['kind'] == 'start']
+    assert start_event['payload']['agent'] == 'Ad-hoc agent'
