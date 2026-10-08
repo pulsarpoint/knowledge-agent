@@ -8,7 +8,7 @@ from agents.tool_context import ToolContext
 
 from knowledge_admin.agents import get_prompt
 from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
-from knowledge_admin.tools import NOTHING_GIVEN
+from knowledge_admin.capabilities.context import NOTHING_GIVEN
 from knowledge_admin.tools.ast_grep import ast_grep
 from knowledge_admin.tools.code_graph import code_graph
 from knowledge_admin.tools.code_search import code_search

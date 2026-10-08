@@ -162,22 +162,3 @@ def process_code(project: dict) -> dict:
         temporary.write_text(json.dumps({**summary, 'files': hashes}))
         temporary.replace(manifest_path)
         return summary
-
-
-def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
-    """Require an explicitly generated graph that still describes the selected source."""
-    directory = index_directory(project['id'])
-    manifest = directory / 'manifest.json'
-    if not manifest.is_file():
-        raise CodeProcessingError('No code graph yet. Generate the graph in Code projects first.')
-    saved = json.loads(manifest.read_text())
-    current = source_inventory(project)
-    if saved['source_hash'] != current['source_hash'] or expected_hash != saved['source_hash']:
-        raise CodeProcessingError('Source or graph selection changed. Generate and inspect the graph again before continuing.')
-    graph_path = directory / saved['source_hash'] / 'graph.sqlite'
-    if not graph_path.is_file():
-        raise CodeProcessingError('The graph snapshot is unavailable. Generate the graph again.')
-    root = code_root()
-    return {key: value for key, value in {**saved, 'name': project['name'],
-        'folder_paths': [str(root / p) for p in current['folders']],
-        'code_root': str(root / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}

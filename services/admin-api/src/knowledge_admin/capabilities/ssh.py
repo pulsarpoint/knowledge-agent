@@ -1,6 +1,7 @@
 """SSH execution with optional host verification. Credentials stay in the backend, outside model context."""
 import asyncio
 import errno
+import json
 import shlex
 import socket
 import threading
@@ -8,6 +9,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import asyncssh
+
+from knowledge_admin.agent_activity import redact
+from knowledge_admin.capabilities.context import RunContext, require_given
 
 
 class SSHError(Exception):
@@ -153,3 +157,25 @@ async def inspect_connection(connection: SSHConnection) -> dict:
         if connection.allow_sudo:
             message += ' Passwordless sudo to root verified.'
         return {'ok': True, 'message': message, 'host_key': host_key}
+
+
+async def ssh_run(context: RunContext, server_id: str, command: str,
+                  as_root: bool = False, timeout_seconds: int = 60) -> str:
+    """Run one command on a server selected for this agent; the backend supplies the key and host verification."""
+    config = context['config']
+    if not config['enabled'] or not config['ssh']['enabled']:
+        raise ValueError('SSH is disabled for this agent.')
+    require_given(config, 'ssh')
+    server = next((item for item in config['ssh']['servers'] if item['id'] == server_id), None)
+    if server is None or not server['enabled'] or not server['ssh_allowed']:
+        raise ValueError('This server is not available to this agent.')
+    if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
+        raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
+    reference = server['private_key_ref']
+    if reference is None or not context['credentials'].get(reference['id']):
+        raise ValueError('The configured SSH credential was not supplied by the backend.')
+    connection = SSHConnection(hostname=server['hostname'], port=server['port'], username=server['username'],
+        known_hosts=server['known_hosts'], private_key=context['credentials'][reference['id']],
+        allow_sudo=server['allow_sudo'])
+    result = await execute(connection, command, as_root=as_root, seconds=timeout_seconds)
+    return redact(json.dumps({'server_id': server_id, **result}), context['credentials'].values())

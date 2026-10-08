@@ -23,7 +23,9 @@ from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
-from knowledge_admin.tools.files import available_documents, list_files, mounted, read_file, search_files
+from knowledge_admin.capabilities import mcp
+from knowledge_admin.capabilities.files import available_documents, mounted
+from knowledge_admin.tools.files import list_files, read_file, search_files
 from knowledge_admin.tools.code_graph import code_graph
 from knowledge_admin.tools.ast_grep import ast_grep
 from knowledge_admin.tools.code_search import code_search
@@ -140,7 +142,7 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
         raise ValueError('The selected model API key was not supplied.')
     model_api_key = credentials[reference['id']] if reference is not None else None
     ssh_servers = get_ssh(config, credentials)
-    selected_mcp = get_mcp(config, ssh_servers)
+    selected_mcp = mcp.selected_servers(config, ssh_servers)
     prompt = get_prompt(config, ssh_servers, selected_mcp)
     tools = get_tools(config, ssh_servers)
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
@@ -151,14 +153,8 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
         sdk_model, model_settings = await connections.enter_async_context(agent_model(model, model_api_key, timeout_seconds))
         mcp_servers = []
         for server in selected_mcp:
-            headers = {}
-            reference = server['bearer_token_ref']
-            if reference is not None:
-                if not credentials.get(reference['id']):
-                    raise ValueError(f"The MCP token for {server['name']} was not supplied.")
-                headers['Authorization'] = 'Bearer ' + credentials[reference['id']]
             mcp_servers.append(await connections.enter_async_context(MCPServerStreamableHttp(
-                name=server['id'], params={'url': server['url'], 'headers': headers},
+                name=server['id'], params={'url': server['url'], 'headers': mcp.auth_headers(server, credentials)},
                 cache_tools_list=True, client_session_timeout_seconds=timeout_seconds)))
         yield Agent(name=config['name'], instructions=prompt, model=sdk_model,
             model_settings=model_settings, tools=tools, mcp_servers=mcp_servers,
@@ -203,16 +199,6 @@ def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict
         if reference is None or not credentials.get(reference['id']):
             raise ValueError(f"The SSH key for {server['name']} was not supplied.")
     return servers
-
-
-def get_mcp(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Select enabled MCP definitions from the agent and its selected SSH servers."""
-    if not config['mcp']['enabled']:
-        return []
-    servers = list(config['mcp']['servers'])
-    for server in ssh_servers:
-        servers.extend(server['mcp_servers'])
-    return list({server['id']: server for server in servers if server['enabled']}.values())
 
 
 def get_tools(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list[FunctionTool]:

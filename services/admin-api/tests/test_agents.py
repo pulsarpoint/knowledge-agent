@@ -114,7 +114,7 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
     client, _, ssh, *_ = saved_agent
     async def forbidden(*args, **kwargs):
         pytest.fail('Configuration preview must not execute tools or contact a provider')
-    monkeypatch.setattr('knowledge_admin.ssh.execute', forbidden)
+    monkeypatch.setattr('knowledge_admin.capabilities.ssh.execute', forbidden)
     monkeypatch.setattr('httpx.AsyncClient.send', forbidden)
     path = '/api/agents/operations/config'
     assert client.get(path).status_code == 403

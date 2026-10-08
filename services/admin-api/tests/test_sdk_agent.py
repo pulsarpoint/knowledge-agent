@@ -314,7 +314,7 @@ def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
 def test_a_missing_document_collection_path_is_skipped_not_fatal(config, responses_api, caplog):
     config['documents']['collections'] = [{'id': 'jira', 'name': 'jira', 'description': 'Tickets',
                                            'paths': [config['documents']['collections'][0]['path'], '/missing/rag-data/jira']}]
-    with caplog.at_level('WARNING', logger='knowledge_admin.tools.files'):
+    with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
         result = asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45))
     assert result.final_output
     assert 'Skipping unavailable document collection folder: /missing/rag-data/jira' in caplog.text

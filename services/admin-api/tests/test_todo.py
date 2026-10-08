@@ -11,7 +11,7 @@ def test_unconfigured_run_does_not_execute_or_create_run_records(store, tmp_path
     client = _client(tmp_path, repository_store=store)
     async def forbidden(*args, **kwargs):
         pytest.fail('Execution must not contact a provider or server')
-    monkeypatch.setattr('knowledge_admin.ssh.execute', forbidden)
+    monkeypatch.setattr('knowledge_admin.capabilities.ssh.execute', forbidden)
     monkeypatch.setattr('httpx.AsyncClient.send', forbidden)
     with store.connect() as conn:
         before = conn.execute('SELECT count(*) AS n FROM ka.operations_runs').fetchone()['n']

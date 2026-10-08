@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import time
 
-from knowledge_admin.tools.ast_grep import scan_source
+from knowledge_admin.capabilities.ast_grep import scan_source
 
 
 async def main() -> None:

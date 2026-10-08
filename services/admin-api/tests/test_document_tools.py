@@ -8,7 +8,7 @@ from agents.tool_context import ToolContext
 
 from knowledge_admin import grounding
 from knowledge_admin.agents import get_paths, get_prompt, get_tools
-from knowledge_admin.tools import documents
+from knowledge_admin.capabilities import documents
 from knowledge_admin.tools.documents import read_document, report_not_covered, search_documents
 
 

@@ -266,7 +266,7 @@ services:
     volumes:
       - *data-root
       - agent-workspaces:/work/agent-workspaces
-    entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.shell_worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
+    entrypoint: [/services/admin-api/.venv/bin/uvicorn, knowledge_admin.capabilities.shell.worker:app, --host, "0.0.0.0", --port, "8796", --no-access-log]
     command: []
     healthcheck:
       test: [CMD, /services/admin-api/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8796/health', timeout=3)"]

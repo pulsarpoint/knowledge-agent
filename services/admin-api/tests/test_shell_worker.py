@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 import pytest
 import uvicorn
 
-from knowledge_admin.shell_worker import ShellRequest, app, execute
+from knowledge_admin.capabilities.shell.worker import ShellRequest, app, execute
 from knowledge_admin.agents import agent
 from knowledge_admin.tools.shell import shell_run
 from test_function_tools import context, invoke

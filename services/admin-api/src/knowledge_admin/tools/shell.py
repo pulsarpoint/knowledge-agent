@@ -1,14 +1,9 @@
 """Run native commands in the separate shell worker, with the agent's selected paths."""
 
-import json
-import os
-
-import httpx
 from agents import RunContextWrapper, function_tool
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.capabilities.shell import client
 from knowledge_admin.tools import AgentContext
-from knowledge_admin.tools.files import _roots
 
 
 @function_tool
@@ -36,20 +31,4 @@ async def shell_run(ctx: RunContextWrapper[AgentContext], command: str,
         command: Bash command or multiline script, up to 20000 characters.
         timeout_seconds: Command timeout from 1 to 300 seconds.
     """
-    if not ctx.context['config']['enabled'] or not ctx.context['shell_enabled']:
-        raise ValueError('Local command execution is disabled for this agent run.')
-    if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
-        raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
-    endpoint = os.environ.get('AGENT_SHELL_URL')
-    if not endpoint:
-        raise ValueError('The shell worker is not configured. Set AGENT_SHELL_URL.')
-    workspace = ctx.context['workspace']
-    paths = [str(path) for path in _roots(ctx.context) if path != workspace]
-    if ctx.context['config']['code']['enabled']:
-        paths.extend(graph['graph_path'] for graph in ctx.context['config']['code'].get('graphs', []))
-    async with httpx.AsyncClient(timeout=timeout_seconds + 10, trust_env=False) as client:
-        response = await client.post(endpoint.rstrip('/') + '/run', json={
-            'command': command, 'timeout_seconds': timeout_seconds,
-            'workspace': str(workspace), 'read_paths': paths})
-        response.raise_for_status()
-        return redact(json.dumps(response.json()), ctx.context['credentials'].values())
+    return await client.shell_run(ctx.context, command, timeout_seconds)

@@ -7,7 +7,8 @@ from uuid import uuid4
 import pytest
 from agents.tool_context import ToolContext
 
-from knowledge_admin.code_processing import process_code, load_code_graph, CodeProcessingError
+from knowledge_admin.code_processing import process_code, CodeProcessingError
+from knowledge_admin.capabilities.code_graph import load_code_graph
 from knowledge_admin.tools.code_graph import code_graph
 from test_api import _client
 from test_repositories import HEADERS

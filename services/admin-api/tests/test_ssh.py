@@ -12,7 +12,7 @@ from uuid import uuid4
 import asyncssh
 import pytest
 
-from knowledge_admin.ssh import SSHConnection, SSHError, execute, inspect_connection
+from knowledge_admin.capabilities.ssh import SSHConnection, SSHError, execute, inspect_connection
 
 
 @pytest.fixture(scope='module')

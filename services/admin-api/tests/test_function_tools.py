@@ -129,7 +129,7 @@ def test_ssh_uses_selected_connection_and_secret_with_real_server(context,ssh_se
 def test_missing_document_paths_are_skipped_but_code_folders_stay_required(context,tmp_path,caplog):
     docs = str((tmp_path/'documents').resolve())
     context['config']['documents']['collections'] = [{'id':'docs','name':'docs','description':'','paths':[docs,'/missing/rag-data/jira']}]
-    with caplog.at_level('WARNING', logger='knowledge_admin.tools.files'):
+    with caplog.at_level('WARNING', logger='knowledge_admin.capabilities.files'):
         roots = json.loads(asyncio.run(invoke(list_files,context)))
     assert {entry['path'] for entry in roots['entries']} == {str(context['workspace']),str((tmp_path/'code').resolve()),docs}
     assert '/missing/rag-data/jira' in caplog.text

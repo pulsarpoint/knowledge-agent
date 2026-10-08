@@ -160,8 +160,9 @@ result = await agent(config, "Explain how this project starts.", credentials=dec
 print(result.final_output)
 ```
 
-Setup is split into `get_model`, `get_paths`, `get_ssh`, `get_mcp`, `get_tools`,
-and `get_prompt` in `agents.py`. These select the saved settings and enabled
+Setup is split into `get_model`, `get_paths`, `get_ssh`, `get_tools`,
+and `get_prompt` in `agents.py` (MCP server selection is in
+`knowledge_admin/capabilities/mcp.py`). These select the saved settings and enabled
 resources. Provider connections still belong to `model_adapter.agent_model()`;
 the main runner owns connection cleanup and streaming. The session API owns
 conversation persistence.
@@ -174,7 +175,8 @@ pass an existing Pydantic class as `output_type`; `final_output` is that model.
 The agent wizard and tuning reviewer use this support.
 
 Enabled code/document folders register `list_files`, `read_file` and
-`search_files` from `knowledge_admin/tools/files.py`. These read configured
+`search_files` from `knowledge_admin/capabilities/files.py` (wrapped by
+`knowledge_admin/tools/files.py`). These read configured
 absolute mounted paths. SSH registers `ssh_run`, which uses saved connection
 settings and credentials in backend context, enforces selected servers and sudo
 settings, and reuses the AsyncSSH transport. Keys are not written to disk or

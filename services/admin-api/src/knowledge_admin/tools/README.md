@@ -1,5 +1,8 @@
 # Agent function tools
 
+Implementations live in `knowledge_admin/capabilities/`; these modules only adapt them to the
+Agents SDK.
+
 Import decorated functions directly. There is no tool factory or registry.
 
 - `files.py`: `list_files`, `read_file`, `search_files`. Read-only access to the
@@ -24,7 +27,7 @@ Import decorated functions directly. There is no tool factory or registry.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
 - `ssh.py`: `ssh_run`. Resolves a selected server and its credential reference from
-  the supplied snapshot/context. Reuses `knowledge_admin.ssh.execute`, including
+  the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.
 - `shell.py`: `shell_run`. A normal function tool sending Bash commands to the
   internal `shell-worker` service. Registered when code or documents are enabled.

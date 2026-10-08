@@ -17,7 +17,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from knowledge_admin.code_paths import code_root
-from knowledge_admin.code_processing import index_directory, load_code_graph
+from knowledge_admin.capabilities.code_graph import load_code_graph
+from knowledge_admin.code_processing import index_directory
 
 
 # All graph reads use the installed public SDK. Opening the temporary copy avoids
