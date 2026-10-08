@@ -127,26 +127,88 @@ class SessionHub:
         self._mark([session_id])
 
     def _put(self, session_id: UUID, subscription: Subscription, message: Message) -> bool:
+        """Queue a message. A subscriber whose queue is full gets resync instead and is dropped: its stream ends and
+        the browser reconnects from its last event id."""
+        if subscription.dropped:
+            return False
+        if subscription.queue.qsize() >= QUEUE_SIZE:
+            subscription.dropped = True
+            subscription.queue.put_nowait(('resync', None))
+            self._leave(session_id, subscription)
+            return False
         subscription.queue.put_nowait(message)
         return True
 
+    def _outage(self) -> None:
+        """The database cannot be reached: every subscriber hears it once; everything watched is read on recovery."""
+        self._dirty.update(self._watched)
+        for session_id, watched in list(self._watched.items()):
+            for subscription in list(watched.subscribers):
+                if not subscription.told_unavailable:
+                    subscription.told_unavailable = True
+                    self._put(session_id, subscription, ('unavailable', None))
+
+    def _recovered(self) -> None:
+        """Connected again: a later outage is told again, and every watched session is read."""
+        for watched in self._watched.values():
+            for subscription in watched.subscribers:
+                subscription.told_unavailable = False
+        self._mark(list(self._watched))
+
     async def _listen(self) -> None:
-        async with await psycopg.AsyncConnection.connect(self.conninfo, autocommit=True,
-                                                         connect_timeout=CONNECT_TIMEOUT) as conn:
-            await conn.execute(f'LISTEN {CHANNEL}')
-            self.listener_pid = conn.info.backend_pid
-            self.listening.set()
-            self._mark(list(self._watched))  # anything committed before we listened
-            async for notice in conn.notifies():
-                self._notice(notice.payload)
+        """LISTEN on one connection. A lost connection is reopened after `backoff_start`; a connect that fails is an
+        outage, retried with backoff doubling to `backoff_max`. Once listening again every watched session is read.
+        Every `sweep_seconds` the connection is checked and every watched session read anyway (a lost notice)."""
+        delay = self.backoff_start
+        while True:
+            try:
+                async with await psycopg.AsyncConnection.connect(self.conninfo, autocommit=True,
+                                                                 connect_timeout=CONNECT_TIMEOUT) as conn:
+                    await conn.execute(f'LISTEN {CHANNEL}')
+                    self.listener_pid, delay = conn.info.backend_pid, self.backoff_start
+                    self.listening.set()
+                    self._recovered()
+                    while True:
+                        async for notice in conn.notifies(timeout=self.sweep_seconds):
+                            self._notice(notice.payload)
+                        await asyncio.wait_for(conn.execute('SELECT 1'), CONNECT_TIMEOUT)  # a dead connection raises
+                        self._mark(list(self._watched))
+            except (psycopg.Error, TimeoutError) as exc:  # only the class name: a message can echo connection details
+                lost = self.listening.is_set()
+                self.listening.clear()
+                self.listener_pid = None
+                if lost:
+                    logger.warning('Session hub listener lost its connection (%s); reconnecting', type(exc).__name__)
+                else:
+                    logger.warning('Session hub cannot reach the database (%s); retrying in %.1f s',
+                                   type(exc).__name__, delay)
+                    self._outage()
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self.backoff_max)
 
     async def _read_loop(self) -> None:
+        """Drain dirty sessions; a burst of notices (within coalesce_seconds) becomes one read per session. A failed
+        read is an outage: every watched session (the rest of the batch with them) stays dirty and is retried with
+        backoff."""
+        delay = self.backoff_start
         while True:
             await self._wake.wait()
-            await asyncio.sleep(self.coalesce_seconds)  # a burst of notices becomes one read
+            await asyncio.sleep(self.coalesce_seconds)
             self._wake.clear()
             batch, self._dirty = self._dirty, set()
-            await self._read_all(batch)
+            try:
+                await self._read_all(batch)
+            except Exception as exc:  # noqa: BLE001 - the hub must outlive any failed read
+                # only the class name, never the traceback: a psycopg message can echo connection details
+                logger.warning('Session hub cannot read sessions (%s); retrying in %.1f s', type(exc).__name__, delay)
+                self._outage()
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self.backoff_max)
+                self._wake.set()
+            else:
+                if delay != self.backoff_start:  # it had failed: recovered
+                    delay = self.backoff_start
+                    self._recovered()
 
     async def _read_all(self, batch: set[UUID]) -> None:
         """Read the dirty sessions over one short-lived connection."""

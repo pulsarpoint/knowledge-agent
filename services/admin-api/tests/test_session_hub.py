@@ -4,6 +4,8 @@ import asyncio
 import time
 from uuid import UUID
 
+import psycopg
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.live import session_hub
@@ -244,6 +246,156 @@ def test_a_tool_result_reaches_the_subscriber_without_its_full_output(store):
                     (f'cc:{session}:1', Jsonb({'preview': 'short', 'output': 'x' * 10000}), session)))
                 [(kind, row)] = await take(page, 1)
                 assert kind == 'event' and row['payload'] == {'preview': 'short'}
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_the_listener_reconnects_and_reads_every_watched_session_again(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = await running(store, backoff_start=0.5, backoff_max=1.0)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                old = hub.listener_pid
+                await db(write, store, ('SELECT pg_terminate_backend(%s)', (old,)))
+                await until(lambda: not hub.listening.is_set())
+                # replica mode skips ordinary triggers: no notice, so only the re-read on reconnect can deliver it
+                await db(write, store, ('SET LOCAL session_replication_role = replica', None), event(session, 1))
+                [(kind, row)] = await take(page, 1)
+                assert kind == 'event' and row['seq'] == 1
+                assert hub.listener_pid not in (None, old)
+                assert await nothing_more(page)  # no 'unavailable': the database was reachable
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_the_periodic_check_finds_an_event_whose_notice_was_suppressed(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = await running(store, sweep_seconds=0.3)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                # replica mode skips ordinary triggers: the event commits without a notice
+                await db(write, store, ('SET LOCAL session_replication_role = replica', None), event(session, 1))
+                [(kind, row)] = await take(page, 1, timeout=3)
+                assert kind == 'event' and row['seq'] == 1
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_a_subscriber_that_falls_behind_gets_resync_and_is_dropped(store, monkeypatch):
+    monkeypatch.setattr(session_hub, 'QUEUE_SIZE', 3)
+    session = a_session(store)
+    write(store, *[event(session, seq) for seq in range(1, 6)])
+    ids = event_ids(store, session)
+
+    async def scenario():
+        hub = await running(store)
+        try:
+            async with hub.subscribe(session, 0) as slow, hub.subscribe(session, ids[3]) as current:
+                assert summary(await take(slow, 4)) == [('event', ids[0]), ('event', ids[1]), ('event', ids[2]),
+                                                        ('resync', None)]
+                assert summary(await take(current, 2)) == [('event', ids[4]), ('session', 'working')]
+                assert hub.subscribers(session) == 1
+                await db(write, store, event(session, 6))
+                assert [kind for kind, _ in await take(current, 1)] == ['event']
+                assert await nothing_more(slow)
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_an_outage_sends_unavailable_once_and_recovery_resumes(store, postgres):
+    session = a_session(store)
+    with store.connect() as conn:
+        name = conn.info.dbname
+
+    def connections(allowed: bool) -> None:
+        with psycopg.connect(postgres, autocommit=True) as admin:
+            admin.execute(sql.SQL('ALTER DATABASE {} WITH ALLOW_CONNECTIONS {}').format(
+                sql.Identifier(name), sql.SQL('true' if allowed else 'false')))
+            if not allowed:
+                admin.execute('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=%s', (name,))
+
+    async def scenario():
+        hub = await running(store, backoff_start=0.05, backoff_max=0.2)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                await db(connections, False)
+                assert summary(await take(page, 1)) == [('unavailable', None)]
+                await asyncio.sleep(0.8)  # several failed reconnects
+                assert page.queue.empty()  # told once
+                await db(connections, True)
+                await until(hub.listening.is_set)
+                await db(write, store, event(session, 1))
+                assert [kind for kind, _ in await take(page, 1)] == ['event']
+        finally:
+            await hub.stop()
+            await db(connections, True)
+    asyncio.run(scenario())
+
+
+def failing_reads(hub, count: int, error: Exception) -> None:
+    """Make the hub's next `count` session reads raise `error`."""
+    read, left = hub._read, [count]
+
+    async def flaky(conn, session_id):
+        if left[0] > 0:
+            left[0] -= 1
+            raise error
+        await read(conn, session_id)
+    hub._read = flaky
+
+
+def test_a_failed_read_never_ends_the_reader(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = await running(store, backoff_start=0.05, backoff_max=0.2)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                failing_reads(hub, 1, psycopg.OperationalError('server closed the connection'))
+                await db(write, store, event(session, 1))
+                assert summary(await take(page, 1)) == [('unavailable', None)]
+                [(kind, row)] = await take(page, 1)  # retried
+                assert kind == 'event' and row['seq'] == 1
+                failing_reads(hub, 1, RuntimeError('a bug'))  # not even an unexpected error ends it
+                await db(write, store, event(session, 2))
+                assert summary(await take(page, 1)) == [('unavailable', None)]  # told again: it had recovered
+                [(kind, row)] = await take(page, 1)
+                assert kind == 'event' and row['seq'] == 2
+                assert await nothing_more(page)
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_a_failed_read_leaves_the_rest_of_its_batch_dirty(store):
+    first, second = a_session(store), a_session(store)
+
+    async def scenario():
+        hub = await running(store, backoff_start=0.05, backoff_max=0.2)
+        try:
+            async with hub.subscribe(first, 0) as a, hub.subscribe(second, 0) as b:
+                for page in (a, b):
+                    assert summary(await take(page, 1)) == [('session', 'working')]
+                failing_reads(hub, 1, psycopg.OperationalError('server closed the connection'))
+                # one transaction: both sessions are in one batch, and its first read fails
+                await db(write, store, event(first, 1), event(second, 1))
+                for page in (a, b):
+                    assert summary(await take(page, 1)) == [('unavailable', None)]
+                    [(kind, row)] = await take(page, 1)
+                    assert kind == 'event' and row['seq'] == 1
+                    assert await nothing_more(page)
         finally:
             await hub.stop()
     asyncio.run(scenario())
