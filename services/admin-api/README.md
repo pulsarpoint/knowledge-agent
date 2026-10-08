@@ -130,9 +130,9 @@ configuration (credential references only) in a Test session (`ka.agent_sessions
 activity are retained in PostgreSQL; full SDK traces go to Phoenix.
 
 The first message creates a session. Follow-ups continue its Agents SDK conversation
-using the session’s pinned configuration. New sessions use the active agent version,
-or an explicitly selected draft. Sessions close explicitly or expire
-after one hour of inactivity; running turns are excluded from expiry. Session
+using the session’s pinned configuration. New sessions pin the agent’s saved configuration
+when they start. Sessions close explicitly or are closed
+after 24 hours without activity; a session with a running turn is never closed for inactivity. Session
 history and tuning reviews remain in PostgreSQL after runtime files are removed.
 See [session and review endpoints](../../docs/agents.md) for the API contract.
 The tuning reviewer receives full configuration, the whole stored conversation,

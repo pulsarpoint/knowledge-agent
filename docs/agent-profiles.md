@@ -27,7 +27,7 @@ An empty resource selection includes nothing. “All document folders” and “
 
 Specialist Test tabs run Test sessions of the selected agent with its saved configuration, pinned when the session starts.
 The first message creates a session and adds `session_id` to the URL. Follow-ups
-retain context until the session is closed or inactive for one hour. Reloading
+retain context until the session is closed, or closed after 24 hours without activity. Reloading
 restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.
 **Add feedback** beneath a response opens an optional panel and sends the full
 configuration, whole stored conversation, selected response and your feedback
