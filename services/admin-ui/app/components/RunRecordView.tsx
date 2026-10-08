@@ -47,7 +47,7 @@ export default function RunRecordView({ runKey }: { runKey: string }) {
       <h2 className="text-lg font-semibold">{String(start.title ?? record.run_key)}</h2>
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <Badge variant="secondary">{String(start.kind ?? 'run')}</Badge><span>{String(start.agent ?? record.agent_id)}</span>
-        <span>· {record.user ?? 'system'}</span><Badge>{String(end?.status ?? 'running')}</Badge><span>{tokens.toLocaleString()} tokens</span><span>·</span><span aria-label="Tools used">{toolUsageLine(record.tool_counts)}</span>
+        <span>· {record.user ?? 'system'}</span><Badge>{String(end?.status ?? 'running')}</Badge><span>{tokens.toLocaleString()} tokens</span>{record.tool_counts && <><span>·</span><span aria-label="Tools used">{toolUsageLine(record.tool_counts)}</span></>}
       </div>
     </div>
     <ol className="flex flex-col gap-3">{record.events.filter(e => !['start', 'end'].includes(e.kind)).map(e => <li key={e.seq}><Event event={e} /></li>)}</ol>

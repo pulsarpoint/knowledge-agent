@@ -38,6 +38,20 @@ test('runs list and record show the tools each run used', async () => {
   expect(await screen.findByLabelText('Tools used')).toHaveTextContent('code_graph 12 · read_file 31');
 });
 
+test('a run record without tool counts has no tools line; an empty list says No tools used', async () => {
+  const record = (counts?: unknown[]) => json({ run_key: 'run:1', agent_id: 'search', user: null, events: [
+    { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'test', title: 'Graph run' }, created_at: '2026-10-04T10:00:00Z' }],
+    ...(counts ? { tool_counts: counts } : {}) });
+  vi.stubGlobal('fetch', vi.fn(async () => record()));
+  const { unmount } = render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByText('Graph run')).toBeVisible();
+  expect(screen.queryByLabelText('Tools used')).toBeNull();
+  unmount();
+  vi.stubGlobal('fetch', vi.fn(async () => record([])));
+  render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByLabelText('Tools used')).toHaveTextContent('No tools used');
+});
+
 test('run types have readable names in the filter and the list', async () => {
   vi.stubGlobal('fetch', vi.fn(async (_url: string) => json({ next: null, runs: [
     { ...runs.runs[0], run_key: 'cc:s1:1', kind: 'claude_code', title: 'Payments API reference' }] })));
