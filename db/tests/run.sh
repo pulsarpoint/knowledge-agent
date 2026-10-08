@@ -58,7 +58,14 @@ run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
-[ "$rolled_back_version" = 81 ]
+[ "$rolled_back_version" = 82 ]
+notices_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN
+            ('notify_session_events', 'notify_session_change', 'notify_session_input'))
+        AND to_regprocedure('ka.notify_session_events()') IS NULL
+        AND to_regprocedure('ka.notify_session_change()') IS NULL
+        AND to_regprocedure('ka.notify_session_input()') IS NULL")
+[ "$notices_removed" = t ] || { echo 'FAIL: 0083 down left session notice triggers' >&2; exit 1; }
 run_migrate postgres goto 38 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 # The board and the coordinator: roll back to 29, before 0030 seeded the coordinator settings that 0031 turns into the
@@ -89,6 +96,15 @@ test_sessions=$(docker exec "$test_container" psql -X -U postgres -Atc \
             WHERE table_schema = 'ka' AND table_name = 'agent_sessions_cc' AND column_name = 'purpose')")
 [ "$test_sessions" = t ] || { echo 'FAIL: the old Test chat tables are still there' >&2; exit 1; }
 printf '%s\n' 'PASS: Test chats are sessions; the old Test chat tables are gone.'
+# 0083 announces session changes on ka_sessions: run events, session rows and queued messages.
+session_notices=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT count(*) = 3 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'ka' AND NOT t.tgisinternal AND (c.relname, t.tgname) IN
+            (('agent_run_events', 'notify_session_events'), ('agent_sessions_cc', 'notify_session_change'),
+             ('agent_session_inputs', 'notify_session_input'))")
+[ "$session_notices" = t ] || { echo 'FAIL: the session notice triggers are missing' >&2; exit 1; }
+printf '%s\n' 'PASS: session changes are announced on ka_sessions.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
