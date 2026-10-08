@@ -9,7 +9,8 @@ from agents import FunctionTool
 from agents.tool_context import ToolContext
 
 from knowledge_admin.agents import get_prompt
-from knowledge_admin.tools.catalog import CATALOG, effective_tools, implied_tools, tools_summary
+from knowledge_admin.tools.catalog import (CATALOG, capability_tools, effective_tools, enabled_capability_tools,
+                                           implied_tools, tools_summary)
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
 
 SERVER = {'id': 'host', 'name': 'Host', 'hostname': 'host.test', 'port': 22, 'username': 'ops', 'description': '',
@@ -177,3 +178,23 @@ def test_code_graphs_are_listed_only_when_a_tool_that_reads_them_is_offered():
         assert ('"code_graphs"' in get_prompt(c, [], [])) is listed, tools
         assert ('"code_graphs"' in get_prompt(c, [], [], tools)) is listed, tools
     assert '"code_graphs"' not in get_prompt(config(code=True, graphs=[graph], tools=['code_graph']), [], [], [])
+
+
+CODE_TOOLS = ['list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph']
+FILE_TOOLS = ['list_files', 'read_file', 'search_files', 'shell_run']
+
+
+def test_a_capabilitys_tools_are_every_tool_of_its_needs():
+    assert capability_tools('code', config(code=True)) == CODE_TOOLS  # code_graph too, graph or not
+    assert capability_tools('documents', config(documents=True)) == [*FILE_TOOLS, 'search_documents', 'read_document']
+    # with code projects on the file tools belong to code; report_not_covered only while grounded
+    assert capability_tools('documents', config(code=True, documents=True, grounded=True)) == [
+        'search_documents', 'read_document', 'report_not_covered']
+    # all of them, not only those default_on gives: grounded documents keep the file tools' rows
+    assert capability_tools('documents', config(documents=True, grounded=True)) == [
+        *FILE_TOOLS, 'search_documents', 'read_document', 'report_not_covered']
+    assert capability_tools('ssh', config(ssh=True)) == ['ssh_run']
+    assert enabled_capability_tools(config(code=True, ssh=True)) == [*CODE_TOOLS, 'ssh_run']
+    assert enabled_capability_tools(config(code=True, documents=True)) == [*CODE_TOOLS, 'search_documents',
+                                                                          'read_document']  # each once
+    assert enabled_capability_tools(config()) == []

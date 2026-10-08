@@ -19,7 +19,7 @@ from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, CLAUDE_CODE_TOOLS, ClaudeCodeTool, model_fits, normalize_tools
 from knowledge_admin.operations_store import SSHInput
 from knowledge_admin.profiles_api import PROMPT_LIMIT
-from knowledge_admin.tools.catalog import CATALOG, catalog_listing, implied_tools
+from knowledge_admin.tools.catalog import CATALOG, catalog_listing, enabled_capability_tools
 from knowledge_admin.tools_api import CLAUDE_CODE, UNKNOWN, flags
 
 
@@ -273,11 +273,11 @@ def build_api(app_name, store):
                      value.mcp_enabled,value.services_enabled,value.all_collections,value.all_repositories,
                      actor,actor))
                 if value.runtime == 'openai':
-                    proposed = flags({'runtime': 'openai', 'repositories_enabled': value.repositories_enabled,
+                    proposed = flags({'runtime': 'openai', 'resources': value.resources,
+                                      'repositories_enabled': value.repositories_enabled,
                                       'documents_enabled': value.documents_enabled, 'documents_grounded': False,
                                       'ssh_enabled': value.ssh_enabled})
-                    names = value.tools if value.tools is not None else [
-                        entry['tool'] for entry in implied_tools(proposed)['items'] if entry['mode'] == 'on']
+                    names = value.tools if value.tools is not None else enabled_capability_tools(proposed)
                     for name in dict.fromkeys(names):
                         conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
                 for table, column, ids in [('agent_collections','collection_id',value.collection_ids),
