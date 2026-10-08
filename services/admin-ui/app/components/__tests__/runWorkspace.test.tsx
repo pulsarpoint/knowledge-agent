@@ -203,3 +203,57 @@ test('the drawer lists the subagents too; picking one shows it and closes the dr
   expect(screen.getByLabelText('Subagent task')).toHaveTextContent('Read the worker');
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
+
+function sized(pane: HTMLElement, scrollHeight: number, clientHeight: number) {
+  Object.defineProperty(pane, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(pane, 'clientHeight', { configurable: true, get: () => clientHeight });
+  Object.defineProperty(pane, 'scrollTop', { configurable: true, writable: true, value: 0 });
+}
+const workspace = (change: Partial<SessionRun>) => <MemoryRouter><RunWorkspace run={run(change)}
+  agentName="Payments helper" agentType="Native" resources="Fixed" composer={composer} /></MemoryRouter>;
+
+test('while a subagent is shown, earlier pages are not loaded and the paging lines are hidden', () => {
+  const loadOlder = vi.fn(async () => {});
+  const working = { ...detail, status: 'working' as const };
+  const view = render(workspace({ session: working, events: delegated, older: 'more', loadOlder }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open subagent: Read the worker' }));
+  sized(screen.getByTestId('run-scroll'), 100, 500);  // a short subagent: nothing to scroll
+  loadOlder.mockClear();
+  view.rerender(workspace({ session: working, events: [...delegated, event(5, 'reasoning', { text: 'More.', parent_call_id: 's1' })], older: 'loading', loadOlder }));
+  fireEvent.scroll(screen.getByTestId('run-scroll'));
+  expect(loadOlder).not.toHaveBeenCalled();
+  expect(screen.queryByText('Loading earlier activity…')).toBeNull();
+  view.rerender(workspace({ session: working, events: delegated, older: 'start', loadOlder }));
+  expect(screen.queryByText('Beginning of the session')).toBeNull();
+});
+
+test('switching between the main agent and a subagent scrolls the pane to the latest', () => {
+  show({ run: run({ session: { ...detail, status: 'working' }, events: delegated }) });
+  const pane = screen.getByTestId('run-scroll');
+  sized(pane, 1000, 200);
+  fireEvent.click(screen.getByRole('button', { name: 'Open subagent: Read the worker' }));
+  expect(pane.scrollTop).toBe(1000);
+  pane.scrollTop = 0;
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'breadcrumb' })).getByRole('button', { name: 'Main agent' }));
+  expect(pane.scrollTop).toBe(1000);
+});
+
+test('a shown subagent that leaves the loaded events is let go, so it does not come back later', () => {
+  const working = { ...detail, status: 'working' as const };
+  const view = render(workspace({ session: working, events: delegated }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open subagent: Read the worker' }));
+  view.rerender(workspace({ session: working, events: conversation }));  // a reconnect replaced the events
+  view.rerender(workspace({ session: working, events: delegated }));
+  expect(screen.queryByLabelText('Subagent task')).toBeNull();
+  expect(screen.getAllByLabelText('Your message')[0]).toHaveTextContent('Compare the services.');
+});
+
+test('a subagent with no task yet is named the same way everywhere', () => {
+  show({ run: run({ session: { ...detail, status: 'working' }, events: [
+    event(7, 'input', { task: 'Go.' }), event(7, 'tool_call', { name: 'run_subagent', call_id: 'n1', summary: '' })] }) });
+  expect(screen.getByText('Subagent · no task yet · 0 tool calls · 0 tokens · working')).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Agents in this run' })).getByRole('button', { name: /^Subagent/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open subagent: no task yet' }));
+  expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(/Subagent: no task yet/);
+  expect(screen.getByLabelText('Subagent task')).toHaveTextContent('no task yet');
+});

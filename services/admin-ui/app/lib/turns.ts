@@ -27,6 +27,9 @@ export const SUBAGENT_STATUS_LABELS: Record<SubagentStatus, string> = { working:
 const ENDED: Record<string, TurnStatus> = { completed: 'completed', failed: 'failed', stopped: 'stopped' };
 const text = (payload: Record<string, unknown>, key: string) => typeof payload[key] === 'string' ? payload[key] as string : '';
 const amount = (payload: Record<string, unknown>, key: string) => Number(payload[key] ?? 0) || 0;
+/** A run_subagent result that is a failure: the subagent failed, or the call was refused (the SDK's tool error text).
+ * Not every is_error: a subagent's successful answer may be JSON with an error key. */
+const SUBAGENT_FAILED = ['Subagent failed: ', 'An error occurred while running the tool'];
 const noUsage = (): TurnUsage => ({ input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 });
 
 type Pending = { pending: { id: number; text: string } | null };
@@ -131,7 +134,7 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
           if (!sub.task && args && typeof args.task === 'string') sub.task = args.task;
         } else if (event.kind === 'tool_result') {
           const sub = turn.helpers.get(callId);
-          if (sub) sub.status = p.is_error === true ? 'failed' : 'done';
+          if (sub) sub.status = SUBAGENT_FAILED.some(prefix => text(p, 'preview').startsWith(prefix)) ? 'failed' : 'done';
           // A refused call records no subagent events: its reason is the result.
           if (sub?.status === 'failed' && !sub.error) sub.error = text(p, 'preview') || null;
         }

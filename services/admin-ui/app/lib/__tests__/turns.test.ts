@@ -126,3 +126,13 @@ test('a refused run_subagent call is a failed subagent whose error is the result
   expect(turn.subagents).toMatchObject([{ task: 'Too much', status: 'failed', work: [],
     error: 'An error occurred while running the tool. This turn already started 16 subagents.' }]);
 });
+
+test('a run_subagent result fails the subagent only when it says so, not for a successful JSON answer with an error key', () => {
+  const [turn] = groupTurns([
+    event(6, 'tool_call', { name: 'run_subagent', call_id: 'j1', summary: 'Check', arguments: { task: 'Check' } }),
+    event(6, 'tool_call', { name: 'run_subagent', call_id: 'j2', summary: 'Fail', arguments: { task: 'Fail' } }),
+    event(6, 'tool_result', { name: 'run_subagent', call_id: 'j1', preview: '{"error": null, "exit_code": 2}', is_error: true }),
+    event(6, 'tool_result', { name: 'run_subagent', call_id: 'j2', preview: 'Subagent failed: timeout', is_error: false }),
+  ]);
+  expect(turn.subagents.map(sub => [sub.callId, sub.status, sub.error])).toEqual([['j1', 'done', null], ['j2', 'failed', 'Subagent failed: timeout']]);
+});

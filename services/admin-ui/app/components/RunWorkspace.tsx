@@ -40,13 +40,15 @@ export interface RunWorkspaceProps {
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`;
 const short = (value: string, length = 60) => value.length > length ? `${value.slice(0, length - 1)}…` : value;
+const NO_TASK = 'no task yet';
+const taskLabel = (sub: Subagent, length?: number) => short(sub.task, length) || NO_TASK;
 const subagentUsage = (sub: Subagent) => `${plural(sub.toolCalls, 'tool call')} · ${compactTokens(sub.usage.total)} tokens`;
 
 function WorkLine({ item, subagents, onOpen }: { item: WorkItem; subagents?: Map<string, Subagent>; onOpen?: (callId: string) => void }) {
   const sub = item.kind === 'tool' && item.name === SUBAGENT_TOOL && item.callId ? subagents?.get(item.callId) : undefined;
   if (sub) return <div className="flex flex-wrap items-center gap-2 text-sm">
-    <span className="break-words">{`Subagent · ${short(sub.task) || 'no task yet'} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
-    {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open subagent: ${sub.task}`} onClick={() => onOpen(sub.callId)}>Open</Button>}
+    <span className="break-words">{`Subagent · ${taskLabel(sub)} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
+    {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open subagent: ${sub.task || NO_TASK}`} onClick={() => onOpen(sub.callId)}>Open</Button>}
   </div>;
   switch (item.kind) {
     case 'reasoning': return <p className="whitespace-pre-wrap text-sm italic text-muted-foreground">{item.text}</p>;
@@ -96,11 +98,11 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
     <Breadcrumb><BreadcrumbList>
       <BreadcrumbItem><Button type="button" variant="link" className="h-auto p-0" onClick={onBack}>Main agent</Button></BreadcrumbItem>
       <BreadcrumbSeparator>›</BreadcrumbSeparator>
-      <BreadcrumbItem><BreadcrumbPage>Subagent: {short(sub.task)}</BreadcrumbPage></BreadcrumbItem>
+      <BreadcrumbItem><BreadcrumbPage>Subagent: {taskLabel(sub)}</BreadcrumbPage></BreadcrumbItem>
     </BreadcrumbList></Breadcrumb>
     <div aria-label="Subagent task" className="self-end rounded-md bg-muted p-3 sm:max-w-[85%]">
       <p className="text-xs font-medium text-muted-foreground">Task · turn {sub.turn}</p>
-      <p className="whitespace-pre-wrap break-words text-sm">{sub.task}</p></div>
+      <p className="whitespace-pre-wrap break-words text-sm">{sub.task || NO_TASK}</p></div>
     {worked && <details className="rounded-md border px-3 py-2">
       <summary className="cursor-pointer text-sm text-muted-foreground">{`${live ? 'Working' : 'Worked'} · ${subagentUsage(sub)}`}</summary>
       <div className="mt-3 flex flex-col gap-3">{sub.work.map(item => <WorkLine key={item.id} item={item} />)}</div>
@@ -131,7 +133,10 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
   useEffect(() => { setSelected(null); }, [session?.id]);
   const subagents = useMemo(() => turns.flatMap(turn => turn.subagents), [turns]);
   const shown = selected === null ? null : subagents.find(sub => sub.callId === selected) ?? null;
-  const pick = (callId: string | null) => { setSelected(callId); setDrawer(false); };
+  // A subagent that is no longer in the loaded events (a reconnect replaced them) is let go, so it does not come back.
+  useEffect(() => { if (selected !== null && shown === null) setSelected(null); }, [selected, shown]);
+  // Switching views starts at the latest of the new view.
+  const pick = (callId: string | null) => { setSelected(callId); setFollowing(true); setDrawer(false); };
 
   useLayoutEffect(() => {
     const panel = pane.current;
@@ -142,14 +147,15 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
     } else if (following) {
       panel.scrollTop = panel.scrollHeight;
     }
-  }, [events, following]);
-  const loadOlder = () => run.loadOlder(() => { anchor.current = pane.current?.scrollHeight ?? null; });
+  }, [events, following, shown?.callId]);
+  // A subagent's history is all in the loaded events: no earlier page loads while one is shown.
+  const loadOlder = () => shown ? Promise.resolve() : run.loadOlder(() => { anchor.current = pane.current?.scrollHeight ?? null; });
   // While the pane does not overflow and there is more history, nothing can be scrolled to the top: load the next
   // earlier page. Runs on new events only, so a failed load is not retried in a loop.
   useEffect(() => {
     const panel = pane.current;
     if (panel && panel.clientHeight > 0 && panel.scrollHeight <= panel.clientHeight) void loadOlder();
-  }, [events, session !== null]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [events, session !== null, shown === null]);  // eslint-disable-line react-hooks/exhaustive-deps
   function scrolled() {
     const panel = pane.current;
     if (!panel) return;
@@ -218,12 +224,12 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
     <div className="grid min-h-48 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <section aria-label="Run" className="flex min-h-0 min-w-0 flex-col rounded-lg border">
         <div ref={pane} data-testid="run-scroll" onScroll={scrolled} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          {older === 'start' && events.length > 0 && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
-          {older === 'loading' && <p role="status" className="text-center text-xs text-muted-foreground">Loading earlier activity…</p>}
-          {shown ? <SubagentView sub={shown} onBack={() => setSelected(null)} />
+          {!shown && older === 'start' && events.length > 0 && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
+          {!shown && older === 'loading' && <p role="status" className="text-center text-xs text-muted-foreground">Loading earlier activity…</p>}
+          {shown ? <SubagentView sub={shown} onBack={() => pick(null)} />
             : turns.length === 0 ? empty : <ol className="flex flex-col gap-6">{turns.map((turn, index) =>
               <TurnView key={turn.turn} turn={turn} live={working && index === turns.length - 1 && turn.status === 'working'}
-                modelCalls={modelCalls} actions={answerActions?.(turn)} onOpen={callId => setSelected(callId)} />)}</ol>}
+                modelCalls={modelCalls} actions={answerActions?.(turn)} onOpen={pick} />)}</ol>}
           {session && session.queued > 0 && <p className="text-sm text-muted-foreground">{plural(session.queued, 'message')} queued</p>}
         </div>
         {!following && <div className="shrink-0 border-t p-2 text-center"><Button type="button" size="sm" variant="secondary" onClick={jump}>Jump to latest</Button></div>}
