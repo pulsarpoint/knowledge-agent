@@ -24,7 +24,7 @@ it('sends with Enter, preserves Shift+Enter and composition, and blocks duplicat
 it('renders caller response actions without adding tuning UI or requiring a composer', () => {
   render(<Conversation messages={[
     {id:'user',role:'user',content:'Question'},
-    {id:'answer',role:'assistant',name:'Coordinator',content:'Answer',actions:<button>Review answer</button>},
+    {id:'answer',role:'assistant',name:'Assistant',content:'Answer',actions:<button>Review answer</button>},
   ]} />);
   expect(screen.getByText('Answer')).toBeVisible();
   expect(screen.getByRole('button',{name:'Review answer'})).toBeVisible();

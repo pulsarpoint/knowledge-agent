@@ -78,3 +78,9 @@ def test_admin_api_requires_exact_admin_group(tmp_path, groups):
     ('POST', '/api/agents/search/chat'), ('GET', '/api/agents/search/chats')])
 def test_legacy_search_chat_is_removed(tmp_path, method, path):
     assert _client(tmp_path).request(method, path, headers={'X-Forwarded-Groups': 'docs-admins'}).status_code in (404, 405)
+
+
+@pytest.mark.parametrize("path", ["/api/agent-board/tasks", "/api/agent-board/settings"])
+def test_the_multi_agent_board_is_gone(tmp_path, path):
+    # Without storage the board answered 503; with the board removed the route does not exist.
+    assert _client(tmp_path).get(path, headers={"X-Forwarded-Groups": "docs-admins"}).status_code == 404

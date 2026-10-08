@@ -374,7 +374,7 @@ it('shows inherited SSH settings and saves an agent override without resending t
 
 it('allows configuring a server before enabling the agent SSH capability', async () => {
   const user = userEvent.setup();
-  const profile: AgentProfile = { is_coordinator: false, documents_grounded: false,
+  const profile: AgentProfile = { documents_grounded: false,
     id: 'code', name: 'Code agent', description: '', when_to_use: '', enabled: true, revision: 1,
     model_id: 'model', documents_enabled: false, repositories_enabled: true, ssh_enabled: false,
     skills_enabled: true, mcp_enabled: true, services_enabled: false, all_collections: false,

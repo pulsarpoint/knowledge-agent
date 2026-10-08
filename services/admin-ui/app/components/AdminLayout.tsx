@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { BookOpen, FolderOpen, Bot, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LayoutDashboard, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
+import { BookOpen, FolderOpen, Bot, Database, Files, ListChecks, Search, FolderGit2, Layers, Network, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
 import { ApiError, getAdminSession } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "~/lib/utils";
@@ -42,7 +42,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
   const agentPage = pathname === '/agents' || pathname.startsWith('/agents/');
-  const boardPage = pathname === '/agent-board';
   const ragPages = [
     { path: "collections", title: "RAG Collections", label: "Collections", description: "Search units mapped to folders in the data root: sync state, settings and indexed content.", icon: Files },
     { path: "jobs", title: "RAG Processing jobs", label: "Processing jobs", description: "Follow indexing progress and inspect processing history.", icon: ListChecks },
@@ -56,8 +55,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const sessionPage = /^\/documentation\/generations\/(?!new$)[^/]+$/.test(pathname);  // its own heading is the session title
   const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
-  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : boardPage ? "Multi-agent board" : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Administration";
-  const description = runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : boardPage ? "Coordinate one main task across your agents and review their shared results." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
+  const title = runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Administration";
+  const description = runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
     : servers ? "Manage hosts, descriptions, and tags for your service infrastructure."
@@ -81,7 +80,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Agents"><SidebarGroupLabel>Agents</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={agentPage}><Link to="/agents" aria-current={agentPage ? 'page' : undefined}><Bot /><span>All agents</span></Link></SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton asChild isActive={boardPage}><Link to="/agent-board" aria-current={boardPage ? 'page' : undefined}><LayoutDashboard /><span>Multi-agent board</span></Link></SidebarMenuButton></SidebarMenuItem>
+          
         </SidebarMenu></SidebarGroup>
         <SidebarGroup><SidebarGroupLabel>LLM Settings</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === "/llm-settings"}><Link to="/llm-settings"><Settings /><span>Models</span></Link></SidebarMenuButton></SidebarMenuItem>

@@ -58,25 +58,30 @@ run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
-[ "$rolled_back_version" = 75 ]
+[ "$rolled_back_version" = 76 ]
 run_migrate postgres goto 38 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
-# Retain the coordinator migration regression as well as the latest rollback.
-run_migrate postgres goto 31 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
-docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 -c \
-    'UPDATE ka.agents SET enabled=false WHERE is_coordinator' > /dev/null
+# The board and the coordinator: roll back to 29, before 0030 seeded the coordinator settings that 0031 turns into the
+# coordinator agent (0077 down restores the tables empty), and upgrade again; 0031 creates the agent with its prompt
+# and 0077 removes it, the board and every coordinator rule.
+run_migrate postgres goto 29 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
-coordinator_enabled=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    'SELECT enabled FROM ka.agents WHERE is_coordinator')
-[ "$coordinator_enabled" = t ]
-printf '%s\n' 'PASS: upgrade re-enables an existing disabled coordinator.'
+coordinator_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_board_tasks') IS NULL AND to_regclass('ka.agent_board_members') IS NULL
+        AND to_regclass('ka.coordinator_settings') IS NULL
+        AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'is_coordinator')
+        AND NOT EXISTS (SELECT 1 FROM ka.agents WHERE id = 'coordinator')
+        AND NOT EXISTS (SELECT 1 FROM ka.agent_prompt_versions WHERE agent = 'coordinator')")
+[ "$coordinator_removed" = t ]
+printf '%s\n' 'PASS: the board and coordinator schema rolls back to version 29 and is removed again on upgrade.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
 }
 sed -n '/^PASS:/p' "$test_log"
 printf '%s\n' 'PASS: fresh migration and second no-change run use a clean golang-migrate ledger.'
-printf '%s\n' 'PASS: documentation migrations roll back to version 38 and reapply; coordinator protection reapplies from version 31.'
+printf '%s\n' 'PASS: documentation migrations roll back to version 38 and reapply.'
 
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 -c "
     WITH project AS (

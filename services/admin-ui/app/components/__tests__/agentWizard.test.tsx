@@ -15,7 +15,7 @@ const proposal: api.AgentProposal = {
   servers: [{ server_id: 'server', instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }],
 };
 const options: api.WizardOptions = {
-  default_model_id: 'model', prompt: 'Design a specialist.', schema: { type: 'object' },
+  prompt: 'Design a specialist.', schema: { type: 'object' },
   catalog: {
     models: [{ id: 'model', name: 'Claude', model: 'claude-test', provider: 'bedrock', api_format: 'native' }],
     code_projects: [{ id: 'repo', name: 'Payments', folder_paths: ['payments'], remote_url: null }],
@@ -105,7 +105,7 @@ test('requires a prompt before saving and can cancel without creating', async ()
 
 test('start blank opens an empty proposal without generating and can create without a model', async () => {
   const user = userEvent.setup(); const created = vi.fn();
-  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: null, catalog: { ...structuredClone(options.catalog), models: [] } });
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [] } });
   render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={created} /></MemoryRouter>);
   await user.click(await screen.findByRole('button', { name: 'Start blank' }));
   expect(api.generateAgent).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ test('Agent type and Resources come from page 1; switching to Claude Code there 
 });
 
 test('step 1 starts with Agent type and Resources, which shape the proposal and a blank start', async () => {
-  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: 'gpt', catalog: { ...structuredClone(options.catalog), models: [
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
     { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' },
     { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' }] } });
   const { user } = await open();
@@ -168,8 +168,17 @@ test('step 1 starts with Agent type and Resources, which shape the proposal and 
   expect(screen.queryByRole('combobox', { name: 'Agent type' })).toBeNull();
 });
 
+test('the proposal is generated with the first catalog model', async () => {
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
+    { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' },
+    { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' }] } });
+  const { user } = await open();
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'gpt', 'openai');
+});
+
 test('a blank Claude Code agent does not take a non-Claude generator model', async () => {
-  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), default_model_id: 'gpt', catalog: { ...structuredClone(options.catalog), models: [
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
     { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' }] } });
   const user = userEvent.setup();
   render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={vi.fn()} /></MemoryRouter>);

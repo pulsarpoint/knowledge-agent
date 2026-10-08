@@ -126,7 +126,6 @@ services:
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       LLM_SETTINGS_SOURCE: database
-      PHOENIX_PUBLIC_URL: ${PHOENIX_PUBLIC_URL:-http://localhost:8182}
       DOCS_WIKI_RAG_URL: http://rag:8790
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces
       DOCS_WIKI_PHOENIX_API_KEY: ${PHOENIX_ADMIN_SECRET:?Run make setup}

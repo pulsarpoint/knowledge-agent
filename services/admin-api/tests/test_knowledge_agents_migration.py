@@ -8,6 +8,7 @@ from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE, SYSTEM_PROMPT
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
+REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
 ALL_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 
 
@@ -28,6 +29,8 @@ def has_column(conn, name: str) -> bool:
 
 def test_registrations_get_the_built_in_prompt_and_every_tool(store):
     with store.connect() as conn:
+        run(conn, REMOVED)
+        conn.commit()
         run(conn, DOWN)
         conn.commit()
         conn.execute("INSERT INTO ka.agents(id,name,runtime) VALUES ('writer','Writer','claude_code')")
@@ -53,7 +56,6 @@ def test_claude_code_agents_take_every_capability_but_need_a_prompt(store):
                 ("UPDATE ka.agents SET claude_code_tools='{Read,Edit}' WHERE id='operations'", psycopg.errors.CheckViolation),
                 ("UPDATE ka.agents SET claude_code_tools='{Read,NULL}' WHERE id='operations'", psycopg.errors.CheckViolation),
                 ("UPDATE ka.agents SET claude_code_tools=NULL WHERE id='operations'", psycopg.errors.NotNullViolation),
-                ("UPDATE ka.agents SET runtime='claude_code' WHERE is_coordinator", psycopg.errors.CheckViolation),
                 ("UPDATE ka.agents SET runtime='other' WHERE id='operations'", psycopg.errors.CheckViolation)):
             with pytest.raises(error):
                 with conn.transaction():
@@ -65,6 +67,8 @@ def test_claude_code_agents_take_every_capability_but_need_a_prompt(store):
 
 def test_down_refuses_configured_claude_code_agents_and_keeps_registrations(store):
     with store.connect() as conn:
+        run(conn, REMOVED)
+        conn.commit()
         conn.execute("UPDATE ka.agents SET runtime='claude_code' WHERE id='search'")  # documents on: more than 0070 keeps
         conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='Claude Code agents have a configuration'):

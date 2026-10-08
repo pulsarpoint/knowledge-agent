@@ -52,7 +52,7 @@ def test_agent_delete_preserves_prompt_invariants_and_other_agents(store, tmp_pa
     with store.connect() as conn:
         assert conn.execute('SELECT 1 FROM ka.agent_prompts WHERE agent=%s', (agent_id,)).fetchone() is None
         assert conn.execute('SELECT 1 FROM ka.agent_prompt_versions WHERE agent=%s', (agent_id,)).fetchone() is None
-        assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 4
+        assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 3
     response = client.request('DELETE', '/api/agents/code', headers=HEADERS, json={'revision': 1, 'confirmed': True})
     assert response.status_code == 204, response.text
     assert client.get('/api/llm', headers=HEADERS).status_code == 200
@@ -123,5 +123,5 @@ def test_delete_all_resource_joins_preserves_shared_catalogs(store, tmp_path):
         assert conn.execute('SELECT 1 FROM ka.agent_config_mcp_servers WHERE config_id=%s', (config_id,)).fetchone() is None
         for table, resource_id in [('rag_collections', collection), ('repositories', repository['id']), ('services', service['id']), ('agent_skills', skill['id']), ('llm_models', model['id']), ('mcp_servers', mcp['id']), ('servers', server['id'])]:
             assert conn.execute(f'SELECT 1 FROM ka.{table} WHERE id=%s', (resource_id,)).fetchone()
-        assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 4
+        assert conn.execute('SELECT count(*) AS n FROM ka.agents').fetchone()['n'] == 3
         assert conn.execute("SELECT 1 FROM ka.audit_events WHERE action='agent.deleted' AND details->>'agent_id'=%s", (agent_id,)).fetchone()

@@ -43,6 +43,7 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
     response = client.get('/api/agents/wizard/options', headers=HEADERS)
     assert response.headers['cache-control'] == 'no-store'
     assert response.json()['schema'] == AgentProposal.model_json_schema()
+    assert set(response.json()) == {'catalog', 'schema', 'prompt'}  # no default model: the UI starts with the first
     assert next(p for p in catalog['code_projects'] if p['id'] == proposal['repository_ids'][0])['folder_paths'] == ['managed/payments']
     assert all(isinstance(p['folder_paths'], list) for p in catalog['code_projects'])
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret', 'ciphertext'):
@@ -99,7 +100,7 @@ def test_wizard_server_defaults_and_all_resources(store, wizard):
 
 @pytest.mark.parametrize('change', [
     {'collection_ids':[str(uuid4())]}, {'model_id':str(uuid4())}, {'system_prompt':' '},
-    {'all_repositories':True}, {'is_coordinator':True}, {'private_key':'not allowed'},
+    {'all_repositories':True}, {'unknown_field':True}, {'private_key':'not allowed'},
 ])
 def test_wizard_invalid_proposal_writes_nothing(store, wizard, change):
     client, _, proposal, _ = wizard
@@ -169,7 +170,7 @@ def test_model_annotations_cannot_add_unsupported_settings(wizard, monkeypatch):
     monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 200 and result.json()['proposal'] == proposal
-    assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'is_coordinator':True}).status_code == 400
+    assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'unknown_field':True}).status_code == 400
 
 
 @pytest.mark.parametrize('failure', ['exception','invalid','failed'])

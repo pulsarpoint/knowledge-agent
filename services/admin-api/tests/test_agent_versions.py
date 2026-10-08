@@ -131,7 +131,6 @@ def test_draft_validation_cross_agent_and_stale_source(direct, store):
     created = draft(client,agent_id)
     assert client.get('/api/agents/code/versions/source',headers=HEADERS,params={'version_id':created['id']}).status_code == 404
     assert client.post(f"/api/agents/code/versions/{created['id']}/activate",headers=HEADERS,json={'expected_active_id':None}).status_code == 404
-    assert client.get('/api/agents/coordinator/versions',headers=HEADERS).status_code == 409
 
 
 def test_invalid_tuning_output_is_corrected_once_before_saving(direct, monkeypatch):

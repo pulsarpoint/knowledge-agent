@@ -32,9 +32,9 @@ Disabled capabilities should have empty selections. An enabled resource capabili
 Write a useful system prompt with the purpose, approach, evidence requirements, output style,
 and limitations. Include instructions only for enabled capabilities. Graphs are optional.
 Use instructions for additional operational notes. Explain missing resources or setup in instructions.
-Use a unique, concise agent name and describe when the coordinator should delegate to this agent.
+Use a unique, concise agent name and describe the tasks this agent should be used for.
 The model_id must come from the catalog. Use the requested generation model unless the role calls
-for another available model. New agents are ordinary specialists, never coordinators.
+for another available model.
 For each selected SSH server, null instructions/skill_ids/mcp_server_ids inherit agent settings;
 empty strings/lists are explicit overrides. connection=null uses the server's saved SSH defaults.
 Prefer server defaults. Only override connections when the requested role needs it; use an existing
@@ -181,9 +181,7 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
             catalog = inventory(conn, store.project(conn, app_name))
-            coordinator = conn.execute('SELECT model_id FROM ka.agents WHERE is_coordinator').fetchone()
-        return {'catalog': catalog, 'schema': AgentProposal.model_json_schema(), 'prompt': DESIGN_PROMPT,
-                'default_model_id': coordinator['model_id'] if coordinator is not None else None}
+        return {'catalog': catalog, 'schema': AgentProposal.model_json_schema(), 'prompt': DESIGN_PROMPT}
 
     @router.post('/generate')
     async def generate(value: GenerateInput, response: Response):

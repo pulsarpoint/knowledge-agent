@@ -55,8 +55,8 @@ export default function ClaudeCodeSessionForm({ onCreated, initialAgentId = '' }
       getDocumentationFolders().catch(() => ({ folders: [] as { folder: string }[] }))])
       .then(([agents, projects, collections, environments, services, servers, docFolders]) => {
         if (cancelled) return;
-        // Both agent types; only agents that can run: enabled, with a model, not the board's coordinator.
-        const usable = agents.agents.filter(agent => agent.enabled && !agent.is_coordinator);
+        // Both agent types; only agents that can run: enabled, with a model.
+        const usable = agents.agents.filter(agent => agent.enabled);
         const listed = usable.filter(agent => agent.model_id);
         const noModel = usable.find(agent => agent.id === initialAgentId && !agent.model_id)?.name ?? '';
         setData({ agents: listed, noModel, folders: docFolders.folders.map(item => item.folder), items: {

@@ -18,8 +18,8 @@ test('runs list shows each run and filters by kind', async () => {
   expect(await screen.findByText('How many retries?')).toBeInTheDocument();
   expect(screen.getByText('alice@example.test')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'How many retries?' })).toHaveAttribute('href', '/activity/runs/run%3A1');
-  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'board' } });
-  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=board'));
+  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'claude_code' } });
+  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=claude_code'));
 });
 
 test('run types have readable names in the filter and the list', async () => {
@@ -30,7 +30,7 @@ test('run types have readable names in the filter and the list', async () => {
   expect(within(row).getByText('Claude Code')).toBeInTheDocument();
   const options = within(screen.getByLabelText('Run type')).getAllByRole('option');
   expect(options.map(option => [option.getAttribute('value'), option.textContent])).toEqual([
-    ['', 'All'], ['test', 'Agent test'], ['board', 'Board task'], ['claude_code', 'Claude Code'], ['native_session', 'Native session']]);
+    ['', 'All'], ['test', 'Agent test'], ['claude_code', 'Claude Code'], ['native_session', 'Native session']]);
 });
 
 test('runs list passes a key prefix from the URL', async () => {

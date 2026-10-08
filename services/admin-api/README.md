@@ -149,8 +149,7 @@ send the task to a model.
 
 ## Running a configured agent with the Agents SDK
 
-Both specialist Test conversations and delegated board tasks call the same
-function. It accepts the saved configuration and separately resolved credentials;
+Test conversations and native Generate documents sessions call the same function. It accepts the saved configuration and separately resolved credentials;
 it never queries PostgreSQL.
 
 ```python
@@ -206,14 +205,7 @@ SDK `Session`) with `stream=False` and `hooks=SessionEvents`; `agent()` refuses 
 streaming. Their turns pass `max_turns=None, turn_timeout_seconds=None` (no turn limit; `timeout_seconds` still bounds each
 model request and MCP connection).
 
-## Live board activity and Phoenix traces
-
-`GET /api/agent-board/tasks/{id}/activity` is an admin-authenticated SSE stream
-for one main task and all its subagents. `connected`, `activity`, `done`, and
-`unavailable` are the event names. Activity is an upsert keyed by `(task_id, id)`;
-its fields include `kind`, `title`, `detail`, `status`, and `time`. The board
-subscribes once per main task and opens each subagent's activity in **View work**.
-Commands and MCP calls expand to show their input/output preview.
+## Live activity and Phoenix traces
 
 `agent(config, task, credentials=..., on_activity=callback)` consumes Agents SDK
 stream events and tool lifecycle hooks. Public messages and tool input/output
@@ -221,36 +213,10 @@ are sent to the existing UI callback. Reasoning and raw provider errors are
 excluded. Credentials are redacted before activity or span export, including
 secret prefixes split across streamed message chunks.
 
-`coordinator.py` runs the dedicated OpenAI Agents SDK coordinator with explicit
-inputs and one native `Agent.as_tool()` entry per selected specialist. `board.py`
-instantiates the team with `agents.create_agent()` and supplies each invocation's
-private context, task persistence, limits, and streaming. After orchestration,
-a tool-free summary agent receives `run.to_input_list()` and writes the final
-answer with the same model and an editable summary prompt. Direct agent tests use
-the same constructor through `agents.agent()`.
-See [the board guide](../../docs/agent-board.md) for coordinator settings and limits.
-
-Phoenix stores the execution history. Native `trace('Agent board task')` covers
-the coordinator, nested `as_tool()` specialists, and summary. The SDK creates
-agent, model, and tool spans; OpenInference exports them to Phoenix. `agent_tracing.py`
-adds credential/error filtering before export and disables OpenAI's default trace
-exporter. `SdkActivity` only publishes UI previews. Inputs,
-outputs, token counts, errors, and timings are recorded with bounded text sizes.
-Existing task rows store OpenTelemetry trace/span IDs alongside status and final
-results. Main tasks link to the complete trace; finished specialists link to their
-agent span. These IDs differ from the native SDK's internal trace IDs.
-Traces go to the Phoenix project `docs-wiki` (name kept from earlier versions) using the `DOCS_WIKI_PHOENIX_*` OTLP configuration.
-Set `PHOENIX_PUBLIC_URL` to the browser-accessible Phoenix URL for **View trace**;
-this public URL carries no API key. Phoenix handles its own login.
-
-Live updates use transient PostgreSQL LISTEN/NOTIFY, so API workers share the
-same stream without another event-history table or broker. Subscribers receive
-updates from connection time; reconnecting keeps the browser's existing previews
-and resumes new events, but does not replay a disconnected interval. Open Phoenix
-for retained history. The UI retains the latest 200 items and bounded previews;
-completed tool spans retain up to 65,536 characters of text. Phoenix exports completed spans,
-so a new trace appears after its first span finishes. Streams close at task
-completion and when the page disconnects. Cancellation drains the SDK stream so
-native tracing scopes finish. Live-view failures do not fail an agent.
+Phoenix stores the execution history. The SDK creates agent, model, and tool spans; OpenInference exports them to
+Phoenix. `agent_tracing.py` adds credential/error filtering before export and disables OpenAI's default trace
+exporter. `SdkActivity` only publishes UI previews. Inputs, outputs, token counts, errors, and timings are recorded
+with bounded text sizes. Traces go to the Phoenix project `docs-wiki` (name kept from earlier versions) using the
+`DOCS_WIKI_PHOENIX_*` OTLP configuration. Phoenix handles its own login.
 
 Full configuration snapshot lifecycle and API: [agent versions](../../docs/agents.md#configuration-versions).

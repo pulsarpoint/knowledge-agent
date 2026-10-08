@@ -15,7 +15,7 @@ from openai.types.shared import Reasoning
 @asynccontextmanager
 async def agent_model(model: dict[str, Any], api_key: str | None,
                       timeout_seconds: float) -> AsyncIterator[tuple[Model, ModelSettings]]:
-    """Own the provider client for one coordinator or specialist run."""
+    """Own the provider client for one agent run."""
     if (model['provider'], model['api_format']) not in (
         ('openai', 'responses'), ('openai', 'chat_completions'),
         ('anthropic', 'native'), ('bedrock', 'native'),

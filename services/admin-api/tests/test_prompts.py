@@ -20,7 +20,7 @@ def test_draft_publish_history_and_runtime_selection(store, tmp_path, monkeypatc
     client = _client(tmp_path, repository_store=store)
     use_database(monkeypatch, store)
     initial = client.get(BASE, headers=HEADERS).json()
-    assert len(initial['agents']) == 4
+    assert len(initial['agents']) == 3
     assert all(row['status'] == 'active' for row in initial['versions'])
     assert active_prompt('search') == DEFAULT_PROMPTS['search']
     assert active_prompt('code') == DEFAULT_PROMPTS['code']
@@ -112,7 +112,7 @@ def test_delete_draft_and_archived_versions_preserves_active_prompt_and_numberin
     assert client.post(archived_path + '/activate', headers=HEADERS,
                        json={'revision': 1, 'prompt_revision': 2}).status_code == 404
     with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS total FROM ka.agent_prompt_versions').fetchone()['total'] == 4
+        assert conn.execute('SELECT count(*) AS total FROM ka.agent_prompt_versions').fetchone()['total'] == 3
         events = conn.execute("SELECT details FROM ka.audit_events WHERE action='prompt.deleted'").fetchall()
         assert {event['details']['version'] for event in events} == {1, 2}
         assert all('content' not in event['details'] for event in events)

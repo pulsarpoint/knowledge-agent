@@ -524,7 +524,6 @@ def test_native_sessions_need_an_enabled_agent_whose_model_fits_its_type(session
     with sessions.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=%s,enabled=false WHERE id=%s', (sessions.gpt, agent))
     assert refused(sessions, agent_id=agent) == NO_AGENT
-    assert refused(sessions, agent_id='coordinator') == NO_AGENT
     claude_code = claude_code_agent(client, 'GPT writer', model_id=sessions.claude)
     with sessions.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=%s WHERE id=%s', (sessions.gpt, claude_code))

@@ -60,8 +60,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     getWizardOptions().then(data => {
       if (!live) return;
       setOptions(data); setError('');
-      setModel(current => data.catalog.models.some(m => m.id === current) ? current
-        : data.catalog.models.find(m => m.id === data.default_model_id)?.id ?? data.catalog.models[0]?.id ?? '');
+      setModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models[0]?.id ?? '');
     }).catch(reason => { if (live) setError(reason.message); });
     return () => { live = false; };
   }, [reload]);

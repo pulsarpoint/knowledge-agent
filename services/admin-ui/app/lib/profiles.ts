@@ -37,7 +37,7 @@ export const RUN_RESOURCE_KINDS: [RunResourceKind, keyof RunResourcesInput, stri
 export const CLAUDE_CODE_TOOL_NAMES = ['Read', 'Grep', 'Glob', 'Bash'] as const;
 export type ClaudeCodeTool = typeof CLAUDE_CODE_TOOL_NAMES[number];
 export interface AgentProfile {
-  id: string; name: string; description: string; when_to_use: string; enabled: boolean; is_coordinator: boolean;
+  id: string; name: string; description: string; when_to_use: string; enabled: boolean;
   runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[]; resources?: AgentResources;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   active_config_version_id?: string | null;
@@ -70,11 +70,11 @@ export const saveProfileModel = (value: AgentProfile, model_id: string | null) =
 export const deleteAgent = (id: string, revision: number, withHistory = false) =>
   request<void>(path(id), json('DELETE', { revision, confirmed: true, ...(withHistory ? { with_history: true } : {}) }));
 /** What deleting an agent with its history removes; saved documents are kept. */
-export interface AgentHistory { test_chats: number; chats: number; claude_code_sessions: number; runs: number; board_tasks: number; board_memberships: number }
+export interface AgentHistory { test_chats: number; chats: number; claude_code_sessions: number; runs: number }
 export const getAgentHistory = (id: string) => request<AgentHistory>(path(id) + '/history');
 const HISTORY_LABELS: [keyof AgentHistory, string, string][] = [
   ['test_chats', 'test chat', 'test chats'], ['chats', 'chat', 'chats'], ['claude_code_sessions', 'Claude Code session', 'Claude Code sessions'],
-  ['runs', 'run', 'runs'], ['board_tasks', 'board task', 'board tasks'], ['board_memberships', 'board membership', 'board memberships'],
+  ['runs', 'run', 'runs'],
 ];
 /** "2 test chats, 1 Claude Code session, 3 runs"; empty when the agent has no history. */
 export const describeHistory = (history: AgentHistory) =>

@@ -98,9 +98,6 @@ def test_switching_the_type_keeps_the_config_and_needs_a_claude_model(store, tmp
     assert model.status_code == 400 and model.json()['error']['message'] == CHOOSE_CLAUDE
     back = update(client, switched.json(), runtime='openai')
     assert back.status_code == 200 and (back.json()['runtime'], back.json()['model_id']) == ('openai', claude)
-    coordinator = client.get('/api/agents/coordinator', headers=HEADERS).json()
-    refused = update(client, coordinator, runtime='claude_code')
-    assert refused.status_code == 400 and 'native runtime' in refused.json()['error']['message']
     for bad in ({'runtime': 'other'}, {'claude_code_tools': ['Edit']}):
         assert update(client, back.json(), **bad).status_code == 400, bad
 
