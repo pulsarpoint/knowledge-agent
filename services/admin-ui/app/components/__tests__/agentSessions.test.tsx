@@ -82,7 +82,7 @@ it('shows reviewable tuning suggestions and preserves feedback after a failed re
   fireEvent.click(screen.getByRole('button',{name:'Suggest improvements'}));
   expect(await screen.findByText('Suggested instructions: report evidence first.')).toBeVisible();
   expect(api.reviewAgentSession).toHaveBeenLastCalledWith('custom','session-1','Be concise','run-1');
-  expect(screen.getByRole('link',{name:'Edit system prompt'})).toHaveAttribute('href','/?view=prompts&session_id=session-1');
+  expect(screen.getByRole('button',{name:'Review and apply'})).toBeVisible();
   expect(screen.getByLabelText('Your feedback')).toHaveValue('');
 });
 
@@ -98,23 +98,23 @@ it('reconnects to a running session and updates progress without retrying execut
 });
 
 it('previews the pinned session configuration instead of newly edited settings',async()=>{
-  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation, config:{id:'custom',instructions:'Pinned instructions',config_version:{id:'v1',version:1,label:'Baseline'}}});
+  vi.mocked(api.getAgentSession).mockResolvedValue({...conversation, config:{id:'custom',instructions:'Pinned instructions'}});
   renderPage('?view=test&session_id=session-1');
-  expect(await screen.findByText('Agent v1 · Baseline')).toBeVisible();
+  expect(await screen.findByText('Saved session configuration')).toBeVisible();
   fireEvent.click(screen.getByRole('button',{name:'Show config'}));
   expect(await screen.findByLabelText('Agent configuration')).toHaveTextContent('Pinned instructions');
   expect(getAgentConfig).not.toHaveBeenCalled();
 });
 
-it('sends the selected version for a new test',async()=>{
-  vi.mocked(getAgentConfig).mockResolvedValue({id:'custom',config_version:{id:'v2',version:2,label:'Experiment'}});
+it('a new test sends no version',async()=>{
   renderPage('?view=test&version_id=v2');
-  expect(await screen.findByText('Agent v2 · Experiment')).toBeVisible();
-  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Try the draft'}});
+  expect(await screen.findByText('Current agent configuration')).toBeVisible();
+  expect(screen.queryByRole('link',{name:'Choose version'})).toBeNull();
+  fireEvent.change(screen.getByLabelText('Task'),{target:{value:'Try it'}});
   await waitFor(()=>expect(screen.getByRole('button',{name:'Run task'})).toBeEnabled());
-  expect(getRunResourceOptions).toHaveBeenCalledWith('custom','v2');
+  expect(getRunResourceOptions).toHaveBeenCalledWith('custom');
   fireEvent.click(screen.getByRole('button',{name:'Run task'}));
-  await waitFor(()=>expect(api.startOperationsRun).toHaveBeenCalledWith('Try the draft','custom',expect.any(AbortSignal),expect.any(Function),undefined,'v2',undefined));
+  await waitFor(()=>expect(api.startOperationsRun).toHaveBeenCalledWith('Try it','custom',expect.any(AbortSignal),expect.any(Function),undefined,undefined));
 });
 
 it('totals recorded session usage across turns without double-counting cache or reasoning',async()=>{
@@ -210,13 +210,13 @@ it('the chosen resources start the conversation once and stay with it', async ()
   fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
   expect(await screen.findByText('Answer 1')).toBeVisible();
-  expect(vi.mocked(api.startOperationsRun).mock.calls[0][6]).toEqual(ONLY_REPO);
+  expect(vi.mocked(api.startOperationsRun).mock.calls[0][5]).toEqual(ONLY_REPO);
   expect(screen.queryByRole('region', { name: 'Resources for this run' })).toBeNull();  // fixed for the conversation
   expect(screen.getByLabelText('Resources for this run')).toHaveTextContent('Resources for this run: Payments API');
   fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'And the callers?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(await screen.findByText('Answer 2')).toBeVisible();
-  expect(vi.mocked(api.startOperationsRun).mock.calls[1][6]).toBeUndefined();  // follow-ups never pass resources
+  expect(vi.mocked(api.startOperationsRun).mock.calls[1][5]).toBeUndefined();  // follow-ups never pass resources
 });
 
 it('a per-run agent waits for its resource options before the first message can be sent', async () => {
@@ -263,7 +263,7 @@ it('a choice the reloaded options no longer offer is not sent, and the options s
   fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Where are the limits?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
   await waitFor(() => expect(api.startOperationsRun).toHaveBeenCalled());
-  expect(vi.mocked(api.startOperationsRun).mock.calls[0][6]).toEqual(ONLY_REPO);
+  expect(vi.mocked(api.startOperationsRun).mock.calls[0][5]).toEqual(ONLY_REPO);
 });
 
 it('says when nothing is chosen for the run', async () => {

@@ -28,7 +28,7 @@ describe('Operations configuration', () => {
     fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Inspect service status.\nDo not restart it.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
     const preview = await screen.findByLabelText('Agent configuration');
-    expect(getAgentConfig).toHaveBeenCalledWith('custom-agent', undefined);
+    expect(getAgentConfig).toHaveBeenCalledWith('custom-agent');
     expect(JSON.parse(preview.textContent!)).toMatchObject({
       prompt: 'Inspect service status.\nDo not restart it.',
       config: { system_prompt: { content: 'Use the saved system prompt.', version: 2 } },

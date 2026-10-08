@@ -18,7 +18,7 @@ import { Textarea } from '~/components/ui/textarea';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
 
-export default function OperationsView({ view, active = true, agentId = "operations", available = true, section = "settings", profile, unsavedProfile = false, onDirtyChange }: { view: 'settings' | 'test'; active?: boolean; agentId?: string; available?: boolean; section?: string; profile?: AgentProfile; unsavedProfile?: boolean; onDirtyChange?: (dirty: boolean) => void }) {
+export default function OperationsView({ view, active = true, agentId = "operations", available = true, section = "settings", profile, unsavedProfile = false, onDirtyChange, onAgentChanged }: { view: 'settings' | 'test'; active?: boolean; agentId?: string; available?: boolean; section?: string; profile?: AgentProfile; unsavedProfile?: boolean; onDirtyChange?: (dirty: boolean) => void; onAgentChanged?: () => void }) {
   const [data, setData] = useState<OperationsConfiguration | null>(null);
   const [settings, setSettings] = useState<OperationsSettings | null>(null);
   const [scope, setScope] = useState('agent');
@@ -143,6 +143,6 @@ export default function OperationsView({ view, active = true, agentId = "operati
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); if (override?.revision != null && settings) void act(async () => { await deleteOperationsServerConfig(scope, override.revision!, settings.revision, agentId); setRemoving(false); await refresh(); setNotice('Server configuration removed. The agent’s configuration now applies.'); }); }}>Remove configuration</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
-    <div hidden={view !== 'test'}><AgentTestView agentId={agentId} agentName={profile?.name ?? 'Agent'} available={available} ready={data !== null && settings !== null} dirty={dirty || unsavedProfile} active={active && view === 'test'} revision={profile?.revision} /></div>
+    <div hidden={view !== 'test'}><AgentTestView agentId={agentId} agentName={profile?.name ?? 'Agent'} available={available} ready={data !== null && settings !== null} dirty={dirty || unsavedProfile} active={active && view === 'test'} revision={profile?.revision} onAgentChanged={onAgentChanged} /></div>
   </div>;
 }

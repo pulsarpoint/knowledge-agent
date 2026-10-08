@@ -1,11 +1,12 @@
 import { runPath, toolUsageLine } from '../lib/runs';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Plus, X } from 'lucide-react';
 import Conversation, { type ConversationMessage } from '@knowledge-agent/chat-ui/conversation';
 import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_KINDS, type RunResourceOptions, type RunResourcesInput } from '../lib/profiles';
-import { cancelOperationsRun, closeAgentSession, getAgentSession, getAgentSessions, getOperationsRun, getOperationsRuns, reviewAgentSession, startOperationsRun, type AgentConversation, type AgentSession, type OperationsRun, type RunSummary, type RunUsage } from '../lib/operations';
+import { cancelOperationsRun, closeAgentSession, getAgentSession, getAgentSessions, getOperationsRun, getOperationsRuns, reviewAgentSession, startOperationsRun, type AgentConversation, type AgentSession, type OperationsRun, type RunSummary, type RunUsage, type SessionReview } from '../lib/operations';
 import Markdown from './Markdown';
+import SuggestionApply from './SuggestionApply';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { Badge } from './ui/badge';
@@ -27,10 +28,10 @@ function runSummary(config: Record<string, unknown>) {
   return names.length ? names.join(', ') : 'nothing';
 }
 
-export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number }) {
+export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision, onAgentChanged }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number; onAgentChanged?: () => void }) {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const sessionId = params.get('session_id');
-  const versionId = params.get('version_id');
   const [conversation, setConversation] = useState<AgentConversation | null>(null);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [history, setHistory] = useState<RunSummary[]>([]);
@@ -44,6 +45,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const [notice, setNotice] = useState('');
   const [panel, setPanel] = useState<'history' | 'config' | 'feedback' | null>(null);
   const [feedbackRunId, setFeedbackRunId] = useState<string | null>(null);
+  const [applying, setApplying] = useState<SessionReview | null>(null);
   const showConfig = panel === 'config';
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configError, setConfigError] = useState('');
@@ -63,7 +65,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   useEffect(() => { void refreshHistory().catch(reason => setError(reason.message)); }, [agentId]);
   useEffect(() => {
     let live = true; setRunOptionsError('');  // the old options stay visible while these load
-    getRunResourceOptions(agentId, versionId ?? undefined).then(value => {
+    getRunResourceOptions(agentId).then(value => {
       if (!live) return;
       setRunOptions(value);
       // keep only the choices the new options still offer
@@ -73,7 +75,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       })) as unknown as RunResourcesInput);
     }).catch(reason => { if (live) setRunOptionsError(reason instanceof Error ? reason.message : 'Could not load the resources for this run.'); });
     return () => { live = false; };
-  }, [agentId, versionId, revision, runOptionsRetry]);
+  }, [agentId, revision, runOptionsRetry]);
   useEffect(() => {
     if (!sessionId) { setConversation(null); return; }
     if (streaming) return;
@@ -90,17 +92,17 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   }, [sessionId, agentId, streaming, active, running]);
   useEffect(() => {
     setConfig(null); setConfigError('');
-    if ((!showConfig && !versionId) || !active || dirty) return;
+    if (!showConfig || !active || dirty) return;
     if (conversation) { setConfig(conversation.config); return; }
     let live = true;
-    getAgentConfig(agentId,versionId ?? undefined).then(value => { if (live) setConfig(value); })
+    getAgentConfig(agentId).then(value => { if (live) setConfig(value); })
       .catch(reason => { if (live) setConfigError(reason.message); });
     return () => { live = false; };
-  }, [showConfig, agentId, active, dirty, revision, versionId, conversation]);
+  }, [showConfig, agentId, active, dirty, revision, conversation]);
 
   function selectSession(id: string | null) {
     setConversation(null); setLegacy(null); setError(''); setRunResources(NO_RUN_RESOURCES); setNotice(''); setTask(''); setComment(''); setFeedbackRunId(null); setPanel(null);
-    setParams(current => { current.set('view','test'); if (id) { current.set('session_id',id); current.delete('version_id'); } else current.delete('session_id'); return current; });
+    setParams(current => { current.set('view','test'); if (id) current.set('session_id',id); else current.delete('session_id'); return current; });
   }
   async function act(action: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
@@ -130,7 +132,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           if (event.event === 'started') setTask('');
           setHistory(current => [run, ...current.filter(item => item.id !== run.id)].slice(0,50));
         }
-      }, sessionId ?? undefined, sessionId ? undefined : versionId ?? undefined, !sessionId && perRun ? runResources : undefined);
+      }, sessionId ?? undefined, !sessionId && perRun ? runResources : undefined);
       await refreshHistory();
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not run the agent.');
@@ -148,7 +150,6 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
     : running ? null
     : busy ? 'Please wait for the current operation to finish.'
     : null;
-  const pinnedVersion = (conversation?.config.config_version ?? config?.config_version) as { id: string; version: number; label: string } | undefined;
   const turns = conversation?.runs ?? (legacy ? [legacy] : []);
   const legacyHistory = history.filter(run => !run.session_id);
   const finishedTurns = turns.filter(run => run.status !== 'running');
@@ -175,7 +176,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
         {run.tool_counts && <p className="text-xs text-muted-foreground" aria-label="Tools used">{toolUsageLine(run.tool_counts)}</p>}
         {run.context.grounding?.sources?.length ? <GroundingSources sources={run.context.grounding.sources} /> : null}
         {(run.context.activity?.length || run.commands.length) ? <details className="text-sm text-muted-foreground">
-        <summary className="cursor-pointer py-1">View activity · {run.context.model_name} · {run.context.config?.config_version ? `Agent v${(run.context.config.config_version as { version: number }).version}` : `Prompt v${run.context.prompt.version}`}</summary>
+        <summary className="cursor-pointer py-1">View activity · {run.context.model_name}</summary>
         <div aria-label="Agent activity" className="mt-3 flex flex-col gap-3">
           {run.context.activity?.map(item => <details key={item.id}><summary className="cursor-pointer">{item.title} · {item.status}</summary>{item.detail && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">{item.detail}</pre>}</details>)}
           {run.commands.map(command => <details key={command.id}><summary>{command.server_name} · {command.status} · exit {command.exit_code}</summary><pre>{command.command}</pre><pre aria-label="Standard output">{command.stdout}</pre>{command.stderr && <pre aria-label="Standard error">{command.stderr}</pre>}{command.error && <p>{command.error}</p>}</details>)}
@@ -205,9 +206,8 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       </div>
     </div>
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <span>{pinnedVersion ? `Agent v${pinnedVersion.version} · ${pinnedVersion.label}` : conversation ? 'Saved session configuration' : versionId ? 'Selected version' : 'Active configuration'}</span>
+      <span>{conversation ? 'Saved session configuration' : 'Current agent configuration'}</span>
       <span>· {conversation ? 'Pinned to this conversation' : 'Pinned when the conversation starts'}</span>
-      <Link className="underline" to="?view=versions">Choose version</Link>
     </div>
     {(conversation || legacy) && <section aria-label="Session usage" className="flex flex-col gap-2">
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -297,9 +297,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
               <Separator /><p className="text-xs text-muted-foreground">{new Date(review.created_at).toLocaleString()}</p>
               <p className="whitespace-pre-wrap text-sm"><strong>Your feedback:</strong> {review.comment}</p><Markdown content={review.suggestion} />
               <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => void act(async () => { await navigator.clipboard.writeText(review.suggestion); setNotice('Suggestions copied.'); })}><Copy data-icon="inline-start" />Copy suggestions</Button>
-                <Button size="sm" asChild><Link to={`?view=versions&review_id=${review.id}`} onClick={() => setPanel(null)}>Save as new version</Link></Button>
-                <Button variant="outline" size="sm" asChild><Link to={`?view=prompts&session_id=${conversation.id}`} onClick={() => setPanel(null)}>Edit system prompt</Link></Button>
-                <Button variant="outline" size="sm" asChild><Link to={`?view=general&session_id=${conversation.id}`} onClick={() => setPanel(null)}>Edit instructions</Link></Button>
+                <Button size="sm" onClick={() => setApplying(review)}>Review and apply</Button>
               </div>
             </div>)}
           </>}
@@ -307,5 +305,10 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       </SheetContent>
     </Sheet>
     <AlertDialog open={closing} onOpenChange={setClosing}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Close this session?</AlertDialogTitle><AlertDialogDescription>The conversation and suggestions remain available for review. Any running message stops, and further messages require a new session.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Keep session</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); if (conversation) void act(async () => { await closeAgentSession(agentId,conversation.id); setConversation(await getAgentSession(agentId,conversation.id)); setClosing(false); await refreshHistory(); }); }}>Close session</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <SuggestionApply agentId={agentId} review={applying} onClose={() => setApplying(null)} onApplied={(target, id) => {
+      setApplying(null); setPanel(null);
+      if (target === 'clone') navigate(`/agents/${encodeURIComponent(id)}?view=test`);
+      else { setNotice('Applied to this agent. New conversations use it.'); onAgentChanged?.(); }
+    }} />
   </div>;
 }

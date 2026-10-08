@@ -56,10 +56,9 @@ const json = (method: string, value: unknown) => ({ method, headers: { 'Content-
 const path = (id: string) => `/api/agents/${encodeURIComponent(id)}`;
 export const getAgents = () => request<{ agents: AgentSummary[] }>('/api/agents');
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
-export const getAgentConfig = (id: string, versionId?: string) => request<Record<string, unknown>>(path(id) + '/config' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
+export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + '/config');
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
-export const getRunResourceOptions = (id: string, versionId?: string) =>
-  request<RunResourceOptions>(path(id) + '/run-resources' + (versionId ? `?version_id=${encodeURIComponent(versionId)}` : ''));
+export const getRunResourceOptions = (id: string) => request<RunResourceOptions>(path(id) + '/run-resources');
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
   const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, runtime, claude_code_tools, resources } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,

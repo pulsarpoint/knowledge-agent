@@ -19,8 +19,8 @@ export interface RunSummary { id: string; session_id?: string | null; task: stri
 export interface CommandResult { id: string; server_name: string; username: string; command: string; as_root: boolean; status: string; exit_code: number | null; stdout: string; stderr: string; error: string }
 export interface RunActivity { id: string; kind: string; title: string; detail: string; status: string; time: string }
 export interface RunUsage { requests: number; input_tokens: number; output_tokens: number; total_tokens: number; input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } }
-export interface OperationsRun extends RunSummary { tool_counts?: ToolCount[]; answer: string; error: string; progress: string; commands: CommandResult[]; context: { config?: Record<string, unknown>; servers: { name: string }[]; model_name: string; prompt: { version: number }; activity?: RunActivity[]; usage?: RunUsage | null; grounding?: { sources: { n: number; path: string; heading_path: string; anchor: string | null }[]; not_covered: boolean } | null } }
-export interface AgentSession { agent_version_id?: string | null; config_version?: { id: string; version: number; label: string }; id: string; is_test: boolean; title: string; status: 'active' | 'closed' | 'expired'; created_at: string; last_activity_at: string; expires_at: string }
+export interface OperationsRun extends RunSummary { tool_counts?: ToolCount[]; answer: string; error: string; progress: string; commands: CommandResult[]; context: { config?: Record<string, unknown>; servers: { name: string }[]; model_name: string; prompt?: { version?: number; content?: string }; activity?: RunActivity[]; usage?: RunUsage | null; grounding?: { sources: { n: number; path: string; heading_path: string; anchor: string | null }[]; not_covered: boolean } | null } }
+export interface AgentSession { id: string; is_test: boolean; title: string; status: 'active' | 'closed' | 'expired'; created_at: string; last_activity_at: string; expires_at: string }
 export interface SessionReview { id: string; response_id?: string | null; comment: string; suggestion: string; created_at: string }
 export interface AgentConversation extends AgentSession { tool_counts?: ToolCount[]; config: Record<string, unknown>; runs: OperationsRun[]; reviews: SessionReview[] }
 export type RunEvent = { event: 'started' | 'completed'; data: OperationsRun } | { event: 'activity'; data: RunActivity };
@@ -34,8 +34,8 @@ export const saveOperationsSettings = (s: OperationsSettings, agentId = "operati
 const runsPath = (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/runs`;
 export const getOperationsRuns = (agentId = "operations") => request<{ runs: RunSummary[] }>(runsPath(agentId));
 export const getOperationsRun = (id: string, agentId = "operations") => request<OperationsRun>(`${runsPath(agentId)}/${id}`);
-export async function startOperationsRun(task: string, agentId: string, signal: AbortSignal, onEvent: (event: RunEvent) => void, sessionId?: string, versionId?: string, resources?: RunResourcesInput) {
-  const response = await fetch(runsPath(agentId), { ...json('POST', { id: crypto.randomUUID(), task, session_id: sessionId, version_id: versionId, is_test: true, ...(resources ? { resources } : {}) }), signal });
+export async function startOperationsRun(task: string, agentId: string, signal: AbortSignal, onEvent: (event: RunEvent) => void, sessionId?: string, resources?: RunResourcesInput) {
+  const response = await fetch(runsPath(agentId), { ...json('POST', { id: crypto.randomUUID(), task, session_id: sessionId, is_test: true, ...(resources ? { resources } : {}) }), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new ApiError(body?.error?.message ?? `Could not start the agent (${response.status}).`, response.status);
