@@ -5,8 +5,11 @@ from uuid import uuid4
 
 import pytest
 from agents import AgentOutputSchema, ModelBehaviorError
+from psycopg.types.json import Jsonb
 
-from knowledge_admin.agent_reviews import TuningSuggestion
+from knowledge_admin.agent_reviews import AGENT_CHANGED, PROMPT_REQUIRED, UNKNOWN_SERVER, TuningSuggestion
+from knowledge_admin.knowledge_agents.config import get_agent_config, sections
+from test_agents import agent_mounts, saved_agent  # noqa: F401
 from test_agent_runs import direct, events  # noqa: F401  (fixture)
 from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -55,3 +58,104 @@ def test_invalid_tuning_output_is_corrected_once_before_saving(direct, monkeypat
     assert result.status_code == 200,result.text
     assert len(calls) == 2 and 'correction' in calls[1] and 'output_schema' in calls[0]
     assert result.json()['changes']['instructions'] == 'Be concise.'
+
+
+NARROWED = {'run_resources': {'code_project_ids': []}, 'code': {'enabled': True, 'all_projects': False, 'projects': []}}
+
+
+def saved_review(store, agent_id: str, changes: dict, agent_config: dict | None = None) -> str:
+    """A tuning suggestion saved for one of the agent's conversations."""
+    with store.connect() as conn:
+        project, actor = store.project(conn, 'shop'), store.actor(conn, 'reviewer', 'reviewer@test')
+        session = conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent,actor_id,title,config,is_test)
+            VALUES (%s,%s,%s,%s,'Chat','{}',true) RETURNING id''', (uuid4(), project, agent_id, actor)).fetchone()['id']
+        return str(conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion)
+            VALUES (%s,%s,'Feedback',%s,'Be clearer.') RETURNING id''',
+            (session, actor, Jsonb({'agent_config': agent_config or {}, 'changes': changes}))).fetchone()['id'])
+
+
+def changes(system_prompt=None, instructions=None, servers=()) -> dict:
+    return {'system_prompt': system_prompt, 'instructions': instructions, 'server_instructions': list(servers)}
+
+
+def apply_review(client, agent_id, review, body, target='agent', **change):
+    return client.post(f'/api/agents/{agent_id}/reviews/{review}/apply', headers=HEADERS, json={
+        'target': target, 'revision': body['revision'], 'fingerprint': body['fingerprint'], 'changes': changes(**change)})
+
+
+def without(config, *keys) -> dict:
+    return {key: value for key, value in sections(config).items() if key not in keys}
+
+
+def test_a_suggestion_is_applied_to_this_agent_after_review(store, saved_agent):
+    client = saved_agent[0]
+    before = get_agent_config('operations', conninfo=store.conninfo)
+    review = saved_review(store, 'operations', changes(instructions='Gather evidence first.'))
+    source = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS)
+    assert source.status_code == 200, source.text
+    body = source.json()
+    assert (body['suggestion'], body['changes']['instructions']) == ('Be clearer.', 'Gather evidence first.')
+    assert (body['system_prompt'], body['instructions'], body['revision']) == (
+        before['system_prompt']['content'], 'Verify every change.', before['revision'])
+    host = before['ssh']['servers'][0]
+    assert body['servers'] == [{'id': host['id'], 'name': host['name'], 'instructions': 'Verify every change.', 'inherits': True}]
+    applied = apply_review(client, 'operations', review, body, system_prompt='Answer from evidence.',
+                           instructions='Gather evidence first.')
+    assert applied.status_code == 200, applied.text
+    assert applied.json() == {'agent_id': 'operations'}
+    after = get_agent_config('operations', conninfo=store.conninfo)
+    assert (after['system_prompt'], after['instructions']) == ({'content': 'Answer from evidence.'}, 'Gather evidence first.')
+    assert after['ssh']['servers'][0]['instructions'] == 'Gather evidence first.'  # an inheriting server follows
+    assert without(after, 'prompt', 'instructions') == without(before, 'prompt', 'instructions')
+    assert after['revision'] == before['revision'] + 1
+    again = apply_review(client, 'operations', review, body, instructions='Older text.')
+    assert again.status_code == 409 and again.json()['error']['message'] == AGENT_CHANGED
+    with store.connect() as conn:
+        audit = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent.suggestion.applied'").fetchall()
+    assert [row['details'] for row in audit] == [{'agent_id': 'operations', 'review_id': review, 'target': 'agent'}]
+
+
+def test_server_instructions_become_an_override_and_unknown_servers_are_refused(store, saved_agent):
+    client, server = saved_agent[0], saved_agent[1]
+    review = saved_review(store, 'operations', changes())
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    forged = apply_review(client, 'operations', review, body, servers=[{'server_id': str(uuid4()), 'instructions': 'Forged'}])
+    assert forged.status_code == 422 and forged.json()['error']['message'] == UNKNOWN_SERVER
+    blank = apply_review(client, 'operations', review, body, system_prompt='  ')
+    assert blank.status_code == 400 and blank.json()['error']['message'] == PROMPT_REQUIRED
+    applied = apply_review(client, 'operations', review, body,
+                           servers=[{'server_id': server['id'], 'instructions': 'Check only the queue.'}])
+    assert applied.status_code == 200, applied.text
+    host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
+    assert (host['instructions'], host['instructions_source']) == ('Check only the queue.', 'server_override')
+    assert (host['skills_source'], host['mcp_source']) == ('agent', 'agent')  # a new override inherits the rest
+    assert client.get(f'/api/agents/code/reviews/{review}', headers=HEADERS).status_code == 404  # another agent's
+
+
+def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, saved_agent):
+    client = saved_agent[0]
+    before = get_agent_config('operations', conninfo=store.conninfo)
+    review = saved_review(store, 'operations', changes(system_prompt='Answer from evidence.'))
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    applied = apply_review(client, 'operations', review, body, target='clone', system_prompt='Answer from evidence.')
+    assert applied.status_code == 200, applied.text
+    clone_id = applied.json()['agent_id']
+    assert clone_id != 'operations'
+    assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(before)
+    copied = get_agent_config(clone_id, conninfo=store.conninfo)
+    assert copied['system_prompt'] == {'content': 'Answer from evidence.'}
+    assert without(copied, 'prompt') == without(before, 'prompt')
+    assert client.get(f'/api/agents/{clone_id}', headers=HEADERS).json()['cloned_from'] == 'operations'
+
+
+def test_a_suggestion_from_a_per_run_chat_never_narrows_the_agent(store, saved_agent):
+    client = saved_agent[0]
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
+    before = get_agent_config('operations', conninfo=store.conninfo)
+    review = saved_review(store, 'operations', changes(instructions='Be brief.'), agent_config=NARROWED)
+    body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
+    assert apply_review(client, 'operations', review, body, instructions='Be brief.').status_code == 200
+    after = get_agent_config('operations', conninfo=store.conninfo)
+    assert without(after, 'instructions') == without(before, 'instructions')
+    assert after['code']['projects'] == before['code']['projects']
