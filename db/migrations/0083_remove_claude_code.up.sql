@@ -3,7 +3,7 @@ SET search_path = ka, public;
 SET CONSTRAINTS ALL IMMEDIATE;
 
 -- Claude Code is gone: its sessions are deleted (inputs and reviews cascade; sessions point to documents, so saved
--- documents stay).
+-- documents stay). Their run records (cc:<session>:<turn> in agent_run_events) stay, as 0082 down keeps them.
 DELETE FROM agent_sessions_cc WHERE runtime = 'claude_code';
 
 -- Claude Code agents become native with the tools their capabilities give, as a switch to native did

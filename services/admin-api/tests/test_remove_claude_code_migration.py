@@ -10,7 +10,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.tools.catalog import enabled_capability_tools
-from session_rows import a_model, add_review, add_test_session
+from session_rows import a_model, add_ad_hoc_session, add_review, add_test_session
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -88,7 +88,7 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
         assert names and not [name for name in names if '_cc' in name], names
         assert 'agent_sessions_ad_hoc' in names
 
-        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+        with pytest.raises(psycopg.errors.CheckViolation, match='agent_sessions_ad_hoc'), conn.transaction():
             add_test_session(conn, project, actor, None, model)
         with pytest.raises(psycopg.errors.NotNullViolation), conn.transaction():
             conn.execute('UPDATE ka.agent_sessions SET agent_config=NULL WHERE id=%s', (native,))
@@ -101,6 +101,41 @@ def test_claude_code_agents_become_native_and_their_sessions_go(store):
         run(conn, UP)
         conn.commit()
         assert [row['id'] for row in conn.execute('SELECT id FROM ka.agent_sessions')] == [native]
+
+
+def test_sessions_hold_status_folder_config_history_and_ordered_inputs(store):
+    """The native session checks that 0070 and 0074 created survive the rename under their new names."""
+    with store.connect() as conn:
+        project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
+        session = add_ad_hoc_session(conn, project, actor, a_model(conn, actor), message='Document it')
+        assert conn.execute('SELECT status,turns,draft,input_tokens,history FROM ka.agent_sessions WHERE id=%s',
+                            (session,)).fetchone() == {
+            'status': 'starting', 'turns': 0, 'draft': None, 'input_tokens': 0, 'history': []}
+        for statement, error, name in (
+                ("INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%(s)s,1,%(a)s,'Again')",
+                 psycopg.errors.UniqueViolation, 'agent_session_inputs_session_id_seq_key'),
+                ("UPDATE ka.agent_session_inputs SET status='delivered' WHERE session_id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_session_inputs_check'),
+                ("UPDATE ka.agent_session_inputs SET status='later' WHERE session_id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_session_inputs_status_check'),
+                ("UPDATE ka.agent_sessions SET status='closed' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_check'),
+                ("UPDATE ka.agent_sessions SET status='busy' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_status_check'),
+                ("UPDATE ka.agent_sessions SET folder='Payments' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_folder_check'),
+                ("UPDATE ka.agent_sessions SET folder='services/x' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_folder_check'),
+                ("UPDATE ka.agent_sessions SET agent_config='[]' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_agent_config'),
+                ("UPDATE ka.agent_sessions SET history='{}' WHERE id=%(s)s",
+                 psycopg.errors.CheckViolation, 'agent_sessions_history')):
+            with pytest.raises(error, match=name), conn.transaction():
+                conn.execute(statement, {'s': session, 'a': actor})
+        conn.execute("""UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now()
+            WHERE session_id=%s""", (session,))
+        conn.execute("""UPDATE ka.agent_sessions SET history='[{"role": "user", "content": "Hi"}]',
+            status='closed',closed_at=now() WHERE id=%s""", (session,))
 
 
 def test_a_session_pinned_with_claude_code_keys_still_loads(store, tmp_path):
