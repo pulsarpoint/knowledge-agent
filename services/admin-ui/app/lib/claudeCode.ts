@@ -1,4 +1,5 @@
 import { request } from './api';
+import type { ToolCount } from './runs';
 import type { ModelProfile } from './llm';
 import type { AgentRuntime, RunResourcesInput } from './profiles';
 
@@ -28,6 +29,7 @@ export interface SessionSummary {
   created_at: string; last_activity_at: string; closed_at: string | null;
 }
 export interface SessionDetail extends SessionSummary {
+  tool_counts?: ToolCount[];
   document_name: string; draft: string | null; draft_turn: number | null; model_id: string;
   /** The agent's own instructions when the session started (earlier sessions also hold their documentation prompt). */
   prompt_snapshot: { system_prompt: string; claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };

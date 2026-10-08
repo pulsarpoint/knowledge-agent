@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
+import { toolUsageLine } from '../lib/runs';
 import { closeSession, formatTokens, getSession, getSessionHistory, saveSessionDocument, sendMessage, sessionEventsUrl, statusLabels,
   stopSession, type SavedDocument, type SessionDetail, type SessionEvent, type SessionState } from '~/lib/claudeCode';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
@@ -190,6 +191,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
         <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
       <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>
       <p className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`}</p>
+      {session.tool_counts && <p className="text-sm text-muted-foreground" aria-label="Tools used">{toolUsageLine(session.tool_counts)}</p>}
       {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
       {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}

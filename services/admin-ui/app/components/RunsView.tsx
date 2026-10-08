@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { getRuns, runPath, type RunSummary } from '../lib/runs';
+import { getRuns, runPath, topTools, toolUsageLine, type RunSummary } from '../lib/runs';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -48,7 +48,7 @@ export default function RunsView() {
       : rows === null ? <Skeleton className="h-40 w-full" />
       : rows.length === 0 ? <Empty className="border"><EmptyDescription>No recorded runs yet.</EmptyDescription></Empty>
       : <div className="rounded-lg border"><Table>
-          <TableHeader><TableRow><TableHead>Run</TableHead><TableHead>Type</TableHead><TableHead>Agent</TableHead><TableHead>User</TableHead><TableHead>Status</TableHead><TableHead>Tokens</TableHead><TableHead>Started</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Run</TableHead><TableHead>Type</TableHead><TableHead>Agent</TableHead><TableHead>User</TableHead><TableHead>Status</TableHead><TableHead>Tokens</TableHead><TableHead>Tools</TableHead><TableHead>Started</TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={row.run_key}>
             <TableCell className="max-w-md"><Link className="underline underline-offset-4" to={runPath(row.run_key)}>{row.title || row.run_key}</Link></TableCell>
             <TableCell><Badge variant="secondary">{row.kind ? KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
@@ -56,6 +56,7 @@ export default function RunsView() {
             <TableCell>{row.user ?? '—'}</TableCell>
             <TableCell>{row.status ?? 'running'}</TableCell>
             <TableCell>{row.total_tokens.toLocaleString()}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal" title={toolUsageLine(row.tool_counts)}>{topTools(row.tool_counts)}</TableCell>
             <TableCell>{new Date(row.started_at).toLocaleString()}</TableCell>
           </TableRow>)}</TableBody>
         </Table></div>}

@@ -20,10 +20,17 @@ const detail = { ...state, id: 's1', title: 'Payments – API reference', docume
   prompt_snapshot: { system_prompt: 'You are an expert technical writer.', claude_code_tools: ['Read'], agent_version: null },
   context_snapshot: { folders: [{ path: '/work/data/code/app', kind: 'code_project', name: 'Payments API', code_project_id: 'repo' }],
     code_project_ids: ['repo'], instructions: '' },
+  tool_counts: [{ name: 'Read', calls: 5 }, { name: 'Grep', calls: 2 }],
   inputs: [], created_at: '2026-10-07T10:00:00Z', last_activity_at: '2026-10-07T10:00:00Z', closed_at: null };
 const message = (id: number) => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } });
 const page = (events: unknown[], has_more = false) => Response.json({ events, has_more });
 const opened = () => waitFor(() => { expect(Stream.instances).toHaveLength(1); return Stream.instances[0]; });
+
+test('the session page shows the tools the session used', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 2');
+});
 
 test('the session page streams activity, sends messages, stops, saves the draft and closes', async () => {
   const posts: { url: string; body?: unknown }[] = [];

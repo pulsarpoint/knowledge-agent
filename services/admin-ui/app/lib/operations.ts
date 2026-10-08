@@ -1,6 +1,7 @@
 import type { MCPServer } from './mcp';
 import type { RunResourcesInput } from './profiles';
 import { ApiError, request } from './api';
+import type { ToolCount } from './runs';
 import { parseSse } from './sse';
 export interface SSHServer {
   id: string; name: string; hostname: string; port: number; username: string | null; revision: number;
@@ -18,10 +19,10 @@ export interface RunSummary { id: string; session_id?: string | null; task: stri
 export interface CommandResult { id: string; server_name: string; username: string; command: string; as_root: boolean; status: string; exit_code: number | null; stdout: string; stderr: string; error: string }
 export interface RunActivity { id: string; kind: string; title: string; detail: string; status: string; time: string }
 export interface RunUsage { requests: number; input_tokens: number; output_tokens: number; total_tokens: number; input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } }
-export interface OperationsRun extends RunSummary { answer: string; error: string; progress: string; commands: CommandResult[]; context: { config?: Record<string, unknown>; servers: { name: string }[]; model_name: string; prompt: { version: number }; activity?: RunActivity[]; usage?: RunUsage | null; grounding?: { sources: { n: number; path: string; heading_path: string; anchor: string | null }[]; not_covered: boolean } | null } }
+export interface OperationsRun extends Omit<RunSummary, 'tool_counts'> { tool_counts?: ToolCount[]; answer: string; error: string; progress: string; commands: CommandResult[]; context: { config?: Record<string, unknown>; servers: { name: string }[]; model_name: string; prompt: { version: number }; activity?: RunActivity[]; usage?: RunUsage | null; grounding?: { sources: { n: number; path: string; heading_path: string; anchor: string | null }[]; not_covered: boolean } | null } }
 export interface AgentSession { agent_version_id?: string | null; config_version?: { id: string; version: number; label: string }; id: string; is_test: boolean; title: string; status: 'active' | 'closed' | 'expired'; created_at: string; last_activity_at: string; expires_at: string }
 export interface SessionReview { id: string; response_id?: string | null; comment: string; suggestion: string; created_at: string }
-export interface AgentConversation extends AgentSession { config: Record<string, unknown>; runs: OperationsRun[]; reviews: SessionReview[] }
+export interface AgentConversation extends AgentSession { tool_counts?: ToolCount[]; config: Record<string, unknown>; runs: OperationsRun[]; reviews: SessionReview[] }
 export type RunEvent = { event: 'started' | 'completed'; data: OperationsRun } | { event: 'activity'; data: RunActivity };
 const json = (method: string, value?: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
 const sshPath = (id: string, agentId?: string) => agentId ? `/api/agents/${encodeURIComponent(agentId)}/servers/${id}/ssh` : `/api/servers/${id}/ssh`;

@@ -1,4 +1,4 @@
-import { runPath } from '../lib/runs';
+import { runPath, toolUsageLine } from '../lib/runs';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Plus, X } from 'lucide-react';
@@ -172,6 +172,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       pending: run.status === 'running', error: run.error,
       status: run.status === 'running' ? run.progress : run.status === 'completed' ? undefined : run.status,
       details: <>
+        {run.tool_counts && <p className="text-xs text-muted-foreground" aria-label="Tools used">{toolUsageLine(run.tool_counts)}</p>}
         {run.context.grounding?.sources?.length ? <GroundingSources sources={run.context.grounding.sources} /> : null}
         {(run.context.activity?.length || run.commands.length) ? <details className="text-sm text-muted-foreground">
         <summary className="cursor-pointer py-1">View activity · {run.context.model_name} · {run.context.config?.config_version ? `Agent v${(run.context.config.config_version as { version: number }).version}` : `Prompt v${run.context.prompt.version}`}</summary>
@@ -270,7 +271,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           <SheetDescription>{panel === 'history' ? 'Reopen a session to continue chatting. Closed conversations remain available to read.' : panel === 'config' ? 'The configuration for this conversation and your next message. Secrets are credential references.' : 'Optional feedback for the reviewer. It uses the full conversation and agent configuration; changes are never applied automatically.'}</SheetDescription>
         </SheetHeader>
         <div className="mt-6 flex flex-col gap-6">
-          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(conversation || !perRun ? {prompt:task,config} : {prompt:task,config,run_resources:runResources},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
+          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(conversation || !perRun ? {prompt:task,config,...(conversation?.tool_counts ? {tool_counts:conversation.tool_counts} : {})} : {prompt:task,config,run_resources:runResources},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
           {panel === 'history' && <>
             <h3 className="text-sm font-medium">Sessions</h3>
             {sessions.length ? sessions.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">
