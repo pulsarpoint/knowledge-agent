@@ -111,6 +111,17 @@ def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context
     assert [f['path'] for f in session['context_snapshot']['folders']] == [app, worker]  # chosen, then brought
     assert session['inputs'][0]['text'] == f'Write the API reference.\n\n{FINAL_ANSWER}'
     assert session['run_resources']['service_ids'] == [s.service]
+    [first] = session['inputs']
+    assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
+    detail = s.client.get(f"/api/claude-code/sessions/{session['id']}", headers=HEADERS).json()
+    for shown in (session, detail):  # a documentation session's pinned config and history stay private
+        assert shown['purpose'] == 'documents'
+        for hidden in ('config', 'reviews', 'agent_config', 'history'):
+            assert hidden not in shown
+        serialized = json.dumps(shown)
+        for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token', 'private_key',
+                       'credential'):
+            assert secret not in serialized
     with s.store.connect() as conn:
         row = conn.execute('SELECT agent_id,agent_config FROM ka.agent_sessions_cc WHERE id=%s', (session['id'],)).fetchone()
         audit = conn.execute("SELECT details FROM ka.audit_events WHERE resource_id=%s", (session['id'],)).fetchone()

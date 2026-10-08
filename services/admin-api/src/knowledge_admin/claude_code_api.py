@@ -212,7 +212,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 context_snapshot,document_name,folder,runtime,agent_config,run_resources)
                 VALUES (%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,'openai',%s,%s)""",
                 (session_id, project, actor, model['id'], value.document_name, Jsonb(jsonable_encoder(snapshot)),
-                 Jsonb(context), value.document_name, value.folder, Jsonb(pinned), Jsonb(pinned['run_resources'])))
+                 Jsonb(context), value.document_name, value.folder, Jsonb(jsonable_encoder(pinned)),
+                 Jsonb(jsonable_encoder(pinned['run_resources']))))
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, f'{value.prompt}\n\n{FINAL_ANSWER}'))
             audit(conn, actor, 'claude_code.session.created', 'agent_session',
