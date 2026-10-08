@@ -178,11 +178,7 @@ def _abandon(task: asyncio.Task) -> None:
     """A subagent's task nobody awaits any more: cancelled, kept referenced until it ends, and its outcome retrieved
     then (native_sessions._retrieve), so an exception it raises later is never logged with an unredacted traceback."""
     task.cancel()
-    if task.done():
-        native_sessions._retrieve(task)
-    else:
-        native_sessions._abandoned.add(task)
-        task.add_done_callback(native_sessions._retrieve)
+    native_sessions._leave(task)
 
 
 class SubagentEvents(SessionEvents):

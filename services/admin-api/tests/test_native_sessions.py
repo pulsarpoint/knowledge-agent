@@ -310,6 +310,49 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     assert KEY not in stored
 
 
+def test_a_runner_cancelled_during_the_stop_grace_still_cancels_and_tracks_the_turn(monkeypatch, caplog):
+    """The worker stops (or loses the lease) while Stop waits its grace: the turn is cancelled again without another
+    wait and kept tracked, so an error it raises later is retrieved, never logged with its unredacted traceback."""
+    import gc
+    from types import SimpleNamespace
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
+    cancels, release, started = [], asyncio.Event(), asyncio.Event()
+
+    async def stubborn_turn(*args, **kwargs):
+        started.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancels.append(1)  # ignores every cancellation
+        raise RuntimeError(f'failed with {KEY}')
+
+    runner = SimpleNamespace(run_agent=stubborn_turn, poll=0.01, stop_requested=lambda: True, stop_deadline=None,
+                             id='session-1')
+
+    async def scenario():
+        driving = asyncio.create_task(native_sessions.NativeRunner.drive(runner, {}, 'task', {}, None, None, None, None))
+        await asyncio.wait_for(started.wait(), 5)
+        while not cancels:  # Stop cancelled the turn; drive now waits its grace
+            await asyncio.sleep(0.01)
+        start = asyncio.get_running_loop().time()
+        driving.cancel()  # the worker stops
+        await asyncio.wait({driving})
+        seen = {'waited': asyncio.get_running_loop().time() - start, 'cancels': len(cancels),
+                'tracked': len(native_sessions._abandoned)}
+        del driving
+        release.set()  # the turn ends with an error that holds a secret
+        await asyncio.sleep(0.05)
+        seen['left'] = len(native_sessions._abandoned)
+        return seen
+
+    seen = asyncio.run(scenario())
+    gc.collect()
+    assert 'never retrieved' not in caplog.text and KEY not in caplog.text
+    assert seen['waited'] < 1  # no second grace wait
+    assert (seen['cancels'], seen['tracked'], seen['left']) == (2, 1, 0)  # cancelled again, tracked until it ended
+
+
 def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_starts_the_next(native, monkeypatch):
     """While a turn that ignores cancellation is in its Stop grace, a model call it still makes gets no message sent
     after Stop: the message stays queued and becomes the next turn's task."""

@@ -198,8 +198,17 @@ async def _cancel(task: asyncio.Task, session_id) -> None:
         return
     logger.warning('Agent session %s turn did not end within %ss of Stop; it is left to end', session_id,
                    STOP_GRACE_SECONDS)
-    _abandoned.add(task)
-    task.add_done_callback(_retrieve)
+    _leave(task)
+
+
+def _leave(task: asyncio.Task) -> None:
+    """A turn nobody awaits any more: kept referenced until it ends, and its outcome retrieved then, so an exception it
+    raises later is never logged with an unredacted traceback."""
+    if task.done():
+        _retrieve(task)
+    else:
+        _abandoned.add(task)
+        task.add_done_callback(_retrieve)
 
 
 class Comments:
@@ -372,17 +381,23 @@ class NativeRunner(shared.SessionRunner):
         turn = asyncio.create_task(self.run_agent(
             config, text, credentials=credentials, session=history, hooks=events, max_turns=None,
             turn_timeout_seconds=None, call_model_input_filter=comments, stream=False, subagents=subagents))
+        cancelled = False  # set once _cancel has returned: the turn ended, or it is tracked until it ends
         try:
             while not turn.done():
                 await asyncio.wait({turn}, timeout=self.poll)
                 if not turn.done() and await asyncio.to_thread(self.stop_requested):
                     self.stop_deadline = asyncio.get_running_loop().time() + STOP_GRACE_SECONDS
                     await _cancel(turn, self.id)
+                    cancelled = True
                     return 'stopped', None
             return 'waiting', turn.result()  # raises the turn's error
         finally:
-            if not turn.done() and self.stop_deadline is None:  # after Stop, _cancel has already waited its grace
-                await _cancel(turn, self.id)
+            if not cancelled and not turn.done():
+                if self.stop_deadline is None:
+                    await _cancel(turn, self.id)
+                else:  # the runner was cancelled during Stop's grace: cancel again and track it, without another wait
+                    turn.cancel()
+                    _leave(turn)
 
 
 async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,
