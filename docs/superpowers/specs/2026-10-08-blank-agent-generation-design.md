@@ -17,6 +17,9 @@ User decisions:
 - The system prompt and the generated context form the agent's **system prompt**; the chosen/written prompt is the
   **first message**.
 - Document name and folder stay as they are.
+- The "run a saved agent" path is removed from the API now, not kept. Consequence accepted: Claude Code agents can no
+  longer start sessions (their Test tab only linked here; Test sessions are native-only). Existing Claude Code
+  sessions and the Claude Code worker keep working; removing Claude Code entirely is a later step.
 
 Out of scope: Claude Code runtime for blank agents, per-tool checkboxes, saving a run's setup as a reusable agent,
 filtering prompts by `input_kind`.
@@ -45,7 +48,8 @@ Top to bottom:
 Generate is enabled when: a model is chosen, at least one entry is selected, system prompt and prompt are non-empty,
 name and folder are valid.
 
-The `?agent=` query parameter and the link from an agent's Test tab to this page are removed.
+The `?agent=` query parameter is removed. A Claude Code agent's Test tab card says "Claude Code agents can no longer
+start sessions. Use a native agent." with no button.
 
 ### Live context
 
@@ -63,9 +67,9 @@ The `?agent=` query parameter and the link from an agent's Test tab to this page
 ### `resource_context` (`generate_documents.py`)
 
 `resource_context(context: dict) -> str` returns the Markdown describing the selected subjects: the `## Code`,
-`## Documents`, `## Environments`, `## Services` and `## Servers` sections that `first_message` builds today, headed by
-`# What you are documenting`. `first_message` is changed to use it (its output for existing callers is unchanged
-apart from sharing the code). Empty selection → `''`.
+`## Documents`, `## Environments`, `## Services` and `## Servers` sections that `first_message` builds today (same
+lines, same one-line flattening of names and descriptions), headed by `# What you are documenting`. Empty selection →
+`''`. `first_message` has no caller left and is removed; `subjects()` no longer reads `instructions`.
 
 ### Context endpoint
 
@@ -82,7 +86,9 @@ Drops `agent_id`; adds:
 - `prompt: str` (1–100,000, non-blank)
 - `prompt_id: UUID | None` (recorded only; the text sent is `prompt`)
 
-`instructions` is removed (the prompt replaces it). All text: no null characters, stripped.
+`instructions` is removed (the prompt replaces it). All text: no null characters, stripped. Session creation no
+longer checks code folders on disk (that was Claude Code's working directory); `context_snapshot.folders` still lists
+the resolved code projects' folders and `code_project_ids` the chosen ones, so Save document links them as today.
 
 ### Ephemeral agent (`knowledge_agents/ephemeral.py`)
 
@@ -93,8 +99,9 @@ Drops `agent_id`; adds:
 - capabilities documents, code, SSH and services on with "everything allowed" lists (all collections, all code
   projects, all servers, all services of the project), so that `run_resources.resolve` narrows them to the selection
   exactly as it does for per-run agents (environments bring their code projects, servers and services);
-- tools: every catalog tool of the enabled capabilities on (`capability_defaults` groups, all of them, as the
-  subagents design's tool defaults), no `run_subagent`.
+- tools: every catalog tool `on` (never `run_subagent`); after `resolve`, a capability whose list is empty is
+  switched off, so the runtime's `needs_met` offers exactly the tools of the selected kinds (`report_not_covered`
+  never, since grounded is off).
 
 `create_session` then: checks the model (exists, enabled, `model_fits('openai', model)`, else 400 "Choose an enabled
 model."), resolves the selection, builds the session context, and pins:
@@ -107,8 +114,9 @@ model."), resolves the selection, builds the session context, and pins:
 
 Audit: `claude_code.session.created` with `{runtime: 'openai', ephemeral: true, model_id, prompt_id}`.
 
-The native session worker already runs from the pinned `agent_config`; it must not reload the agent by id when
-`agent_id` is NULL (check and adjust if it does).
+The native session worker already runs from the pinned `agent_config` (`load_credentials` skips the agent check
+when no agents row matches). `ka.agent_run_events.agent_id` is NOT NULL text without a foreign key: ephemeral turns
+record `'ad-hoc'` (`AD_HOC_AGENT`), and the worker's claim query names them "Ad-hoc agent".
 
 ### Migration `0082_ephemeral_sessions`
 
