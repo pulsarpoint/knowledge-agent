@@ -128,6 +128,20 @@ class SshRun(Arguments):
     timeout_seconds: int = Field(60, description='Remote command time limit, from 1 to 300 seconds.')
 
 
+class SubagentResources(Arguments):
+    code_project_ids: list[str] = Field(default_factory=list, description='Code project IDs from your resources.')
+    collection_ids: list[str] = Field(default_factory=list, description='Document collection IDs from your resources.')
+    server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from your resources.')
+    service_ids: list[str] = Field(default_factory=list, description='Service IDs from your resources.')
+
+
+class RunSubagent(Arguments):
+    task: str = Field(description='The complete task, up to 20000 characters: the helper does not see this conversation.')
+    tools: list[str] = Field(description='Names of your tools the helper may use, as you see them; at least one.')
+    resources: SubagentResources | None = Field(
+        None, description='The resources the helper may use, from yours; omit it to give all of yours.')
+
+
 # Usage: today's docstring without Args, then the sentences get_prompt said about the tool.
 LIST_FILES = 'List accessible roots or the immediate children of one selected folder.'
 READ_FILE = ('Read a source line range or a paginated UTF-8 byte excerpt from a selected file.\n\n'
@@ -241,6 +255,22 @@ SSH_RUN = ('Execute a command on a server selected for this agent and return its
            "Use ssh_run with the configured server ID. Follow each server's instructions. "
            'Request as_root only when allow_sudo is true.')
 
+RUN_SUBAGENT = ('Start a helper for a separate, well-defined part of your work, such as exploring one project or '
+                'checking one question. Give it a complete task, because it does not see this conversation. Give it '
+                'the fewest tools and resources it needs. Helpers may run in parallel. You get their final answer as '
+                'the result; verify important claims.')
+SUBAGENT = 'run_subagent'
+
+
+def _never(config: Mapping[str, Any]) -> bool:
+    return False  # offered exactly when its row is on: the switch May start subagents
+
+
+async def _run_subagent(context: RunContext, arguments: BaseModel) -> str:
+    # Imported here: the subagent runtime imports the native session runtime, which imports this module.
+    from knowledge_admin.knowledge_agents import subagents
+    return await subagents.run_subagent(context, **arguments.model_dump())
+
 
 def _call(function: Callable[..., Awaitable[str]]) -> Callable[[RunContext, BaseModel], Awaitable[str]]:
     async def run(context: RunContext, arguments: BaseModel) -> str:
@@ -272,6 +302,8 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
              REPORT_NOT_COVERED, ReportNotCovered, _call(documents.report_not_covered), 'grounded', _grounded),
     ToolSpec('ssh_run', 'servers', 'SSH', 'Run a command on a selected server.', SSH_RUN,
              SshRun, _call(ssh.ssh_run), 'ssh', _ssh),
+    ToolSpec(SUBAGENT, 'agents', 'Start subagents', 'Hand a separate part of the work to a helper that runs in parallel.',
+             RUN_SUBAGENT, RunSubagent, _run_subagent, None, _never),
 )}
 
 NEED_REASONS: dict[str, str] = {
@@ -300,8 +332,10 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
 
 
-def item(name: str, mode: str, usage: str | None = None, group: str | None = None) -> dict[str, Any]:
-    return {'tool': name, 'group': group or CATALOG[name].group, 'mode': mode, 'usage': usage, 'subagent_allowed': True}
+def item(name: str, mode: str, usage: str | None = None, group: str | None = None,
+         subagent_allowed: bool = True) -> dict[str, Any]:
+    return {'tool': name, 'group': group or CATALOG[name].group, 'mode': mode, 'usage': usage,
+            'subagent_allowed': subagent_allowed}
 
 
 def implied_tools(config: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:

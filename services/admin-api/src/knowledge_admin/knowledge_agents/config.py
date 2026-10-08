@@ -49,23 +49,28 @@ class AgentConfig(TypedDict):
 
 
 def tool_items(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """The agent's tools in config shape: every catalog tool (no row: off), then MCP rows by name."""
+    """The agent's tools in config shape: every catalog tool (no row: off), then MCP rows by name; each with whether
+    run_subagent may give it to a subagent (no row, or a row read without it: yes)."""
     from knowledge_admin.tools.catalog import CATALOG, item  # the catalog imports this module
 
     saved = {row['tool']: row for row in rows}
     items = []
     for name in CATALOG:
         row = saved.get(name)
-        items.append(item(name, row['mode'] if row else 'off', row['usage'] if row else None))
+        items.append(item(name, row['mode'] if row else 'off', row['usage'] if row else None,
+                          subagent_allowed=row.get('subagent_allowed', True) if row else True))
     for name in sorted(tool for tool in saved if tool.startswith('mcp:')):
-        items.append(item(name, saved[name]['mode'], saved[name]['usage'], group='mcp'))
+        row = saved[name]
+        items.append(item(name, row['mode'], row['usage'], group='mcp',
+                          subagent_allowed=row.get('subagent_allowed', True)))
     return {'items': items}
 
 
 def native_tools(conn, agent_id: str, runtime: str) -> dict[str, list[dict[str, Any]]]:
     if runtime != 'openai':
         return {'items': []}
-    return tool_items(conn.execute('SELECT tool,mode,usage FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)))
+    return tool_items(conn.execute('SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s',
+                                   (agent_id,)))
 
 
 def normalize_tools(values: Iterable[str]) -> list[str]:
@@ -158,7 +163,8 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'type': {'runtime': config['runtime'],
                  'claude_code_tools': list(config.get('claude_code_tools', CLAUDE_CODE_TOOLS))},
         'resources': config.get('resources', 'fixed'),
-        'tools': [{key: entry[key] for key in ('tool', 'mode', 'usage')} for entry in tools_of(config)['items']],
+        'tools': [{'tool': entry['tool'], 'mode': entry['mode'], 'usage': entry['usage'],
+                   'subagent_allowed': entry.get('subagent_allowed', True)} for entry in tools_of(config)['items']],
         'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
         'documents': {'enabled': documents['enabled'], 'grounded': documents.get('grounded', False),
                       'all_collections': documents.get('all_collections', False),

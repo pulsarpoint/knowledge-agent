@@ -13,7 +13,8 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 from knowledge_admin.tools.catalog import tools_summary
-from knowledge_admin.tools_api import ensure_native_tools, flags, switch_on_defaults
+from knowledge_admin.tools_api import (CLAUDE_CODE, ensure_native_tools, flags, subagents_on, switch_on_defaults,
+                                       switch_subagents)
 
 
 class ProfileInput(BaseModel):
@@ -39,6 +40,7 @@ class ProfileInput(BaseModel):
     runtime: Literal['openai', 'claude_code'] | None = None  # None keeps the agent type
     claude_code_tools: list[ClaudeCodeTool] | None = Field(default=None, max_length=8)  # None keeps the saved tools
     resources: Literal['fixed', 'per_run'] | None = None  # None keeps the setting
+    subagents: bool | None = Field(default=None, strict=True)  # May start subagents; None keeps the switch
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
     @classmethod
@@ -122,6 +124,7 @@ def build_api(app_name, store):
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
         row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
+        row['subagents'] = row['runtime'] == 'openai' and subagents_on(conn, agent_id)  # native agents only
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -224,6 +227,8 @@ def build_api(app_name, store):
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 runtime = value.runtime or old['runtime']
                 resources = value.resources or old['resources']
+                if value.subagents and runtime != 'openai':
+                    raise HTTPException(400, CLAUDE_CODE)
                 if runtime != old['runtime']:
                     if runtime == 'claude_code' and old['model_id'] is not None:
                         current = conn.execute('SELECT provider,api_format,model FROM ka.llm_models WHERE id=%s',
@@ -265,6 +270,8 @@ def build_api(app_name, store):
                 if runtime == 'openai' and old['runtime'] != 'openai':
                     ensure_native_tools(conn, agent_id, now)
                 switch_on_defaults(conn, agent_id, flags(old), now)
+                if runtime == 'openai' and value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
+                    switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

@@ -48,6 +48,7 @@ def as_saved(config: dict) -> dict:
     """The configuration as a version stored it (0034…0079): no live graphs, the prompt version's fields."""
     saved = copy.deepcopy(config)
     saved['code'].pop('graphs', None)
+    saved['tools']['items'] = [entry for entry in saved['tools']['items'] if entry['tool'] != 'run_subagent']  # not yet a tool
     saved['system_prompt'] = {'id': str(uuid4()), 'title': 'Tuned', 'version': 2, 'revision': 1,
                               'content': saved['system_prompt']['content']}
     return saved
@@ -176,7 +177,9 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     expected['code']['projects'].remove(unselected)
     assert [key for key in expected if drifted[key] == expected[key]] == []  # the working copy differed everywhere
     after = get_agent_config('operations', conninfo=store.conninfo)
-    assert sections(after) == expected
+    migrated = sections(after)
+    migrated['tools'] = [entry for entry in migrated['tools'] if entry['tool'] != 'run_subagent']  # not in old versions
+    assert migrated == expected
     assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')
     assert runbooks not in [c['id'] for c in after['documents']['collections']]
     assert unselected not in [p['id'] for p in after['code']['projects']]

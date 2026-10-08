@@ -7,7 +7,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.tools.catalog import (CATALOG, NEED_REASONS, NEED_TABS, capability_tools,
+from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, capability_tools,
                                            catalog_listing, enabled_capability_tools, implied_tools, needs_met)
 
 STALE = 'The tools changed since you opened them. Reload.'
@@ -16,6 +16,12 @@ UNKNOWN = 'Unknown tool: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
 CLAUDE_CODE = 'Claude Code agents use their Claude Code tools. Switch them on the General tab.'
 MCP_REASON = 'Needs MCP'
+SUBAGENTS_OFF = 'Turn on May start subagents in General first.'
+SUBAGENT_SWITCH = 'run_subagent comes with May start subagents.'
+# May start subagents is this row: always on, never given to a subagent (0078's subagents_do_not_spawn).
+SUBAGENT_ROW = '''INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed) VALUES (%s,'run_subagent','on',%s,false)
+    ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',subagent_allowed=false,updated_at=now()'''
+INSERT_TOOL = 'INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed) VALUES (%s,%s,%s,%s,%s)'
 
 AGENT = '''SELECT id,runtime,revision,claude_code_tools,repositories_enabled,documents_enabled,documents_grounded,
     ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
@@ -24,7 +30,6 @@ SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_s
     WHERE m.project_id=%s AND EXISTS (
     SELECT 1 FROM ka.agent_config_mcp_servers s JOIN ka.agent_configs c ON c.id=s.config_id
     WHERE s.mcp_server_id=m.id AND c.agent=%s AND c.project_id=m.project_id) ORDER BY lower(m.name),m.id'''
-ON = "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'"
 SWITCH_ON = '''INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')
     ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',updated_at=now()'''
 
@@ -34,7 +39,7 @@ class ToolChoice(BaseModel):
     tool: str = Field(min_length=1, max_length=300)
     mode: Literal['on', 'off']  # per run comes with a later step
     usage: str | None = Field(default=None, max_length=8000)
-    subagent_allowed: bool | None = None  # accepted and ignored: step 1 always saves true
+    subagent_allowed: bool | None = None  # None: a subagent may use it
 
 
 class ToolsInput(BaseModel):
@@ -70,6 +75,21 @@ def _usage(text: str | None) -> str | None:
     return text if text is not None and text.strip() else None  # blank: the built-in text
 
 
+def subagents_on(conn, agent_id: str) -> bool:
+    """May start subagents: whether the agent has the run_subagent row."""
+    return conn.execute("SELECT 1 FROM ka.agent_tools WHERE agent_id=%s AND tool='run_subagent'",
+                        (agent_id,)).fetchone() is not None
+
+
+def switch_subagents(conn, agent_id: str, on: bool) -> None:
+    """May start subagents on (the row, with the default usage text unless it has one) or off (the row is deleted,
+    also when the UI saves the switch off after a round trip through Claude Code)."""
+    if on:
+        conn.execute(SUBAGENT_ROW, (agent_id, None))
+    else:
+        conn.execute("DELETE FROM ka.agent_tools WHERE agent_id=%s AND tool='run_subagent'", (agent_id,))
+
+
 def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     agent = conn.execute(AGENT, (agent_id,)).fetchone()
     if agent is None:
@@ -83,6 +103,8 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
+        if spec.name == SUBAGENT and row is None:
+            continue  # listed only while May start subagents is on
         available = needs_met(spec.needs, current, None)
         tools.append({'tool': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
                       'mode': row['mode'] if row else 'off', 'usage': row['usage'] if row else None,
@@ -174,16 +196,25 @@ def build_api(app_name, store):
                 if name not in servers.get(server, set()):
                     raise HTTPException(400, MCP_NOT_SELECTED.format(tool=choice.tool))
             chosen = {choice.tool: choice for choice in value.tools}
+            switch = conn.execute("SELECT usage FROM ka.agent_tools WHERE agent_id=%s AND tool='run_subagent'",
+                                  (agent_id,)).fetchone()
+            if SUBAGENT in chosen and switch is None:
+                raise HTTPException(400, SUBAGENTS_OFF)
             report = chosen.get('report_not_covered')
             if agent['documents_enabled'] and agent['documents_grounded'] and (report is None or report.mode != 'on'):
                 raise HTTPException(400, GROUNDED)
             conn.execute('DELETE FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))
             for choice in value.tools:
                 usage = _usage(choice.usage)
-                if choice.tool.startswith('mcp:') and choice.mode == 'on' and usage is None:
+                if choice.tool == SUBAGENT:  # on while the switch is on, whatever the choice says
+                    conn.execute(SUBAGENT_ROW, (agent_id, usage))
+                    continue
+                allowed = choice.subagent_allowed is not False
+                if choice.tool.startswith('mcp:') and choice.mode == 'on' and usage is None and allowed:
                     continue  # an MCP tool's default: no row
-                conn.execute('INSERT INTO ka.agent_tools(agent_id,tool,mode,usage) VALUES (%s,%s,%s,%s)',
-                             (agent_id, choice.tool, choice.mode, usage))
+                conn.execute(INSERT_TOOL, (agent_id, choice.tool, choice.mode, usage, allowed))
+            if switch is not None and SUBAGENT not in chosen:
+                conn.execute(SUBAGENT_ROW, (agent_id, switch['usage']))  # only the switch removes it
             actor = store.actor(conn, *request_actor(request))
             conn.execute('UPDATE ka.agents SET revision=revision+1,updated_by=%s WHERE id=%s', (actor, agent_id))
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

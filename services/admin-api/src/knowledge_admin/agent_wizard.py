@@ -19,8 +19,8 @@ from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, CLAUDE_CODE_TOOLS, ClaudeCodeTool, model_fits, normalize_tools
 from knowledge_admin.operations_store import SSHInput
 from knowledge_admin.profiles_api import PROMPT_LIMIT
-from knowledge_admin.tools.catalog import CATALOG, catalog_listing, enabled_capability_tools
-from knowledge_admin.tools_api import CLAUDE_CODE, UNKNOWN, flags
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing, enabled_capability_tools
+from knowledge_admin.tools_api import CLAUDE_CODE, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -117,6 +117,8 @@ class CreateInput(AgentProposal):
     resources: Literal['fixed', 'per_run'] = 'fixed'
     claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
     tools: list[str] | None = Field(default=None, max_length=50)  # None: what the capabilities give
+    subagents: bool = False  # May start subagents (native agents only)
+    subagent_blocked: list[str] = Field(default_factory=list, max_length=50)  # tools a subagent may not be given
 
 
 class GenerateInput(BaseModel):
@@ -257,11 +259,13 @@ def build_api(app_name, store):
                     chosen = next(m for m in catalog['models'] if str(m['id']) == str(value.model_id))
                     if not model_fits('claude_code', chosen):
                         raise HTTPException(400, CHOOSE_CLAUDE)
-                if value.runtime == 'claude_code' and value.tools:
+                if value.runtime == 'claude_code' and (value.tools or value.subagents):
                     raise HTTPException(400, CLAUDE_CODE)
-                for name in value.tools or []:
+                for name in [*(value.tools or []), *value.subagent_blocked]:
                     if name not in CATALOG:
                         raise HTTPException(400, UNKNOWN.format(tool=name))
+                    if name == SUBAGENT:
+                        raise HTTPException(400, SUBAGENT_SWITCH)
                 actor = store.actor(conn, *request_actor(request))
                 conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,resources,system_prompt,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
@@ -280,6 +284,11 @@ def build_api(app_name, store):
                     names = value.tools if value.tools is not None else enabled_capability_tools(proposed)
                     for name in dict.fromkeys(names):
                         conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
+                    if value.subagent_blocked:
+                        conn.execute('UPDATE ka.agent_tools SET subagent_allowed=false WHERE agent_id=%s AND tool=ANY(%s)',
+                                     (agent_id, value.subagent_blocked))
+                    if value.subagents:
+                        switch_subagents(conn, agent_id, True)
                 for table, column, ids in [('agent_collections','collection_id',value.collection_ids),
                                           ('agent_repositories','repository_id',value.repository_ids),
                                           ('agent_services','service_id',value.service_ids)]:
