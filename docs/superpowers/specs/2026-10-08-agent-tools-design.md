@@ -281,6 +281,24 @@ The session page, the run record and the Test activity show the events with a `p
 block** under the `run_subagent` call: "Subagent · 14 tool calls · 23k tokens". It is collapsed by default and
 expands to the same event list.
 
+## Feature 3a — Run workspace (user decision 2026-10-08)
+
+One component, `RunWorkspace`, replaces the agent **Test** tab's page and the **Generate documents** session page;
+both show an agent working with tools and today are built separately.
+
+- **Header:** agent name, type and Resources mode; **Show config**, history and the version choice; for per-run
+  agents a compact "Resources: … ✎" line that opens a small panel (editable only before the first message).
+- **Main pane:** the selected agent's history (messages, thinking, tool calls with results, collapsible). Default is
+  the main agent. The message box stays at the bottom and always on screen.
+- **Sidebar "Agents in this run":** the main agent and every subagent it started, as a tree (later also `ask_agent`
+  callees). Each entry shows its task, status (working, done, failed, stopped), tokens and tool counts, updating live.
+  Clicking an entry switches the main pane to that agent's own history, live while it runs; a breadcrumb returns to
+  the main agent.
+- **Session page extras:** a **Draft** panel and **Save document** in the sidebar.
+- **Narrow screens:** the sidebar collapses into a drawer.
+- **Data:** Test chats and sessions already emit the same event kinds; the workspace reads both through one event
+  model. Subagent events carry `parent_call_id` and the subagent's task, and the sidebar groups by them.
+
 ## Feature 4 — Built-in agents and Code reader
 
 ### Data model
@@ -477,8 +495,11 @@ The migration is `0080_run_tools`:
      column.
    - Tool counts in run records, sessions, Test chats and Agent runs.
    - No per-run mode, run_subagent or ask_agent yet. The mode column exists, but only `on` and `off` are offered.
-2. **run_subagent.** The tool, its switch and the "A subagent may use" checklist on the Tools tab and in the wizard.
-   Also the subagent prompt, the parallel limit, Stop, recording, tokens and the collapsible block.
+2. **Run workspace, then run_subagent.**
+   - 2a. The `RunWorkspace` component; the Test tab and the session page move onto it (no subagents yet).
+   - 2b. run_subagent: the tool, its switch and the "A subagent may use" checklist on the Tools tab and in the wizard;
+     the subagent prompt, the parallel limit, Stop, recording, tokens; subagents in the workspace sidebar with their
+     own clickable histories.
 3. **Built-in agents and Code reader.** `0079_builtin_agents`, install at start-up, the update notice and the Code
    reader template. This needs only step 1; doing it third gives a real per-run agent to try subagents and later
    ask_agent with.
