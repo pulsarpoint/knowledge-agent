@@ -3,7 +3,9 @@ credentials, events in the parent's turn record with parent_call_id), the adapte
 subagents in a session (one record, session totals, Stop)."""
 import asyncio
 import dataclasses
+import gc
 import json
+import logging
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -337,3 +339,66 @@ def test_a_nested_run_redacts_its_traces_with_the_enclosing_secrets_too():
         with trace_secrets(['sub-secret']):
             assert set(agent_tracing._secrets.get()) == {'parent-secret', 'sub-secret'}
         assert agent_tracing._secrets.get() == ('parent-secret',)
+
+
+def test_an_abandoned_subagent_that_fails_later_logs_no_traceback(monkeypatch, caplog):
+    """Stop cancels the call at once although the subagent ignores it; after close()'s grace period the subagent is
+    left to end, and the exception it raises then is retrieved, never logged as 'never retrieved' with the secret."""
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.1)
+
+    async def scenario():
+        started, release, ended = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def run_agent(config, task, *, credentials, **_):
+            started.set()
+            while not release.is_set():
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    pass
+            ended.set()
+            raise RuntimeError(f'connection with {SECRET} lost')
+        lead = SessionEvents(Recorder(), secrets=list(CREDENTIALS.values()), first=False)
+        subagents = Subagents(lead, secrets=list(CREDENTIALS.values()), run_agent=run_agent, record_usage=None)
+        call = asyncio.create_task(start(subagents, 's1', 'Stubborn'))
+        await asyncio.wait_for(started.wait(), 2)
+        call.cancel()  # Stop cancels the parent's turn and with it this tool call
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(call, 1)  # returns at once, though the subagent keeps going
+        await asyncio.wait_for(subagents.close(), 2)
+        assert native_sessions._abandoned
+        release.set()
+        await asyncio.wait_for(ended.wait(), 2)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert not native_sessions._abandoned
+        gc.collect()
+
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(asyncio.wait_for(scenario(), 5))
+        gc.collect()
+    assert 'never retrieved' not in caplog.text and SECRET not in caplog.text
+
+
+def test_a_call_waiting_for_a_slot_starts_nothing_once_the_turn_ends():
+    gate = asyncio.Event()
+
+    async def wait(turn):
+        await gate.wait()
+    subagents, fake, _, lead = host({'First': {'steps': [wait], 'answer': 'first'},
+                                     'Second': {'steps': [], 'answer': 'second'}}, limit=1)
+
+    async def scenario():
+        first = asyncio.create_task(start(subagents, 'c1', 'First'))
+        second = asyncio.create_task(start(subagents, 'c2', 'Second'))
+        while not fake.calls:
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
+        lead.closed = True  # the turn ends while Second waits for the slot
+        gate.set()
+        assert await first == 'first'
+        with pytest.raises(asyncio.CancelledError):
+            await second
+
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert [call['task'] for call in fake.calls] == ['First']

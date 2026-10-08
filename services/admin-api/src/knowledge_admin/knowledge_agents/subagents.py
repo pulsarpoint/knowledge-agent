@@ -174,6 +174,17 @@ async def run_subagent(context: Any, task: str, tools: list[str], resources: dic
     return await host.run(context, task, tools, resources, TOOL_CALL_ID.get() or '')
 
 
+def _abandon(task: asyncio.Task) -> None:
+    """A subagent's task nobody awaits any more: cancelled, kept referenced until it ends, and its outcome retrieved
+    then (native_sessions._retrieve), so an exception it raises later is never logged with an unredacted traceback."""
+    task.cancel()
+    if task.done():
+        native_sessions._retrieve(task)
+    else:
+        native_sessions._abandoned.add(task)
+        task.add_done_callback(native_sessions._retrieve)
+
+
 class SubagentEvents(SessionEvents):
     """A subagent's SDK lifecycle as events of its parent's turn record: the kinds SessionEvents writes, each with
     parent_call_id (the run_subagent call). It is closed exactly while the parent's events are (Stop, Close, a lost
@@ -242,7 +253,7 @@ class Subagents:
             # The slot first, then the flush: calls take slots in the order they were made (a waiting call's input
             # event is written by the next flush of the turn).
             async with self.slots:
-                if self.closed:
+                if self.closed or self.parent.closed:  # the turn ended while this call waited for a slot
                     raise asyncio.CancelledError
                 await asyncio.to_thread(self.parent.recorder.flush)
                 running = asyncio.create_task(self.run_agent(
@@ -251,9 +262,15 @@ class Subagents:
                 self.running.add(running)
                 running.add_done_callback(self.running.discard)
                 try:
-                    result = await running  # cancelling this call (Stop) cancels the subagent's task too
+                    # Not `await running`: a cancelled call (Stop) returns at once even when the subagent ignores
+                    # its cancellation; close() then waits for it at most STOP_GRACE_SECONDS.
+                    await asyncio.wait({running})
                 except asyncio.CancelledError:
-                    running.cancel()
+                    _abandon(running)
+                    raise
+                try:
+                    result = running.result()
+                except asyncio.CancelledError:
                     raise
                 except Exception as exc:
                     message = failure(exc, self.secrets)
@@ -277,6 +294,8 @@ class Subagents:
             if any(not task.done() for task in running):
                 logger.warning('A subagent did not end within %ss of the end of its turn; it is left to end',
                                native_sessions.STOP_GRACE_SECONDS)
+            for task in running:
+                _abandon(task)
         self.forget()
 
     def forget(self) -> None:

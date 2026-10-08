@@ -227,6 +227,10 @@ class Comments:
         model = data.model_data
         if self.closed:  # a turn that outlived Stop starts no new model request (one already sent cannot be recalled)
             raise asyncio.CancelledError
+        # _record flushes inside queued_comments' transaction without holding the recorder's lock until the commit
+        # (add_usage does: recorder lock first, then store.connect(); keep that order if this ever takes the lock). It
+        # cannot race a subagent's flush: this filter runs only after every tool call of the previous model response
+        # has returned, and subagents run only inside run_subagent tool calls (Subagents.close() ends them with the turn).
         self.delivery = asyncio.ensure_future(asyncio.to_thread(self.runner.queued_comments, self.number, self._record))
         texts = await asyncio.shield(self.delivery)
         items = list(model.input)
