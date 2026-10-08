@@ -34,60 +34,10 @@ beforeEach(() => {
   vi.mocked(profiles.getAgents).mockImplementation(async () => ({ agents: structuredClone(agents) }));
   vi.mocked(profiles.getAgent).mockImplementation(async id => structuredClone(agents.find(a => a.id === id)!));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0 });
 });
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} /></Routes></AdminLayout></MemoryRouter>; }
-
-test('coordinator is protected in the list and edits notes and prompt versions on its agent page', async () => {
-  const coordinator = { ...agents[0], id: 'coordinator', name: 'Board coordinator', is_coordinator: true,
-    documents_enabled: false, repositories_enabled: false, ssh_enabled: false, skills_enabled: false,
-    mcp_enabled: false, services_enabled: false };
-  agents.unshift(coordinator);
-  data.agents.push({ agent: coordinator.id, active_version_id: 'coordinator-prompt', revision: 1 });
-  data.versions.push({ ...data.versions[0], agent: coordinator.id, id: 'coordinator-prompt',
-    title: 'Coordinator prompt', content: 'Delegate and review evidence.' });
-  const settings = { agent_id: coordinator.id, name: coordinator.name, enabled: true, notes: 'Prioritize evidence.',
-    model_id: null, model_name: null, model_enabled: null, system_prompt: 'Delegate and review evidence.',
-    summary_prompt: 'Write a final response from the evidence.', max_turns: 8, max_subtasks: 20, timeout_seconds: 1800, revision: 1 };
-  const saves: unknown[] = [];
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/agent-board/settings') {
-      if (init?.method === 'PUT') {
-        const body = JSON.parse(init.body as string); saves.push(body);
-        return Response.json({ ...settings, ...body, revision: 2 });
-      }
-      return Response.json(settings);
-    }
-    return Response.json({ is_admin: true });
-  }));
-  const user = userEvent.setup();
-  render(app('/agents'));
-  const row = (await screen.findByRole('link', { name: 'Board coordinator' })).closest('tr')!;
-  expect(within(row).getByText('Coordinator')).toBeVisible();
-  expect(within(row).queryByRole('button', { name: 'Remove Board coordinator' })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Remove Code search agent' })).toBeEnabled();
-  await user.click(within(row).getByRole('link', { name: 'Board coordinator' }));
-  const notes = await screen.findByLabelText('Notes and additional instructions');
-  expect(screen.queryByRole('switch', { name: 'Enable agent' })).not.toBeInTheDocument();
-  expect(screen.getByText('The coordinator is always enabled.')).toBeVisible();
-  expect(notes).toHaveValue('Prioritize evidence.');
-  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['General', 'Prompts']);
-  expect(screen.getByRole('link', { name: 'Open multi-agent board' })).toHaveAttribute('href', '/agent-board');
-  fireEvent.change(notes, { target: { value: 'Check deployment evidence first.' } });
-  fireEvent.change(screen.getByLabelText('Maximum subagent calls per task'), { target: { value: '4' } });
-  fireEvent.change(screen.getByLabelText('Maximum model turns'), { target: { value: '6' } });
-  fireEvent.change(screen.getByLabelText('Task timeout (seconds)'), { target: { value: '120' } });
-  await user.click(screen.getByRole('tab', { name: 'Prompts' }));
-  expect(await screen.findByText('Coordinator prompt')).toBeVisible();
-  await user.click(screen.getByRole('tab', { name: 'General' }));
-  expect(screen.getByLabelText('Notes and additional instructions')).toHaveValue('Check deployment evidence first.');
-  await user.clear(screen.getByLabelText('Final summary prompt'));
-  await user.type(screen.getByLabelText('Final summary prompt'), 'Summarize with citations.');
-  await user.click(screen.getByRole('button', { name: 'Save coordinator settings' }));
-  expect(await screen.findByRole('status')).toHaveTextContent('Coordinator settings saved');
-  expect(saves).toEqual([{ notes:'Check deployment evidence first.', summary_prompt:'Summarize with citations.', max_turns:6, max_subtasks:4, timeout_seconds:120, revision:1 }]);
-});
 
 test('catalog opens distinct agents with one model card and preserves SSH tasks across sections', async () => {
   const user = userEvent.setup();
@@ -264,12 +214,12 @@ test('agent removal requires confirmation and preserves the record on conflicts'
 
 test('an agent with history lists it and is deleted with it only on the destructive action', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, chats: 0, claude_code_sessions: 1, runs: 3, board_tasks: 1, board_memberships: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, chats: 0, claude_code_sessions: 1, runs: 3 });
   vi.mocked(profiles.deleteAgent).mockResolvedValue(undefined);
   render(app('/agents'));
   await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
   const dialog = screen.getByRole('alertdialog');
-  expect(await within(dialog).findByText('2 test chats, 1 Claude Code session, 3 runs, 1 board task')).toBeVisible();
+  expect(await within(dialog).findByText('2 test chats, 1 Claude Code session, 3 runs')).toBeVisible();
   expect(profiles.getAgentHistory).toHaveBeenCalledWith('custom-code');
   expect(dialog).toHaveTextContent('Saved documents are kept.');
   expect(within(dialog).queryByRole('button', { name: 'Remove agent' })).toBeNull();
@@ -284,8 +234,8 @@ test('an agent with history lists it and is deleted with it only on the destruct
 
 test('a delete refused because history appeared meanwhile shows that history', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 })
-    .mockResolvedValue({ test_chats: 0, chats: 1, claude_code_sessions: 0, runs: 1, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0 })
+    .mockResolvedValue({ test_chats: 0, chats: 1, claude_code_sessions: 0, runs: 1 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error('This agent has sessions or run history.'));
   render(app('/agents'));
   await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
@@ -294,11 +244,11 @@ test('a delete refused because history appeared meanwhile shows that history', a
   expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete agent and history' })).toBeEnabled();
 });
 
-const WORKING = 'This agent is working right now. Stop its documentation sessions, runs and board tasks, or wait for them to finish, then delete it.';
+const WORKING = 'This agent is working right now. Stop its documentation sessions and runs, or wait for them to finish, then delete it.';
 
 test('a delete refused because the agent is working says so and keeps the dialog open', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   render(app('/agents'));
   await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));
@@ -310,8 +260,8 @@ test('a delete refused because the agent is working says so and keeps the dialog
 
 test('a working agent whose history appeared meanwhile keeps the working message next to the history', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0, board_tasks: 0, board_memberships: 0 })
-    .mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0, board_tasks: 0, board_memberships: 0 });
+  vi.mocked(profiles.getAgentHistory).mockResolvedValueOnce({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0 })
+    .mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 1, runs: 0 });
   vi.mocked(profiles.deleteAgent).mockRejectedValueOnce(new Error(WORKING));
   render(app('/agents'));
   await user.click(await screen.findByRole('button', { name: 'Remove Payments code' }));

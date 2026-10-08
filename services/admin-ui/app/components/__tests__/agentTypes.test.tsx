@@ -15,7 +15,6 @@ vi.mock('../PromptsView', () => ({ default: () => <div>Prompt versions</div> }))
 vi.mock('../AgentInstructions', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
 vi.mock('../AgentVersionsView', () => ({ default: ({ testable }: { testable?: boolean }) => <div>{testable === false ? 'Versions without Test vN' : 'Versions with Test vN'}</div> }));
-vi.mock('../CoordinatorSettings', () => ({ default: () => null }));
 
 const writer: profiles.AgentProfile = { id: 'writer', name: 'Technical writer', description: '', when_to_use: '', enabled: true,
   is_coordinator: false, runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false,

@@ -24,7 +24,7 @@ test("administration has its own navigation without reader pages", async () => {
   expect(screen.getAllByRole("link", { name: "Search" }).some(link => link.getAttribute("href") === "/rag/search")).toBe(true);
   const agents = within(screen.getByRole("navigation", { name: "Agents" }));
   expect(agents.getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
-  expect(agents.getByRole("link", { name: "Multi-agent board" })).toHaveAttribute("href", "/agent-board");
+  expect(agents.queryByRole("link", { name: "Multi-agent board" })).toBeNull();
   expect(agents.queryByRole("link", { current: "page" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Agents" })).toBeNull();
   const docs = within(screen.getByRole("navigation", { name: "Docs" }));

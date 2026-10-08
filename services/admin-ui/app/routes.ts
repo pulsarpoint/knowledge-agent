@@ -24,7 +24,6 @@ export default [
   route("environments", "./routes/environments.tsx"),
   route("agents/:agentId", "./routes/agentDetail.tsx"),
   route("agents", "./routes/agents.tsx"),
-  route("agent-board", "./routes/agentBoard.tsx"),
   route("mcp-servers", "./routes/mcpServers.tsx"),
   route("skills", "./routes/skills.tsx"),
   route("llm-settings", "./routes/llmSettings.tsx"),
