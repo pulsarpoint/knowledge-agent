@@ -27,22 +27,6 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- `claude-code-worker` runs **Generate documents** sessions with the Claude Agent SDK.
-  It is on its own `claude-code` network, shared only with `postgres` (not internal, so
-  it keeps internet egress to Bedrock or Anthropic); Bash in a session cannot reach
-  `admin-api`, `admin-web`, `rag`, `litellm`, Keycloak, the proxies or Phoenix. It sees
-  `DATA_ROOT` read-only; its only writable mount is the `claude-code-home` volume at
-  `/home/claude`. The worker runs as root (`cap_add: SETUID, SETGID, CHOWN`) to keep the
-  database password and encryption key to itself. Each running session holds one worker
-  slot and its Claude Code process runs as that slot's user, `claude1`..`claude8`
-  (uids 1001-1008, group `claude`, gid 1001), with the session's own HOME,
-  `/home/claude/sessions/<session id>` (0700). A later turn may run in another slot: the
-  CLI wrapper hands the session's HOME (and its transcript, for resume) to the new
-  slot's user. When a session leaves its slot, the worker kills the slot user's
-  processes, removes its `/dev/shm` entries and takes the HOME back for root before
-  the slot is reused (SysV IPC objects are not removed: an accepted residual). At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
-  Files under `DATA_ROOT` must be readable by the claude users: world-readable, or
-  group-readable by gid 1001.
 - `agent-session-worker` runs native agents' **Generate documents** sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.

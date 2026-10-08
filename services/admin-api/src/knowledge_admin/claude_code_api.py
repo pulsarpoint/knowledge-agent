@@ -1,6 +1,6 @@
 """Generate documents sessions (an ad-hoc native agent) and Test sessions: create, the form's live context, list,
-detail, send, stop, close, the event stream and saving the draft as a document. Native turns run in
-agent-session-worker; existing Claude Code sessions in claude-code-worker."""
+detail, send, stop, close, the event stream and saving the draft as a document. Turns run in
+agent-session-worker."""
 import asyncio
 import json
 import time

@@ -13,7 +13,7 @@ from knowledge_admin import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from test_claude_code_runner import events, post, wait_for
+from run_helpers import events, post, wait_for
 from test_claude_code_sessions import native_agent, sessions  # noqa: F401  (fixture)
 
 KEY = 'bedrock-secret-token'  # the Claude connection's key, decrypted for each turn

@@ -1,5 +1,5 @@
 """agent-session-worker with a fake native runtime: turns, events, the draft, tokens, history, Stop at any point,
-comments delivered inside a running turn, failures, credentials, and both workers side by side."""
+comments delivered inside a running turn, failures and credentials."""
 import asyncio
 import json
 import tomllib
@@ -11,15 +11,14 @@ from agents import RunHooks
 from agents.run_config import ModelInputData
 from psycopg.types.json import Jsonb
 
-from claude_code_fakes import FakeClient
 from native_fakes import FakeAgent, call, hang, llm, message, stubborn, tool
-from knowledge_admin import claude_code_worker, run_record
+from knowledge_admin import run_record
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
-from test_claude_code_runner import done, events, post, session_row, wait_for
-from test_claude_code_sessions import claude_code_session, sessions, start  # noqa: F401  (fixture)
+from run_helpers import events, post, session_row, wait_for
+from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -31,7 +30,6 @@ FAILED = 'Agent execution failed (RuntimeError). Check the model connection and 
 def native(sessions, monkeypatch):
     """An ad-hoc session with the Claude model that documents the Payments API code project and runs with it."""
     monkeypatch.setattr(run_record, '_store', sessions.store)
-    monkeypatch.setattr(claude_code_worker, 'reclaim_slot', lambda session_id, slot: None)
     session = start(sessions, model_id=sessions.claude, environment_ids=[], service_ids=[])
     return sessions, UUID(session['id'])
 
@@ -574,30 +572,6 @@ def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
 
     failed = asyncio.run(scenario())
     assert failed['status_message'] == 'The configured model is unavailable or disabled.' and fake.calls == []
-
-
-def test_both_workers_run_only_their_own_sessions(native):
-    sessions, native_id = native
-    store = sessions.store
-    claude_id = UUID(claude_code_session(sessions)['id'])
-    client = FakeClient([[done('# Claude draft')]])
-    fake = FakeAgent([{'steps': [llm(message('# Native draft'))], 'answer': '# Native draft'}])
-
-    async def scenario():
-        stopped = asyncio.Event()
-        workers = [
-            asyncio.create_task(claude_code_worker.serve(store, client, stopped=stopped, worker_id='cc-1', limit=2, poll=0.02)),
-            asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=2, poll=0.02))]
-        await wait_for(store, claude_id, lambda s: s['status'] == 'waiting')
-        await wait_for(store, native_id, lambda s: s['status'] == 'waiting')
-        stopped.set()
-        await asyncio.wait_for(asyncio.gather(*workers), 5)
-
-    asyncio.run(scenario())
-    assert (session_row(store, claude_id)['draft'], session_row(store, native_id)['draft']) == ('# Claude draft', '# Native draft')
-    assert (len(client.queries), len(fake.calls)) == (1, 1)
-    assert [e['payload']['kind'] for e in events(store, claude_id) if e['kind'] == 'start'] == ['claude_code']
-    assert [e['payload']['kind'] for e in events(store, native_id) if e['kind'] == 'start'] == ['native_session']
 
 
 def test_a_turn_without_a_turn_limit_outlasts_the_request_timeout(config, responses_api):

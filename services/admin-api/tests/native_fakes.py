@@ -7,17 +7,19 @@ from types import SimpleNamespace
 
 from agents.run_config import CallModelData, ModelInputData
 
-from claude_code_fakes import Recorder as _Recorder
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents.subagents import run_subagent
 
 
-class Recorder(_Recorder):
+class Recorder:
     """Collects events like RunRecorder.add and counts flushes."""
 
     def __init__(self):
-        super().__init__()
+        self.events: list[tuple[str, dict]] = []
         self.flushes = 0
+
+    def add(self, kind: str, payload: dict) -> None:
+        self.events.append((kind, payload))
 
     def flush(self) -> None:
         self.flushes += 1

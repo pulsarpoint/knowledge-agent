@@ -1,7 +1,7 @@
 """Native agents in Generate documents sessions: a turn's SDK lifecycle as the session's run events, and
 agent-session-worker, which runs native turns with the agent config pinned when the session started (built by
 claude_code_api.create_session) through the native runtime (knowledge_admin.agents.agent) and the SDK Session HistorySession.
-Turns have no time or model-call limit, like Claude Code turns: they end with the answer, Stop, Close or a lost lease.
+Turns have no time or model-call limit: they end with the answer, Stop, Close or a lost lease.
 Messages sent while a turn runs reach its next model call. Credentials are decrypted here, per turn, and redacted from
 events, the draft, status messages and history."""
 import asyncio
@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 
 UNREADABLE = 'A configured credential could not be decrypted. Save it again in administration.'
 COMMENT = 'Comment from the user while you work: '
-STOP_GRACE_SECONDS = 30.0  # as claude_code_worker.INTERRUPT_GRACE_SECONDS
+STOP_GRACE_SECONDS = 30.0  # how long Stop waits for a turn to end before cancelling it
 _abandoned: set[asyncio.Task] = set()  # turns that ignored cancellation, kept referenced until they end
 
 
 def summary(name: str, arguments: Any) -> str:
-    """One line for the session page, like Claude Code's Read/Grep/Glob/Bash summaries."""
+    """One line for the session page, for the Read, Grep, Glob and Bash tool calls."""
     if not isinstance(arguments, dict):
         return ''
 
@@ -77,7 +77,7 @@ def _arguments(raw: str) -> Any:
 
 
 class SessionEvents(RunHooks):
-    """A native turn's SDK lifecycle as the run events of a Claude Code turn: instructions (first turn), reasoning,
+    """A native turn's SDK lifecycle as run events: instructions (first turn), reasoning,
     message, tool_call with a summary, tool_result with a preview, and a usage event for each model call. Every hook
     flushes, so the session page follows the turn live; after a model call, `record_usage(usage)` (the runner) writes
     the events together with the call's tokens on the session, so its totals rise with every call. `usage` sums the

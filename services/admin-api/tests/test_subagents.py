@@ -26,7 +26,7 @@ from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, NOT_OFFERE
 from knowledge_admin.run_record import RunRecorder
 from knowledge_admin.tools.catalog import CATALOG, item
 from knowledge_admin.tools.sdk import function_tool
-from test_claude_code_runner import events as run_events, post, session_row, wait_for
+from run_helpers import events as run_events, post, session_row, wait_for
 from test_claude_code_sessions import sessions  # noqa: F401  (fixture)
 from test_native_sessions import KEY, claimed, leftover_tasks, native  # noqa: F401  (fixture)
 from test_repositories import HEADERS

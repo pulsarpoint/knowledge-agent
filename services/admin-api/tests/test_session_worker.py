@@ -1,34 +1,17 @@
-"""The session machinery both workers share: each claims only its agent type's sessions; a turn's commit runs in the
-transaction that records it, only for a successful turn this worker still owns."""
+"""The session machinery the worker shares: a turn's commit runs in the transaction that records it, only for a
+successful turn this worker still owns."""
 from uuid import UUID
 
-from psycopg.types.json import Jsonb
-
-from knowledge_admin import claude_code_worker
 from knowledge_admin.knowledge_agents import session_worker as shared
-from test_claude_code_sessions import sessions, claude_code_session  # noqa: F401  (fixture)
+from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
 from session_rows import a_model, add_ad_hoc_session
 from test_repositories import HEADERS
 
 
-def test_each_worker_claims_only_sessions_of_its_agent_type(sessions):
-    store = sessions.store
-    claude, native = UUID(claude_code_session(sessions)['id']), UUID(claude_code_session(sessions)['id'])
-    with store.connect() as conn:  # the second one as a native session (Task 3 creates them through the API)
-        conn.execute("UPDATE ka.agent_sessions_cc SET runtime='openai',agent_config=%s WHERE id=%s",
-                     (Jsonb({'id': sessions.agent}), native))
-    assert [row['id'] for row in claude_code_worker.claim(store, 'cc-1', [], 4)] == [claude]
-    [row] = shared.claim(store, 'native-1', [], 4, 'openai')
-    assert (row['id'], row['worker_id'], row['runtime'], row['agent_name']) == (native, 'native-1', 'openai', 'Technical writer')
-    assert shared.claim(store, 'native-2', [], 4, 'openai') == []  # leased by native-1
-    assert shared.claim(store, 'cc-2', [], 4, 'claude_code') == []  # leased by cc-1
-    assert shared.run_key(native, 3) == f'cc:{native}:3'
-
-
 def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     store = sessions.store
-    sid = UUID(claude_code_session(sessions)['id'])
-    [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
+    sid = UUID(start(sessions, model_id=sessions.claude, environment_ids=[], service_ids=[])['id'])
+    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
     runner = shared.SessionRunner(store, row)
     committed = []
 
@@ -51,18 +34,11 @@ def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     assert final == {'draft': '# Kept', 'draft_turn': 3, 'input_tokens': 3, 'cached_tokens': 1}
 
 
-def test_claude_code_worker_keeps_its_names():
-    for name in ('STOPPED', 'INTERRUPTED', 'MAX_TOOL_OUTPUT', 'MAX_PREVIEW_CHARS', 'TOOL_TRUNCATED', 'clean_text',
-                 'LEASE_SECONDS', 'IDLE_RELEASE_SECONDS'):
-        assert getattr(claude_code_worker, name) is getattr(shared, name), name
-    assert issubclass(claude_code_worker.SessionRunner, shared.SessionRunner)
-
-
 def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(sessions):
     """Delivery inside a running turn (native sessions): queued messages go to that turn once, under the lease."""
     store = sessions.store
-    sid = UUID(claude_code_session(sessions)['id'])
-    [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
+    sid = UUID(start(sessions, model_id=sessions.claude, environment_ids=[], service_ids=[])['id'])
+    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
     runner = shared.SessionRunner(store, row)
     assert runner.next_turn()[0] == 1  # the first message starts turn 1
     assert runner.queued_comments(1) == []

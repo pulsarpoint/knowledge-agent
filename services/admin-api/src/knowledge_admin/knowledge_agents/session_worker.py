@@ -232,12 +232,9 @@ class SessionRunner:
 
 
 async def serve(store: RepositoryStore, start: Callable[[dict, int], SessionRunner], *, runtime: str, label: str,
-                stopped: asyncio.Event, worker_id: str, limit: int, poll: float,
-                reclaim: Callable[[Any, int], None] | None = None) -> None:
+                stopped: asyncio.Event, worker_id: str, limit: int, poll: float) -> None:
     """Claim sessions of `runtime` and run one task per session until `stopped` is set; leases are renewed every poll.
-    Each running session holds one of `limit` slots until its task ends; `start(session, slot)` makes its runner.
-    `reclaim(session_id, slot)` clears a slot before it is used again (Claude Code: the slot user's processes and the
-    session HOME); a slot it cannot clear stays out of use."""
+    Each running session holds one of `limit` slots until its task ends; `start(session, slot)` makes its runner."""
     active: dict[UUID, asyncio.Task] = {}
     slots: dict[UUID, int] = {}
     free_slots = list(range(1, limit + 1))
@@ -246,15 +243,7 @@ async def serve(store: RepositoryStore, start: Callable[[dict, int], SessionRunn
             for session_id, task in list(active.items()):
                 if task.done():
                     del active[session_id]
-                    slot = slots.pop(session_id)
-                    try:  # nothing of this session stays readable by the next session in this slot
-                        if reclaim is not None:
-                            await asyncio.to_thread(reclaim, session_id, slot)
-                    except Exception as exc:
-                        logger.warning('%s slot %s is kept out of use: it could not be cleared (%s)',
-                                       label, slot, type(exc).__name__)
-                    else:
-                        free_slots.append(slot)
+                    free_slots.append(slots.pop(session_id))
                     if not task.cancelled() and task.exception() is not None:
                         logger.warning('%s session %s ended with %s', label, session_id, type(task.exception()).__name__)
             try:

@@ -18,7 +18,7 @@ FOLDERS = {"CODE_FOLDER": "code", "CODE_INDEX_FOLDER": "code-index", "DOCS_FOLDE
            "GENERATED_DOCS_FOLDER": "generated-documents", "JIRA_FOLDER": "jira"}
 WRITERS = {"rag": ["JIRA_FOLDER"], "rag-worker": [], "shell-worker": [],
            "admin-api": ["CODE_FOLDER", "CODE_INDEX_FOLDER", "GENERATED_DOCS_FOLDER"],
-           "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"], "claude-code-worker": [], "agent-session-worker": []}
+           "repository-worker": ["CODE_FOLDER", "CODE_INDEX_FOLDER"], "agent-session-worker": []}
 
 
 def folder(variable: str) -> str:
@@ -38,7 +38,7 @@ def test_bundle_keeps_runtime_and_migrates_v3_database():
     compose = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
     assert compose["name"] == "knowledge-agent-v3"
     services = compose["services"]
-    assert set(services) == {"postgres", "migrate", "rag", "keycloak", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "shell-worker", "claude-code-worker", "agent-session-worker"}
+    assert set(services) == {"postgres", "migrate", "rag", "keycloak", "phoenix", "litellm", "admin-api", "admin-web", "admin-oauth2-proxy", "keycloak-configure", "repository-worker", "jira-mock", "rag-worker", "shell-worker", "agent-session-worker"}
     assert services["admin-api"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert services["migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     for service in services.values():
@@ -54,7 +54,7 @@ def test_private_services_and_separate_persistent_state():
         assert not compose["services"][name].get("ports")
     for name in ("postgres", "admin-oauth2-proxy", "keycloak", "phoenix"):
         assert all(port.startswith("127.0.0.1:") for port in compose["services"][name]["ports"])
-    assert set(compose["volumes"]) == {"postgres-data", "keycloak-data", "phoenix-data", "agent-workspaces", "claude-code-home"}
+    assert set(compose["volumes"]) == {"postgres-data", "keycloak-data", "phoenix-data", "agent-workspaces"}
     assert all(not value or not value.get("external") for value in compose["volumes"].values())
 
 
@@ -144,7 +144,7 @@ def test_services_compute_their_roots_from_the_folder_variables():
                 "DOCUMENT_OUTPUT_ROOT": "/work/data/" + folder("GENERATED_DOCS_FOLDER"),
                 "JIRA_EXPORT_ROOT": "/work/data/" + folder("JIRA_FOLDER")}
     removed = {"RAG_SOURCE_ROOT", "RG_DATA", "CODE_PATH", "CODE_INDEX_PATH", "GENERATED_DOCS_PATH", "DOCS_PATH"}
-    for name in ("rag", "rag-worker", "admin-api", "repository-worker", "claude-code-worker"):
+    for name in ("rag", "rag-worker", "admin-api", "repository-worker"):
         env = services[name]["environment"]
         assert {key: env[key] for key in expected} == expected, name
         assert not removed & set(env), name
@@ -165,30 +165,3 @@ def test_docs_commands_serve_the_docs_folder_inside_the_data_root(tmp_path):
     assert services["admin-api"]["command"] == ["/work/data/manuals/bootstrap", "--host", "0.0.0.0"]
     dockerfile = (DEPLOY / "Dockerfile.admin-api").read_text(encoding="utf-8")
     assert "/work/data/docs" in dockerfile and '"/work/docs"' not in dockerfile
-
-
-@pytest.mark.skipif(shutil.which("docker") is None, reason="docker compose renders the networks")
-def test_claude_code_worker_shares_a_network_only_with_postgres(tmp_path):
-    """Bash in a Claude Code session can reach every service on the worker's networks: admin-api trusts the proxy's
-    X-Forwarded-User header, so the worker gets its own network with postgres only (and keeps internet egress)."""
-    text = (DEPLOY / "compose.yaml").read_text(encoding="utf-8")
-    required = sorted(set(re.findall(r"\$\{([A-Z0-9_]+):\?", text)) - {"DATA_ROOT"})
-    env = tmp_path / ".env"
-    env.write_text("".join(f"{key}=x\n" for key in required) + f"DATA_ROOT={tmp_path / 'data'}\n", encoding="utf-8")
-    result = subprocess.run(["docker", "compose", "--env-file", str(env), "-f", str(DEPLOY / "compose.yaml"),
-                             "config", "--format", "json"], capture_output=True, text=True, check=True)
-    config = json.loads(result.stdout)
-    services = config["services"]
-    networks = {name: set(service.get("networks") or {"default": None}) for name, service in services.items()}
-    assert networks["claude-code-worker"] == {"claude-code"}
-    assert networks["postgres"] == {"default", "claude-code"}
-    for name, joined in networks.items():
-        if name not in ("claude-code-worker", "postgres"):
-            assert not joined & networks["claude-code-worker"], name
-    for name in ("admin-api", "admin-web", "rag", "rag-worker", "litellm", "shell-worker", "keycloak", "admin-oauth2-proxy",
-                 "phoenix", "repository-worker"):
-        assert name in services and not networks[name] & networks["claude-code-worker"], name
-    assert not config["networks"]["claude-code"].get("internal")  # Bedrock or Anthropic over the internet
-    worker = services["claude-code-worker"]
-    assert worker["environment"]["PGHOST"] == "postgres"
-    assert worker["environment"]["CLAUDE_CODE_MAX_SESSIONS"] == "4"

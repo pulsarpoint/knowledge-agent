@@ -43,8 +43,6 @@ services:
       POSTGRES_DB: knowledge_agent
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
     ports: ["127.0.0.1:${POSTGRES_PORT:-5438}:5432"]
-    # claude-code-worker reaches only postgres, on its own network (see that service).
-    networks: [default, claude-code]
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../db:/workspace/db:ro
@@ -181,47 +179,10 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
-  claude-code-worker:
-    build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
-    restart: unless-stopped
-    # Interactive documentation sessions with the Claude Agent SDK. DATA_ROOT is read-only and the CLI's home is the
-    # only writable mount. It needs the internet for Bedrock or Anthropic, so Bash can reach the internet too (accepted).
-    # Bash must not reach the other services (admin-api trusts the proxy's user headers): the worker is only on the
-    # claude-code network, shared with postgres alone.
-    # It runs as root to hold its secrets; each session's CLI runs as the user of its worker slot (claude1..claude8,
-    # uids 1001-1008, group 1001) via knowledge-claude-cli, hence SETUID/SETGID, and CHOWN to give the session's HOME
-    # (/home/claude/sessions/<id>) to that user. Files under DATA_ROOT must be readable by them (world-readable, or
-    # group-readable by gid 1001). At most 8 sessions run at once (CLAUDE_CODE_MAX_SESSIONS, default 4).
-    networks: [claude-code]
-    entrypoint: [/services/admin-api/.venv/bin/knowledge-claude-code-worker]
-    command: []
-    read_only: true
-    cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN]
-    security_opt: ["no-new-privileges:true"]
-    dns_search: ${DOCKER_DNS_SEARCH:-.}
-    volumes:
-      - *data-root
-      - claude-code-home:/home/claude
-    environment:
-      <<: *data-env
-      HOME: /home/claude
-      TMPDIR: /home/claude/tmp
-      CLAUDE_CODE_CLI: /services/admin-api/.venv/bin/knowledge-claude-cli
-      CLAUDE_CODE_MAX_SESSIONS: ${CLAUDE_CODE_MAX_SESSIONS:-4}
-      PGHOST: postgres
-      PGDATABASE: knowledge_agent
-      PGUSER: knowledge_agent
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Run make setup}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run make setup}
-      AUTH_ISSUER_URL: http://${WEB_HOST:-localhost}:${KEYCLOAK_PORT:-8181}/realms/docs
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-
   agent-session-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
-    # Native agents' Generate documents sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
+    # Generate documents and Test sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
     # providers and SSH hosts on default and shell-worker on agent-shell; it has no host port.
     networks: [default, agent-shell]
     dns_search: ${DOCKER_DNS_SEARCH:-.}
@@ -410,14 +371,11 @@ services:
 networks:
   agent-shell:
     internal: true
-  # claude-code-worker and postgres only; not internal, so the worker keeps internet egress for the model provider.
-  claude-code: {}
   jira-test:
     internal: true
 
 volumes:
   agent-workspaces:
-  claude-code-home:
   postgres-data:
   keycloak-data:
   phoenix-data:
