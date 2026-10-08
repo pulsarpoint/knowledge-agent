@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.collections import document_collections
 from knowledge_admin.data_root import data_path
-from knowledge_admin.knowledge_agents.config import per_run
+from knowledge_admin.knowledge_agents.config import load_graphs, per_run
 
 FIXED = 'This agent uses fixed resources.'
 NOT_USED = 'This agent does not use {what}.'
@@ -173,8 +173,12 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
         given[kind.key] = [source[item] for item in ids]
     code_ids = set(wanted['code_project_ids'])
     effective['code'] = {**effective['code'], 'all_projects': False, 'projects': given['code_project_ids']}
-    if 'graphs' in effective['code']:
-        effective['code']['graphs'] = [graph for graph in effective['code']['graphs'] if str(graph.get('id')) in code_ids]
+    graphs = [graph for graph in effective['code'].get('graphs', []) if str(graph.get('id')) in code_ids]
+    known = {str(graph['id']) for graph in graphs}
+    missing = [item for item in wanted['code_project_ids'] if item not in known]
+    if missing and effective['code']['enabled']:
+        graphs += load_graphs(conn, project_id, missing)  # "All code projects": projects added after the snapshot
+    effective['code']['graphs'] = graphs
     documents = {key: value for key, value in effective['documents'].items() if key not in ('folders', 'all_folders')}
     effective['documents'] = {**documents, 'all_collections': False, 'collections': given['collection_ids']}
     effective['ssh'] = {**effective['ssh'], 'servers': given['server_ids']}

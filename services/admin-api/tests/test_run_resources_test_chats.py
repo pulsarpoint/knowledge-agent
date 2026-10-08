@@ -157,6 +157,7 @@ def test_a_version_pinned_per_run_chat_drafts_with_that_versions_selection(analy
                           params={'review_id': review_of(store, session)}).json()['config']
     snapshot = a.client.get(f'/api/agents/{a.agent}/config', headers=HEADERS, params={'version_id': version['id']}).json()
     assert source['instructions'] == 'Pinned instructions'
+    snapshot['code'].pop('graphs')  # live; a version source leaves them out
     assert source['code'] == snapshot['code'] and source['code']['all_projects'] is True
     assert 'run_resources' not in source
 

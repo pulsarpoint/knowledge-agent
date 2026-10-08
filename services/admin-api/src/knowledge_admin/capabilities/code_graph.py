@@ -3,13 +3,13 @@
 import asyncio
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import Literal
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
-from knowledge_admin.code_paths import code_root
+from knowledge_admin.code_paths import code_root, rebase_code_path
 from knowledge_admin.code_processing import CodeProcessingError, index_directory, source_inventory
 
 
@@ -30,6 +30,46 @@ def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
     return {key: value for key, value in {**saved, 'name': project['name'],
         'folder_paths': [str(root / p) for p in current['folders']],
         'code_root': str(root / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}
+
+
+GRAPH_KEYS = ('id', 'name', 'graph_path', 'code_root', 'source_hash')
+
+
+def _relative_folders(paths, root: PurePosixPath) -> list[str]:
+    """Folder paths as source_inventory names them: relative to CODE_ROOT, legacy /work/code paths rebased."""
+    folders = set()
+    for value in paths:
+        path = PurePosixPath(rebase_code_path(value))
+        folders.add(str(path.relative_to(root)) if path.is_absolute() and path.is_relative_to(root) else value)
+    return sorted(folders)
+
+
+def current_graph(project: dict) -> dict | None:
+    """The project's generated graph as the code_graph and shell tools read it, decided from what generation stored
+    (the manifest and the snapshot it names) without reading or hashing source files; None when it was never
+    generated, its snapshot is gone, the folder selection changed since, or the index or code mount is not configured.
+    A source edit since generation is not detected here.
+    project: id, name and folder_paths (absolute under CODE_ROOT or relative to it, as source_inventory takes them)."""
+    root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
+    if root.anchor != '/':
+        return None
+    try:
+        directory = index_directory(project['id'])
+        manifest = directory / 'manifest.json'
+        if not manifest.is_file():
+            return None
+        saved = json.loads(manifest.read_text())
+        source_hash = saved['source_hash']
+        graph_path = directory / source_hash / 'graph.sqlite'
+        if not graph_path.is_file():
+            return None
+        if _relative_folders(saved['folder_paths'], root) != _relative_folders(project['folder_paths'], root):
+            return None
+        relative_root = saved.get('relative_root', '.')
+    except (CodeProcessingError, OSError, ValueError, KeyError, TypeError):
+        return None
+    return {'id': str(project['id']), 'name': project['name'], 'graph_path': str(graph_path),
+            'code_root': str(root / relative_root), 'source_hash': source_hash}
 
 
 async def code_graph(context: RunContext, project_id: str,
