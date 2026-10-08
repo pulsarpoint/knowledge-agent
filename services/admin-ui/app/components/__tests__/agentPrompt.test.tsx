@@ -12,7 +12,7 @@ vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'
 vi.mock('../OperationsView', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'custom', name: 'Payments analyst', description: '', when_to_use: '',
-  enabled: true, runtime: 'openai', documents_enabled: false, repositories_enabled: false, ssh_enabled: false,
+  enabled: true, documents_enabled: false, repositories_enabled: false, ssh_enabled: false,
   skills_enabled: false, mcp_enabled: false, services_enabled: false, documents_grounded: false, revision: 4,
   model_id: null, all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [],
   service_ids: [], skill_ids: [], system_prompt: 'Use evidence.' };

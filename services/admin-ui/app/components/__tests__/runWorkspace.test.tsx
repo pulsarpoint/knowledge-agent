@@ -3,12 +3,12 @@ import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
 import RunWorkspace, { type RunWorkspaceProps } from '../RunWorkspace';
-import type { SessionDetail, SessionEvent } from '~/lib/claudeCode';
+import type { SessionDetail, SessionEvent } from '~/lib/generations';
 import type { SessionRun } from '~/lib/useSessionEvents';
 
 const detail: SessionDetail = {
-  id: 's1', title: 'How many retries?', runtime: 'openai', agent_id: 'custom', agent_name: 'Payments helper', model_name: 'GPT',
-  status: 'waiting', status_message: '', turns: 2, input_tokens: 1300, output_tokens: 300, cached_tokens: 20, cost_usd: 0,
+  id: 's1', title: 'How many retries?', agent_id: 'custom', agent_name: 'Payments helper', model_name: 'GPT',
+  status: 'waiting', status_message: '', turns: 2, input_tokens: 1300, output_tokens: 300, cached_tokens: 20,
   purpose: 'test', model_calls: 2, reasoning_tokens: 30, document_id: null, document_title: null, folder: null,
   worker_active: true, queued: 0, created_at: '2026-10-08T10:00:00Z', last_activity_at: '2026-10-08T10:00:00Z', closed_at: null,
   document_name: null, draft: null, draft_turn: null, model_id: 'gpt', prompt_snapshot: { system_prompt: 'Help.' },
@@ -31,24 +31,17 @@ const run = (change: Partial<SessionRun> = {}): SessionRun => ({ session: detail
   loadOlder: vi.fn(async () => {}), toolCounts: detail.tool_counts, reconnecting: false, error: '', setError: vi.fn(), ...change });
 const composer = { value: '', onChange: vi.fn(), onSend: vi.fn() };
 function show(props: Partial<RunWorkspaceProps> = {}) {
-  const all: RunWorkspaceProps = { run: run(), agentName: 'Payments helper', agentType: 'Native', resources: 'Per run: App', composer, ...props };
+  const all: RunWorkspaceProps = { run: run(), agentName: 'Payments helper', resources: 'Per run: App', composer, ...props };
   return render(<MemoryRouter><RunWorkspace {...all} /></MemoryRouter>);
 }
 
-test('the header shows the agent, its type and resources, the status, the tokens and the tools used', () => {
+test('the header shows the agent, its resources, the status, the tokens and the tools used', () => {
   show({ headerActions: <button type="button">History</button> });
-  expect(screen.getByText('Native')).toBeVisible();
   expect(screen.getByText('Resources: Per run: App')).toBeVisible();
   expect(screen.getByText('Waiting for you')).toBeVisible();
   expect(screen.getByLabelText('Token totals')).toHaveTextContent('In 1,300 · Out 300 · Cached 20 · Model calls 2 · Reasoning 30');
   expect(screen.getByLabelText('Tools used')).toHaveTextContent('search_documents 1');
   expect(screen.getByRole('button', { name: 'History' })).toBeVisible();
-});
-
-test('the header omits Model calls for Claude Code, which records one aggregate usage per turn', () => {
-  show({ run: run({ session: { ...detail, runtime: 'claude_code' } }) });
-  expect(screen.getByLabelText('Token totals')).toHaveTextContent('In 1,300 · Out 300 · Cached 20 · Reasoning 30');
-  expect(screen.getByLabelText('Token totals')).not.toHaveTextContent('Model calls');
 });
 
 test('a turn is your message, a collapsed Worked block and the answer with its sources; failed and stopped turns say so', () => {
@@ -67,15 +60,10 @@ test('a turn is your message, a collapsed Worked block and the answer with its s
   expect(within(third).getByText('Stopped.')).toBeVisible();
 });
 
-test('a turn lists its model calls, except for Claude Code which records one aggregate usage per turn', () => {
-  const view = show();
+test('a turn lists its model calls', () => {
+  show();
   expect(screen.getByLabelText('Turn 1 usage')).toHaveTextContent('Model calls 1');
   expect(screen.getByLabelText('Turn 1 usage')).toHaveTextContent('In 1,300 · Out 200');
-  view.unmount();
-  show({ run: run({ session: { ...detail, runtime: 'claude_code' } }) });
-  expect(screen.getByLabelText('Turn 1 usage')).toHaveTextContent('In 1,300 · Out 200');
-  expect(screen.getByLabelText('Turn 1 usage')).not.toHaveTextContent('Model calls');
-  expect(screen.getByText('Worked · 1 tool call · 1.5k tokens')).toBeVisible();
 });
 
 test('the main agent in the sidebar follows the session live', () => {
@@ -84,7 +72,7 @@ test('the main agent in the sidebar follows the session live', () => {
   expect(agents.getByText('Payments helper')).toBeVisible();
   expect(agents.getByText('Waiting for you · 1 tool call · 1.6k tokens')).toBeVisible();
   view.rerender(<MemoryRouter><RunWorkspace run={run({ session: { ...detail, status: 'working', input_tokens: 4000, output_tokens: 600 },
-    toolCounts: [{ name: 'search_documents', calls: 3 }] })} agentName="Payments helper" agentType="Native" resources="Fixed" composer={composer} /></MemoryRouter>);
+    toolCounts: [{ name: 'search_documents', calls: 3 }] })} agentName="Payments helper" resources="Fixed" composer={composer} /></MemoryRouter>);
   expect(agents.getByText('Working · 3 tool calls · 4.6k tokens')).toBeVisible();
 });
 
@@ -172,7 +160,7 @@ test('a subagent is a line in the Worked block and an entry in the sidebar; Open
   expect(entry).toHaveAttribute('aria-pressed', 'true');
   view.rerender(<MemoryRouter><RunWorkspace run={run({ session: working, events: [...delegated,
     event(5, 'tool_result', { name: 'run_subagent', call_id: 's1', preview: 'Worker reads w.py.', is_error: false })] })}
-    agentName="Payments helper" agentType="Native" resources="Fixed" composer={composer} /></MemoryRouter>);
+    agentName="Payments helper" resources="Fixed" composer={composer} /></MemoryRouter>);
   expect(agents.getByRole('button', { name: /Read the worker/ })).toHaveTextContent('Done · 1 tool call · 23k tokens');  // live
   expect(screen.getByRole('form', { name: 'Message box' })).toBeVisible();  // still talks to the main agent
   fireEvent.click(within(crumbs).getByRole('button', { name: 'Main agent' }));
@@ -210,7 +198,7 @@ function sized(pane: HTMLElement, scrollHeight: number, clientHeight: number) {
   Object.defineProperty(pane, 'scrollTop', { configurable: true, writable: true, value: 0 });
 }
 const workspace = (change: Partial<SessionRun>) => <MemoryRouter><RunWorkspace run={run(change)}
-  agentName="Payments helper" agentType="Native" resources="Fixed" composer={composer} /></MemoryRouter>;
+  agentName="Payments helper" resources="Fixed" composer={composer} /></MemoryRouter>;
 
 test('while a subagent is shown, earlier pages are not loaded and the paging lines are hidden', () => {
   const loadOlder = vi.fn(async () => {});

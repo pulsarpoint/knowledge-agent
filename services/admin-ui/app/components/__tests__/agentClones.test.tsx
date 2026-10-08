@@ -17,7 +17,7 @@ vi.mock('../OperationsView', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => null }));
 
 const base: profiles.AgentProfile = { id: 'operations', name: 'SSH agent', description: '', when_to_use: '', enabled: true,
-  runtime: 'openai', documents_enabled: false, repositories_enabled: false, ssh_enabled: true, skills_enabled: false,
+  documents_enabled: false, repositories_enabled: false, ssh_enabled: true, skills_enabled: false,
   mcp_enabled: false, services_enabled: false, documents_grounded: false, revision: 3, model_id: null,
   all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [],
   skill_ids: [], system_prompt: 'Operate servers.', cloned_from: null, original: null };

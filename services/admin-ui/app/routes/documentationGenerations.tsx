@@ -1,6 +1,6 @@
 import AdminLayout from '../components/AdminLayout';
-import ClaudeCodeSessionsView from '../components/ClaudeCodeSessionsView';
+import GenerationsView from '../components/GenerationsView';
 
 export default function Page() {
-  return <AdminLayout><ClaudeCodeSessionsView /></AdminLayout>;
+  return <AdminLayout><GenerationsView /></AdminLayout>;
 }

@@ -7,18 +7,15 @@ const sent = () => JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
 const lead = { id: 'lead', name: 'Lead', description: '', when_to_use: '', enabled: true, revision: 3 } as AgentProfile;
 
 test('a tools save sends what a subagent may use', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ runtime: 'openai', revision: 5, tools: [] })));
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ revision: 5, tools: [] })));
   await saveAgentTools('lead', 4, [{ tool: 'read_file', mode: 'on', usage: null, subagent_allowed: false } as AgentTool]);
   expect(sent()).toEqual({ expected_revision: 4, tools: [{ tool: 'read_file', mode: 'on', usage: null, subagent_allowed: false }] });
 });
 
-test('General sends May start subagents for native agents only', async () => {
+test('General sends May start subagents', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(lead)));
-  await saveAgent({ ...lead, runtime: 'openai', subagents: true });
+  await saveAgent({ ...lead, subagents: true });
   expect(sent().subagents).toBe(true);
-  vi.mocked(fetch).mockClear();
-  await saveAgent({ ...lead, runtime: 'claude_code', subagents: true });
-  expect(sent()).not.toHaveProperty('subagents');
 });
 
 test('new agents never get run_subagent from their capabilities', () => {

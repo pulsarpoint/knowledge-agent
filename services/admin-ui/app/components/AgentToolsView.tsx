@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '../lib/api';
 import { toast } from 'sonner';
-import { CLAUDE_CODE_TOOLS_NOTE, SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
+import { SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -115,9 +115,6 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
     } finally { setBusy(false); }
   }
   if (!saved) return error ? <Alert variant="destructive"><AlertDescription>{error}<Button variant="outline" size="sm" onClick={() => void load(true)}>Retry</Button></AlertDescription></Alert> : <Skeleton className="h-64 w-full" />;
-  if (saved.runtime === 'claude_code') return <Card><CardHeader><CardTitle>Tools</CardTitle><CardDescription>{CLAUDE_CODE_TOOLS_NOTE}</CardDescription></CardHeader>
-    <CardContent>{saved.claude_code_tools?.length ? <ul aria-label="Claude Code tools" className="flex flex-wrap gap-2">{saved.claude_code_tools.map(name => <li key={name}><Badge variant="secondary">{name}</Badge></li>)}</ul>
-      : <p className="text-sm text-muted-foreground">No Claude Code tools are on.</p>}</CardContent></Card>;
   return <Card><CardHeader><CardTitle>Tools</CardTitle><CardDescription>What this agent can do. The usage instructions are what the model reads about each tool; edit them to steer when and how it is used.</CardDescription></CardHeader>
     <CardContent className="flex flex-col gap-6">
       {error && <Alert variant="destructive"><AlertDescription>{error}{stale && <> Your changes are kept on the current tools: save again to apply them, or reload to discard them.

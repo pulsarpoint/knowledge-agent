@@ -1,5 +1,5 @@
 import { request } from './api';
-import type { AgentResources, AgentRuntime, ClaudeCodeTool } from './profiles';
+import type { AgentResources } from './profiles';
 import type { CatalogTool } from './tools';
 
 export interface WizardResource { id: string; name: string; description?: string }
@@ -30,13 +30,12 @@ export interface WizardOptions {
     services: WizardResource[]; existing_agents: { name: string; description: string; when_to_use: string }[];
   };
 }
-export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[]; tools?: string[];
-  /** May start subagents, and the tools a subagent may not be given (native agents). */
+export type NewAgent = AgentProposal & { resources: AgentResources; tools?: string[];
+  /** May start subagents, and the tools a subagent may not be given. */
   subagents?: boolean; subagent_blocked?: string[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
-/** The designer proposes the agent's model only among models that fit the chosen agent type. */
-export const generateAgent = (role: string, model_id: string, runtime: AgentRuntime) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id, runtime }),
+export const generateAgent = (role: string, model_id: string) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, model_id }),
 });
 export const createWizardAgent = (value: NewAgent) => request<{ id: string }>('/api/agents/wizard', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),

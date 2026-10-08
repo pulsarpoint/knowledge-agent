@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { getSession, getSessionHistory, sessionEventsUrl, type SessionDetail, type SessionEvent, type SessionState, type SessionStatus } from './claudeCode';
-import type { AgentRuntime } from './profiles';
+import { getSession, getSessionHistory, sessionEventsUrl, type SessionDetail, type SessionEvent, type SessionState, type SessionStatus } from './generations';
 import { withLaterCalls, type ToolCount } from './runs';
 
 export type OlderState = 'more' | 'loading' | 'start';
@@ -120,15 +119,12 @@ export function useSessionEvents(sessionId: string | null): SessionRun {
 
 export const STOPPING = 'Stopping the current turn…';
 
-/** The notice after a message was sent: a native agent reads comments before its next model call; Claude Code reads
- * them after the current response. */
-export const sentNotice = (working: boolean, runtime?: AgentRuntime) =>
-  !working ? 'Sent. The agent starts a new turn with your message.'
-    : runtime === 'openai' ? 'Queued. Your comment reaches the agent at its next step.'
-    : 'Queued. The agent gets your message when it finishes its current response.';
+/** The notice after a message was sent: an agent reads comments before its next model call. */
+export const sentNotice = (working: boolean) =>
+  !working ? 'Sent. The agent starts a new turn with your message.' : 'Queued. Your comment reaches the agent at its next step.';
 
 /** The send/Stop notice of a session page, shared by the session page and the Test tab: `stopping()` and
- * `sent(working, runtime)` set it, `clear()` empties it (call before a new request), and the next status change
+ * `sent(working)` set it, `clear()` empties it (call before a new request), and the next status change
  * (the answer to Stop) clears the Stopping notice but leaves other notices alone. */
 export function useSessionNotice(status: SessionStatus | undefined) {
   const [notice, setNotice] = useState('');
@@ -139,6 +135,6 @@ export function useSessionNotice(status: SessionStatus | undefined) {
   }, [status]);
   const clear = useCallback(() => setNotice(''), []);
   const stopping = useCallback(() => setNotice(STOPPING), []);
-  const sent = useCallback((working: boolean, runtime?: AgentRuntime) => setNotice(sentNotice(working, runtime)), []);
+  const sent = useCallback((working: boolean) => setNotice(sentNotice(working)), []);
   return { notice, clear, stopping, sent };
 }

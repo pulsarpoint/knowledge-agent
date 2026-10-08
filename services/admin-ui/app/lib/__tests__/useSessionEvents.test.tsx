@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { SessionStatus } from '../claudeCode';
+import type { SessionStatus } from '../generations';
 import { sentNotice, STOPPING, useSessionEvents, useSessionNotice } from '../useSessionEvents';
 
 class Stream extends EventTarget {
@@ -12,7 +12,7 @@ class Stream extends EventTarget {
 }
 beforeEach(() => { Stream.instances = []; vi.stubGlobal('EventSource', Stream); });
 afterEach(() => vi.unstubAllGlobals());
-const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: 0,
+const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0,
   model_calls: 0, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null, worker_active: false, queued: 1 };
 const detail = { ...state, id: 's1', title: 'Payments', purpose: 'documents', tool_counts: [{ name: 'Read', calls: 5 }], tool_counts_through_id: 10 };
 const message = (id: number) => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } });
@@ -34,7 +34,7 @@ test('opens with the latest page and streams after its newest event', async () =
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([message(150), message(151)], true) : Response.json(detail)));
   const { result } = renderHook(() => useSessionEvents('s1'));
   const stream = await opened();
-  expect(stream.url).toBe('/api/claude-code/sessions/s1/events?after=151');
+  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=151');
   expect(ids(result.current.events)).toEqual([150, 151]);
   expect(result.current.older).toBe('more');
   act(() => stream.emit('run_event', message(152)));
@@ -80,7 +80,7 @@ test('live tool counts: earlier pages are never added; one earlier page loads at
   await waitFor(() => expect(result.current.session).not.toBeNull());
   const before = vi.fn();
   act(() => { void result.current.loadOlder(before); void result.current.loadOlder(before); });
-  expect(older.map(item => item.url)).toEqual(['/api/claude-code/sessions/s1/events/history?before=150&limit=100']);
+  expect(older.map(item => item.url)).toEqual(['/api/generations/sessions/s1/events/history?before=150&limit=100']);
   expect(result.current.older).toBe('loading');
   expect(result.current.toolCounts).toEqual([]);
   unmount();
@@ -134,8 +134,7 @@ test('live tool counts: the session state never replaces the counts, and they re
 
 test('the session notice: Stop and send notices, cleared by the next status but not by other notices', () => {
   expect(sentNotice(false)).toBe('Sent. The agent starts a new turn with your message.');
-  expect(sentNotice(true, 'openai')).toBe('Queued. Your comment reaches the agent at its next step.');
-  expect(sentNotice(true, 'claude_code')).toBe('Queued. The agent gets your message when it finishes its current response.');
+  expect(sentNotice(true)).toBe('Queued. Your comment reaches the agent at its next step.');
   const { result, rerender } = renderHook(({ status }) => useSessionNotice(status), { initialProps: { status: 'working' as SessionStatus } });
   act(() => result.current.stopping());
   expect(result.current.notice).toBe(STOPPING);
@@ -143,7 +142,7 @@ test('the session notice: Stop and send notices, cleared by the next status but 
   expect(result.current.notice).toBe(STOPPING);
   rerender({ status: 'waiting' });
   expect(result.current.notice).toBe('');
-  act(() => result.current.sent(true, 'openai'));
+  act(() => result.current.sent(true));
   rerender({ status: 'working' });
   expect(result.current.notice).toBe('Queued. Your comment reaches the agent at its next step.');
   act(() => result.current.clear());

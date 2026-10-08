@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Pencil, Plus } from 'lucide-react';
-import { closeSession, sendMessage, statusLabels, stopSession } from '../lib/claudeCode';
+import { closeSession, sendMessage, statusLabels, stopSession } from '../lib/generations';
 import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_KINDS, type RunResourceOptions, type RunResourcesInput } from '../lib/profiles';
 import { runPath } from '../lib/runs';
 import { createTestSession, getTestSessions, reviewTestSession, type SessionReview, type TestSessionSummary } from '../lib/testSessions';
@@ -113,7 +113,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
     }
     const result = await sendMessage(session.id, text);
     setMessage('');
-    sent(result.working, session.runtime);
+    sent(result.working);
   });
   const stop = () => act(async () => { if (session) { await stopSession(session.id); stopping(); } });
 
@@ -155,7 +155,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
     {!sessionId && runOptionsError && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">
       <span>{runOptionsError}</span><Button variant="outline" size="sm" onClick={() => setRunOptionsRetry(count => count + 1)}>Retry</Button>
     </AlertDescription></Alert>}
-    <div className="min-h-0 flex-1"><RunWorkspace run={run} agentName={agentName} agentType="Native" resources={resources} notice={notice || info}
+    <div className="min-h-0 flex-1"><RunWorkspace run={run} agentName={agentName} resources={resources} notice={notice || info}
       heading={session ? <p className="truncate text-sm font-medium">{session.title}</p> : undefined}
       headerActions={<>
         <Button variant="ghost" size="sm" onClick={() => setPanel('history')}><History data-icon="inline-start" />History</Button>

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
-import ClaudeCodeSessionView from '../ClaudeCodeSessionView';
+import GenerationView from '../GenerationView';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
 
 class Stream extends EventTarget {
@@ -13,12 +13,12 @@ class Stream extends EventTarget {
 }
 beforeEach(() => { Stream.instances = []; vi.stubGlobal('EventSource', Stream); });
 afterEach(() => vi.unstubAllGlobals());
-const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: 0,
+const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0,
   model_calls: 0, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null, worker_active: false, queued: 1 };
 const detail = { ...state, id: 's1', title: 'Payments – API reference', purpose: 'documents', document_name: 'Payments – API reference',
   folder: 'payments-api-docs', agent_id: 'writer', agent_name: 'Technical writer', model_id: 'claude', model_name: 'Claude on Bedrock',
-  document_title: null, runtime: 'claude_code', run_resources: null,
-  prompt_snapshot: { system_prompt: 'You are an expert technical writer.', claude_code_tools: ['Read'] },
+  document_title: null, run_resources: null,
+  prompt_snapshot: { system_prompt: 'You are an expert technical writer.' },
   context_snapshot: { folders: [{ path: '/work/data/code/app', kind: 'code_project', name: 'Payments API', code_project_id: 'repo' }],
     code_project_ids: ['repo'], instructions: '' },
   tool_counts: [{ name: 'Read', calls: 5 }, { name: 'Grep', calls: 2 }],
@@ -30,9 +30,8 @@ const opened = () => waitFor(() => { expect(Stream.instances).toHaveLength(1); r
 
 test('the session page shows the tools the session used', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
-  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 2');
-  expect(screen.getByText('Claude Code')).toBeVisible();
   expect(screen.getByText('Resources: Fixed')).toBeVisible();
 });
 
@@ -50,11 +49,11 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
       : Response.json({ error: { message: SAME_DOCUMENT_NAME } }, { status: 409 });
     return Response.json({ id: 's1' });
   }));
-  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect((await screen.findAllByText('Starting'))[0]).toBeVisible();
-  expect(screen.getByText(/Waiting for the Claude Code worker/)).toBeVisible();
+  expect(screen.getByText(/Waiting for the agent session worker/)).toBeVisible();
   const stream = await opened();
-  expect(stream.url).toBe('/api/claude-code/sessions/s1/events?after=0');
+  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=0');
   act(() => {
     stream.emit('session', { ...state, status: 'working', turns: 1, worker_active: true, queued: 0 });
     stream.emit('run_event', { id: 1, turn: 1, seq: 3, kind: 'input', payload: { task: 'Document the payments API.' } });
@@ -62,7 +61,7 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
     stream.emit('run_event', { id: 3, turn: 1, seq: 5, kind: 'tool_call', payload: { name: 'Read', summary: '/work/data/code/app/main.py' } });
     stream.emit('run_event', { id: 4, turn: 1, seq: 6, kind: 'tool_result', payload: { name: 'Read', preview: 'import app', is_error: false } });
   });
-  expect(screen.queryByText(/Waiting for the Claude Code worker/)).toBeNull();
+  expect(screen.queryByText(/Waiting for the agent session worker/)).toBeNull();
   const run = within(screen.getByRole('region', { name: 'Run' }));
   expect(await run.findByLabelText('Your message')).toHaveTextContent('Document the payments API.');
   fireEvent.click(run.getByText('Working · 1 tool call · 0 tokens'));
@@ -72,10 +71,10 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   expect(draft.getByRole('button', { name: 'Open draft' })).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Also cover retries.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));  // usable while the agent works
-  expect(await screen.findByText('Queued. The agent gets your message when it finishes its current response.')).toBeVisible();
+  expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/stop'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/stop'));
   expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
   act(() => {
     stream.emit('run_event', { id: 5, turn: 1, seq: 7, kind: 'message', payload: { text: '# Payments API' } });
@@ -99,7 +98,7 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   expect(screen.getByRole('link', { name: 'Open document' })).toHaveAttribute('href', '/documents/doc');
   expect(posts.filter(p => p.url.endsWith('/document')).map(p => p.body)).toEqual([{ update_existing: false }, { update_existing: true }]);
   fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/close'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/close'));
   act(() => { stream.emit('session', { ...state, status: 'closed', turns: 1, draft: '# Payments API\n\nRetries back off.' }); stream.emit('closed', {}); });
   expect(screen.getAllByText('Finished')[0]).toBeVisible();
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
@@ -114,10 +113,10 @@ test('opening shows the latest page, streams after its newest event and loads ea
     if (url.endsWith('/events/history?limit=100')) return page([answer(150), answer(151)], true);
     return Response.json({ ...detail, status: 'waiting', turns: 151, queued: 0 });
   }));
-  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Message 151')).toBeVisible();
   const stream = await opened();
-  expect(stream.url).toBe('/api/claude-code/sessions/s1/events?after=151');
+  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=151');
   expect(screen.queryByText('Beginning of the session')).toBeNull();
   const panel = screen.getByTestId('run-scroll');
   Object.defineProperty(panel, 'scrollHeight', { configurable: true, get: () => panel.querySelectorAll('[data-turn]').length * 100 });
@@ -128,8 +127,8 @@ test('opening shows the latest page, streams after its newest event and loads ea
   expect(screen.getByText('Beginning of the session')).toBeVisible();
   expect(panel.scrollTop).toBe(100);  // the earlier turn went above: what was on screen stays in place
   const history = () => urls.filter(url => url.includes('/events/history'));
-  expect(history()).toEqual(['/api/claude-code/sessions/s1/events/history?limit=100',
-    '/api/claude-code/sessions/s1/events/history?before=150&limit=100']);
+  expect(history()).toEqual(['/api/generations/sessions/s1/events/history?limit=100',
+    '/api/generations/sessions/s1/events/history?before=150&limit=100']);
   panel.scrollTop = 0;
   fireEvent.scroll(panel);  // the beginning is reached: nothing more to load
   expect(history()).toHaveLength(2);
@@ -162,13 +161,13 @@ test('a short history fills the main pane by loading earlier pages until it over
       if (url.endsWith('?limit=100')) return page([answer(150), answer(151)], true);
       return Response.json({ ...detail, status: 'waiting', turns: 151, queued: 0 });
     }));
-    render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+    render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
     expect(await screen.findByText('Message 90')).toBeVisible();  // 2 + 1 turns do not fill 450px; 5 do
     await act(async () => {});
     expect(urls.filter(url => url.includes('/events/history'))).toEqual([
-      '/api/claude-code/sessions/s1/events/history?limit=100',
-      '/api/claude-code/sessions/s1/events/history?before=150&limit=100',
-      '/api/claude-code/sessions/s1/events/history?before=120&limit=100']);
+      '/api/generations/sessions/s1/events/history?limit=100',
+      '/api/generations/sessions/s1/events/history?before=150&limit=100',
+      '/api/generations/sessions/s1/events/history?before=120&limit=100']);
     expect(screen.queryByText('Beginning of the session')).toBeNull();
   } finally { restore(); }
 });
@@ -176,8 +175,8 @@ test('a short history fills the main pane by loading earlier pages until it over
 test('the session page has one page heading, the session title', async () => {
   const { default: AdminLayout } = await import('../AdminLayout');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : url.startsWith('/api/claude-code/') ? Response.json(detail) : Response.json({ is_admin: true })));
-  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><ClaudeCodeSessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
+    : url.startsWith('/api/generations/') ? Response.json(detail) : Response.json({ is_admin: true })));
+  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><GenerationView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   expect(screen.getAllByRole('link', { name: 'Generate documents' }).map(link => link.getAttribute('href'))).toEqual(['/documentation/generations', '/documentation/generations']);
@@ -188,14 +187,13 @@ test('a native session waits for the agent session worker, and a comment to a wo
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.includes('/events/history')) return page([]);
     if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
-    return Response.json(working ? { ...detail, runtime: 'openai', status: 'working', worker_active: true } : { ...detail, runtime: 'openai' });
+    return Response.json(working ? { ...detail, status: 'working', worker_active: true } : { ...detail });
   }));
-  const view = render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  const view = render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Waiting for the agent session worker. The session starts when the worker is running.')).toBeVisible();
-  expect(screen.queryByText(/Claude Code worker/)).toBeNull();
   view.unmount();
   working = true;
-  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   const box = await screen.findByLabelText('Message');
   expect(box).toBeEnabled();
   fireEvent.change(box, { target: { value: 'Also cover retries' } });
@@ -208,7 +206,7 @@ test('the session page fills the screen below the app header, so the message box
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top: 100 } as DOMRect));
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 });
   try {
-    render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+    render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
     const box = await screen.findByRole('form', { name: 'Message box' });
     expect(box.closest<HTMLElement>('[style]')?.style.height).toBe('576px');  // 700 - 100 - 24 (the main padding)
   } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
@@ -216,10 +214,10 @@ test('the session page fills the screen below the app header, so the message box
 
 test('a Test session opened here goes to its agent Test tab', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : Response.json({ ...detail, purpose: 'test', runtime: 'openai', agent_id: 'custom agent' })));
+    : Response.json({ ...detail, purpose: 'test', agent_id: 'custom agent' })));
   function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname + location.search}</output>; }
   render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
-    <Route path="/documentation/generations/:id" element={<ClaudeCodeSessionView sessionId="s1" />} />
+    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
     <Route path="*" element={<Where />} />
   </Routes></MemoryRouter>);
   expect(await screen.findByLabelText('URL')).toHaveTextContent('/agents/custom%20agent?view=test&session_id=s1');

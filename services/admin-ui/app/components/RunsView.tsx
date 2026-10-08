@@ -9,7 +9,7 @@ import { Input } from '~/components/ui/input';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-const KINDS: Record<string, string> = { test: 'Agent test', test_session: 'Test session', claude_code: 'Claude Code', native_session: 'Native session' };
+const KINDS: Record<string, string> = { test: 'Agent test', test_session: 'Test session', native_session: 'Native session' };
 
 export default function RunsView() {
   const [params, setParams] = useSearchParams();

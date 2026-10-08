@@ -32,13 +32,13 @@ function setup({ models = MODELS, hold = false, error = '', failPrompt = '', con
   const contextText = (body: Record<string, string[]>) =>
     `# What you are documenting\n\n${Object.values(body).flat().join(', ')}`;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/claude-code/context') {
+    if (url === '/api/generations/context') {
       const body = JSON.parse(init!.body as string);
       if (contextFails) return Response.json({ error: { message: 'Context service is down' } }, { status: 500 });
       if (hold) return new Promise<Response>(resolve => held.push({ body, resolve }));
       return Response.json({ text: contextText(body) });
     }
-    if (url === '/api/claude-code/sessions' && init?.method === 'POST') {
+    if (url === '/api/generations/sessions' && init?.method === 'POST') {
       posts.push(JSON.parse(init.body as string));
       return error ? Response.json({ error: { message: error } }, { status: 400 }) : Response.json({ id: 'session-1' }, { status: 201 });
     }

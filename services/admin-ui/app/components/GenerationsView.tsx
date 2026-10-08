@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { formatTokens, getSessions, sessionTypeLabel, statusLabels, type SessionSummary } from '~/lib/claudeCode';
+import { formatTokens, getSessions, statusLabels, type SessionSummary } from '~/lib/generations';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -8,7 +8,7 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
 /** Docs → Generate documents: agent sessions that write documents, newest first; leaving a session page does not stop it. */
-export default function ClaudeCodeSessionsView() {
+export default function GenerationsView() {
   const [rows, setRows] = useState<SessionSummary[] | null>(null);
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState('');
@@ -27,7 +27,7 @@ export default function ClaudeCodeSessionsView() {
       {rows.map(row => <TableRow key={row.id}>
         <TableCell><Link className="underline" to={`/documentation/generations/${row.id}`}>{row.title}</Link><p className="text-xs text-muted-foreground">{row.folder}/</p></TableCell>
         <TableCell><Badge variant={row.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[row.status]}</Badge></TableCell>
-        <TableCell><span>{row.agent_name}</span><p className="text-xs text-muted-foreground">{`${row.model_name} · ${sessionTypeLabel(row.runtime)}`}</p></TableCell>
+        <TableCell><span>{row.agent_name}</span><p className="text-xs text-muted-foreground">{row.model_name}</p></TableCell>
         <TableCell>{`${formatTokens(row.input_tokens)} in · ${formatTokens(row.output_tokens)} out`}</TableCell>
         <TableCell>{row.document_id ? <Link className="underline" to={`/documents/${row.document_id}`}>{row.document_title}</Link> : 'Not saved'}</TableCell>
         <TableCell>{new Date(row.last_activity_at).toLocaleString()}</TableCell>
