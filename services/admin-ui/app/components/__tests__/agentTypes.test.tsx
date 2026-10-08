@@ -11,16 +11,13 @@ vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib
   getAgentOptions: vi.fn(), saveAgent: vi.fn(), saveProfileModel: vi.fn(), deleteAgent: vi.fn() }));
 vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
 vi.mock('../OperationsView', () => ({ default: ({ view }: { view: string }) => <div>{view === 'test' ? 'Native test chat' : 'Operations settings'}</div> }));
-vi.mock('../PromptsView', () => ({ default: () => <div>Prompt versions</div> }));
-vi.mock('../AgentInstructions', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
-vi.mock('../AgentVersionsView', () => ({ default: ({ testable }: { testable?: boolean }) => <div>{testable === false ? 'Versions without Test vN' : 'Versions with Test vN'}</div> }));
 
 const writer: profiles.AgentProfile = { id: 'writer', name: 'Technical writer', description: '', when_to_use: '', enabled: true,
   runtime: 'claude_code', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false,
   repositories_enabled: false, ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false,
   documents_grounded: false, revision: 1, model_id: 'claude', all_collections: false, all_repositories: false, collection_ids: [],
-  repository_ids: [], service_ids: [], skill_ids: [], active_prompt: { id: 'p', title: 'Built-in documentation writer', version: 1 } };
+  repository_ids: [], service_ids: [], skill_ids: [], system_prompt: 'You are an expert technical writer.' };
 const connection = { base_url: null, aws_region: 'eu-central-1', has_api_key: true, revision: 1, created_at: '', updated_at: '', enabled: true };
 const claude = { ...connection, id: 'claude', name: 'Claude on Bedrock', provider: 'bedrock', model: 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0', api_format: 'native' } as llm.ModelProfile;
 const gpt = { ...connection, id: 'gpt', name: 'GPT', provider: 'openai', model: 'gpt-5', api_format: 'responses' } as llm.ModelProfile;
@@ -37,7 +34,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/agents/:id" element={<Detail />} /></Routes><Toaster /></MemoryRouter>);
-const TABS = ['General', 'Tools', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Prompts', 'Versions', 'Test'];
+const TABS = ['General', 'Tools', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Test'];
 
 test.each(['writer', 'search'])('both agent types show the same tabs: %s', async id => {
   open(`/agents/${id}`);
@@ -77,15 +74,13 @@ test('tool tabs say what Claude Code gets now, and Test starts a session', async
   expect(screen.getByText(/read-only working folders/)).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Skills' }));
   expect(screen.queryByText(/next update/)).toBeNull();
-  await user.click(screen.getByRole('tab', { name: 'Versions' }));
-  expect(screen.getByText('Versions without Test vN')).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.queryByText('Native test chat')).toBeNull();
   expect(screen.getByText('Test in a Claude Code session')).toBeVisible();
   expect(screen.getByRole('link', { name: 'Start a session' })).toHaveAttribute('href', '/documentation/generations/new?agent=writer');
 });
 
-test('a native agent keeps its test chat and Test vN', async () => {
+test('a native agent keeps its test chat', async () => {
   open('/agents/search?view=test');
   expect(await screen.findByText('Native test chat')).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Start a session' })).toBeNull();
@@ -94,14 +89,13 @@ test('a native agent keeps its test chat and Test vN', async () => {
 test('All agents shows the agent type and New agent opens one wizard', async () => {
   const user = userEvent.setup();
   vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
-    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', documents_enabled: true, model_name: 'GPT', prompt_title: 'Search', prompt_version: 2 },
-    { ...writer, model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', documents_enabled: true, model_name: 'GPT' },
+    { ...writer, model_name: 'Claude on Bedrock' }] });
   render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
   const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
   expect(screen.getByRole('columnheader', { name: 'Agent type' })).toBeVisible();
   expect(within(row).getByText('Claude Code')).toBeVisible();
   expect(within(row).getByText('Claude on Bedrock')).toBeVisible();
-  expect(within(row).getByText('v1 · Built-in documentation writer')).toBeVisible();
   const other = screen.getByRole('link', { name: 'Search agent' }).closest('tr')!;
   expect(within(other).getByText('Native')).toBeVisible();
   expect(within(other).getByText('Documents')).toBeVisible();
@@ -127,8 +121,8 @@ test('General sets Resources next to the agent type', async () => {
 
 test('All agents shows how each agent gets its resources', async () => {
   vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
-    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', resources: 'fixed', model_name: 'GPT', prompt_title: 'Search', prompt_version: 2 },
-    { ...writer, resources: 'per_run', model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+    { ...writer, id: 'search', name: 'Search agent', runtime: 'openai', resources: 'fixed', model_name: 'GPT' },
+    { ...writer, resources: 'per_run', model_name: 'Claude on Bedrock' }] });
   render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
   const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
   expect(screen.getByRole('columnheader', { name: 'Resources' })).toBeVisible();
@@ -139,7 +133,7 @@ test('All agents shows how each agent gets its resources', async () => {
 test('the list says what a per-run agent accepts', async () => {
   vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
     { ...writer, resources: 'per_run', accepts: [{ kind: 'code', limit: 'any' }, { kind: 'servers', limit: 2 }],
-      model_name: 'Claude on Bedrock', prompt_title: 'Built-in documentation writer', prompt_version: 1 }] });
+      model_name: 'Claude on Bedrock' }] });
   render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<AgentsView />} /></Routes></MemoryRouter>);
   const row = (await screen.findByRole('link', { name: 'Technical writer' })).closest('tr')!;
   expect(within(row).getByText('Per run · code (any) · servers (2)')).toBeVisible();
@@ -158,9 +152,9 @@ test('capability tabs of a per-run agent say what callers may pass', async () =>
 
 test('All agents shows each agent\'s tools', async () => {
   vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
-    { ...structuredClone(writer), id: 'analyst', name: 'Analyst', runtime: 'openai', model_name: null, prompt_title: null, prompt_version: null,
+    { ...structuredClone(writer), id: 'analyst', name: 'Analyst', runtime: 'openai', model_name: null,
       tools_summary: { on: 3, per_run: 0, groups: { code: 1, documents: 0, servers: 1, mcp: 1, agents: 0 } } },
-    { ...structuredClone(writer), model_name: null, prompt_title: null, prompt_version: null,
+    { ...structuredClone(writer), model_name: null,
       tools_summary: { claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'] } }] });
   render(<MemoryRouter><AgentsView /></MemoryRouter>);
   expect(await screen.findByRole('columnheader', { name: 'Tools' })).toBeVisible();

@@ -41,12 +41,11 @@ export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean;
   runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[]; resources?: AgentResources;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
-  active_config_version_id?: string | null;
   revision: number; model_id: string | null; all_collections: boolean; all_repositories: boolean;
   collection_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
-  active_prompt: { id: string; title: string; version: number } | null;
+  system_prompt: string; cloned_from?: string | null; original?: { id: string; name: string } | null;
 }
-export interface AgentSummary extends AgentProfile { accepts?: ResourceLimit[]; config_version?: number | null; model_name: string | null; prompt_title: string | null; prompt_version: number | null; tools_summary?: ToolsSummary }
+export interface AgentSummary extends AgentProfile { accepts?: ResourceLimit[]; model_name: string | null; original_name?: string | null; tools_summary?: ToolsSummary }
 export interface AgentOptions {
   collections: { id: string; name: string; description: string }[];
   repositories: { id: string; name: string }[];
@@ -66,6 +65,8 @@ export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,
     ...(runtime ? { runtime } : {}), ...(resources ? { resources } : {}), ...(claude_code_tools ? { claude_code_tools } : {}) }));
 };
+export const saveAgentPrompt = (id: string, revision: number, system_prompt: string) =>
+  request<AgentProfile>(path(id) + '/prompt', json('PUT', { revision, system_prompt }));
 export const saveProfileModel = (value: AgentProfile, model_id: string | null) => request<AgentProfile>(path(value.id) + '/model', json('PUT', { revision: value.revision, model_id }));
 
 export const deleteAgent = (id: string, revision: number, withHistory = false) =>

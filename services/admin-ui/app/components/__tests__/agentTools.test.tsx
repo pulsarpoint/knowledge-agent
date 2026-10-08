@@ -13,16 +13,13 @@ vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib
 vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
 vi.mock('../OperationsView', () => ({ default: () => null }));
-vi.mock('../PromptsView', () => ({ default: () => null }));
-vi.mock('../AgentInstructions', () => ({ default: () => null }));
-vi.mock('../AgentVersionsView', () => ({ default: () => null }));
 vi.mock('../AgentModelSelection', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'payments', name: 'Payments analyst', description: '', when_to_use: '', enabled: true,
   runtime: 'openai', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false, repositories_enabled: true,
   ssh_enabled: false, skills_enabled: false, mcp_enabled: true, services_enabled: false, documents_grounded: false, revision: 4,
   model_id: null, all_collections: false, all_repositories: true, collection_ids: [], repository_ids: [], service_ids: [],
-  skill_ids: [], active_prompt: null };
+  skill_ids: [], system_prompt: '' };
 const tool = (patch: Partial<tools.AgentTool>): tools.AgentTool => ({ tool: 'read_file', label: 'Read file',
   summary: 'Read a file or a line range.', group: 'code', mode: 'on', usage: null, default_usage: 'Read a source line range.',
   subagent_allowed: true, available: true, reason: null, tab: 'git', ...patch });

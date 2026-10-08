@@ -27,7 +27,7 @@ export interface WizardOptions {
     collections: { id: string; name: string; description: string }[];
     servers: (WizardResource & WizardConnection & { hostname: string; tags: string[] })[];
     credentials: WizardResource[]; skills: WizardResource[]; mcp_servers: WizardResource[];
-    services: WizardResource[]; existing_agents: { name: string; description: string; prompt_title: string }[];
+    services: WizardResource[]; existing_agents: { name: string; description: string; when_to_use: string }[];
   };
 }
 export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[]; tools?: string[] };

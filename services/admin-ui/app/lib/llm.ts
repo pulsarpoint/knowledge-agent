@@ -1,5 +1,7 @@
 import { request } from './api';
-import type { AgentName } from './prompts';
+
+export type AgentName = 'search' | 'code' | 'operations';
+export const agentNames: Record<AgentName, string> = { search: 'Search agent', code: 'Code search agent', operations: 'SSH agent' };
 
 export type Provider = 'openai' | 'anthropic' | 'bedrock';
 export interface ModelInput {
