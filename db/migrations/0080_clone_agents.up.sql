@@ -4,15 +4,34 @@ SET CONSTRAINTS ALL IMMEDIATE;
 
 -- An agent has one configuration. First, what runs today becomes the agent: each agent with an active configuration
 -- version gets that version's configuration, as get_agent_config read it (versions saved before 0072/0075/0078: all
--- Claude Code tools, fixed resources, 0078's implied tools). Name, description and enabled stay the agent's.
--- Selections of resources deleted or archived since are dropped, as the loader dropped them.
+-- Claude Code tools, fixed resources, 0078's implied tools), including its description and its name (unless another
+-- agent has that name). The agent type and enabled stay the agent's.
+-- The agent's tables reference live resources: the version's frozen copies of resource details (model settings,
+-- server host and port, skill texts, MCP URL and tools, collection paths, code folders, service details) are not
+-- kept. Items deleted or archived since the version was saved are dropped, "all" selections include items created
+-- since, and edits made since to shared resources apply. Each migrated agent gets an audit event holding the version.
+-- Without exactly one application project (the loader refuses that too) agents keep their own configuration.
 CREATE TEMPORARY TABLE active_versions ON COMMIT DROP AS
-SELECT a.id AS agent_id, a.runtime, v.config AS c,
+SELECT a.id AS agent_id, a.runtime, v.id AS version_id, v.label, v.config AS c,
     CASE WHEN (SELECT count(*) FROM projects WHERE archived_at IS NULL) = 1
         THEN (SELECT id FROM projects WHERE archived_at IS NULL) END AS project_id
 FROM agents a JOIN agent_versions v ON v.id = a.active_config_version_id AND v.agent = a.id;
+DELETE FROM active_versions WHERE project_id IS NULL;
+
+INSERT INTO audit_events(project_id, action, resource_type, details)
+SELECT project_id, 'agent.version.materialized', 'agent', jsonb_build_object('migration', 80, 'agent_id', agent_id,
+    'version_id', version_id, 'label', label, 'config', c)
+FROM active_versions;
 
 UPDATE agents a SET
+    name = v.c->>'name'
+FROM active_versions v WHERE v.agent_id = a.id AND v.project_id IS NOT NULL
+    AND char_length(btrim(coalesce(v.c->>'name', ''))) BETWEEN 1 AND 100 AND v.c->>'name' <> a.name
+    AND NOT EXISTS (SELECT 1 FROM agents o WHERE o.name = v.c->>'name' AND o.id <> a.id)
+    AND NOT EXISTS (SELECT 1 FROM active_versions w WHERE w.c->>'name' = v.c->>'name' AND w.agent_id <> v.agent_id);
+
+UPDATE agents a SET
+    description = coalesce(left(v.c->>'description', 4000), a.description),
     when_to_use = coalesce(v.c->>'when_to_use', a.when_to_use),
     model_id = (SELECT m.id FROM llm_models m WHERE m.id::text = v.c->'model'->>'id'),
     claude_code_tools = CASE WHEN v.c ? 'claude_code_tools'
@@ -99,8 +118,9 @@ SELECT DISTINCT g.id, g.project_id, m.id FROM active_servers a
 JOIN agent_configs g ON g.agent = a.agent_id AND g.server_id = a.server_id AND NOT g.inherit_mcp_servers
 CROSS JOIN LATERAL jsonb_array_elements(coalesce(a.server->'mcp_servers', '[]')) e
 JOIN mcp_servers m ON m.id::text = e->>'id' AND m.project_id = g.project_id;
-DELETE FROM agent_server_connections c USING active_servers a
-    WHERE c.agent_id = a.agent_id AND c.server_id = a.server_id AND coalesce(a.server->>'connection_source', 'server') = 'server';
+DELETE FROM agent_server_connections c USING active_versions v
+    WHERE c.agent_id = v.agent_id AND NOT EXISTS (SELECT 1 FROM active_servers a WHERE a.agent_id = c.agent_id
+        AND a.server_id = c.server_id AND a.server->>'connection_source' = 'agent');
 INSERT INTO agent_server_connections(agent_id, server_id, project_id, username, port, allow_sudo, known_hosts, credential_id)
 SELECT a.agent_id, a.server_id, a.project_id, a.server->>'username', (a.server->>'port')::integer,
     (a.server->>'allow_sudo')::boolean, coalesce(a.server->>'known_hosts', ''),

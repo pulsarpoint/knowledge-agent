@@ -82,6 +82,9 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
             entry['instructions'] = saved['instructions']
     saved['ssh']['servers'][0].update(instructions='Check only the queue.', instructions_source='agent_version')
     saved['services']['enabled'] = False
+    with store.connect() as conn:
+        taken = conn.execute("SELECT name FROM ka.agents WHERE id='search'").fetchone()['name']
+    own, saved['name'] = saved['name'], taken  # another agent has this name now: the agent keeps its own
     for key_name in ('tools', 'resources', 'claude_code_tools'):  # saved before 0072, 0075 and 0078
         saved.pop(key_name)
     with store.connect() as conn:  # the working copy moved on after the version was activated
@@ -111,6 +114,71 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
         item['tool'] for item in implied_tools(saved)['items'] if item['mode'] == 'on'}
     for agent_id, before in working.items():  # agents without a version keep their own configuration
         assert sections(get_agent_config(agent_id, conninfo=store.conninfo)) == before, agent_id
+    assert after['name'] == own
+
+
+def test_a_version_saved_after_0078_runs_after_although_every_section_changed_since(store, saved_agent):
+    client, server, _, _, mcp, repo, _ = saved_agent
+    key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
+    save(client, f"/api/agents/operations/servers/{server['id']}/ssh", username='agent-user', port=2222,
+         known_hosts='', allow_sudo=False, private_key=key)
+    with store.connect() as conn:
+        runbooks = str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='runbooks'").fetchone()['id'])
+        unselected = str(conn.execute('SELECT id FROM ka.repositories WHERE id<>%s', (repo['id'],)).fetchone()['id'])
+    saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
+    saved.update(name='Payments operator', description='Investigates payment failures.', when_to_use='Payments fail.',
+                 instructions='Gather evidence first.', claude_code_tools=['Read'], resources='fixed')
+    saved['system_prompt']['content'] = 'Answer from evidence only.'
+    saved['documents']['collections'].append({'id': runbooks, 'name': 'runbooks'})  # deleted before 0080
+    saved['code']['projects'].append({'id': unselected, 'name': 'unselected'})  # archived before 0080
+    for entry in saved['tools']['items']:  # tool rows with usage text, a per-run tool and an MCP tool
+        if entry['tool'] == 'read_file':
+            entry['mode'], entry['usage'] = 'on', 'Read only configs.'
+        if entry['tool'] == 'ssh_run':
+            entry['mode'] = 'per_run'
+    saved['tools']['items'].append({'tool': f"mcp:{mcp['id']}:lookup", 'group': 'mcp', 'mode': 'off', 'usage': 'never',
+                                    'subagent_allowed': True})
+    host = saved['ssh']['servers'][0]  # every per-server override, and the agent's own connection
+    assert host['connection_source'] == 'agent'
+    host.update(instructions='Check only the queue.', instructions_source='server_override',
+                skills_source='server_override', skills=[], mcp_source='server_override', mcp_servers=[{'id': mcp['id']}])
+    other = client.post('/api/servers', headers=HEADERS, json={'name': 'Other host', 'hostname': 'other.test',
+                                                                 'ssh_allowed': True}).json()
+    save(client, f"/api/agents/operations/servers/{other['id']}/ssh", username='other-user', port=2022,
+         known_hosts='', allow_sudo=False, private_key=key)  # a connection for a server the version does not select
+    with store.connect() as conn:  # the working copy changes every section after the version was activated
+        conn.execute("UPDATE ka.agent_configs SET instructions='Working copy edits' WHERE agent='operations' AND server_id IS NULL")
+        for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents', 'agent_tools'):
+            conn.execute(f"DELETE FROM ka.{table} WHERE agent_id='operations'")
+        conn.execute("DELETE FROM ka.agent_config_mcp_servers")
+        conn.execute("DELETE FROM ka.operations_servers WHERE agent='operations'")
+        conn.execute("""UPDATE ka.agents SET model_id=NULL,system_prompt='Working prompt',when_to_use='Later',
+            claude_code_tools='{Grep}',documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
+            skills_enabled=false,mcp_enabled=false,services_enabled=false,resources='per_run' WHERE id='operations'""")
+    drifted = sections(get_agent_config('operations', conninfo=store.conninfo))
+    with store.connect() as conn:
+        run(conn, DOWN)
+        conn.commit()
+        agent = activate(conn, 'operations', saved, store.actor(conn, 'migration-admin', 'migration@test'))
+        conn.execute('UPDATE ka.rag_collections SET deleted_at=now() WHERE id=%s', (runbooks,))
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (unselected,))
+        conn.commit()
+        run(conn, UP)
+        conn.commit()
+        assert [str(row['server_id']) for row in conn.execute(
+            "SELECT server_id FROM ka.agent_server_connections WHERE agent_id='operations'")] == [server['id']]
+        audit = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.version.materialized'""").fetchall()
+    expected = sections(ran_before(saved, agent))
+    expected['documents']['collections'].remove(runbooks)  # deleted and archived items are dropped
+    expected['code']['projects'].remove(unselected)
+    assert [key for key in expected if drifted[key] == expected[key]] == []  # the working copy differed everywhere
+    after = get_agent_config('operations', conninfo=store.conninfo)
+    assert sections(after) == expected
+    assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')
+    assert runbooks not in [c['id'] for c in after['documents']['collections']]
+    assert unselected not in [p['id'] for p in after['code']['projects']]
+    assert [(d['agent_id'], d['label'], d['config']['name']) for d in (row['details'] for row in audit)] == [
+        ('operations', 'Active', 'Payments operator')]
 
 
 def test_a_claude_code_agent_keeps_its_versions_claude_code_tools(store, tmp_path, monkeypatch):
