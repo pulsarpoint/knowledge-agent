@@ -258,7 +258,8 @@ def build_api(app_name, store):
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
                     all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,resources=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
                     (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,resources,actor,agent_id))
-                now = flags({'runtime': runtime, 'repositories_enabled': value.repositories_enabled,
+                now = flags({'runtime': runtime, 'resources': resources,
+                             'repositories_enabled': value.repositories_enabled,
                              'documents_enabled': value.documents_enabled, 'documents_grounded': grounded,
                              'ssh_enabled': value.ssh_enabled})
                 if runtime == 'openai' and old['runtime'] != 'openai':

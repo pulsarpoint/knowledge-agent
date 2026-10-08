@@ -141,8 +141,9 @@ agent are omitted when `agent_id` is null.
 | --- | --- |
 | No model / disabled / not native | 400 "Choose an enabled model." |
 | Nothing selected | 400 (existing `NOTHING_CHOSEN`) |
-| Empty system prompt or prompt | 422 validation, form prevents it |
-| Text too long / null characters | 422 validation |
+| Empty system prompt or prompt | 400 validation, form prevents it |
+| Text too long / null characters | 400 validation |
+| Server brought by an environment/service without a usable connection | Left out of the run (like archived code projects); chosen directly it is refused by name |
 | Unknown selection id | 400 as today |
 | Context endpoint fails | Form keeps the last text and shows the error under Context; Generate still works |
 
