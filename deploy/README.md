@@ -331,3 +331,28 @@ first.
 - Rolling back below 0080 restores only the empty schema: versions and prompt history do not come back. Rolling back
   0079 gives each agent its current prompt as version 1 (an edited prompt becomes a new active version; text is
   truncated to 40 000 characters).
+
+## Upgrading to Test sessions
+
+The agent **Test** tab now runs its conversations as sessions in `agent-session-worker`, like Generate documents
+sessions (Stop, messages while the agent works, no per-turn time limit). After pulling this version on an existing
+installation, run the database migration (`make up` runs it, or `make db-migrate`) and make sure
+`agent-session-worker` runs. Back up the database first.
+
+- Migration 0081 deletes the existing Test chats and their saved suggestions (`ka.agent_sessions`,
+  `ka.operations_runs`, `ka.operations_commands`, `ka.agent_session_reviews`). Their run records are kept: Activity →
+  Agent runs still lists them (type *Agent test*) and opens each full record.
+- New Test sessions are listed in the Test tab's **History** and in Agent runs as *Test session*; each answer's
+  **Full record** opens `cc:<session>:<turn>`.
+- Test sessions close after 24 hours without activity (the old Test chats closed after 1 hour) and have no 300-second
+  turn limit.
+- A saved credential that cannot be decrypted no longer refuses the start: the first turn fails with the worker's
+  message.
+- Header and per-turn model calls are not shown for Claude Code sessions.
+- `scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table: run it only on databases before
+  0081 (before the upgrade), never after.
+- `POST /api/agents/{id}/runs` and the other `/api/agents/{id}/runs*` routes are gone, as are
+  `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
+  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/claude-code/sessions`.
+- Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
+  the Test chats deleted by the upgrade do not come back.

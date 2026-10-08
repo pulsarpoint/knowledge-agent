@@ -460,33 +460,38 @@ An agent has one configuration: what its tabs show is what runs. A conversation 
 
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the test chats and other history deleted with it), or keep it as an alternative.
 
-**Test tab.** Type a task and **Run task** (then **Send message** to continue the
-session). Replies stream in; each has **View activity** (tool calls with arguments and
-output). Other controls: session **History**, **Show config** (the exact pinned
-configuration, secrets as references), **Close session**, **New session**, **Cancel
-run**, and token usage. **Add feedback** → **Suggest improvements** runs a reviewer
-that proposes prompt/instruction changes; **Review and apply** opens them for editing, then **Apply to this agent** or **Apply to a new clone**.
+**Test tab.** Type a message and **Run task**: it starts a Test session, which the agent session worker runs (the URL
+keeps `session_id`). The workspace shows your message, a collapsed **Worked** block (thinking, tool calls with their
+results, comments you sent while it worked) and the answer with its cited sources; the header shows the tokens, model
+calls and tools used, and the sidebar **Agents in this run** the agent's status (on a narrow screen open **Run
+details**). **Send message** works while the agent works (your comment reaches it at its next step); **Stop** ends the
+current turn. Header: **History** (this agent's Test sessions), **Show config** (the configuration pinned for this
+session, or the current one before the first message; secrets as references), **New session**, **Close session**.
+Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** → **Suggest improvements**, which runs a reviewer that proposes
+prompt and instruction changes; the sidebar's **Suggestions (n)** lists them, and **Review and apply** opens them for
+editing, then **Apply to this agent** or **Apply to a new clone**.
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
 **Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with the tools their capabilities imply. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it is a compact picker (kinds side by side) that appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, the line **Resources: …** (with **Choose resources**) appears before the first message only and opens **Resources for this run**, one list per kind the agent uses; the choice is kept for the session and shown in the header and in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
-Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire after
-1 hour idle, one running message per session. A run is blocked if the agent is
-disabled, has no enabled model, or other tabs have unsaved changes.
+Limits: message ≤ 20,000 characters; a Test session's turns have no time
+limit (they end with the answer, **Stop**, **Close session** or a lost worker), and a session closes after 24 hours
+without activity. A message is blocked if the agent is disabled, has no enabled model, or other tabs have unsaved
+changes.
 
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back
 on. Saving the agent's settings changes what runs next.
 
-**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, one prompt, clones). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the agent's prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats.
+**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, one prompt, clones). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the agent's prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents are tested in Generate documents sessions, not in Test sessions.
 
-Removing an agent that has history (test chats, chats, Claude Code sessions or runs) lists that
+Removing an agent that has history (test chats, documentation sessions or run records of earlier test chats) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
-(a Claude Code session that is starting or working, or a running run) cannot be removed; stop that work or wait for
+(a Test or documentation session that is starting or working) cannot be removed; stop that work or wait for
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
@@ -557,10 +562,13 @@ cost is not.
 
 **Servers.** For a fixed agent the form lists name, address and description only. A per-run native agent can reach the chosen servers over SSH.
 
-**The session page.** Activity and Draft sit side by side, each with its own scroll, and the message box is always
-visible. Activity follows new events at the bottom; after you scroll up it stops following and shows **Jump to latest**.
-Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning of the session**.
-It also shows tokens in/out/cached and a status: Starting, Working, Waiting for you, Stopped, Failed or Finished.
+**The session page.** It uses the same workspace as the Test tab: the main pane shows each turn (your message, a
+collapsed **Worked** block with thinking, tool calls and results, and the answer) and scrolls on its own; the message box
+is always visible. The main pane follows new events at the bottom; after you scroll up it stops following and shows
+**Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning
+of the session**. The header shows tokens in/out/cached, model calls (native agents only) and the status: Starting, Working, Waiting for you,
+Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draft · turn n** (on a narrow screen open
+**Run details**). Each answer links to its **Full record**.
 
 - **Send message**: the message box stays enabled while the agent works, for both agent types. A native agent receives
   the comment at its next step in the same turn ("Queued. Your comment reaches the agent at its next step."); a Claude Code
@@ -569,7 +577,7 @@ It also shows tokens in/out/cached and a status: Starting, Working, Waiting for 
 - **Stop**: always ends the turn: it is recorded as stopped within about 30 seconds of Stop, and after that it cannot start
   new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
   discarded when the turn is stopped (a message sent after Stop starts the next turn); after a failure or a lost worker they go to the next turn.
-- **Draft**: each finished turn's final answer, as Markdown.
+- **Draft**: each finished turn's final answer, as Markdown; **Open draft** shows it in a wide side panel.
 - **Save document**: a versioned document in the folder, linked to the code projects and exported to
   `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name in the same folder asks **Save a new version?**; the
   same name in another folder is a separate document. Nothing is saved automatically.
@@ -630,7 +638,7 @@ container paths, availability, and a file browser with text preview.
 ### 4.15 Agent runs
 
 `/activity/runs` — a complete record of every agent run: agent Test
-conversations and Generate documents sessions. Each record shows, in order:
+sessions, earlier test chats and Generate documents sessions. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
 - the model's reasoning when the provider returns it (otherwise "Reasoning not returned
@@ -640,7 +648,7 @@ conversations and Generate documents sessions. Each record shows, in order:
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Agent test**, **Claude Code** and **Native session** (Generate documents turns); you
+characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade), **Claude Code** and **Native session** (Generate documents turns); you
 can also filter by user. **Full record** links lead here from each reply in an agent's Test tab and from each
 Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
@@ -681,7 +689,7 @@ Records are kept until deleted; only administrators can see them.
 
 1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
-3. **Test**: run a task such as "Check disk usage on the app servers"; inspect **View activity**.
+3. **Test**: run a task such as "Check disk usage on the app servers"; inspect the **Worked** block.
 4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
 
 ### E. Bring Jira knowledge into RAG
@@ -776,7 +784,7 @@ before exposing it beyond localhost.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
-- Generate documents describes servers as text (no SSH from the form). The agent **Test** tab still uses test chats for native agents.
+- Generate documents describes servers as text (no SSH from the form). The agent **Test** tab runs native agents only; Claude Code agents are tested in Generate documents sessions.
 
 ---
 

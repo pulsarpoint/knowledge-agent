@@ -107,7 +107,7 @@ at creation: a fixed agent's own configuration, or a per-run agent's configurati
 `history`.
 `context_snapshot` holds the chosen `code_projects`, `collections`, `environments`, `services`, `servers` and `instructions`, plus
 `folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
-never included. Sessions of per-run agents also store `run_resources` (ids only).
+never included. Sessions of per-run agents also store `run_resources` (ids only). Generate documents sessions have `purpose = 'documents'`; the agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft) and are not listed in Generate documents.
 
 The first message is built from the context (`first_message` in `generate_documents.py`) and queued as the session's
 first input. Names, descriptions and paths are collapsed to one line, so inventory text cannot start a section:

@@ -124,14 +124,10 @@ This is the application configuration accepted by `agent()` in the same module.
 It is **not** a dictionary to unpack directly into the native Agents SDK:
 the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
-`POST /api/agents/{id}/runs` with `{ "task": "...", "id": "optional request UUID", "session_id": "optional session UUID" }`.
-The endpoint loads this saved configuration, resolves its credentials, and calls
-`agent()` directly. Its SSE response publishes `started`, `activity`, and
-`completed` events; the final run contains the answer or error.
-`POST /api/agents/{id}/runs/{run_id}/cancel` cancels that test.
-Disconnecting its stream leaves execution running. The UI restores the session
-from its URL and polls an unfinished turn. Runs and safe activity are retained in
-PostgreSQL; full SDK traces go to Phoenix. Duplicate request IDs do not run again.
+`POST /api/agents/{id}/sessions` with `{ "message": "...", "run_resources": {...}? }`, which pins this saved
+configuration (credential references only) in a Test session (`ka.agent_sessions_cc`, `purpose = 'test'`) that
+`agent-session-worker` runs; the Test tab then uses the session routes under `/api/claude-code/sessions`. Runs and safe
+activity are retained in PostgreSQL; full SDK traces go to Phoenix.
 
 The first message creates a session. Follow-ups continue its Agents SDK conversation
 using the session’s pinned configuration. New sessions use the active agent version,
@@ -202,12 +198,10 @@ intermediate HTTP proxy or Codex dependency. Bedrock uses the saved bearer key,
 region and model ID. Credentials are specific to each invocation, and native
 providers require a saved key instead of using environment credentials.
 
-The session API passes complete SDK `history` to `agent()` and atomically saves
-`result.to_input_list()` in `ka.agent_sessions.history` with the successful turn.
-Both live and test conversations use the same creation, execution, locking, and
-one-hour idle expiry logic; `is_test` distinguishes them. Failed or cancelled turns
-leave the previous history intact. Tool workspaces are temporary; the runner no
-longer reads or writes session-history files. See [session APIs and migration](../../docs/agents.md).
+Test sessions and Generate documents sessions of native agents are run by `agent-session-worker` through
+`HistorySession` (below); the SDK items of successful turns are saved in `ka.agent_sessions_cc.history`, `purpose`
+distinguishes the two, and sessions close after 24 hours without activity. Tool workspaces are temporary; the runner
+does not read or write session-history files. See [session APIs and migration](../../docs/agents.md).
 
 Generate documents sessions of native agents pass `session=HistorySession` instead (`knowledge_agents/history.py`, an Agents
 SDK `Session`) with `stream=False` and `hooks=SessionEvents`; `agent()` refuses a session together with `history` or

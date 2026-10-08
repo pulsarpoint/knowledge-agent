@@ -1,76 +1,41 @@
 # Agent execution status
 
-Specialist **Test** conversations run the selected agent directly using the official
-Agents SDK. It loads the agent's saved prompt, model, enabled capabilities, resource
-selections and SSH overrides, then decrypts only their required credentials.
-Test chats and live runs refuse Claude Code agents with `Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
+The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions_cc` with `purpose = 'test'`, run by
+`agent-session-worker` exactly like native Generate documents sessions (claim and lease, turns, comments delivered
+between model calls, Stop with a 30-second grace, closing after 24 hours without activity, the worker's concurrency
+limit, no per-turn time limit, no 300-second limit). Test sessions are native only: Claude Code agents are refused with
+`Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
 
-- `POST /api/agents/{id}/runs` accepts a task, optional UUID request
-  ID, optional `session_id`, and optional `is_test` for a new conversation. The first message creates a session; follow-ups
-  continue its saved Agents SDK history. The UI keeps `session_id` in its URL. The route
-  streams `started`, `activity`, and `completed` events. The final run has
-  status `completed`, `failed`, or `cancelled`, with its answer or error.
-- Session and run history retain configuration snapshots, conversation messages,
-  public activity, result and usage. Full SDK tracing uses
-  Phoenix. Known credentials are redacted from persisted and streamed output.
-- `POST /api/agents/{id}/runs/{run_id}/cancel` cancels the active turn,
-  leaving its session open. Disconnecting the browser does not cancel execution;
-  reopening the URL restores messages and polls any running turn. Interrupted
-  turns are marked failed and are never automatically retried.
-- A disabled agent, missing prompt, missing/disabled model or unavailable
-  credential cannot start a test. Duplicate
-  request IDs are rejected rather than executing the same task again.
+- `POST /api/agents/{id}/sessions` `{ "message": "...", "run_resources": {...}? }` creates a Test session: the agent's
+  current configuration (a per-run agent's narrowed to `run_resources`; a fixed agent given resources is refused) is
+  pinned in `agent_config` with credential references only, the title is the first 200 characters of the message, and
+  the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled native model
+  (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
+  credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
+- `GET /api/agents/{id}/sessions` lists the agent's Test sessions, newest first.
+- Everything else is the session API: `GET /api/claude-code/sessions/{id}` (with `purpose`, `model_calls`,
+  `reasoning_tokens` and, for Test sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
+  (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
+  `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
+  `GET /api/claude-code/sessions` (Generate documents) lists documentation sessions only.
+- Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`); **Full record** links to it. The `end`
+  event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). The header's and each
+  turn's model calls are not shown for Claude Code sessions (only native sessions count them).
+- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test sessions only; refused
+  while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
+  the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
+  (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored
+  in `ka.agent_session_reviews` with `response_turn`; **Review and apply** reads it.
 
-Sessions remain active until **Close session** or one hour without a message or
-tuning review. Running turns do not expire. A session allows one turn or review
-at a time. Every turn uses the configuration captured when its session began. Test changed
-instructions in a new session; saving the agent never changes an existing conversation. **New session** starts fresh
-context; it does not implicitly close another active session.
+The Test tab and the Generate documents session page share `RunWorkspace` (`services/admin-ui/app/components`):
+a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer
+with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
+box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream; `groupTurns`
+turns events into turns.
 
-- `POST /api/agents/{id}/sessions` creates a session without starting a model.
-  Accepts an optional UUID `id`, `title`, and `is_test` (defaults to
-  false). The Test tab marks new sessions with `is_test=true`. Both explicit
-  creation and first-message creation call `agent_sessions.create_session()`.
-- `GET /api/agents/{id}/sessions` lists saved conversations. Filter with
-  `?is_test=true` or `?is_test=false`; the Test history requests only tests.
-- `GET /api/agents/{id}/sessions/{session_id}` restores messages and tuning reviews.
-- `POST /api/agents/{id}/sessions/{session_id}/close` closes a session and stops
-  its current turn. Closed/expired transcripts remain available for review.
-- `POST /api/agents/{id}/sessions/{session_id}/review` accepts `{ "comment": "..." }`.
-  An optional `response_id` focuses feedback on one response from this session.
-  A separate Agents SDK reviewer uses the same model with all capabilities disabled.
-  It receives the pinned session configuration, all stored turns with
-  their configuration/activity, and administrator feedback. It saves Markdown
-  suggestions and structured instruction replacements without changing settings. Proposed memory notes must be reviewed
-  and saved explicitly as instructions or skills; no automatic memory is added.
-
-The Test UI is a chat timeline with a persistent composer. Enter sends and
-Shift+Enter adds a newline. **Add feedback** beneath a response opens the optional
-review panel. **Suggestions**, **History** and **Show config** open side panels;
-ordinary chatting does not require a review. The conversation renderer is
-`packages/chat-ui/Conversation.tsx`.
-
-`ka.agent_sessions` is the common table for live and test conversations. It stores
-the owner, pinned configuration, timestamps, status, `is_test`, and complete
-SDK `history`, including tool calls and results. The flag is metadata, not a
-separate runtime or permission system; it cannot be changed by a follow-up request.
-The session API loads history and commits `run.to_input_list()` atomically with a
-successful turn. Failed, cancelled, or interrupted turns leave the previous history
-intact. Closing or expiring a session retains its transcript and SDK history.
-
-`agent()` receives `history` as an argument and performs no session-file I/O. Its
-temporary workspace is only for tool execution. Credentials remain in backend
-memory and are not persisted in history. Session endpoints are mounted
-behind the admin gateway.
-
-Migration 36 renames `agent_test_sessions`, marks existing rows as tests, and
-preserves their IDs, runs and reviews. Before restarting
-the API, import any remaining full history files with
-`scripts/migrate_agent_session_history.py --root /data/docs-wiki/agent-sessions`
-using the application's PG environment. The importer rejects stale files and keeps
-source files as a backup. For sessions whose files were already removed on expiry,
-the migration restores the saved user/assistant transcript. Downgrade is blocked
-once sessions contain live data or history that the old schema cannot preserve.
+Test chats from before migration 0081 were deleted with their tables; their run records (`run:<id>`) stay in Agent runs.
+`scripts/migrate_agent_session_history.py` (the one-off importer of pre-0036 session history files) reads the dropped
+`ka.agent_sessions` table and applies only to databases before 0081.
 
 ### Grounded answers
 
@@ -79,7 +44,7 @@ collections through `search_documents` and `read_document` (no file/shell tools 
 documents), cites claims with `[n]`, and calls `report_not_covered` to mark uncovered
 questions **not covered**. Try it in the agent's **Test** tab.
 Migration 0071 removed the former Reader application's conversations and its
-`ka.reader_settings`, `agent_sessions.channel` and `agent_sessions.hidden_by_owner_at`.
+`ka.reader_settings` and two columns of the old Test chat table.
 
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back
@@ -112,10 +77,10 @@ project has a current generated graph (`code_graph` results carry its `generated
 the graph was generated, the answer carries a note to regenerate it or confirm with `read_file`).
 
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists
-all), the run record, the session page and Test chats show a line such as `code_graph 12 · read_file 31 · shell_run 4`
-or `No tools used`. A Claude Code session page counts live: the session detail returns its counts with the id of the
+all), the run record, the session page and the Test tab show a line such as `code_graph 12 · read_file 31 · shell_run 4`
+or `No tools used`. The workspace counts live: the session detail returns its counts with the id of the
 last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
-once; earlier activity loaded by scrolling up is already counted). Test chats refresh their counts with the chat.
+once; earlier activity loaded by scrolling up is already counted).
 
 ## Clones
 

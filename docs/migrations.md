@@ -80,3 +80,17 @@ per migrated agent, holding the version. Agents in an installation without exact
 (they keep their own configuration). It then drops `agent_versions`, the prompt tables, the view, the guard function,
 the version column on sessions (`agent_sessions.agent_version_id`) and its constraints, and adds `agents.cloned_from` (nullable FK,
 `ON DELETE SET NULL`). The down migration restores the empty schema only; versions and prompt history do not come back.
+
+## 0081_test_sessions
+
+Test chats become sessions run by agent-session-worker. `ka.agent_sessions_cc` gets `purpose` (`documents` for Generate
+documents sessions, `test` for the agent Test tab), `model_calls` and `reasoning_tokens` (native sessions add them per
+model call); `document_name` and `folder` become nullable, with checks that a documentation session has both and a Test
+session has neither (and no draft, draft turn or document), and that a Test session is native. `ka.agent_session_reviews`
+is recreated on `agent_sessions_cc(id)` (`ON DELETE CASCADE`) with `response_turn`. The old Test chats are dropped:
+`ka.agent_sessions`, `ka.operations_runs`, `ka.operations_commands` and the old suggestions; their run records
+(`run:<id>` in `ka.agent_run_events`) stay readable in Agent runs. The down migration deletes Test sessions (their run
+records stay) and restores the old tables empty; the old Test chats do not come back.
+
+`scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table, so it applies only to databases
+before 0081.

@@ -25,7 +25,7 @@ Capabilities are independent of the agent name. Code can enable SSH; SSH can ena
 
 An empty resource selection includes nothing. “All document folders” and “All Git repositories” are explicit options. Services provide descriptive context; for a fixed agent they do not grant access to their servers or repositories. For a per-run agent, a service chosen for a run also brings its code projects and SSH servers into that run when the agent uses code or SSH; each must be within its selections. Skills are administrator-managed instructions. Server-specific instructions and skill/MCP selections are configured within SSH. A server without its own configuration uses the same agent’s instructions and selections. No configuration is inherited from another agent. SSH defaults remain on the shared server inventory. Each agent can override the complete SSH connection for a server; removing that override restores the server defaults. The server’s SSH-enabled flag is always enforced.
 
-Specialist Test tabs run the selected agent directly with its saved configuration.
+Specialist Test tabs run Test sessions of the selected agent with its saved configuration, pinned when the session starts.
 The first message creates a session and adds `session_id` to the URL. Follow-ups
 retain context until the session is closed or inactive for one hour. Reloading
 restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.
@@ -133,7 +133,7 @@ Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode
 - `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools` and `resources`.
 - `GET /api/agents` returns `resources` and `accepts` (from the agent).
 - `GET /api/agents/{id}/run-resources` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
-- `POST /api/agents/{id}/runs` and `POST /api/agents/{id}/sessions` accept `resources` with a new conversation only (follow-ups: 409); sessions and runs return `run_resources`.
+- `POST /api/agents/{id}/sessions` accepts `run_resources` with the first message; the session keeps them (`run_resources` on the session).
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model and applies the type's model rule.
 - `GET /api/agents/{id}/config` returns `runtime` and `claude_code_tools` for both types (`knowledge_admin.knowledge_agents.config.get_agent_config`).
 - `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, `GET|POST /api/agents/{id}/apply` and `GET|POST /api/agents/{id}/reviews/{review_id}[/apply]` are described in [Agent execution](agents.md#clones).
@@ -171,3 +171,5 @@ Migration `0023_skills_agents` stores agent-level skill assignments in `ka.skill
 Migration `0079_agent_system_prompt` adds `agents.system_prompt` (text, required) filled from each agent's active prompt version, and drops the foreign key that required prompt rows. Its down migration restores the prompt rows: an agent whose prompt was edited after 0079 gets it as a new active version, and text is truncated to 40 000 characters (the old limit).
 
 Migration `0080_clone_agents` makes each agent's active configuration version its configuration (tools, overrides and connections included), then drops `agent_versions`, the prompt tables, the view and guard function, the version column on sessions (`agent_sessions.agent_version_id`) and its constraints; it adds `agents.cloned_from` (nullable, `ON DELETE SET NULL`). Its down migration restores the empty schema only. See `deploy/README.md` for the upgrade notes.
+
+Migration `0081_test_sessions` turns Test chats into sessions of `agent_sessions_cc` (`purpose`), adds `model_calls` and `reasoning_tokens`, moves suggestions onto it and drops the old Test chat tables (their run records stay). See `deploy/README.md`.
