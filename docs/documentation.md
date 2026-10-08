@@ -135,6 +135,22 @@ the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a
 tool result keeps its preview and the full output stays in the run record.
 
+`GET /api/claude-code/sessions/{id}/events` is the live stream (Server-Sent Events): `run_event` events with their id
+after `Last-Event-ID` (or `?after=`), `session` with the state when it changes, `closed` at the end, `unavailable` once
+while the database cannot be reached (the stream stays open and resumes; the browser shows "The session stream is
+unavailable. Reconnecting…" and clears it with the next event), `: keepalive` after 15 s of quiet, and `retry: 1000`
+ending a stream that fell more than 500 messages behind (the browser reconnects from its last id, a `resync`). The
+stream does not poll and holds no database connection: migration 0083's triggers on `ka.agent_run_events`,
+`ka.agent_sessions_cc` and `ka.agent_session_inputs` announce every committed change to a session's events, row or
+queued messages on the PostgreSQL channel `ka_sessions`. One `SessionHub` per admin-api process
+(`knowledge_admin/live/session_hub.py`, started in the app lifespan) keeps the only listener (one connection), reads
+each changed session once and hands the new events and state to every open stream of that session (per-session
+fan-out). It reconnects with backoff (1 s doubling to 30 s), re-reads every watched session after a reconnect, and
+checks every watched session every 30 s anyway, so a lost notice delays an update by at most 30 s. When the database is
+down the hub sends `unavailable` once to every stream, retries, and reads everything again on recovery. On shutdown the
+hub ends its streams with `resync` and the server waits at most 5 s (`timeout_graceful_shutdown`) for open streams
+before cutting them; browsers reconnect.
+
 Migration 0073 dropped `documentation_generations`, `documentation_workflows` and `documentation_workflow_jobs`, the
 `documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
 export layout, read by `export_input`). Saved documents, versions and exports stay.

@@ -486,4 +486,5 @@ def test_stopping_the_hub_ends_every_subscription_with_resync(store):
             assert hub.subscribers(session) == 0
         async with hub.subscribe(session, 0) as late:  # after stop: nobody would ever read for it
             assert summary(await take(late, 1, timeout=1)) == [('resync', None)]
+            assert not hub._dirty  # no read is scheduled for it
     asyncio.run(scenario())

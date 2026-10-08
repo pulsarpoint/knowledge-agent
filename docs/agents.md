@@ -30,7 +30,8 @@ limit, no per-turn time limit, no 300-second limit). Test sessions are native on
 The Test tab and the Generate documents session page share `RunWorkspace` (`services/admin-ui/app/components`):
 a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer
 with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
-box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream; `groupTurns`
+box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream (fed by the admin-api session hub, see
+[documentation](documentation.md)); `groupTurns`
 turns events into turns. A `run_subagent` call shows in the Worked block as `Subagent · <task> · <n> tool calls ·
 <tokens> tokens · <status>` with **Open**; **Agents in this run** lists the main agent and every subagent (working,
 done, failed or stopped, with tokens and tool calls, live), and selecting one shows its own history in the main pane

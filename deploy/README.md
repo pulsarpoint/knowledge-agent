@@ -20,6 +20,9 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   the one-time verified adoption procedure in the [migration guide](../docs/migrations.md).
   Repository settings, encrypted
   tokens and pull jobs use PostgreSQL.
+- Each `admin-api` process keeps one PostgreSQL connection open for `LISTEN ka_sessions` (live session pages, see
+  [documentation](../docs/documentation.md)); it must reach PostgreSQL directly, not through a transaction-pooling
+  proxy, which does not deliver notifications. On shutdown it waits at most 5 s for open session streams.
 - `repository-worker` has no host port and owns the writable `CODE_FOLDER` and
   `CODE_INDEX_FOLDER` binds; everything else sees `DATA_ROOT` read-only at `/work/data`.
   It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders.
@@ -356,3 +359,16 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
   `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/claude-code/sessions`.
 - Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
   the Test chats deleted by the upgrade do not come back.
+
+## Upgrading to the session event hub
+
+Live session pages (Generate documents, Test) no longer poll the database. After pulling this version on an existing
+installation, run the database migration (`make up` runs it, or `make db-migrate`).
+
+- Migration 0083 adds triggers that send `pg_notify('ka_sessions', …)` on changes to session events, sessions and
+  queued messages. It changes no data.
+- Each `admin-api` process listens on one dedicated connection; connect it directly to PostgreSQL (no
+  transaction-pooling proxy). A lost notice or connection delays a page by at most 30 s.
+- Restarting `admin-api` closes open streams after at most 5 s; browsers reconnect on their own.
+- Rolling back 0083 drops the triggers, and then session pages hear of nothing. The polling code is gone from this
+  version, so rolling back requires the previous app version as well.

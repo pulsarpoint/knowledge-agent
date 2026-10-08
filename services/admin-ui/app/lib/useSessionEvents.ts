@@ -4,7 +4,7 @@ import type { AgentRuntime } from './profiles';
 import { withLaterCalls, type ToolCount } from './runs';
 
 /** Shown while the server cannot reach the database; the stream stays open and its next message clears it. */
-export const UNAVAILABLE = 'The session stream is unavailable. Reload the page.';
+export const UNAVAILABLE = 'The session stream is unavailable. Reconnecting…';
 
 export type OlderState = 'more' | 'loading' | 'start';
 export interface SessionRun {

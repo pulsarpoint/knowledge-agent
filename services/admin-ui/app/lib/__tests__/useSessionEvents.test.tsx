@@ -66,6 +66,7 @@ test('the stream stays open across an outage: its next message clears the unavai
   await waitFor(() => expect(result.current.session).not.toBeNull());
   act(() => stream.dispatchEvent(new Event('unavailable')));
   expect(result.current.error).toBe(UNAVAILABLE);
+  expect(UNAVAILABLE).toBe('The session stream is unavailable. Reconnecting…');
   act(() => stream.emit('run_event', message(1)));
   expect(result.current.error).toBe('');
   act(() => stream.dispatchEvent(new Event('unavailable')));

@@ -37,5 +37,6 @@ def main() -> int:
                                            os.environ["AUTH_ISSUER_URL"])
     with httpx.Client(base_url=rag_url, timeout=30.0) as backoffice:
         uvicorn.run(create_app(cfg, server=server, backoffice_client=backoffice, repository_store=repository_store),
-                    host=args.host, port=args.port)
+                    host=args.host, port=args.port,
+                    timeout_graceful_shutdown=5)  # open session streams reconnect; they must not block shutdown
     return 0

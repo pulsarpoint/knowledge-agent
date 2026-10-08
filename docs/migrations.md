@@ -94,3 +94,13 @@ records stay) and restores the old tables empty; the old Test chats do not come 
 
 `scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table, so it applies only to databases
 before 0081.
+
+## 0083_session_notices
+
+Live session pages stop polling. Triggers send `pg_notify('ka_sessions', …)`, delivered on commit: a statement-level
+`AFTER INSERT` on `ka.agent_run_events` sends one notice per session among the inserted `cc:<session uuid>:<turn>`
+rows, `{"s": "<session uuid>", "e": <newest id>}` (other run keys send nothing); `AFTER UPDATE OR DELETE` on
+`ka.agent_sessions_cc` and `AFTER INSERT OR UPDATE OR DELETE` on `ka.agent_session_inputs` send `{"s": "<session
+uuid>"}` per row (identical notices in one transaction are folded). The down migration drops the triggers and their
+functions; without them no session page hears of changes. The polling code is gone from this version, so rolling back
+0083 requires the previous app version too.

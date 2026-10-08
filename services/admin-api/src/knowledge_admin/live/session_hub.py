@@ -101,10 +101,11 @@ class SessionHub:
         if watched is None:
             watched = self._watched[session_id] = Watched(after_id)
         watched.subscribers.append(subscription)
-        if self._stopped:  # nothing would ever read for it
-            self._resync(session_id, subscription)
-        self._mark([session_id])
         try:
+            if self._stopped:  # nothing would ever read for it
+                self._resync(session_id, subscription)
+            else:
+                self._mark([session_id])
             yield subscription
         finally:
             self._leave(session_id, subscription)
