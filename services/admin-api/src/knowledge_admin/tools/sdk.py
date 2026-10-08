@@ -6,7 +6,6 @@ from typing import Any
 from agents import FunctionTool
 from agents.tracing import SpanError, get_current_span
 from agents.strict_schema import ensure_strict_json_schema
-from agents.tool import default_tool_error_function
 from agents.tool_context import ToolContext
 
 from knowledge_admin.agent_activity import redact
@@ -21,8 +20,8 @@ def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
 
     Invocation refuses a tool missing from context['tools'] (the run's offered tools, a backstop), validates the
     arguments and runs the catalog function. Errors are logged and set on the current trace span with the run's
-    credentials redacted, as decorated function tools did, and go back to the model as the SDK's default error text;
-    cancellation propagates."""
+    credentials redacted, as decorated function tools did, and go back to the model in the SDK's default error text,
+    also redacted; cancellation propagates."""
     async def invoke(ctx: ToolContext[Any], raw: str) -> str:
         try:
             if spec.name not in ctx.context.get('tools', ()):
@@ -36,7 +35,7 @@ def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
                 span.set_error(SpanError(message='Error running tool (non-fatal)',
                                          data={'tool_name': spec.name, 'error': error}))
             logger.error('Tool %s failed: %s', spec.name, error)
-            return default_tool_error_function(ctx, exc)
+            return f'An error occurred while running the tool. Please try again. Error: {error}'
 
     return FunctionTool(name=spec.name, description=usage,
                         params_json_schema=ensure_strict_json_schema(spec.arguments.model_json_schema()),

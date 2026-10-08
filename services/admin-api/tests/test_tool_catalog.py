@@ -151,8 +151,8 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
     wrapped = ToolContext(context=context, tool_name='read_file', tool_call_id='t1', tool_arguments=payload)
     with caplog.at_level('ERROR', logger=sdk.logger.name):
         result = asyncio.run(read.on_invoke_tool(wrapped, payload))
-    assert result.startswith('An error occurred while running the tool.')
-    assert 'TOP-SECRET' in result  # the model's error text is redacted later, by the run's activity
+    assert result == ('An error occurred while running the tool. Please try again. '
+                      'Error: cannot read with key [redacted]')
     [record] = [r for r in caplog.records if r.name == sdk.logger.name]
     assert 'Tool read_file failed' in record.getMessage() and 'TOP-SECRET' not in record.getMessage()
     [error] = errors
