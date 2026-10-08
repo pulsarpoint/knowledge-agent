@@ -20,10 +20,67 @@ const detail = { ...state, id: 's1', title: 'Payments – API reference', docume
   prompt_snapshot: { system_prompt: 'You are an expert technical writer.', claude_code_tools: ['Read'], agent_version: null },
   context_snapshot: { folders: [{ path: '/work/data/code/app', kind: 'code_project', name: 'Payments API', code_project_id: 'repo' }],
     code_project_ids: ['repo'], instructions: '' },
+  tool_counts: [{ name: 'Read', calls: 5 }, { name: 'Grep', calls: 2 }],
   inputs: [], created_at: '2026-10-07T10:00:00Z', last_activity_at: '2026-10-07T10:00:00Z', closed_at: null };
 const message = (id: number) => ({ id, turn: 1, seq: id, kind: 'message', payload: { text: `Message ${id}` } });
 const page = (events: unknown[], has_more = false) => Response.json({ events, has_more });
 const opened = () => waitFor(() => { expect(Stream.instances).toHaveLength(1); return Stream.instances[0]; });
+
+test('the session page shows the tools the session used', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 2');
+});
+
+const call = (id: number, name: string) => ({ id, turn: 1, seq: id, kind: 'tool_call', payload: { name, summary: `call ${id}` } });
+
+test('live tool counts: the loaded counts plus streamed calls after the last one counted, replays counted once', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history')
+    ? page([call(9, 'Read'), call(11, 'Grep')])  // 9 is in the counts, 11 came after them
+    : Response.json({ ...detail, tool_counts_through_id: 10 })));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  const stream = await opened();
+  await waitFor(() => expect(screen.getByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 3'));
+  act(() => {
+    stream.emit('run_event', call(12, 'Bash'));
+    stream.emit('run_event', call(12, 'Bash'));  // replayed after a reconnect
+    stream.emit('run_event', call(13, 'Bash'));
+    stream.emit('session', { ...state, status: 'working', turns: 1 });  // the session state never replaces the counts
+  });
+  await waitFor(() => expect(screen.getByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 3 · Bash 2'));
+  act(() => { stream.emit('run_event', call(14, 'Grep')); stream.emit('run_event', call(15, 'Grep')); });
+  await waitFor(() => expect(screen.getByLabelText('Tools used')).toHaveTextContent('Grep 5 · Read 5 · Bash 2'));
+});
+
+test('live tool counts: a session loaded after the stream counts its streamed calls once', async () => {
+  let resolve: (response: Response) => void = () => {};
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/events/history') ? Promise.resolve(page([]))
+    : new Promise<Response>(done => { resolve = done; })));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  const stream = await opened();
+  act(() => { stream.emit('run_event', call(1, 'Read')); stream.emit('run_event', call(2, 'Bash')); stream.emit('run_event', call(3, 'Read')); });
+  await act(async () => {  // the counts already include calls 1 and 2
+    resolve(Response.json({ ...detail, tool_counts: [{ name: 'Bash', calls: 1 }, { name: 'Read', calls: 1 }], tool_counts_through_id: 2 }));
+  });
+  await waitFor(() => expect(screen.getByLabelText('Tools used')).toHaveTextContent('Read 2 · Bash 1'));
+});
+
+test('live tool counts: earlier activity loaded by scrolling is never added', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('before=150')) return page([call(120, 'Glob')]);
+    if (url.includes('/events/history')) return page([message(150), message(151)], true);
+    return Response.json({ ...detail, tool_counts: [], tool_counts_through_id: 0 });
+  }));
+  render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByText('Message 151')).toBeVisible();
+  const panel = screen.getByTestId('activity-scroll');
+  Object.defineProperty(panel, 'scrollHeight', { configurable: true, get: () => panel.querySelectorAll('[data-event]').length * 100 });
+  Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 50 });
+  Object.defineProperty(panel, 'scrollTop', { configurable: true, writable: true, value: 0 });
+  fireEvent.scroll(panel);
+  expect(await screen.findByText('call 120')).toBeVisible();
+  expect(screen.getByLabelText('Tools used')).toHaveTextContent('No tools used');
+});
 
 test('the session page streams activity, sends messages, stops, saves the draft and closes', async () => {
   const posts: { url: string; body?: unknown }[] = [];

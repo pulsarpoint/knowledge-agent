@@ -161,7 +161,7 @@ def test_agent_code_config_contains_projects_folders_and_only_applicable_git_url
     assert response.status_code==200, response.text
     local_config = {'id':local['id'],'name':'Local code','description':'Shared source','folder_paths':[str(root/'api'),str(root/'shared')]}
     assert 'git' not in response.json()
-    assert response.json()['code']=={'enabled':True,'all_projects':False,'projects':[local_config]}
+    assert response.json()['code']=={'enabled':True,'all_projects':False,'projects':[local_config],'graphs':[]}
     with store.connect() as conn:
         conn.execute("INSERT INTO ka.agent_repositories VALUES ('code',%s)",(UUID(git['id']),))
     config = client.get('/api/agents/code/config', headers=HEADERS).json()['code']

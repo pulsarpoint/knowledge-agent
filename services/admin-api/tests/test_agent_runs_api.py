@@ -29,7 +29,8 @@ def test_list_runs_with_filters(store, tmp_path):
     first = runs[1]
     assert first | {'started_at': None} == {'run_key': 'run:1', 'agent_id': 'search', 'agent': 'Search agent',
         'kind': 'test', 'title': 'How many retries?', 'user': 'alice@example.test', 'status': 'completed',
-        'total_tokens': 15, 'started_at': None}
+        'total_tokens': 15, 'started_at': None,
+        'tool_counts': [{'name': 'search_documents', 'calls': 1}]}
     assert runs[0]['status'] == 'failed'
     only = lambda **params: [r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']]
     assert only(kind='test') == ['run:1']

@@ -37,7 +37,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/agents/:id" element={<Detail />} /></Routes><Toaster /></MemoryRouter>);
-const TABS = ['General', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Prompts', 'Versions', 'Test'];
+const TABS = ['General', 'Tools', 'Skills', 'Documents', 'Code projects', 'SSH', 'MCP', 'Services', 'Prompts', 'Versions', 'Test'];
 
 test.each(['writer', 'search'])('both agent types show the same tabs: %s', async id => {
   open(`/agents/${id}`);
@@ -154,4 +154,16 @@ test('capability tabs of a per-run agent say what callers may pass', async () =>
   expect(screen.getByText(/^Per run: callers may pass any of the servers selected here/)).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Skills' }));
   expect(screen.queryByText(/^Per run:/)).toBeNull();
+});
+
+test('All agents shows each agent\'s tools', async () => {
+  vi.mocked(profiles.getAgents).mockResolvedValue({ agents: [
+    { ...structuredClone(writer), id: 'analyst', name: 'Analyst', runtime: 'openai', model_name: null, prompt_title: null, prompt_version: null,
+      tools_summary: { on: 3, per_run: 0, groups: { code: 1, documents: 0, servers: 1, mcp: 1, agents: 0 } } },
+    { ...structuredClone(writer), model_name: null, prompt_title: null, prompt_version: null,
+      tools_summary: { claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'] } }] });
+  render(<MemoryRouter><AgentsView /></MemoryRouter>);
+  expect(await screen.findByRole('columnheader', { name: 'Tools' })).toBeVisible();
+  expect(within(screen.getByText('Analyst').closest('tr')!).getByText('3 tools · Code 1 · Servers 1 · MCP 1')).toBeVisible();
+  expect(within(screen.getByText('Technical writer').closest('tr')!).getByText('Read, Grep, Glob, Bash')).toBeVisible();
 });

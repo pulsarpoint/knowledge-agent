@@ -1,75 +1,65 @@
 # Agent function tools
 
-Import decorated functions directly. There is no tool factory or registry.
+Implementations live in `knowledge_admin/capabilities/`:
+`files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
+`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `ssh.py`, `mcp.py`
+(MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
+`worker.py` for the shell worker service). They do not import the Agents SDK.
 
-- `files.py`: `list_files`, `read_file`, `search_files`. Read-only access to the
+`tools/catalog.py` describes each built-in tool without the SDK: `ToolSpec` (name, group, label, usage text,
+argument model, the capability it `needs`, `default_on`), `NEED_REASONS` for the Tools tab, `implied_tools(config)`
+(the tools a configuration's capabilities gave before tools were chosen; it is the 0078 backfill rule and what
+configurations saved before 0078 use) and `effective_tools(config, ssh_servers)` (the tools a run offers: switched
+on and their need met). `mcp_blocked` and `mcp_notes` do the same for MCP tools.
+
+`tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool`, and the
+adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
+
+`create_agent` (`knowledge_admin/agents.py`) builds the tools from `effective_tools`; MCP servers get a static
+`tool_filter` that blocks the tools switched off on the Tools tab (a tool without a row is on). Edited usage text
+of an MCP tool that is on is added to the prompt under `Tool notes:` as `- <server name>/<tool>: <usage>`; the
+tool's own description still comes from the server. `code_graph` is offered only when a selected code project has a
+current generated graph that ended ready or partial (see below); the prompt lists code graphs only when `code_graph`
+or `shell_run` is offered.
+
+- `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.
-- `ast_grep.py`: `ast_grep`. Runs the native ast-grep CLI in search-only mode to
+- `ast_grep`. Runs the native ast-grep CLI in search-only mode to
   return complete functions, methods, classes, or other matched syntax nodes.
-  Registered for code-enabled agents. Uses the file tools' selected-root checks,
+  Offered when it is switched on on the Tools tab and code projects are enabled. Uses the file tools' selected-root checks,
   secret redaction, and a 30-second timeout; it does not enable general shell
   access. Its SDK tool description includes patterns and a function-name rule.
-- `code_search.py`: `code_search`. Searches functions and methods by literal name
+- `code_search`. Searches functions and methods by literal name
   using the same Tree-sitter engine, without requiring an index or hand-written
   patterns. Returns full bodies, Go receivers, imports and syntactic call sites.
   Supports Go, Python, JavaScript, TypeScript and TSX; other constructs/languages
   remain accessible with `ast_grep`. Calls include nested closures and are not
   resolved targets or execution order. Available only in selected code folders.
-- `code_graph.py`: `code_graph`. Uses CodeGraph's public JavaScript SDK through
+- `code_graph`. Uses CodeGraph's public JavaScript SDK through
   `services/code-graph/query.cjs`, without hand-written graph SQL. Supports search,
   route inventory, full source, imports/types/references, direct callers/callees,
   recursive outgoing call traversal and unresolved references scoped to a node.
   Preserves native fields and edge metadata. Source hashes must match the index.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
-- `ssh.py`: `ssh_run`. Resolves a selected server and its credential reference from
-  the supplied snapshot/context. Reuses `knowledge_admin.ssh.execute`, including
+- `ssh_run`. Resolves a selected server and its credential reference from
+  the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.
-- `shell.py`: `shell_run`. A normal function tool sending Bash commands to the
-  internal `shell-worker` service. Registered when code or documents are enabled.
+- `shell_run`. A normal function tool sending Bash commands to the
+  internal `shell-worker` service. Offered when it is switched on on the Tools tab and code
+  projects, or documents without "Answer only from documents", are enabled.
   The worker provides Bash, Python, `rg`, `ast-grep`, Git and standard utilities.
   Each command sees only selected source/document/graph paths, mounted read-only,
   plus writable scratch files shared with the file tools for the duration of a run.
   Commands receive no application credentials or network access. Timeouts and
   client disconnects terminate the command and its background processes.
 
-`AgentContext` is just a TypedDict documenting the existing configuration snapshot,
-resolved credentials, workspace and shell capability. The SDK injects it; none of
-these values appear in the model-facing tool argument schema. Tools do not query
-PostgreSQL or decrypt keys. Include the selected resource descriptions, server
-instructions and capability rules in the agent's instructions when assembling it.
+`AgentContext` (`capabilities.context.RunContext`) is a TypedDict documenting the configuration snapshot,
+resolved credentials, workspace, shell switch and offered tool names. The SDK injects it; none of these values
+appear in the model-facing tool argument schema. Tools do not query PostgreSQL or decrypt keys.
 
-```python
-from agents import Agent, Runner
-from knowledge_admin.tools.files import list_files, read_file, search_files
-from knowledge_admin.tools.ast_grep import ast_grep
-from knowledge_admin.tools.code_search import code_search
-from knowledge_admin.tools.code_graph import code_graph
-from knowledge_admin.tools.ssh import ssh_run
-from knowledge_admin.tools.shell import shell_run
-
-# config, credentials, workspace, model and instructions are supplied by the caller.
-selected_tools = []
-if config['code']['enabled'] or config['documents']['enabled']:
-    selected_tools.extend([list_files, read_file, search_files, shell_run])
-if config['code']['enabled']:
-    selected_tools.extend([code_search, ast_grep])
-    if config['code'].get('graphs'):
-        selected_tools.append(code_graph)
-if config['ssh']['enabled']:
-    selected_tools.append(ssh_run)
-
-assistant = Agent(name=config['name'], model=model,
-                  instructions=instructions, tools=selected_tools)
-run = Runner.run_streamed(assistant, task, context={
-    'config': config, 'credentials': credentials,
-    'workspace': workspace, 'shell_enabled': config['code']['enabled'] or config['documents']['enabled'],
-})
-```
-
-The specialist runner in `knowledge_admin.agents.agent` registers these functions
-directly. Shell commands execute in the worker; the SDK stays in the administration
+Shell commands execute in the worker; the SDK stays in the administration
 process. MCP uses
 SDK integration; skills and Mermaid guidance remain instructions.
 

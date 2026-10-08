@@ -105,6 +105,7 @@ def build_api(app_name, store):
                 raise HTTPException(409, str(exc)) from None
         config = copy.deepcopy(config)
         config.pop('config_version', None)
+        config['code'].pop('graphs', None)  # live, like file contents: never part of a version
         digest = hashlib.sha256(json.dumps(config,sort_keys=True,separators=(',',':')).encode()).hexdigest()
         return {'config': config, 'source_hash': digest, 'changes': changes, 'suggestion': suggestion}
 
@@ -154,6 +155,7 @@ def build_api(app_name, store):
             if row['active_config_version_id'] is None:
                 # Preserve current behavior before the first experimental draft is saved.
                 baseline = get_agent_config(agent_id,conninfo=store.conninfo,working_copy=True)
+                baseline['code'].pop('graphs', None)
                 original = conn.execute('''INSERT INTO ka.agent_versions(agent,version,label,config,created_by,published_at)
                     VALUES (%s,%s,'Initial configuration',%s,%s,now()) RETURNING id''', (agent_id,number,Jsonb(baseline),actor_id)).fetchone()
                 conn.execute('UPDATE ka.agents SET active_config_version_id=%s WHERE id=%s', (original['id'],agent_id))

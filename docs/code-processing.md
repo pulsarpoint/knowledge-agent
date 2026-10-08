@@ -33,6 +33,12 @@ for reliable import resolution. The pipeline version change invalidates old
 processing fingerprints: generate the graph again after upgrading.
 Existing graph snapshots and documents are retained.
 
+The agent's `code.graphs` comes from the generated graph (`current_graph` in `capabilities/code_graph.py`), read live
+from the project's manifest and snapshot when a run starts, never from a saved version. It lists the graph's folders
+and `generated_at`; it is empty when the project was never generated, its snapshot is gone or its folder selection
+changed. If the project was synced after the graph was generated, a note says so. `code_graph` is offered only when a
+selected code project has such a graph and the tool is switched on.
+
 Agent graph queries use CodeGraph's public SDK through `query.cjs`. The SDK opens
 a temporary copy because v1.6.0 does not honor its `readOnly` option. Source is
 copied into that disposable project only for requested nodes, after verifying

@@ -8,7 +8,8 @@ afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 const runs = { next: null, runs: [
-  { run_key: 'run:1', agent_id: 'search', agent: 'Search agent', kind: 'test', title: 'How many retries?', user: 'alice@example.test', status: 'completed', total_tokens: 15, started_at: '2026-10-04T10:00:00Z' },
+  { run_key: 'run:1', agent_id: 'search', agent: 'Search agent', kind: 'test', title: 'How many retries?', user: 'alice@example.test', status: 'completed', total_tokens: 15, started_at: '2026-10-04T10:00:00Z',
+    tool_counts: [{ name: 'read_file', calls: 31 }, { name: 'code_graph', calls: 12 }, { name: 'shell_run', calls: 4 }, { name: 'ssh_run', calls: 1 }] },
 ] };
 
 test('runs list shows each run and filters by kind', async () => {
@@ -20,6 +21,35 @@ test('runs list shows each run and filters by kind', async () => {
   expect(screen.getByRole('link', { name: 'How many retries?' })).toHaveAttribute('href', '/activity/runs/run%3A1');
   fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'claude_code' } });
   await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=claude_code'));
+});
+
+test('runs list and record show the tools each run used', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/agent-runs/') ? json({ run_key: 'run:1', agent_id: 'search', user: null,
+    tool_counts: [{ name: 'code_graph', calls: 12 }, { name: 'read_file', calls: 31 }], events: [
+      { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'test', title: 'Graph run' }, created_at: '2026-10-04T10:00:00Z' }] })
+    : json({ next: null, runs: [runs.runs[0], { ...runs.runs[0], run_key: 'run:2', title: 'Quiet run', tool_counts: [] }] })));
+  render(<MemoryRouter><RunsView /></MemoryRouter>);
+  expect(await screen.findByRole('columnheader', { name: 'Tools' })).toBeVisible();
+  const busy = screen.getByText('How many retries?').closest('tr')!;
+  const cell = within(busy).getByText('read_file 31 · code_graph 12 · shell_run 4 +1');
+  expect(cell.closest('td')).toHaveAttribute('title', 'read_file 31 · code_graph 12 · shell_run 4 · ssh_run 1');
+  expect(within(screen.getByText('Quiet run').closest('tr')!).getByText('No tools used')).toBeVisible();
+  render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByLabelText('Tools used')).toHaveTextContent('code_graph 12 · read_file 31');
+});
+
+test('a run record without tool counts has no tools line; an empty list says No tools used', async () => {
+  const record = (counts?: unknown[]) => json({ run_key: 'run:1', agent_id: 'search', user: null, events: [
+    { seq: 1, kind: 'start', agent_id: 'search', payload: { kind: 'test', title: 'Graph run' }, created_at: '2026-10-04T10:00:00Z' }],
+    ...(counts ? { tool_counts: counts } : {}) });
+  vi.stubGlobal('fetch', vi.fn(async () => record()));
+  const { unmount } = render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByText('Graph run')).toBeVisible();
+  expect(screen.queryByLabelText('Tools used')).toBeNull();
+  unmount();
+  vi.stubGlobal('fetch', vi.fn(async () => record([])));
+  render(<MemoryRouter><RunRecordView runKey="run:1" /></MemoryRouter>);
+  expect(await screen.findByLabelText('Tools used')).toHaveTextContent('No tools used');
 });
 
 test('run types have readable names in the filter and the list', async () => {

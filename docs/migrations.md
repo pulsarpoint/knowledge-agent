@@ -53,3 +53,13 @@ The migration file format and CLI behavior follow the
 [official migration format](https://github.com/golang-migrate/migrate/blob/master/MIGRATIONS.md),
 [CLI documentation](https://github.com/golang-migrate/migrate/blob/master/cmd/migrate/README.md),
 and [PostgreSQL driver options](https://github.com/golang-migrate/migrate/blob/master/database/postgres/README.md).
+
+## 0078_agent_tools
+
+Creates `ka.agent_tools` (one row per agent and tool: `mode` on/off/per_run, optional edited `usage`,
+`subagent_allowed`). It backfills every native (`runtime = 'openai'`) agent with the tools its capabilities gave
+it before tools were chosen: file tools and `shell_run` for Code, or Documents without "Answer only from documents";
+`code_search`, `ast_grep` and `code_graph` for Code; `search_documents` and `read_document` for Documents;
+`report_not_covered` for grounded Documents; `ssh_run` for SSH. Other tools are not inserted (off); MCP tools
+without a row are on. `code_graph` is still offered only when a selected code project has a generated graph. The down
+migration drops the table, which removes edited usage text; afterwards tools follow the capabilities again.

@@ -10,8 +10,10 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run
+from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, ClaudeCodeTool, get_agent_config, model_fits, normalize_tools, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
+from knowledge_admin.tools.catalog import tools_summary
+from knowledge_admin.tools_api import ensure_native_tools, flags, switch_on_defaults
 
 
 class ProfileInput(BaseModel):
@@ -139,11 +141,22 @@ def build_api(app_name, store):
                 LEFT JOIN ka.agent_prompts p ON p.agent=a.id LEFT JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id
                 LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
                 ORDER BY a.created_at,a.id''').fetchall()
+            saved_tools: dict[str, list[dict]] = {}
+            for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
+                saved_tools.setdefault(tool['agent_id'], []).append(tool)
+            agent_mcp: dict[str, list[dict]] = {}
+            for server in conn.execute('''SELECT c.agent,m.id::text AS id,m.tools FROM ka.agent_configs c
+                    JOIN ka.agent_config_mcp_servers s ON s.config_id=c.id JOIN ka.mcp_servers m ON m.id=s.mcp_server_id
+                    WHERE c.server_id IS NULL AND m.enabled'''):
+                agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
                           'documents': 'any' if row['all_collections'] else collection_count,
                           'servers': row.pop('server_count'), 'services': row.pop('service_count')}
+                working = {**flags(row), 'claude_code_tools': row['claude_code_tools'],
+                           'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
+                           'tools': tool_items(saved_tools.get(row['id'], []))}
                 config = row.pop('version_config')
                 if config is not None:
                     row['resources'] = config.get('resources', 'fixed')  # versions saved before 0075 are fixed
@@ -161,6 +174,9 @@ def build_api(app_name, store):
                               else len(config['documents'].get('collections', [])),
                               'servers': sum(1 for server in config['ssh']['servers']
                                               if server['enabled'] and server['ssh_allowed']), 'services': len(config['services']['items'])}
+                row['tools_summary'] = tools_summary(
+                    {**config, 'runtime': row['runtime'], 'claude_code_tools': row['claude_code_tools']}
+                    if config is not None else working)
                 enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
                            'servers': row['ssh_enabled'], 'services': row['services_enabled']}
                 row['accepts'] = ([{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
@@ -261,6 +277,12 @@ def build_api(app_name, store):
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
                     all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,runtime=%s,claude_code_tools=%s,resources=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
                     (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,runtime,tools,resources,actor,agent_id))
+                now = flags({'runtime': runtime, 'repositories_enabled': value.repositories_enabled,
+                             'documents_enabled': value.documents_enabled, 'documents_grounded': grounded,
+                             'ssh_enabled': value.ssh_enabled})
+                if runtime == 'openai' and old['runtime'] != 'openai':
+                    ensure_native_tools(conn, agent_id, now)
+                switch_on_defaults(conn, agent_id, flags(old), now)
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None

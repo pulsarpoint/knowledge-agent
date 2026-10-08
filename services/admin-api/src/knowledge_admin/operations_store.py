@@ -12,7 +12,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_llm.profiles import profile
 from knowledge_llm import ModelUnavailable
 from knowledge_admin.mcp_settings import save_selection
-from knowledge_admin.ssh import SSHConnection
+from knowledge_admin.capabilities.ssh import SSHConnection
 
 
 class SSHInput(BaseModel):

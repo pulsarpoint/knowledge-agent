@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from '../lib/agentWizard';
 import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, agentTypeLabel, resourcesLabel, type AgentResources, type AgentRuntime } from '../lib/profiles';
+import { NEED_REASONS, TOOL_GROUPS, impliedTools, toolNeedMet } from '../lib/tools';
 import { claudeModel } from '~/lib/claudeCode';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -47,6 +48,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [role, setRole] = useState('');
   const [model, setModel] = useState('');
   const [proposal, setProposal] = useState<AgentProposal>();
+  const [toolChoice, setToolChoice] = useState<string[] | null>(null);
   const [step, setStep] = useState<'describe' | 'review'>('describe');
   const [tab, setTab] = useState('general');
   const [busy, setBusy] = useState<'generate' | 'create' | null>(null);
@@ -65,6 +67,10 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     return () => { live = false; };
   }, [reload]);
   const catalog = options?.catalog;
+  const catalogTools = options?.tools ?? [];
+  const impliedNames = proposal ? impliedTools(catalogTools, proposal) : [];
+  const chosenTools = toolChoice ?? impliedNames;
+  const inCatalogOrder = (names: string[]) => catalogTools.map(tool => tool.name).filter(name => names.includes(name));
   const agentModels = catalog?.models.filter(m => runtime !== 'claude_code' || claudeModel(m)) ?? [];
   function chooseType(next: AgentRuntime) {
     setRuntime(next);
@@ -78,12 +84,12 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }
   async function generate() {
     setBusy('generate'); setError('');
-    try { const data = await generateAgent(role, model, runtime); setProposal(data.proposal); setStep('review'); setTab('general'); }
+    try { const data = await generateAgent(role, model, runtime); setProposal(data.proposal); setToolChoice(null); setStep('review'); setTab('general'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not generate an agent.'); }
     finally { setBusy(null); }
   }
   function startBlank() {
-    setError(''); setProposal(blankProposal(agentModels.some(m => m.id === model) ? model : null)); setStep('review'); setTab('general');
+    setError(''); setToolChoice(null); setProposal(blankProposal(agentModels.some(m => m.id === model) ? model : null)); setStep('review'); setTab('general');
   }
   async function create() {
     if (!proposal) return;
@@ -91,7 +97,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent({ ...proposal, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES] }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
+    try { const saved = await createWizardAgent({ ...proposal, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES], ...(runtime === 'openai' && toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}) }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
   }
@@ -118,7 +124,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
           {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, agent_type: runtime, generation_model_id: model, catalog: { ...catalog, models: agentModels }, output_schema: options.schema } }, null, 2)} /></Field>}
         </FieldSet>
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services']].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
+        <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services'],...(runtime === 'openai' ? [['tools','Tools']] : [])].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
           <p className="text-sm" aria-label="Agent type and resources"><span className="font-medium">{agentTypeLabel(runtime)} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
@@ -143,6 +149,21 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
         <TabsContent value="skills"><FieldGroup><Toggle label="Enable skills" checked={proposal.skills_enabled} onChange={skills_enabled => edit({ skills_enabled })} />{proposal.skills_enabled && <Selection label="Skills" options={catalog.skills} selected={proposal.skill_ids} onChange={skill_ids => edit({ skill_ids })} />}</FieldGroup></TabsContent>
         <TabsContent value="mcp"><FieldGroup><Toggle label="Enable MCP" checked={proposal.mcp_enabled} onChange={mcp_enabled => edit({ mcp_enabled })} />{proposal.mcp_enabled && <Selection label="MCP servers" options={catalog.mcp_servers} selected={proposal.mcp_server_ids} onChange={mcp_server_ids => edit({ mcp_server_ids })} />}</FieldGroup></TabsContent>
         <TabsContent value="services"><FieldGroup><Toggle label="Enable services" checked={proposal.services_enabled} onChange={services_enabled => edit({ services_enabled })} />{proposal.services_enabled && <Selection label="Services" options={catalog.services} selected={proposal.service_ids} onChange={service_ids => edit({ service_ids })} />}</FieldGroup></TabsContent>
+        {runtime === 'openai' && <TabsContent value="tools"><FieldGroup>
+          <FieldDescription>{toolChoice ? 'Your choice of tools.' : 'Follows the capability switches until you change a tool.'} Usage instructions can be edited on the agent’s Tools tab after it is created.</FieldDescription>
+          {TOOL_GROUPS.map(([group, label]) => {
+            const items = catalogTools.filter(tool => tool.group === group);
+            return items.length ? <FieldSet key={group}><FieldLegend>{label}</FieldLegend>{items.map(tool => {
+              const met = toolNeedMet(tool.needs, proposal);
+              return <Field key={tool.name} orientation="horizontal" className={met ? '' : 'opacity-60'}>
+                <Switch id={`wizard-tool-${tool.name}`} checked={chosenTools.includes(tool.name)}
+                  onCheckedChange={on => setToolChoice(inCatalogOrder([...chosenTools.filter(name => name !== tool.name), ...(on ? [tool.name] : [])]))} />
+                <FieldContent><FieldLabel htmlFor={`wizard-tool-${tool.name}`}>{tool.label}</FieldLabel>
+                  <FieldDescription>{tool.summary}{!met && tool.needs ? ` ${NEED_REASONS[tool.needs]}.` : ''}</FieldDescription></FieldContent>
+              </Field>; })}</FieldSet> : null;
+          })}
+          {toolChoice && <Button type="button" variant="outline" className="w-fit" onClick={() => setToolChoice(null)}>Follow the capabilities</Button>}
+        </FieldGroup></TabsContent>}
         <TabsContent value="ssh"><FieldGroup>
           <Toggle label="Enable SSH" checked={proposal.ssh_enabled} onChange={ssh_enabled => edit({ ssh_enabled })} />
           {proposal.ssh_enabled && <><Selection label="Allowed servers" options={catalog.servers.map(s => ({ ...s, description: `${s.hostname} · ${s.description ?? ''}` }))} selected={proposal.servers.map(s => s.server_id)} onChange={ids => edit({ servers: ids.map(server_id => proposal.servers.find(s => s.server_id === server_id) ?? { server_id, instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }) })} />

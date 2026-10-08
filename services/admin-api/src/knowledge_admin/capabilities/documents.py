@@ -3,19 +3,18 @@ import os
 from typing import Any
 
 import httpx
-from agents import RunContextWrapper, function_tool
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.collections import document_collections
 from knowledge_admin.grounding import empty_state
 from knowledge_admin.knowledge_agents.config import per_run
-from knowledge_admin.tools import AgentContext, require_given
+from knowledge_admin.capabilities.context import RunContext, require_given
 
 RAG_TRANSPORT: httpx.AsyncBaseTransport | None = None
 MAX_DOCUMENT_BYTES = 65536
 
 
-def _state(context: AgentContext) -> dict[str, Any]:
+def _state(context: RunContext) -> dict[str, Any]:
     return context.setdefault('grounding', empty_state())
 
 
@@ -47,15 +46,7 @@ def _register(state: dict[str, Any], collection: str, path: str, text: str) -> i
     return number
 
 
-@function_tool
-async def search_documents(ctx: RunContextWrapper[AgentContext], query: str, collection: str | None = None) -> str:
-    """Search the knowledge base and return numbered excerpts to cite as [n].
-
-    Args:
-        query: Words or a question to search for.
-        collection: Optional collection name, such as "jira", to search only that collection.
-    """
-    context = ctx.context
+async def search_documents(context: RunContext, query: str, collection: str | None = None) -> str:
     allowed = _allowed(context['config'])
     if collection is not None:
         collection = collection.strip()
@@ -94,15 +85,7 @@ async def search_documents(ctx: RunContextWrapper[AgentContext], query: str, col
     return '\n\n'.join(blocks)
 
 
-@function_tool
-async def read_document(ctx: RunContextWrapper[AgentContext], collection: str, path: str) -> str:
-    """Read one knowledge-base document returned by search_documents; cite it with its [n].
-
-    Args:
-        collection: The collection name shown before the path, such as "jira".
-        path: The document's full path as shown after the collection, such as "jira/DEMO-1.md".
-    """
-    context = ctx.context
+async def read_document(context: RunContext, collection: str, path: str) -> str:
     allowed = _allowed(context['config'])
     collection, path = collection.strip(), path.strip()
     parts = path.split('/')
@@ -128,12 +111,6 @@ async def read_document(ctx: RunContextWrapper[AgentContext], collection: str, p
     return f'[{number}] {collection}/{path}\n{text}' + ('\n[truncated]' if len(encoded) > MAX_DOCUMENT_BYTES else '')
 
 
-@function_tool
-async def report_not_covered(ctx: RunContextWrapper[AgentContext], reason: str) -> str:
-    """Record that the retrieved documents do not answer the question.
-
-    Args:
-        reason: What information is missing from the documentation.
-    """
-    _state(ctx.context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'
+async def report_not_covered(context: RunContext, reason: str) -> str:
+    _state(context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'
     return 'Recorded. Tell the user the documentation does not cover this and what is missing.'

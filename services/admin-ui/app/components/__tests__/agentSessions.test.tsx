@@ -288,3 +288,21 @@ it('blocks the first message until the run resource options load, with a retry',
   expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
 });
+
+it('keeps the message box with the picker, in a shorter conversation area', async () => {
+  vi.mocked(getRunResourceOptions).mockResolvedValue(structuredClone(ANALYST));
+  renderPage();
+  await screen.findByRole('region', { name: 'Resources for this run' });
+  expect(screen.getByLabelText('Task')).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain('h-[calc(100dvh-30rem)]');
+});
+
+it('a Test chat answer shows its tools and Show config lists the conversation\'s', async () => {
+  vi.mocked(api.getAgentSession).mockResolvedValue({ ...conversation, tool_counts: [{ name: 'read_file', calls: 2 }],
+    runs: [{ ...run, tool_counts: [{ name: 'read_file', calls: 2 }] }, { ...run, id: 'run-2', task: 'Second', answer: 'Second answer', tool_counts: [] }] });
+  renderPage('?view=test&session_id=session-1');
+  await screen.findByText('Second answer');
+  expect(screen.getAllByLabelText('Tools used').map(line => line.textContent)).toEqual(['read_file 2', 'No tools used']);
+  fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
+  await waitFor(() => expect(screen.getByLabelText('Agent configuration')).toHaveTextContent('"tool_counts"'));
+});

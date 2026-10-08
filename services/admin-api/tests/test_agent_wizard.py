@@ -43,7 +43,7 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
     response = client.get('/api/agents/wizard/options', headers=HEADERS)
     assert response.headers['cache-control'] == 'no-store'
     assert response.json()['schema'] == AgentProposal.model_json_schema()
-    assert set(response.json()) == {'catalog', 'schema', 'prompt'}  # no default model: the UI starts with the first
+    assert set(response.json()) == {'catalog', 'schema', 'prompt', 'tools'}  # no default model: the UI starts with the first
     assert next(p for p in catalog['code_projects'] if p['id'] == proposal['repository_ids'][0])['folder_paths'] == ['managed/payments']
     assert all(isinstance(p['folder_paths'], list) for p in catalog['code_projects'])
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret', 'ciphertext'):

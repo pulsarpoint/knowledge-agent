@@ -1,0 +1,191 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router';
+import AgentDetailView from '../AgentDetailView';
+import { keepChoices } from '../AgentToolsView';
+import * as profiles from '../../lib/profiles';
+import * as tools from '../../lib/tools';
+import * as llm from '../../lib/llm';
+import { Toaster } from '~/components/ui/sonner';
+import { ApiError } from '../../lib/api';
+
+vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
+vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
+vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
+vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('../PromptsView', () => ({ default: () => null }));
+vi.mock('../AgentInstructions', () => ({ default: () => null }));
+vi.mock('../AgentVersionsView', () => ({ default: () => null }));
+vi.mock('../AgentModelSelection', () => ({ default: () => null }));
+
+const agent: profiles.AgentProfile = { id: 'payments', name: 'Payments analyst', description: '', when_to_use: '', enabled: true,
+  runtime: 'openai', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false, repositories_enabled: true,
+  ssh_enabled: false, skills_enabled: false, mcp_enabled: true, services_enabled: false, documents_grounded: false, revision: 4,
+  model_id: null, all_collections: false, all_repositories: true, collection_ids: [], repository_ids: [], service_ids: [],
+  skill_ids: [], active_prompt: null };
+const tool = (patch: Partial<tools.AgentTool>): tools.AgentTool => ({ tool: 'read_file', label: 'Read file',
+  summary: 'Read a file or a line range.', group: 'code', mode: 'on', usage: null, default_usage: 'Read a source line range.',
+  subagent_allowed: true, available: true, reason: null, tab: 'git', ...patch });
+const native: tools.AgentTools = { runtime: 'openai', revision: 4, tools: [
+  tool({}),
+  tool({ tool: 'shell_run', label: 'Shell', summary: 'Run Bash in a sandbox.', mode: 'off', default_usage: 'Run Bash commands.' }),
+  tool({ tool: 'ssh_run', label: 'SSH', summary: 'Run a command on a selected server.', group: 'servers', available: false,
+    reason: 'Needs SSH servers', tab: 'ssh', default_usage: 'Execute a command.' }),
+  tool({ tool: 'mcp:m1:lookup', label: 'Docs / lookup', summary: '', group: 'mcp', usage: 'Use for API pages.',
+    default_usage: 'Look up docs.', tab: 'mcp' }),
+] };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ is_admin: true })));
+  vi.mocked(profiles.getAgent).mockImplementation(async id => ({ ...structuredClone(agent), id, runtime: id === 'writer' ? 'claude_code' : 'openai' }));
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
+  vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
+  vi.mocked(tools.getAgentTools).mockImplementation(async id => id === 'writer'
+    ? { runtime: 'claude_code', revision: 1, claude_code_tools: ['Read', 'Grep'], tools: [] } : structuredClone(native));
+  vi.mocked(tools.saveAgentTools).mockImplementation(async (_id, revision, saved) => ({ ...native, revision: revision + 1, tools: saved }));
+});
+afterEach(() => vi.unstubAllGlobals());
+function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
+const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/agents/:id" element={<Detail />} /></Routes><Toaster /></MemoryRouter>);
+const row = (name: string) => screen.getByRole('switch', { name }).closest('[data-tool]') as HTMLElement;
+
+test('the Tools tab switches tools, edits and resets usage and saves once', async () => {
+  const user = userEvent.setup();
+  open('/agents/payments?view=tools');
+  expect(await screen.findByRole('group', { name: 'Code' })).toBeVisible();
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent).slice(0, 2)).toEqual(['General', 'Tools']);
+  expect(screen.queryByRole('group', { name: 'Agents' })).toBeNull();  // empty groups are hidden
+  await user.click(screen.getByRole('switch', { name: 'Shell' }));
+  const toggle = within(row('Read file')).getByRole('button', { name: 'Edit usage for Read file' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await user.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle).toHaveAccessibleName('Close usage for Read file');
+  expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toContainElement(screen.getByLabelText('Usage for Read file'));
+  const usage = screen.getByLabelText('Usage for Read file');
+  expect(usage).toHaveValue('Read a source line range.');
+  await user.clear(usage); await user.type(usage, 'Read only named files.');
+  expect(within(row('Read file')).getByText('Edited')).toBeVisible();
+  expect(within(row('Docs / lookup')).getByText('Edited')).toBeVisible();
+  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Edit usage for Docs / lookup' }));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('Use for API pages.');
+  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Reset usage for Docs / lookup' }));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('Look up docs.');
+  expect(within(row('Docs / lookup')).queryByText('Edited')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  await waitFor(() => expect(tools.saveAgentTools).toHaveBeenCalledTimes(1));
+  const [id, revision, saved] = vi.mocked(tools.saveAgentTools).mock.calls[0];
+  expect([id, revision]).toEqual(['payments', 4]);
+  expect(saved.map(({ tool: name, mode, usage: text }) => [name, mode, text])).toEqual([
+    ['read_file', 'on', 'Read only named files.'], ['shell_run', 'on', null], ['ssh_run', 'on', null], ['mcp:m1:lookup', 'on', null]]);
+  expect(await screen.findByText('Tools saved.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+});
+
+test('unmet needs are greyed out with their reason and link', async () => {
+  open('/agents/payments?view=tools');
+  const ssh = await screen.findByRole('switch', { name: 'SSH' });
+  const line = ssh.closest('[data-tool]') as HTMLElement;
+  expect(within(line).getByText(/Needs SSH servers/)).toBeVisible();
+  expect(within(line).getByRole('link', { name: 'Open SSH' })).toHaveAttribute('href', '/agents/payments?view=ssh');
+  expect(within(row('Read file')).queryByText(/Needs/)).toBeNull();
+});
+
+test('capability tabs of a native agent point to the Tools tab', async () => {
+  open('/agents/payments?view=git');
+  expect(await screen.findByText(tools.TOOLS_TAB_NOTE)).toBeVisible();
+});
+
+test('a Claude Code agent lists its Claude Code tools', async () => {
+  open('/agents/writer?view=tools');
+  const list = await screen.findByRole('list', { name: 'Claude Code tools' });
+  expect(within(list).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Read', 'Grep']);
+  expect(screen.getByText(tools.CLAUDE_CODE_TOOLS_NOTE)).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Save tools' })).toBeNull();
+  expect(screen.queryByRole('switch', { name: 'Read file' })).toBeNull();
+});
+
+test('an emptied usage saves as the default text', async () => {
+  const user = userEvent.setup();
+  open('/agents/payments?view=tools');
+  await user.click(await screen.findByRole('button', { name: 'Edit usage for Docs / lookup' }));
+  expect(screen.getByText(/Empty restores the default text/)).toBeVisible();
+  await user.clear(screen.getByLabelText('Usage for Docs / lookup'));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('');
+  expect(within(row('Docs / lookup')).queryByText('Edited')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  await waitFor(() => expect(tools.saveAgentTools).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(tools.saveAgentTools).mock.calls[0][2].find(item => item.tool === 'mcp:m1:lookup')?.usage).toBeNull();
+});
+
+/** A server that answers with its current revision and refuses saves made against an older one. */
+function server(start: { revision: number; ssh: boolean }) {
+  const state = { ...start };
+  vi.mocked(tools.getAgentTools).mockImplementation(async () => ({ ...structuredClone(native), revision: state.revision,
+    tools: native.tools.map(item => item.tool === 'ssh_run' && state.ssh ? { ...item, available: true, reason: null } : item) }));
+  vi.mocked(tools.saveAgentTools).mockImplementation(async (_id, revision, saved) => {
+    if (revision !== state.revision) throw new ApiError('The tools changed since you opened them. Reload.', 409);
+    state.revision += 1;
+    return { ...native, revision: state.revision, tools: saved };
+  });
+  vi.mocked(profiles.saveAgent).mockImplementation(async value => {
+    state.revision += 1; state.ssh = value.ssh_enabled;
+    return { ...structuredClone(agent), ...value, revision: state.revision };
+  });
+  return state;
+}
+
+test('a capability saved on another tab keeps unsaved tool choices and refreshes availability', async () => {
+  const user = userEvent.setup();
+  server({ revision: 4, ssh: false });
+  open('/agents/payments?view=tools');
+  await user.click(await screen.findByRole('switch', { name: 'Shell' }));
+  expect(within(row('SSH')).getByText(/Needs SSH servers/)).toBeVisible();
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  await user.click(screen.getByRole('switch', { name: 'Enable SSH access' }));
+  await user.click(screen.getByRole('button', { name: 'Save SSH access' }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  await waitFor(() => expect(within(row('SSH')).queryByText(/Needs SSH servers/)).toBeNull());
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText('Tools saved.')).toBeInTheDocument();  // a toast; sonner animates it in
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+  expect(vi.mocked(tools.saveAgentTools).mock.calls.at(-1)?.[1]).toBe(5);
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+});
+
+test('a stale save keeps the draft so a retry saves it, and Reload tools discards it on request', async () => {
+  const user = userEvent.setup();
+  const state = server({ revision: 4, ssh: false });
+  open('/agents/payments?view=tools');
+  await user.click(await screen.findByRole('switch', { name: 'Shell' }));
+  state.revision = 6;  // someone else saved in between
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText(/The tools changed since you opened them/)).toBeVisible();
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save tools' })).toBeEnabled());
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText('Tools saved.')).toBeInTheDocument();  // a toast; sonner animates it in
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+  expect(vi.mocked(tools.saveAgentTools).mock.calls.at(-1)?.[1]).toBe(6);
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+
+  await user.click(screen.getByRole('switch', { name: 'Read file' }));
+  state.revision = 9;
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  await user.click(await screen.findByRole('button', { name: 'Reload tools' }));
+  await waitFor(() => expect(screen.getByRole('switch', { name: 'Read file' })).toBeChecked());
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+});
+
+test('fresh rows keep only the choices the user touched', () => {
+  const fresh = [tool({}), tool({ tool: 'shell_run', mode: 'off' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'on' })];
+  const draft = [tool({ usage: 'Narrow reads.' }), tool({ tool: 'shell_run', mode: 'on' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'off' })];
+  // ssh_run was switched on by a General save; its stale 'off' in the draft was never touched.
+  expect(keepChoices(fresh, draft, new Set(['read_file', 'shell_run'])).map(item => [item.tool, item.mode, item.usage])).toEqual([
+    ['read_file', 'on', 'Narrow reads.'], ['shell_run', 'on', null], ['ssh_run', 'on', null]]);
+});

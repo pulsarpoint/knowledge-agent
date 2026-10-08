@@ -43,8 +43,29 @@ class AgentConfig(TypedDict):
     mcp: dict[str, Any]
     ssh: dict[str, Any]
     services: dict[str, Any]
+    tools: dict[str, list[dict[str, Any]]]
     config_version: NotRequired[dict[str, Any]]
     run_resources: NotRequired[dict[str, list[str]]]
+
+
+def tool_items(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """The agent's tools in config shape: every catalog tool (no row: off), then MCP rows by name."""
+    from knowledge_admin.tools.catalog import CATALOG, item  # the catalog imports this module
+
+    saved = {row['tool']: row for row in rows}
+    items = []
+    for name in CATALOG:
+        row = saved.get(name)
+        items.append(item(name, row['mode'] if row else 'off', row['usage'] if row else None))
+    for name in sorted(tool for tool in saved if tool.startswith('mcp:')):
+        items.append(item(name, saved[name]['mode'], saved[name]['usage'], group='mcp'))
+    return {'items': items}
+
+
+def native_tools(conn, agent_id: str, runtime: str) -> dict[str, list[dict[str, Any]]]:
+    if runtime != 'openai':
+        return {'items': []}
+    return tool_items(conn.execute('SELECT tool,mode,usage FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)))
 
 
 def normalize_tools(values: Iterable[str]) -> list[str]:
@@ -66,6 +87,25 @@ def require_native(config: Mapping[str, Any]) -> None:
     """Refuse a Claude Code agent where the native runtime would run it (test chats, live runs)."""
     if config.get('runtime', 'openai') != 'openai':
         raise ValueError(NATIVE_ONLY)
+
+
+GRAPH_PROJECTS = '''SELECT r.id::text AS id,r.name,r.synced_at,
+    ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
+    FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s::uuid[]) AND r.archived_at IS NULL
+    ORDER BY lower(r.name),r.id'''
+
+
+def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
+    """The generated graphs of these code projects (live, like file contents; never taken from a version). Decided
+    from the stored graph manifests: no source file is read."""
+    from knowledge_admin.capabilities import code_graph  # imports the code processing stack only when needed
+
+    ids = [str(item) for item in ids]
+    if project_id is None or not ids:
+        return []
+    return [graph for row in conn.execute(GRAPH_PROJECTS, (project_id, ids))
+            if (graph := code_graph.current_graph({'id': row['id'], 'name': row['name'], 'synced_at': row['synced_at'],
+                                                   'folder_paths': list(row['folder_paths'])})) is not None]
 
 
 def per_run(config: Mapping[str, Any]) -> bool:
@@ -98,6 +138,10 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
             raise LookupError(f"Agent {agent_id!r} was not found")
+        projects = conn.execute("SELECT id FROM ka.projects WHERE archived_at IS NULL").fetchall()
+        if len(projects) > 1:
+            raise ValueError("Agent configuration requires a single application database")
+        project_id = projects[0]['id'] if projects else None
         selected_version = version_id or (None if working_copy else agent['active_config_version_id'])
         if selected_version is not None:
             version = conn.execute('SELECT id,version,label,config FROM ka.agent_versions WHERE id=%s AND agent=%s', (selected_version,agent_id)).fetchone()
@@ -108,6 +152,13 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             config['runtime'] = agent['runtime']  # the agent type belongs to the agent, never to a version
             config.setdefault('claude_code_tools', list(CLAUDE_CODE_TOOLS))  # versions saved before 0072
             config.setdefault('resources', 'fixed')  # versions saved before 0075
+            if agent['runtime'] != 'openai':
+                config['tools'] = {'items': []}
+            else:
+                from knowledge_admin.tools.catalog import implied_tools  # the catalog imports this module
+                config.setdefault('tools', implied_tools(config))  # versions saved before 0078
+            config['code']['graphs'] = (load_graphs(conn, project_id, [p['id'] for p in config['code']['projects']])
+                                        if config['runtime'] == 'openai' and config['code']['enabled'] else [])
             config['config_version'] = jsonable_encoder({key:version[key] for key in ('id','version','label')})
             return config
         prompt = conn.execute("""SELECT v.id,v.title,v.version,v.revision,v.content
@@ -120,10 +171,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
         if code_root.anchor != '/' or '..' in code_root.parts:
             raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
 
-        projects = conn.execute("SELECT id FROM ka.projects WHERE archived_at IS NULL").fetchall()
-        if len(projects) > 1:
-            raise ValueError("Agent configuration requires a single application database")
-        project_id = projects[0]['id'] if projects else None
         configs = conn.execute("""SELECT id,server_id,instructions,inherit_skills,inherit_mcp_servers,revision
             FROM ka.agent_configs WHERE agent=%s AND project_id=%s""", (agent_id, project_id)).fetchall()
         config_by_server = {row['server_id']: row for row in configs}
@@ -247,10 +294,13 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'documents': {'enabled': agent['documents_enabled'], 'grounded': agent['documents_grounded'],
                 'all_collections': agent['all_collections'], 'collections': collections},
             'code': {'enabled': agent['repositories_enabled'], 'all_projects': agent['all_repositories'],
-                'projects': code_projects},
+                'projects': code_projects,
+                'graphs': load_graphs(conn, project_id, [p['id'] for p in code_projects])
+                          if agent['runtime'] == 'openai' and agent['repositories_enabled'] else []},
             'skills': {'enabled': agent['skills_enabled'], 'items': agent_skills},
             'mcp': {'enabled': agent['mcp_enabled'], 'servers': agent_mcp},
             'ssh': {'enabled': agent['ssh_enabled'], 'servers': servers},
             'services': {'enabled': agent['services_enabled'], 'items': services},
+            'tools': native_tools(conn, agent_id, agent['runtime']),
         })
 

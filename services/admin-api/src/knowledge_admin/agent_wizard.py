@@ -18,6 +18,8 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, CLAUDE_CODE_TOOLS, ClaudeCodeTool, model_fits, normalize_tools
 from knowledge_admin.operations_store import SSHInput
+from knowledge_admin.tools.catalog import CATALOG, catalog_listing, implied_tools
+from knowledge_admin.tools_api import CLAUDE_CODE, UNKNOWN, flags
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -113,6 +115,7 @@ class CreateInput(AgentProposal):
     runtime: Literal['openai', 'claude_code'] = 'openai'
     resources: Literal['fixed', 'per_run'] = 'fixed'
     claude_code_tools: list[ClaudeCodeTool] = Field(default_factory=lambda: list(CLAUDE_CODE_TOOLS), max_length=8)
+    tools: list[str] | None = Field(default=None, max_length=50)  # None: what the capabilities give
 
 
 class GenerateInput(BaseModel):
@@ -181,7 +184,7 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
             catalog = inventory(conn, store.project(conn, app_name))
-        return {'catalog': catalog, 'schema': AgentProposal.model_json_schema(), 'prompt': DESIGN_PROMPT}
+        return {'catalog': catalog, 'schema': AgentProposal.model_json_schema(), 'prompt': DESIGN_PROMPT, 'tools': catalog_listing()}
 
     @router.post('/generate')
     async def generate(value: GenerateInput, response: Response):
@@ -255,6 +258,11 @@ def build_api(app_name, store):
                     chosen = next(m for m in catalog['models'] if str(m['id']) == str(value.model_id))
                     if not model_fits('claude_code', chosen):
                         raise HTTPException(400, CHOOSE_CLAUDE)
+                if value.runtime == 'claude_code' and value.tools:
+                    raise HTTPException(400, CLAUDE_CODE)
+                for name in value.tools or []:
+                    if name not in CATALOG:
+                        raise HTTPException(400, UNKNOWN.format(tool=name))
                 actor = store.actor(conn, *request_actor(request))
                 conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,resources,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
@@ -268,6 +276,14 @@ def build_api(app_name, store):
                 conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)', (agent_id,prompt_id))
                 conn.execute('''INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,created_by,updated_by,published_at)
                     VALUES (%s,%s,1,%s,%s,%s,%s,now())''', (prompt_id,agent_id,value.name,value.system_prompt,actor,actor))
+                if value.runtime == 'openai':
+                    proposed = flags({'runtime': 'openai', 'repositories_enabled': value.repositories_enabled,
+                                      'documents_enabled': value.documents_enabled, 'documents_grounded': False,
+                                      'ssh_enabled': value.ssh_enabled})
+                    names = value.tools if value.tools is not None else [
+                        entry['tool'] for entry in implied_tools(proposed)['items'] if entry['mode'] == 'on']
+                    for name in dict.fromkeys(names):
+                        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
                 for table, column, ids in [('agent_collections','collection_id',value.collection_ids),
                                           ('agent_repositories','repository_id',value.repository_ids),
                                           ('agent_services','service_id',value.service_ids)]:

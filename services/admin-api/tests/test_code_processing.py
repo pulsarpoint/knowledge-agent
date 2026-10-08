@@ -7,10 +7,13 @@ from uuid import uuid4
 import pytest
 from agents.tool_context import ToolContext
 
-from knowledge_admin.code_processing import process_code, load_code_graph, CodeProcessingError
-from knowledge_admin.tools.code_graph import code_graph
+from knowledge_admin.code_processing import process_code, CodeProcessingError
+from knowledge_admin.capabilities.code_graph import load_code_graph_hashing
+from tool_helpers import tool
 from test_api import _client
 from test_repositories import HEADERS
+
+code_graph = tool('code_graph')
 
 
 def test_go_module_root_resolves_package_function_instead_of_same_named_method(tmp_path, monkeypatch):
@@ -32,7 +35,7 @@ func (c *Ctrl) Read() {}
     graph = process_code(project)
     assert graph['relative_root'] == 'app' and graph['code_root'] == str(app)
     assert process_code(project)['reused']
-    assert load_code_graph(project, graph['source_hash'])['code_root'] == str(app)
+    assert load_code_graph_hashing(project, graph['source_hash'])['code_root'] == str(app)
     context = ToolContext({'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [graph]}},
         'credentials': {}}, tool_name='code_graph', tool_call_id='test', tool_arguments='{}')
     async def inspect():
@@ -73,8 +76,8 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     assert not (mirror / 'unselected').exists()
     assert not (app / '.codegraph').exists()
     with pytest.raises(CodeProcessingError, match='changed'):
-        load_code_graph(project)
-    assert load_code_graph(project, first['source_hash'])['source_hash'] == first['source_hash']
+        load_code_graph_hashing(project)
+    assert load_code_graph_hashing(project, first['source_hash'])['source_hash'] == first['source_hash']
     client = _client(tmp_path, repository_store=store)
     with store.connect() as conn:
         workspace = store.project(conn, 'shop')
@@ -106,7 +109,7 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     os.utime(app / 'main.py', ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
     (app / 'main.go').unlink()
     with pytest.raises(CodeProcessingError, match='changed'):
-        load_code_graph(project, first['source_hash'])
+        load_code_graph_hashing(project, first['source_hash'])
     second = process_code(project)
     assert second['source_hash'] != first['source_hash'] and not second['reused']
     assert second['stats']['filesByLanguage'] == {'python': 1}
@@ -180,7 +183,7 @@ def _saved_before_data_root(tmp_path, monkeypatch):
 
 def test_a_graph_saved_under_the_old_mounts_is_read_at_the_current_folders(tmp_path, monkeypatch):
     project, root, snapshot, source_hash = _saved_before_data_root(tmp_path, monkeypatch)
-    for graph in (load_code_graph(project, source_hash), process_code(project)):
+    for graph in (load_code_graph_hashing(project, source_hash), process_code(project)):
         assert graph['folder_paths'] == [str(root / 'app')]
         assert graph['code_root'] == str(root)
         assert graph['graph_path'] == str(snapshot / 'graph.sqlite')
@@ -192,7 +195,7 @@ def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder
     assert rebase_code_path('/work/code/app') == str(root / 'app')
     assert rebase_code_path(str(root / 'app')) == str(root / 'app')
     assert rebase_code_path('/work/code-index/x') == '/work/code-index/x'
-    graph = load_code_graph({**project, 'folder_paths': ['/work/code/app']}, source_hash)
+    graph = load_code_graph_hashing({**project, 'folder_paths': ['/work/code/app']}, source_hash)
     assert graph['folder_paths'] == [str(root / 'app')]
 
 
@@ -201,5 +204,5 @@ def test_loading_a_graph_that_was_never_generated_asks_to_generate_it(tmp_path, 
     monkeypatch.setenv('CODE_ROOT', str(tmp_path / 'code'))
     monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
     with pytest.raises(CodeProcessingError) as raised:
-        load_code_graph({'id': str(uuid4()), 'name': 'App', 'folder_paths': ['app']})
+        load_code_graph_hashing({'id': str(uuid4()), 'name': 'App', 'folder_paths': ['app']})
     assert str(raised.value) == 'No code graph yet. Generate the graph in Code projects first.'

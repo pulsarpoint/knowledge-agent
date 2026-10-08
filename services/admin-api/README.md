@@ -160,8 +160,9 @@ result = await agent(config, "Explain how this project starts.", credentials=dec
 print(result.final_output)
 ```
 
-Setup is split into `get_model`, `get_paths`, `get_ssh`, `get_mcp`, `get_tools`,
-and `get_prompt` in `agents.py`. These select the saved settings and enabled
+Setup is split into `get_model`, `get_paths`, `get_ssh` and `get_prompt` in
+`agents.py`; tools come from `tools/catalog.py` through `tools/sdk.py` (MCP server selection is in
+`knowledge_admin/capabilities/mcp.py`). These select the saved settings and enabled
 resources. Provider connections still belong to `model_adapter.agent_model()`;
 the main runner owns connection cleanup and streaming. The session API owns
 conversation persistence.
@@ -173,8 +174,16 @@ turn limits raise exceptions. Token usage is in `result.context_wrapper.usage`.
 pass an existing Pydantic class as `output_type`; `final_output` is that model.
 The agent wizard and tuning reviewer use this support.
 
-Enabled code/document folders register `list_files`, `read_file` and
-`search_files` from `knowledge_admin/tools/files.py`. These read configured
+Which tools an agent gets is chosen on its Tools tab (saved in `ka.agent_tools`, `config['tools']`; a configuration
+saved before migration 0078 uses the tools its capabilities gave, `catalog.implied_tools`). Tool implementations
+are in `knowledge_admin/capabilities/` (`files`, `ast_grep`, `code_search`, `code_graph`, `documents`, `ssh`, `mcp`,
+`shell/`); `tools/catalog.py` is the SDK-free catalog and `tools/sdk.py` the single Agents SDK adapter. MCP tools of a
+selected server are filtered with the same switches, and edited usage text goes into the prompt as `Tool notes:`.
+`code_graph` is offered when a selected code project has a current generated graph (`current_graph`, read live from
+the manifest; a sync after generation adds a note). The Tools API is `knowledge_admin/tools_api.py`.
+Enabled code/document folders offer `list_files`, `read_file` and
+`search_files` from `knowledge_admin/capabilities/files.py` (wrapped by
+`knowledge_admin/tools/catalog.py`). These read configured
 absolute mounted paths. SSH registers `ssh_run`, which uses saved connection
 settings and credentials in backend context, enforces selected servers and sudo
 settings, and reuses the AsyncSSH transport. Keys are not written to disk or

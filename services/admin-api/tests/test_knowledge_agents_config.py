@@ -22,8 +22,9 @@ def test_both_types_load_the_same_config_shape(store, saved_agent):
         conn.execute("UPDATE ka.agents SET runtime='claude_code',claude_code_tools='{Read,Bash}' WHERE id='operations'")
     claude = get_agent_config('operations', conninfo=store.conninfo)
     assert (claude['runtime'], claude['claude_code_tools']) == ('claude_code', ['Read', 'Bash'])
-    shared = lambda config: {key: value for key, value in config.items() if key not in ('runtime', 'claude_code_tools')}
-    assert shared(claude) == shared(native)  # switching the type changes only the runtime
+    shared = lambda config: {key: value for key, value in config.items() if key not in ('runtime', 'claude_code_tools', 'tools')}
+    assert shared(claude) == shared(native)  # switching the type changes only the runtime and its tools
+    assert claude['tools'] == {'items': []} and native['tools']['items']
 
 
 def test_a_version_keeps_its_tools_and_follows_the_agent_type(store, saved_agent):

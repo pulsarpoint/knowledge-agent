@@ -1,4 +1,4 @@
-import { runPath } from '../lib/runs';
+import { runPath, toolUsageLine } from '../lib/runs';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Plus, X } from 'lucide-react';
@@ -172,6 +172,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       pending: run.status === 'running', error: run.error,
       status: run.status === 'running' ? run.progress : run.status === 'completed' ? undefined : run.status,
       details: <>
+        {run.tool_counts && <p className="text-xs text-muted-foreground" aria-label="Tools used">{toolUsageLine(run.tool_counts)}</p>}
         {run.context.grounding?.sources?.length ? <GroundingSources sources={run.context.grounding.sources} /> : null}
         {(run.context.activity?.length || run.commands.length) ? <details className="text-sm text-muted-foreground">
         <summary className="cursor-pointer py-1">View activity · {run.context.model_name} · {run.context.config?.config_version ? `Agent v${(run.context.config.config_version as { version: number }).version}` : `Prompt v${run.context.prompt.version}`}</summary>
@@ -230,27 +231,29 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
       <span>{runOptionsError}</span>
       <Button variant="outline" size="sm" onClick={() => setRunOptionsRetry(count => count + 1)}>Retry</Button>
     </AlertDescription></Alert>}
-    {perRun && !sessionId && <section aria-label="Resources for this run" className="flex flex-col gap-3 rounded-lg border p-3">
-      <div><p className="text-sm font-medium">Resources for this run</p>
-        <p className="text-xs text-muted-foreground">This agent works only with what you choose here. The choice is fixed for the conversation, like its configuration.</p></div>
+    {perRun && !sessionId && <section aria-label="Resources for this run" className="flex flex-col gap-2 rounded-lg border px-3 py-2">
+      <p className="text-sm"><span className="font-medium">Resources for this run</span>
+        <span className="text-xs text-muted-foreground"> · the agent works only with what you choose; fixed for the conversation</span></p>
+      <div className="flex flex-wrap gap-x-8 gap-y-2">
       {RUN_RESOURCE_KINDS.map(([option, key, legend]) => {
         const items = runOptions?.[option];
         if (!items) return null;  // a kind the agent does not use
-        return <FieldSet key={key}><FieldLegend variant="label">{legend}</FieldLegend>
+        return <FieldSet key={key} className="gap-1"><FieldLegend variant="label" className="mb-1">{legend}</FieldLegend>
           {items.length === 0 && <FieldDescription>None allowed. Choose them in the agent’s tabs.</FieldDescription>}
-          {items.map(item => <Field key={item.id} orientation="horizontal">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">{items.map(item => <Field key={item.id} orientation="horizontal" className="w-auto">
             <Checkbox id={`run-${key}-${item.id}`} disabled={busy || streaming} checked={runResources[key].includes(item.id)}
               onCheckedChange={checked => setRunResources(current => ({ ...current,
                 [key]: checked ? [...current[key], item.id] : current[key].filter(id => id !== item.id) }))} />
-            <FieldLabel htmlFor={`run-${key}-${item.id}`}>{item.name}</FieldLabel></Field>)}
+            <FieldLabel htmlFor={`run-${key}-${item.id}`}>{item.name}</FieldLabel></Field>)}</div>
         </FieldSet>;
       })}
+      </div>
       {RUN_RESOURCE_KINDS.every(([, key]) => runResources[key].length === 0) && <p className="text-xs text-muted-foreground">Nothing chosen: the agent’s tools will have nothing to work on</p>}
     </section>}
     {conversation && 'run_resources' in conversation.config && <p aria-label="Resources for this run" className="text-xs text-muted-foreground">Resources for this run: {runSummary(conversation.config)}</p>}
     {sessionId && !conversation && !error && <p role="status" className="flex items-center gap-2 text-sm"><Spinner />Loading conversation…</p>}
     <Conversation key={sessionId ?? legacy?.id ?? 'new'} messages={messages}
-      className="h-[calc(100dvh-22rem)] min-h-96"
+      className={perRun && !sessionId ? 'h-[calc(100dvh-30rem)] min-h-80' : 'h-[calc(100dvh-22rem)] min-h-96'}  // leave room for the picker so the message box stays on screen
       emptyTitle={`Chat with ${agentName}`} emptyDescription="Ask a question, give a task, or explore an idea together."
       composer={{ value: task, onChange: setTask, onSend: () => void send(), pending: running, disabled: busy,
         blockedReason: blockReason, label: 'Task', sendLabel: conversation ? 'Send message' : 'Run task', stopLabel: 'Cancel run',
@@ -268,7 +271,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           <SheetDescription>{panel === 'history' ? 'Reopen a session to continue chatting. Closed conversations remain available to read.' : panel === 'config' ? 'The configuration for this conversation and your next message. Secrets are credential references.' : 'Optional feedback for the reviewer. It uses the full conversation and agent configuration; changes are never applied automatically.'}</SheetDescription>
         </SheetHeader>
         <div className="mt-6 flex flex-col gap-6">
-          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(conversation || !perRun ? {prompt:task,config} : {prompt:task,config,run_resources:runResources},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
+          {panel === 'config' && (configError ? <Alert variant="destructive"><AlertDescription>{configError}</AlertDescription></Alert> : config ? <pre aria-label="Agent configuration" tabIndex={0} className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(conversation || !perRun ? {prompt:task,config,...(conversation?.tool_counts ? {tool_counts:conversation.tool_counts} : {})} : {prompt:task,config,run_resources:runResources},null,2)}</pre> : <p role="status"><Spinner />Loading configuration…</p>)}
           {panel === 'history' && <>
             <h3 className="text-sm font-medium">Sessions</h3>
             {sessions.length ? sessions.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">
