@@ -215,6 +215,7 @@ def build_api(app_name, store):
     def assign(value: SelectionInput, request: Request, agent_id: str = "code"):
         db = database()
         with db.connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))  # serialized with Apply
             config = code_config(conn, agent_id)
             if value.revision != config['revision']:
                 raise HTTPException(409, 'Code agent MCP settings changed. Reload before saving.')

@@ -171,6 +171,7 @@ class OperationsStore:
 
     def save_agent_ssh(self, server_id: UUID, value: AgentSSHInput, identity):
         with self.db.connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (self.agent_id,))  # before settings, as Apply
             project = self.settings(conn, lock=True)['project_id']
             conn.execute('SELECT id FROM ka.servers WHERE id=%s AND project_id=%s FOR UPDATE', (server_id,project))
             current = self.agent_server(conn, server_id)
@@ -207,6 +208,7 @@ class OperationsStore:
 
     def delete_agent_ssh(self, server_id: UUID, value: DeleteAgentSSHInput, identity):
         with self.db.connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (self.agent_id,))  # before settings, as Apply
             project = self.settings(conn, lock=True)['project_id']
             conn.execute('SELECT id FROM ka.servers WHERE id=%s AND project_id=%s FOR UPDATE', (server_id,project))
             current = self.agent_server(conn, server_id)
@@ -353,6 +355,7 @@ class OperationsStore:
 
     def save_server_config(self, server_id: UUID, value: ServerConfigInput, identity):
         with self.db.connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (self.agent_id,))  # before settings, as Apply
             settings = self.settings(conn, lock=True)
             if settings['revision'] != value.settings_revision:
                 raise HTTPException(409, 'Agent settings changed. Reload before saving.')
@@ -389,6 +392,7 @@ class OperationsStore:
 
     def delete_server_config(self, server_id: UUID, value: DeleteServerConfigInput, identity):
         with self.db.connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (self.agent_id,))  # before settings, as Apply
             settings = self.settings(conn, lock=True)
             if settings['revision'] != value.settings_revision:
                 raise HTTPException(409, 'Agent settings changed. Reload before removing the configuration.')

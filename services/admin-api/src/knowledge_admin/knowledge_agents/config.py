@@ -183,6 +183,7 @@ def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> li
     ours, theirs = sections(source), sections(target)
     return [label for key, label in SECTIONS.items() if ours[key] != theirs[key]]
 
+
 def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
     """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent of
     either type. The agent's own configuration: what its tabs show is what runs (0080 removed configuration versions).

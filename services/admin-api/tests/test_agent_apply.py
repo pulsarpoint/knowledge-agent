@@ -1,10 +1,15 @@
 """Apply to original: the clone's configuration replaces the original's, except name and description; refused for a
 stale dialog, while the original works, and when there is no original."""
+import threading
+import time
 from uuid import uuid4
+
+import asyncssh
 
 from knowledge_admin.agent_clones import APPLY_WORKING, NOT_A_CLONE, ORIGINAL_CHANGED
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from test_agent_clones import clone, own_connection, per_server
+from test_agent_ssh import save
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
@@ -130,3 +135,59 @@ def test_apply_needs_a_clone_whose_original_still_exists(store, saved_agent):
     assert client.get(f'/api/agents/{copy_id}/apply', headers=HEADERS).status_code == 404
     gone = client.post(f'/api/agents/{copy_id}/apply', headers=HEADERS, json={'revision': 1, 'fingerprint': '0' * 64})
     assert gone.status_code == 404 and gone.json()['error']['message'] == NOT_A_CLONE
+
+
+def test_apply_deletes_the_key_only_the_original_used(store, saved_agent):
+    client, server = saved_agent[0], saved_agent[1]
+    own_connection(client, server)
+    copy_id = clone(client)['id']
+    with store.connect() as conn:
+        old = conn.execute("SELECT credential_id FROM ka.agent_server_connections WHERE agent_id='operations'").fetchone()
+        others = {row['id'] for row in conn.execute('SELECT id FROM ka.credentials WHERE id<>%s', (old['credential_id'],))}
+    own_connection_of(client, server, copy_id)  # the clone switches to its own key; the original keeps the old one
+    with store.connect() as conn:
+        new = conn.execute('SELECT credential_id FROM ka.agent_server_connections WHERE agent_id=%s',
+                           (copy_id,)).fetchone()['credential_id']
+        assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (old['credential_id'],)).fetchone()
+    assert apply(client, copy_id, preview(client, copy_id)).status_code == 200
+    with store.connect() as conn:
+        assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (old['credential_id'],)).fetchone() is None
+        assert {row['credential_id'] for row in conn.execute(
+            'SELECT credential_id FROM ka.agent_server_connections WHERE agent_id IN (%s,%s)', ('operations', copy_id))} == {new}
+        assert {row['id'] for row in conn.execute('SELECT id FROM ka.credentials')} == others | {new}
+
+
+def own_connection_of(client, server, agent_id: str) -> None:
+    key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
+    save(client, f"/api/agents/{agent_id}/servers/{server['id']}/ssh", username='clone-user', port=2222,
+         known_hosts='', allow_sudo=False, private_key=key)
+
+
+def waits_for_the_agent(store, write) -> None:
+    """While another transaction (Apply) holds the original's row, the write waits for it, then succeeds."""
+    with store.connect() as holder, store.connect() as watcher:
+        watcher.autocommit = True  # pg_stat_activity is a snapshot per transaction
+        holder.execute("SELECT id FROM ka.agents WHERE id='operations' FOR UPDATE")
+        done: list = []
+        worker = threading.Thread(target=lambda: done.append(write()))
+        worker.start()
+        deadline = time.monotonic() + 20
+        while not watcher.execute("""SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock'
+                AND query LIKE 'SELECT id FROM ka.agents WHERE id=%%FOR UPDATE%%'""").fetchone():
+            assert worker.is_alive() and time.monotonic() < deadline, 'the write did not wait for the agent'
+            time.sleep(0.05)
+        assert not done
+    worker.join(20)
+    assert done and done[0].status_code == 200, done and done[0].text
+
+
+def test_ssh_and_per_server_saves_wait_for_apply(store, saved_agent):
+    client, server = saved_agent[0], saved_agent[1]
+    path = f"/api/agents/operations/servers/{server['id']}/ssh"
+    current = client.get(path, headers=HEADERS).json()  # the forms are read before Apply takes the lock
+    ssh = {key: current[key] for key in ('revision', 'server_revision', 'known_hosts', 'allow_sudo')}
+    waits_for_the_agent(store, lambda: client.put(path, headers=HEADERS, json={**ssh, 'username': 'agent-user', 'port': 2222}))
+    data = client.get('/api/operations/settings', headers=HEADERS).json()
+    body = {'settings_revision': data['settings']['revision'], 'revision': None, 'instructions': 'Check only the queue.',
+            'skill_ids': None}
+    waits_for_the_agent(store, lambda: client.put(f"/api/operations/configs/{server['id']}", headers=HEADERS, json=body))

@@ -61,7 +61,8 @@ def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
         SELECT %s,tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s''', (target_id, source_id))
     conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (target_id,))  # their skill and MCP rows cascade
     conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (target_id,))
-    conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s', (target_id,))
+    replaced = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id',
+                            (target_id,)).fetchall()
     conn.execute('''INSERT INTO ka.operations_settings(project_id,agent,updated_by)
         SELECT project_id,%s,%s FROM ka.operations_settings WHERE agent=%s
         ON CONFLICT (project_id,agent) DO UPDATE SET revision=ka.operations_settings.revision+1,
@@ -83,6 +84,11 @@ def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
         for table, column in (('agent_config_skills', 'skill_id'), ('agent_config_mcp_servers', 'mcp_server_id')):
             conn.execute(f'''INSERT INTO ka.{table}(config_id,project_id,{column})
                 SELECT %s,project_id,{column} FROM ka.{table} WHERE config_id=%s''', (copied, row['id']))
+    for credential in {row['credential_id'] for row in replaced} - {None}:  # a key nothing uses any more (as delete)
+        conn.execute('''DELETE FROM ka.credentials WHERE id=%s
+            AND NOT EXISTS (SELECT 1 FROM ka.servers WHERE credential_id=%s)
+            AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections WHERE credential_id=%s)''',
+            (credential, credential, credential))
 
 
 def clone(conn, source_id: str, actor_id) -> dict[str, str]:
@@ -134,12 +140,13 @@ def build_api(app_name, store):
             raise HTTPException(409, str(exc)) from None
 
     def original_of(conn, agent_id: str) -> dict:
-        row = conn.execute('SELECT cloned_from FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
+        row = conn.execute('''SELECT o.id,o.name,o.revision FROM ka.agents c LEFT JOIN ka.agents o ON o.id=c.cloned_from
+            WHERE c.id=%s''', (agent_id,)).fetchone()
         if row is None:
             raise HTTPException(404, 'Agent not found')
-        if row['cloned_from'] is None:  # never a clone, or its original was deleted
+        if row['id'] is None:  # never a clone, or its original was deleted
             raise HTTPException(404, NOT_A_CLONE)
-        return conn.execute('SELECT id,name,revision FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone()
+        return row
 
     @router.get('/apply')
     def preview(agent_id: str, response: Response):
@@ -162,6 +169,7 @@ def build_api(app_name, store):
             original = original_of(conn, agent_id)  # again, under the locks
             if conn.execute(WORKING, {'a': original['id']}).fetchone():
                 raise HTTPException(409, APPLY_WORKING)
+            # The fingerprint is read on a separate connection, after the locks: writers of the original wait on them.
             if original['revision'] != value.revision or fingerprint(config(original['id'])) != value.fingerprint:
                 raise HTTPException(409, ORIGINAL_CHANGED)
             actor = store.actor(conn, *request_actor(request))
