@@ -325,7 +325,8 @@ first.
   versions and prompt history. Resources are referenced live: frozen copies of resource details from a version are
   not kept, and items deleted since are dropped. One audit event `agent.version.materialized` per migrated agent
   keeps the version's configuration. In an installation without exactly one application project, agents are skipped
-  and keep their own configuration.
+  and keep their own configuration. If the model of an agent's active version was deleted, the agent ends with no
+  model: choose one for it before it runs.
 - Conversations and runs keep the configuration they ran with.
 - Rolling back below 0080 restores only the empty schema: versions and prompt history do not come back. Rolling back
   0079 gives each agent its current prompt as version 1 (an edited prompt becomes a new active version; text is

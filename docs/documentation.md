@@ -100,8 +100,8 @@ folder: code projects, or environments or services linked to code projects, or a
 connection), `NO_AGENT` ("Select an enabled agent.": unknown or disabled), and unknown or unavailable ids
 ("Select available ..."). For per-run agents it also refuses `This agent does not use <kind>.`, `<label> <name> is not allowed for this agent.`, `<label> <name> is not available: it was removed, archived or disabled.` and, for Claude Code, `NO_RUN_FOLDER` (no working folder among the run's code projects).
 
-The session stores two snapshots and a `runtime` (`openai` | `claude_code`). `prompt_snapshot` holds `system_prompt` and
-`agent_version`, plus `claude_code_tools` for Claude Code. Native sessions also store `agent_config` (the agent's config pinned
+The session stores two snapshots and a `runtime` (`openai` | `claude_code`). `prompt_snapshot` holds `system_prompt`, plus
+`claude_code_tools` for Claude Code; only sessions saved before migration 0080 may also carry `agent_version`. Native sessions also store `agent_config` (the agent's config pinned
 at creation: a fixed agent's own configuration, or a per-run agent's configuration narrowed to the form's sources (`run_resources.resolve`); credential references only) and
 `history` (Agents SDK items of successful turns, redacted); listing and detail return `runtime`, never `agent_config` or
 `history`.

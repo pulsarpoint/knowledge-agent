@@ -33,7 +33,8 @@ export interface SessionDetail extends SessionSummary {
   /** The id of the last tool_call event the counts include (0: none). */
   tool_counts_through_id?: number;
   document_name: string; draft: string | null; draft_turn: number | null; model_id: string;
-  /** The agent's own instructions when the session started (earlier sessions also hold their documentation prompt). */
+  /** The agent's own instructions when the session started (earlier sessions also hold their documentation prompt;
+   *  only sessions saved before migration 0080 may carry `agent_version`). */
   prompt_snapshot: { system_prompt: string; claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };
   /** What to document and the working folders (earlier sessions hold servers and notes instead of the new keys). */
   context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; instructions?: string };

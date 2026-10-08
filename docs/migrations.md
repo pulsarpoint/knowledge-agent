@@ -78,5 +78,5 @@ is free, tools, overrides and connections included; the agent type and enabled s
 the version's frozen copies of resource details are not kept. One audit event `agent.version.materialized` is written
 per migrated agent, holding the version. Agents in an installation without exactly one application project are skipped
 (they keep their own configuration). It then drops `agent_versions`, the prompt tables, the view, the guard function,
-the version columns on sessions, runs and reviews and their constraints, and adds `agents.cloned_from` (nullable FK,
+the version column on sessions (`agent_sessions.agent_version_id`) and its constraints, and adds `agents.cloned_from` (nullable FK,
 `ON DELETE SET NULL`). The down migration restores the empty schema only; versions and prompt history do not come back.
