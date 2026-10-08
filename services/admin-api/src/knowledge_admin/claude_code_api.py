@@ -207,7 +207,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                  (value.agent_id,)).fetchone()
             if agent is None or not agent['enabled']:
                 raise HTTPException(400, NO_AGENT)
-            try:  # the agent's saved config: its active version, or its working settings before the first version
+            try:  # the agent's own configuration
                 config = get_agent_config(agent['id'], conninfo=db.conninfo)
             except (LookupError, ValueError) as exc:
                 raise HTTPException(400, str(exc)) from None
@@ -228,7 +228,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             readable = effective['code']['projects'] if effective['code']['enabled'] else []
             context = session_context(conn, project, value, readable, needs_folder=claude_code,
                                       chosen=claude_code and not given, agents_own=not given)
-            snapshot = {'system_prompt': agent_system_prompt(config), 'agent_version': config.get('config_version')}
+            snapshot = {'system_prompt': agent_system_prompt(config)}
             if claude_code:
                 snapshot['claude_code_tools'] = config['claude_code_tools']
             # Native turns run with this config (credential references only); the worker decrypts per turn.

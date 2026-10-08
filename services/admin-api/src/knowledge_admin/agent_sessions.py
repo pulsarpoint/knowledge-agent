@@ -34,7 +34,6 @@ class RunInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     id: UUID = Field(default_factory=uuid4)
     session_id: UUID | None = None
-    version_id: UUID | None = None
     is_test: bool | None = Field(default=None, strict=True)
     task: str = Field(min_length=1, max_length=20000)
     resources: RunResources | None = None  # only with a new conversation
@@ -44,7 +43,6 @@ class SessionInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     id: UUID = Field(default_factory=uuid4)
     title: str = Field(default='New conversation', min_length=1, max_length=200)
-    version_id: UUID | None = None
     is_test: bool = Field(default=False, strict=True)
     resources: RunResources | None = None
 
@@ -127,15 +125,13 @@ async def start_turn(app_state, store, app_name: str, agent_id: str, value: RunI
                 saved = load_session(store, saved_connection, app_name, agent_id, value.session_id)
                 if saved['status'] != 'active':
                     raise HTTPException(409,'This session is closed or expired. Start a new session.')
-                if value.version_id is not None and value.version_id != saved['agent_version_id']:
-                    raise HTTPException(409,'A session cannot change agent versions. Start a new session.')
                 if value.is_test is not None and value.is_test != saved['is_test']:
                     raise HTTPException(409,'A session cannot switch between test and live. Start a new session.')
                 if value.resources is not None:
                     raise HTTPException(409,KEEPS_RESOURCES)
                 config = saved['config']
         else:
-            config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo,version_id=value.version_id)
+            config = await asyncio.to_thread(get_agent_config,agent_id,conninfo=store.conninfo)
             require_native(config)
             config = await asyncio.to_thread(run_config,store,app_name,config,value.resources)
         require_native(config)
@@ -304,7 +300,7 @@ def build_api(app_name, store):
         db = database()
         actor = request_actor(request)
         try:
-            config = get_agent_config(agent_id, conninfo=db.conninfo, version_id=value.version_id)
+            config = get_agent_config(agent_id, conninfo=db.conninfo)
             require_native(config)
             with db.connect() as conn:
                 project = db.project(conn,app_name)

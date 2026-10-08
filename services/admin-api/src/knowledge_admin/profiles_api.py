@@ -202,21 +202,21 @@ def build_api(app_name, store):
             return read(conn, agent_id)
 
     @router.get('/{agent_id}/config')
-    def configuration(agent_id: str, response: Response, version_id: UUID | None = None):
+    def configuration(agent_id: str, response: Response):
         response.headers['Cache-Control'] = 'no-store'
         try:
-            return get_agent_config(agent_id, conninfo=database().conninfo, version_id=version_id)
+            return get_agent_config(agent_id, conninfo=database().conninfo)
         except LookupError:
             raise HTTPException(404, 'Agent not found') from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
 
     @router.get('/{agent_id}/run-resources')
-    def run_resources(agent_id: str, response: Response, version_id: UUID | None = None):
+    def run_resources(agent_id: str, response: Response):
         """What a caller may pass to one run of a per-run agent: the Test tab picker and Generate documents."""
         response.headers['Cache-Control'] = 'no-store'
         try:
-            config = get_agent_config(agent_id, conninfo=database().conninfo, version_id=version_id)
+            config = get_agent_config(agent_id, conninfo=database().conninfo)
         except LookupError:
             raise HTTPException(404, 'Agent not found') from None
         except ValueError as exc:

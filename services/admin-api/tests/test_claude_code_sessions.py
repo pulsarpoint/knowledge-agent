@@ -92,8 +92,7 @@ def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
     assert context['code_project_ids'] == [sessions.repo]  # the saved document links the chosen projects only
     assert context['servers'] == [{'id': sessions.server['id'], 'name': 'prod-1', 'hostname': '10.0.0.5',
                                    'description': 'Payments host'}]
-    assert session['prompt_snapshot'] == {'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash'],
-                                          'agent_version': None}
+    assert session['prompt_snapshot'] == {'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}
     [first] = session['inputs']
     assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
     assert first['text'] == '\n\n'.join([
@@ -418,7 +417,7 @@ def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projec
     snapshot = session['prompt_snapshot']
     assert snapshot['system_prompt'] == ('You write API references.\n\n## Instructions\n\nWrite for operators.\n\n'
                                          '## Skills\n\n### reference\n\nAPI reference style\n\nList every endpoint with its errors.')
-    assert (snapshot['claude_code_tools'], snapshot['agent_version']) == (['Read', 'Grep'], None)
+    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and 'agent_version' not in snapshot
     assert '## Servers\n- prod-1 (10.0.0.5): Payments host' in session['inputs'][0]['text'] and '## Code' not in session['inputs'][0]['text']
     serialized = json.dumps(session)
     for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token'):
@@ -443,7 +442,6 @@ def test_session_uses_the_active_version_tools_and_code_projects(sessions):
     draft = client.post(path, headers=HEADERS, json={'label': 'Draft', 'source_hash': source['source_hash'],
                         'changes': {'system_prompt': None, 'instructions': None, 'server_instructions': []}})
     assert draft.status_code == 201, draft.text
-    active = client.get(path, headers=HEADERS).json()['active_id']  # the initial configuration
     # Working settings changed after the version was saved do not reach the session.
     profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
     changed = update(client, profile, repositories_enabled=False, repository_ids=[], claude_code_tools=['Bash'])
@@ -454,7 +452,7 @@ def test_session_uses_the_active_version_tools_and_code_projects(sessions):
     session = response.json()
     assert session['model_name'] == 'Claude'
     snapshot = session['prompt_snapshot']
-    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and snapshot['agent_version']['id'] == active
+    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and 'agent_version' not in snapshot
     assert session['context_snapshot']['folders'] == [
         {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
 
@@ -481,7 +479,7 @@ def test_native_agents_start_sessions_with_their_own_config(sessions):
     assert (session['runtime'], session['status'], session['agent_name'], session['model_name']) == (
         'openai', 'starting', 'Native writer', 'Claude')
     assert [f['path'] for f in session['context_snapshot']['folders']] == [worker]  # its own code projects only
-    assert set(session['prompt_snapshot']) == {'system_prompt', 'agent_version'}  # no Claude Code tools
+    assert set(session['prompt_snapshot']) == {'system_prompt'}  # no Claude Code tools
     assert session['prompt_snapshot']['system_prompt'].startswith('You document systems.')
     assert session['inputs'][0]['text'].startswith(f'Document the following.\n\n## Code\n- Payments API — {app}')
     serialized = json.dumps(session)

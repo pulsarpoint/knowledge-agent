@@ -144,24 +144,6 @@ def test_a_versionless_per_run_chat_drafts_from_its_snapshot_with_the_working_se
     assert source['code']['all_projects'] is True
 
 
-def test_a_version_pinned_per_run_chat_drafts_with_that_versions_selection(analyst, store):
-    a = analyst
-    version = draft(a.client, a.agent, 'Pinned instructions')
-    with store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET all_repositories=false WHERE id=%s', (a.agent,))
-        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (a.agent, a.worker))
-    session = events(a.client.post(a.path, headers=HEADERS, json={
-        'task': 'Where are the limits?', 'version_id': version['id'],
-        'resources': {'code_project_ids': [a.app]}}))[0]['session_id']
-    source = a.client.get(f'/api/agents/{a.agent}/versions/source', headers=HEADERS,
-                          params={'review_id': review_of(store, session)}).json()['config']
-    snapshot = a.client.get(f'/api/agents/{a.agent}/config', headers=HEADERS, params={'version_id': version['id']}).json()
-    assert source['instructions'] == 'Pinned instructions'
-    snapshot['code'].pop('graphs')  # live; a version source leaves them out
-    assert source['code'] == snapshot['code'] and source['code']['all_projects'] is True
-    assert 'run_resources' not in source
-
-
 def test_a_refused_start_leaves_no_conversation_and_claude_code_agents_stay_native_only(analyst, store):
     a = analyst
     refused = a.client.post(a.path, headers=HEADERS, json={'task': 'x', 'resources': {'server_ids': [str(uuid4())]}})
