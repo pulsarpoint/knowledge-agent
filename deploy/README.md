@@ -312,3 +312,21 @@ existing installation, run the database migration (`make up` runs it, or `make d
 - OpenAI Chat Completions models can no longer be assigned to any agent, because only the coordinator could use them.
   They remain usable as the Search model in LLM Settings.
 - `PHOENIX_PUBLIC_URL` is no longer read; remove it from `.env`.
+
+## Upgrading to clones instead of versions
+
+An agent now has one configuration, and its system prompt is a field on the agent. After pulling this version on an
+existing installation, run the database migration (`make up` runs it, or `make db-migrate`). Back up the database
+first.
+
+- Migration 0079 adds `agents.system_prompt`, filled from each agent's active prompt version.
+- Migration 0080 makes each agent's active configuration version its configuration (including its tools, overrides
+  and connections, and its name and description when no other agent has that name), then deletes configuration
+  versions and prompt history. Resources are referenced live: frozen copies of resource details from a version are
+  not kept, and items deleted since are dropped. One audit event `agent.version.materialized` per migrated agent
+  keeps the version's configuration. In an installation without exactly one application project, agents are skipped
+  and keep their own configuration.
+- Conversations and runs keep the configuration they ran with.
+- Rolling back below 0080 restores only the empty schema: versions and prompt history do not come back. Rolling back
+  0079 gives each agent its current prompt as version 1 (an edited prompt becomes a new active version; text is
+  truncated to 40 000 characters).

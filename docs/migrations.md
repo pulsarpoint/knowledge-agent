@@ -63,3 +63,20 @@ it before tools were chosen: file tools and `shell_run` for Code, or Documents w
 `report_not_covered` for grounded Documents; `ssh_run` for SSH. Other tools are not inserted (off); MCP tools
 without a row are on. `code_graph` is still offered only when a selected code project has a generated graph. The down
 migration drops the table, which removes edited usage text; afterwards tools follow the capabilities again.
+
+## 0079_agent_system_prompt
+
+Adds `ka.agents.system_prompt` (text, required), filled from each agent's active prompt version, and drops the foreign
+key that required prompt rows. The down migration restores the prompt rows: an agent whose prompt was edited after 0079
+becomes a new active version, an agent without prompt rows gets its prompt as version 1, and text is truncated to
+40 000 characters.
+
+## 0080_clone_agents
+
+Each agent with an active configuration version gets that version's configuration (name and description when the name
+is free, tools, overrides and connections included; the agent type and enabled stay). Resources are referenced live:
+the version's frozen copies of resource details are not kept. One audit event `agent.version.materialized` is written
+per migrated agent, holding the version. Agents in an installation without exactly one application project are skipped
+(they keep their own configuration). It then drops `agent_versions`, the prompt tables, the view, the guard function,
+the version columns on sessions, runs and reviews and their constraints, and adds `agents.cloned_from` (nullable FK,
+`ON DELETE SET NULL`). The down migration restores the empty schema only; versions and prompt history do not come back.

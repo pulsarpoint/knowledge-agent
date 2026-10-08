@@ -446,7 +446,7 @@ saved but runs only after you choose one on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
+| **General** | **Agent type** (Native or Claude Code; switching keeps every setting), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), name, purpose, when-to-use, **Enable agent**; the model filtered by type and **Model connection** (required to run); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
@@ -454,25 +454,24 @@ saved but runs only after you choose one on its General tab.
 | **MCP** | Pick tested MCP servers (and their tools) |
 | **Tools** | Native agents: switch tools on or off (Code, Documents, Servers, MCP groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools** |
 | **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
-| **Prompts** | System prompt versions: new draft, edit draft, **Set active**, delete inactive versions |
-| **Versions** | Snapshot the whole configuration as a version; **Test vN**, **Copy as draft**, **Activate vN** |
 | **Test** | Native: chat with the agent (a per-run agent first picks **Resources for this run**). Claude Code: **Start a session** opens **Docs → Generate documents → New** with this agent |
 
-> **Working configuration vs. active version.** Once an agent has an active
-> configuration version, edits in the tabs change the *working configuration* only.
-> Create a draft in **Versions** and **Activate** it before new runs use the changes.
-> Existing test sessions stay pinned to the version they started with.
+An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
+
+**Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog. Afterwards **Delete this clone** removes the clone, or keep it as an alternative.
 
 **Test tab.** Type a task and **Run task** (then **Send message** to continue the
 session). Replies stream in; each has **View activity** (tool calls with arguments and
 output). Other controls: session **History**, **Show config** (the exact pinned
 configuration, secrets as references), **Close session**, **New session**, **Cancel
 run**, and token usage. **Add feedback** → **Suggest improvements** runs a reviewer
-that proposes prompt/instruction changes you can copy or **Save as new version**.
+that proposes prompt/instruction changes; **Review and apply** opens them for editing, then **Apply to this agent** or **Apply to a new clone**.
+
+**Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
 **Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with the tools their capabilities imply. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The active version decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it is a compact picker (kinds side by side) that appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, **Resources for this run** offers one list per kind the agent uses; it is a compact picker (kinds side by side) that appears before the first message only, and the choice is kept for the conversation and shown in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: task ≤ 20,000 characters, 300 s and 20 turns per run, sessions expire after
 1 hour idle, one running message per session. A run is blocked if the agent is
@@ -480,11 +479,9 @@ disabled, has no enabled model, or other tabs have unsaved changes.
 
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back
-on. Settings changes touch only the agent's working copy: if the Search agent has an
-active configuration version, runs keep using that version's snapshot until you save
-and activate a new version.
+on. Saving the agent's settings changes what runs next.
 
-**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, prompt versions, versions). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the active prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats. Agents created before this release got the built-in documentation prompt as prompt version 1.
+**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, one prompt, clones). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the agent's prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents never run in native test chats.
 
 Removing an agent that has history (test chats, chats, Claude Code sessions or runs) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
@@ -685,7 +682,7 @@ Records are kept until deleted; only administrators can see them.
 1. **Agents → New agent → Generic agent** (generate a proposal or **Start blank**).
 2. **General**: assign a model; **SSH**: allow servers; **Code projects** / **Documents**: select resources.
 3. **Test**: run a task such as "Check disk usage on the app servers"; inspect **View activity**.
-4. Use **Add feedback → Suggest improvements**, then **Versions → Save draft → Activate**.
+4. Use **Add feedback → Suggest improvements**, then **Review and apply → Apply to this agent** (or **Apply to a new clone** to try it first).
 
 ### E. Bring Jira knowledge into RAG
 

@@ -4,12 +4,12 @@ Administration → Agents lists named agents. Every agent is edited, disabled an
 the same way; none is protected.
 
 Create a specialist with a required name and system prompt, plus optional purpose
-and “when to use” description. Every agent owns its configuration; nothing is
+and “when to use” description. Every agent owns one configuration; nothing is
 inherited from another agent. Agents share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, availability, Resources (Fixed / Per run), model connection, additional instructions and required active system prompt |
+| General | Name, purpose, routing description, availability, Resources (Fixed / Per run), model connection, additional instructions and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
 | Skills | Enable skills; select one or more predefined skills from the library |
 | Documents | Enable document search; choose folders and whether to include descendants |
 | Git paths | Enable read-only Git access; choose repositories |
@@ -17,11 +17,9 @@ inherited from another agent. Agents share these tabs:
 | MCP | Enable MCP tools; choose this agent’s HTTP connections |
 | Tools | Choose which tools the agent gets, edit their usage instructions (native agents) |
 | Services | Enable context from selected service descriptions |
-| Prompts | View the active system prompt; create, edit, activate and delete inactive versions |
-| Versions | Save complete configurations, test drafts independently, activate and roll back |
 | Test | Continue a Agents SDK conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
 
-Capabilities are independent of the agent name. Code can enable SSH; SSH can enable Git or document search. Switching a capability off preserves its saved selections. Save the capability switch before editing its dependent SSH or MCP settings. The Skills tab saves its switch and selected skills together. New profiles start with no model and all capabilities off. Existing profiles keep their prior access and active prompts.
+Capabilities are independent of the agent name. Code can enable SSH; SSH can enable Git or document search. Switching a capability off preserves its saved selections. Save the capability switch before editing its dependent SSH or MCP settings. The Skills tab saves its switch and selected skills together. New profiles start with no model and all capabilities off. Existing profiles keep their prior access and prompts.
 
 **Resources.** A fixed agent always uses its selections. A per-run agent's selections are what a run may be given (All = any); each run passes `code_project_ids`, `collection_ids`, `server_ids` and `service_ids`, validated against them and narrowed into the run's configuration (`knowledge_agents/run_resources.py`); skills and MCP stay fixed.
 
@@ -30,14 +28,16 @@ An empty resource selection includes nothing. “All document folders” and “
 Specialist Test tabs run the selected agent directly with its saved configuration.
 The first message creates a session and adds `session_id` to the URL. Follow-ups
 retain context until the session is closed or inactive for one hour. Reloading
-restores history and running turns. New turns keep the session’s pinned configuration; use a new session to test another version.
+restores history and running turns. New turns keep the session’s pinned configuration; use a new session after changing the agent, or test a change on a clone.
 **Add feedback** beneath a response opens an optional panel and sends the full
 configuration, whole stored conversation, selected response and your feedback
 to a separate reviewer. Saved suggestions include proposed prompt,
 configuration or memory-note changes, with links back to the relevant editor.
 Nothing is applied automatically.
 
-Prompt versions belong to one profile. Creating an agent requires an explicit, nonempty system prompt, which becomes its first active version; later versions start as drafts until activated. Existing published prompts are preserved, including any instructions describing a former specialization; edit these in Prompts when changing the intended purpose. “When to use” records routing guidance.
+**System prompt.** Each agent has exactly one system prompt, a field on the **General** tab (card *System prompt*, **Save prompt** / **Discard prompt changes**, “System prompt saved.”). It is required, nonempty and at most 100,000 characters; there is no draft or history, so to try another prompt clone the agent, change the clone and **Apply to <original>**. `PUT /api/agents/{id}/prompt` saves it with the agent's revision (a stale revision returns 409 “Agent changed. Reload before saving.”). The agent wizard saves the prompt it generates the same way. Existing prompts are preserved, including any instructions describing a former specialization; edit them on General when changing the intended purpose. “When to use” records routing guidance.
+
+**Clones.** **Clone agent** (header menu or the All agents row button) copies the whole configuration into a new agent named `<name> (copy)`; saved SSH credentials are referenced, history is not copied, and the clone shows *Clone of <original>*. **Apply to <original>** replaces the original's changed sections with the clone's (everything except name, description and enabled); it is refused while the original is working or when the original changed since the dialog opened. See [Agent execution](agents.md#clones).
 
 The default IDs `search`, `code`, and `operations` preserve existing integrations.
 Every agent has its own configuration; no parent agent is introduced.
@@ -62,7 +62,7 @@ selected, or unknown tools, are refused. Step 1 offers only on and off. Claude C
 their working folders. Switch them on the General tab." and the API refuses tool changes for them. The agent wizard
 has a **Tools** page that follows the chosen capabilities, and **All agents** has a **Tools** column
 (for example `7 tools · Code 6 · Servers 1`, `No tools`, or `Read, Grep, Glob, Bash` for Claude Code). Tools are part
-of the configuration and of every version; versions saved before 0078 use the tools their capabilities gave.
+of the configuration; conversations saved before 0078 use the tools their capabilities gave.
 
 ## New agent
 
@@ -88,10 +88,10 @@ Connection overrides can reference an existing encrypted private key. New key
 material is added through the ordinary SSH editor after creating the agent.
 
 **Create agent** validates the reviewed proposal against current available
-resources and saves the agent, first active prompt version, settings, and joins
+resources and saves the agent, its prompt, settings, and joins
 in one PostgreSQL transaction. Duplicate names and unavailable resources return
 an error without leaving a partially configured agent. All existing agent
-editing, prompt versioning, config preview, and deletion pages work afterward.
+editing, cloning, config preview, and deletion pages work afterward.
 The wizard is the only way to create agents. **Start blank** skips generation and opens
 the review tabs with an empty proposal, so agents can be created without a model;
 `model_id` may be `null`.
@@ -110,7 +110,7 @@ runtime, SDK wrapper, dependency, or migration is introduced.
 
 ## Persistence and APIs
 
-Migration `0020_agent_profiles` introduced agent identity and resource joins. Migration `0021_agent_capabilities` replaces the fixed `kind` with six independent boolean fields: `documents_enabled`, `repositories_enabled`, `ssh_enabled`, `skills_enabled`, `mcp_enabled`, and `services_enabled`. Existing profiles receive the capabilities their previous runtime supported. Prompts, models, server overrides, encrypted credentials, resource selections and run history remain intact. Migration `0022_required_agent_prompt` adds a deferred foreign key so an agent cannot be persisted without its own prompt record and active version.
+Migration `0020_agent_profiles` introduced agent identity and resource joins. Migration `0021_agent_capabilities` replaces the fixed `kind` with six independent boolean fields: `documents_enabled`, `repositories_enabled`, `ssh_enabled`, `skills_enabled`, `mcp_enabled`, and `services_enabled`. Existing profiles receive the capabilities their previous runtime supported. Prompts, models, server overrides, encrypted credentials, resource selections and run history remain intact. Migration `0022_required_agent_prompt` required a prompt record for every agent; since `0079` the prompt is `agents.system_prompt`.
 
 Migration `0072_knowledge_agents_config` lifts the 0070 registration rule, adds `claude_code_tools` (default all four, values restricted), restores the required prompt for every agent and gives existing Claude Code agents the built-in documentation prompt; its down migration refuses while a Claude Code agent has a model, any configuration versions (or an active one), a capability switch on (including grounded documents or all collections/code projects), tools other than the default four, more than one prompt version, or server instructions, saved instructions or server connections. Otherwise it drops the other saved selections of Claude Code agents (specific collections, code projects, services and skills, settings rows) and their prompt, keeping only the name and description.
 
@@ -127,16 +127,16 @@ coordinator agent with everything it owned, and drops `agents.is_coordinator` wi
 
 Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode` on/off/per_run, `usage`, `subagent_allowed`) and backfills every native agent with the tools its capabilities gave it, so nothing changes at upgrade; `code_graph` stays offered only when a selected code project has a generated graph. Its down migration drops the table and any edited usage text.
 
-- `GET /api/agents` lists profiles and active model/prompt summaries.
+- `GET /api/agents` lists profiles with model summaries and `cloned_from`.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
 - `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools` and `resources`.
-- `GET /api/agents` returns `resources` and `accepts` (from the active version).
-- `GET /api/agents/{id}/run-resources?version_id=` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
+- `GET /api/agents` returns `resources` and `accepts` (from the agent).
+- `GET /api/agents/{id}/run-resources` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
 - `POST /api/agents/{id}/runs` and `POST /api/agents/{id}/sessions` accept `resources` with a new conversation only (follow-ups: 409); sessions and runs return `run_resources`.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model and applies the type's model rule.
 - `GET /api/agents/{id}/config` returns `runtime` and `claude_code_tools` for both types (`knowledge_admin.knowledge_agents.config.get_agent_config`).
-- Prompt APIs accept the agent ID.
+- `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, `GET|POST /api/agents/{id}/apply` and `GET|POST /api/agents/{id}/reviews/{review_id}[/apply]` are described in [Agent execution](agents.md#clones).
 - `/api/agents/{id}/sessions` and `/{session_id}` list and restore conversations;
   `/{session_id}/close` ends one and `/{session_id}/review` saves tuning suggestions.
 - `/api/operations/settings`, `/api/operations/configs/{server_id}` and `/api/operations/runs` accept `?agent_id={id}` for any agent. The internal “operations” route/table names remain for compatibility.
@@ -147,8 +147,8 @@ SSH and MCP secrets never appear in profile responses. CRUD uses revision checks
 omitted replacement secrets preserve saved credentials.
 
 `DELETE /api/agents/{id}` accepts `{"revision": 1, "confirmed": true}`. The UI
-asks for confirmation. Deletion removes only the agent's settings, prompt versions,
-and resource joins. Shared models, skills, servers, repositories and documents
+asks for confirmation. Deletion removes only the agent's settings,
+prompt and resource joins. Clones of a deleted agent stay and lose their *Clone of* link. Shared models, skills, servers, repositories and documents
 remain. An agent with sessions or run history returns HTTP 409 ("Delete it with its
 history, or disable it to keep the history.") unless the body also has
 `"with_history": true`.
@@ -157,14 +157,17 @@ history, or disable it to keep the history.") unless the body also has
 `{"test_chats", "chats", "claude_code_sessions", "runs"}`. With
 `with_history` the same transaction first deletes the agent's run records
 (`agent_run_events` with keys `run:<run id>` and `cc:<session id>:<turn>` of those rows only), its runs and their SSH
-commands, its chats and their reviews (configuration versions made from a review keep the version and lose the
-link), and its Generate documents sessions (native and Claude Code) and queued inputs. Saved documents are
+commands, its chats and their reviews, and its Generate documents sessions (native and Claude Code) and queued inputs. Saved documents are
 independent rows and stay. While the agent is working — a documentation session (native or Claude Code) that is
 `starting` or `working`, or a `running` operations run — the delete (with or without history) returns HTTP 409
 ("This agent is working right now. Stop its documentation sessions and runs, or wait for them to finish, then
 delete it.") and deletes nothing. The revision is still checked; the `agent.deleted` audit event records the
 deleted counts under `history`.
-Migration 0025 permits atomic agent/prompt deletion and preserves the legacy model
+Migration 0025 permits atomic agent deletion and preserves the legacy model
 assignment projection when a default agent is removed.
 
 Migration `0023_skills_agents` stores agent-level skill assignments in `ka.skills_agents` with primary key `(agent_id, skill_id)` and foreign keys to agents and the skill library. The same skill can be selected by many agents. Existing agent assignments are migrated from common configuration rows; `ka.agent_config_skills` retains only server-specific overrides. Disabling skills preserves assignments.
+
+Migration `0079_agent_system_prompt` adds `agents.system_prompt` (text, required) filled from each agent's active prompt version, and drops the foreign key that required prompt rows. Its down migration restores the prompt rows: an agent whose prompt was edited after 0079 gets it as a new active version, and text is truncated to 40 000 characters (the old limit).
+
+Migration `0080_clone_agents` makes each agent's active configuration version its configuration (tools, overrides and connections included), then drops `agent_versions`, the prompt tables, the view and guard function, the version columns on sessions, runs and reviews, and their constraints; it adds `agents.cloned_from` (nullable, `ON DELETE SET NULL`). Its down migration restores the empty schema only. See `deploy/README.md` for the upgrade notes.

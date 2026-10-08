@@ -1,12 +1,12 @@
 # Agent execution status
 
 Specialist **Test** conversations run the selected agent directly using the official
-Agents SDK. It loads the saved active prompt, model, enabled capabilities, resource
+Agents SDK. It loads the agent's saved prompt, model, enabled capabilities, resource
 selections and SSH overrides, then decrypts only their required credentials.
 Test chats and live runs refuse Claude Code agents with `Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
 
 - `POST /api/agents/{id}/runs` accepts a task, optional UUID request
-  ID, optional `session_id`, and optional `version_id` and `is_test` for a new conversation. The first message creates a session; follow-ups
+  ID, optional `session_id`, and optional `is_test` for a new conversation. The first message creates a session; follow-ups
   continue its saved Agents SDK history. The UI keeps `session_id` in its URL. The route
   streams `started`, `activity`, and `completed` events. The final run has
   status `completed`, `failed`, or `cancelled`, with its answer or error.
@@ -17,18 +17,18 @@ Test chats and live runs refuse Claude Code agents with `Claude Code agents run 
   leaving its session open. Disconnecting the browser does not cancel execution;
   reopening the URL restores messages and polls any running turn. Interrupted
   turns are marked failed and are never automatically retried.
-- A disabled agent, missing active prompt, missing/disabled model or unavailable
+- A disabled agent, missing prompt, missing/disabled model or unavailable
   credential cannot start a test. Duplicate
   request IDs are rejected rather than executing the same task again.
 
 Sessions remain active until **Close session** or one hour without a message or
 tuning review. Running turns do not expire. A session allows one turn or review
 at a time. Every turn uses the configuration captured when its session began. Test changed
-instructions in a new session; activation never changes an existing conversation. **New session** starts fresh
+instructions in a new session; saving the agent never changes an existing conversation. **New session** starts fresh
 context; it does not implicitly close another active session.
 
 - `POST /api/agents/{id}/sessions` creates a session without starting a model.
-  Accepts an optional UUID `id`, `title`, `version_id`, and `is_test` (defaults to
+  Accepts an optional UUID `id`, `title`, and `is_test` (defaults to
   false). The Test tab marks new sessions with `is_test=true`. Both explicit
   creation and first-message creation call `agent_sessions.create_session()`.
 - `GET /api/agents/{id}/sessions` lists saved conversations. Filter with
@@ -51,7 +51,7 @@ ordinary chatting does not require a review. The conversation renderer is
 `packages/chat-ui/Conversation.tsx`.
 
 `ka.agent_sessions` is the common table for live and test conversations. It stores
-the owner, pinned configuration/version, timestamps, status, `is_test`, and complete
+the owner, pinned configuration, timestamps, status, `is_test`, and complete
 SDK `history`, including tool calls and results. The flag is metadata, not a
 separate runtime or permission system; it cannot be changed by a follow-up request.
 The session API loads history and commits `run.to_input_list()` atomically with a
@@ -64,7 +64,7 @@ memory and are not persisted in history. Session endpoints are mounted
 behind the admin gateway.
 
 Migration 36 renames `agent_test_sessions`, marks existing rows as tests, and
-preserves their IDs, runs, reviews, and agent-version references. Before restarting
+preserves their IDs, runs and reviews. Before restarting
 the API, import any remaining full history files with
 `scripts/migrate_agent_session_history.py --root /data/docs-wiki/agent-sessions`
 using the application's PG environment. The importer rejects stale files and keeps
@@ -83,9 +83,7 @@ Migration 0071 removed the former Reader application's conversations and its
 
 **Upgrading.** Migration 0060 turns **Answer only from documents** on and Code
 (repositories) off for the Search agent; its down migration does not turn Code back
-on. Settings changes touch only the agent's working copy: if the Search agent has an
-active configuration version, runs keep using that version's snapshot until you save
-and activate a new version.
+on. Saving the agent's settings changes what runs next; conversations already started keep the configuration they began with.
 
 The former code-agent service and its "Ask the code" escalation were
 removed; agents read code with their own tools (`list_files`, `read_file`,
@@ -106,8 +104,8 @@ See [agent configuration](agent-profiles.md), [SSH settings](server-operations.m
 
 ## Tools
 
-Tools are part of an agent's configuration and of its versions (`config['tools']`, edited on the Tools tab, see
-[agent configuration](agent-profiles.md)). Versions and conversations saved before migration 0078 use the tools
+Tools are part of an agent's configuration (`config['tools']`, edited on the Tools tab, see
+[agent configuration](agent-profiles.md)). Conversations saved before migration 0078 use the tools
 their capabilities gave. The model gets exactly the selected tools whose needs are met; MCP tools are filtered the
 same way and edited MCP usage is added to the prompt as `Tool notes:`. `code_graph` is offered when a selected code
 project has a current generated graph (`code_graph` results carry its `generated_at`; if the project was synced after
@@ -119,40 +117,49 @@ or `No tools used`. A Claude Code session page counts live: the session detail r
 last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
 once; earlier activity loaded by scrolling up is already counted). Test chats refresh their counts with the chat.
 
-## Configuration versions
+## Clones
 
-The specialist's **Versions** tab saves full configuration snapshots: prompt text,
-additional instructions, model settings, capabilities, resource selections, skills,
-MCP definitions and resolved SSH settings. First saving a draft preserves the
-current working setup as active version 1. Subsequent snapshots are drafts until
-explicit activation. Published snapshots remain available for rollback. Versions store `claude_code_tools`; the agent type always comes from the agent. The snapshot holds `resources`; versions saved before 0075 are fixed. A suggestion from a per-run test chat drafts from the configuration the conversation ran with, never from its narrowed lists.
+An agent has **one configuration**: what its tabs show is what runs. There are no configuration versions, drafts or
+activation. To try a change, work on a clone: clone the agent, change and test the clone, then apply it to the
+original, keep it as an alternative, or delete it. A conversation pins the agent's configuration when it starts, so
+saving the agent never changes a conversation in progress.
 
-**Add feedback → Save as new version** opens an editor prefilled with proposed
-instruction replacements. It copies the configuration reviewed in that session,
-not unrelated later edits. Review the prompt, general/server instructions and
-full config, label the draft and save. Existing Markdown-only reviews still open
-with their original settings and suggestions so replacements can be edited manually.
+**Clone agent** (the header menu *Actions for <name>* on the agent page, or the **Clone <name>** button in the All
+agents list) creates a new agent with an identical configuration: prompt, instructions, model, type, resources mode,
+tools with their usage text, skills, documents, code projects, services, SSH servers (per-server instructions and
+connection overrides) and MCP selections. The name is `<name> (copy)`, then `(copy 2)` and so on while taken. Saved
+SSH credentials are **referenced**, not copied or decrypted. Sessions, runs, run records, reviews and audit history
+are not copied. The clone records `cloned_from` and shows *Clone of <original>* on its General tab and in the list.
 
-Use **Test vN** to open a separate browser tab and conversation for that version.
-Multiple conversations can run independently. This release uses separate tabs;
-a combined side-by-side comparison view is not included. Saved snapshots cannot
-be edited in place: **Copy as draft** creates a revised snapshot. Settings tabs
-remain the working configuration editor; use **Create draft from settings** to
-capture changed models, resources or permissions, then activate that draft.
+- `POST /api/agents/{id}/clone`: creates the clone and returns it (409 `An agent with this name already exists.`
+  if a concurrent clone took the name).
+- `GET /api/agents/{id}/apply`: for a clone, the sections that differ from its original (`Prompt`, `Instructions`,
+  `When to use`, `Model`, `Agent type`, `Resources`, `Tools`, `Skills`, `Documents`, `Code projects`, `SSH`, `MCP`,
+  `Services`), the original's revision and a fingerprint of its configuration. 404 `This agent is not a clone.` when
+  the agent is not a clone or the original was deleted.
+- `POST /api/agents/{id}/apply`: **Apply to <original>** replaces the original's configuration with the clone's in
+  one transaction. Everything is copied except name, description, `enabled` and `cloned_from`. It needs the revision
+  and fingerprint from the `GET`; 409 `The original changed; review again.` if either moved, and 409 `The original
+  agent is working right now. Wait for its documentation sessions and runs to finish, then apply.` while the original
+  has a documentation session or run working. It bumps the original's revision and writes the audit event
+  `agent.config.applied`. The clone then offers **Delete this clone**.
 
-- `GET /api/agents/{id}/versions`: version history and active ID.
-- `GET /api/agents/{id}/versions/source`: working config for a new draft; optional
-  `version_id` or `review_id` selects an existing snapshot or reviewed session.
-- `POST /api/agents/{id}/versions`: source identifiers/hash, label, notes and
-  instruction changes. Arbitrary runtime config/credential references are not accepted.
-- `POST /api/agents/{id}/versions/{version_id}/activate`: compare-and-set using
-  `expected_active_id`. Existing sessions retain their snapshot.
-- `GET /api/agents/{id}/config?version_id=...`: selected snapshot. Without a version,
-  returns the active snapshot, or working settings until the first snapshot exists.
+Saving SSH, per-server or MCP settings locks the agent for the save, so it is serialized with Apply and with other
+saves.
 
-Migration 0034 adds `ka.agent_versions`, an active pointer/counter on `ka.agents`
-and the session's version reference. Older sessions keep their stored configuration.
-Snapshots store credential references, never private keys or provider tokens. Credentials
-are resolved at execution time; disabled agents/models/SSH/MCP resources still block use.
-File contents and external server state are live, not copied into a version. A removed
-credential or moved folder can therefore make a historical version unavailable.
+**Add feedback → Suggest improvements** stays. **Review and apply** on a suggestion opens *Apply suggestions*: the
+proposed instruction and prompt replacements can be edited, then applied with **Apply to this agent** (new
+conversations use it) or **Apply to a new clone** (clone first, then write them there).
+
+- `GET /api/agents/{id}/reviews/{review_id}`: the suggestion with the agent's current texts and its fingerprint (404
+  `Suggestion not found for this agent.`).
+- `POST /api/agents/{id}/reviews/{review_id}/apply`: `{target: 'agent' | 'clone', revision, fingerprint, changes}`; 409 `The agent changed since
+  you opened the suggestion. Review it again.`, 422 `Instructions refer to a server outside this agent.`, 400 `Enter a
+  system prompt.`
+
+Snapshots of running conversations store credential references, never private keys or provider tokens. Credentials
+are resolved at execution time; disabled agents/models/SSH/MCP resources still block use. File contents and external
+server state are live; a removed credential or moved folder can make an old conversation unavailable.
+
+Migrations `0079_agent_system_prompt` and `0080_clone_agents` removed agent versions; see
+[PostgreSQL migrations](migrations.md) and the upgrade notes in `deploy/README.md`.

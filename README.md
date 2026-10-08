@@ -4,7 +4,7 @@ An independently runnable successor to v2, with its own source, locked
 dependencies, Docker images, authentication, tracing, and persistent data.
 
 The application currently provides configuration administration through FastAPI
-and React/shadcn. Agents, prompt versions, skills, model assignments, SSH settings,
+and React/shadcn. Agents (one configuration each, with clones for experiments), skills, model assignments, SSH settings,
 and resource selections are stored in PostgreSQL. Keycloak provides login and
 Phoenix remains available for tracing.
 
@@ -242,5 +242,5 @@ Administration → Skills manages reusable Markdown instructions with descriptio
 
 ## Agent system prompts
 
-[Agents](http://localhost:8183/agents) provides a Prompts tab for each agent, with draft and active versions. Search diagrams are
+[Agents](http://localhost:8183/agents) edits each agent's system prompt on its General tab; to try another prompt, clone the agent and apply the clone back. Search diagrams are
 optional and checked with Mermaid before rendering. See [the prompts guide](docs/prompts.md).
