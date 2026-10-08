@@ -37,3 +37,16 @@ def add_review(conn, session_id, actor, *, changes: dict[str, Any], agent_config
     return conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
         response_turn) VALUES (%s,%s,'Feedback',%s,'Be clearer.',%s) RETURNING id''',
         (session_id, actor, Jsonb({'agent_config': agent_config or {}, 'changes': changes}), turn)).fetchone()['id']
+
+
+def add_ad_hoc_session(conn, project, actor, model_id, *, message: str | None = None) -> UUID:
+    """A Generate documents session of an ad-hoc agent as POST /api/claude-code/sessions inserts it (no agents row)."""
+    session = uuid4()
+    conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,document_name,folder,runtime,agent_config)
+        VALUES (%s,%s,NULL,%s,%s,'Payments','{}',%s,'Payments','payments','openai',%s)''',
+        (session, project, actor, model_id, Jsonb({'folders': [], 'code_project_ids': []}), Jsonb({'id': 'ad-hoc'})))
+    if message is not None:
+        conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                     (session, actor, message))
+    return session
