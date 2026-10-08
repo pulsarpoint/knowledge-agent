@@ -238,7 +238,7 @@ def build_api(app_name, store):
                 row = conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
                     response_turn) VALUES (%s,%s,%s,%s,%s,%s)
                     RETURNING id,comment,suggestion,response_turn,created_at,context->'changes' AS changes''',
-                    (session_id, db.actor(conn, *actor), value.comment, Jsonb(context), proposal.suggestion,
+                    (session_id, db.actor(conn, *actor), context['comment'], Jsonb(context), proposal.suggestion,
                      value.turn)).fetchone()
                 conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s AND status<>'closed'",
                              (session_id,))

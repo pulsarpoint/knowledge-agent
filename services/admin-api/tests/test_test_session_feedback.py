@@ -72,6 +72,19 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
     assert chat.client.get(f"/api/agents/code/reviews/{saved['id']}", headers=HEADERS).status_code == 404
 
 
+def test_a_secret_in_the_feedback_is_not_stored(chat, monkeypatch):
+    async def review(config, task, **kwargs):
+        return SimpleNamespace(final_output=kwargs['output_type'].model_validate(PROPOSAL))
+    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', review)
+    response = chat.client.post(chat.review, headers=HEADERS, json={'comment': 'The key is tester-model-secret.'})
+    assert response.status_code == 200, response.text
+    assert 'tester-model-secret' not in response.json()['comment']
+    with chat.store.connect() as conn:
+        [row] = conn.execute('SELECT comment,context FROM ka.agent_session_reviews WHERE session_id=%s',
+                             (chat.session,)).fetchall()
+    assert row['comment'].startswith('The key is ') and 'tester-model-secret' not in json.dumps(row, default=str)
+
+
 def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(chat, monkeypatch):
     async def never(*args, **kwargs):
         pytest.fail('No review may run')
