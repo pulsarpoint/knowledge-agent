@@ -168,3 +168,12 @@ def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mc
     summary = tools_summary(c)  # ssh_run: no SSH; search_documents: no documents; code_graph counts by the switch
     assert summary['groups'] == {'code': 3, 'documents': 0, 'servers': 0, 'mcp': 2, 'agents': 0}
     assert summary['on'] == 5
+
+
+def test_code_graphs_are_listed_only_when_a_tool_that_reads_them_is_offered():
+    graph = {'id': 'p', 'name': 'P', 'graph_path': '/g', 'code_root': '/c', 'source_hash': 'h'}
+    for tools, listed in ((['read_file'], False), (['read_file', 'code_graph'], True), (['shell_run'], True)):
+        c = config(code=True, graphs=[graph], tools=tools)
+        assert ('"code_graphs"' in get_prompt(c, [], [])) is listed, tools
+        assert ('"code_graphs"' in get_prompt(c, [], [], tools)) is listed, tools
+    assert '"code_graphs"' not in get_prompt(config(code=True, graphs=[graph], tools=['code_graph']), [], [], [])

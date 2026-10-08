@@ -3,7 +3,7 @@
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Collection, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -141,8 +141,9 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
     model_api_key = credentials[reference['id']] if reference is not None else None
     ssh_servers = get_ssh(config, credentials)
     selected_mcp = mcp.selected_servers(config, ssh_servers)
-    prompt = get_prompt(config, ssh_servers, selected_mcp)
-    tools = [function_tool(spec, usage) for spec, usage in effective_tools(config, ssh_servers)]
+    offered = effective_tools(config, ssh_servers)
+    prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
+    tools = [function_tool(spec, usage) for spec, usage in offered]
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -206,15 +207,18 @@ def documents_grounded(config: dict[str, Any]) -> bool:
 
 
 def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
-               selected_mcp: list[dict[str, Any]]) -> str:
-    """Combine the active prompt with instructions and enabled resource descriptions."""
+               selected_mcp: list[dict[str, Any]], tool_names: Collection[str] | None = None) -> str:
+    """Combine the active prompt with instructions and enabled resource descriptions. tool_names: the run's offered
+    catalog tools (None: worked out from the configuration); code graphs are listed only for code_graph or shell_run."""
     prompt = config['system_prompt']['content']
     if not prompt.strip():
         raise ValueError('The agent requires an active system prompt.')
+    if tool_names is None:
+        tool_names = {spec.name for spec, _ in effective_tools(config, ssh_servers)}
     resources = {'name': config['name'], 'description': config['description']}
     if config['code']['enabled']:
         resources['code_projects'] = config['code']['projects']
-        if config['code'].get('graphs'):
+        if config['code'].get('graphs') and {'code_graph', 'shell_run'} & set(tool_names):
             resources['code_graphs'] = config['code']['graphs']
     if config['documents']['enabled']:
         resources['documents'] = document_collections(config)[1]
