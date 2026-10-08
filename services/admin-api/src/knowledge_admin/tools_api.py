@@ -1,5 +1,6 @@
 """An agent's tools: the catalog, the Tools tab (GET/PUT) and the rules that keep a selection consistent."""
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
@@ -20,9 +21,11 @@ PRIMARY = {'code': ('code', 'code_graph'), 'documents': ('documents', 'grounded'
 
 AGENT = '''SELECT id,runtime,revision,claude_code_tools,repositories_enabled,documents_enabled,documents_grounded,
     ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
-SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m WHERE EXISTS (
+# As the agent configuration selects them: the application project's servers, linked in the same project.
+SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
+    WHERE m.project_id IN (SELECT id FROM ka.projects WHERE archived_at IS NULL) AND EXISTS (
     SELECT 1 FROM ka.agent_config_mcp_servers s JOIN ka.agent_configs c ON c.id=s.config_id
-    WHERE s.mcp_server_id=m.id AND c.agent=%s) ORDER BY lower(m.name),m.id'''
+    WHERE s.mcp_server_id=m.id AND c.agent=%s AND c.project_id=m.project_id) ORDER BY lower(m.name),m.id'''
 ON = "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'"
 SWITCH_ON = '''INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')
     ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',updated_at=now()'''
@@ -54,6 +57,14 @@ def flags(row: dict[str, Any]) -> dict[str, Any]:
     return {'runtime': row['runtime'], 'code': {'enabled': row['repositories_enabled']},
             'documents': {'enabled': row['documents_enabled'], 'grounded': row['documents_grounded']},
             'ssh': {'enabled': row['ssh_enabled']}}
+
+
+def _uuid(value: str) -> UUID | None:
+    """An agent ID as an audit resource_id (a uuid column); seeded agents with text IDs have none."""
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
 
 
 def _usage(text: str | None) -> str | None:
@@ -170,9 +181,10 @@ def build_api(app_name, store):
                              (agent_id, choice.tool, choice.mode, usage))
             actor = store.actor(conn, *request_actor(request))
             conn.execute('UPDATE ka.agents SET revision=revision+1,updated_by=%s WHERE id=%s', (actor, agent_id))
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                VALUES (%s,%s,'agent.tools.updated','agent',%s)''', (store.project(conn, app_name), actor, Jsonb(
-                {'agent_id': agent_id, 'on': sorted(choice.tool for choice in value.tools if choice.mode == 'on')})))
+            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+                VALUES (%s,%s,'agent.tools.updated','agent',%s,%s)''', (store.project(conn, app_name), actor,
+                _uuid(agent_id), Jsonb({'agent_id': agent_id,
+                                        'on': sorted(choice.tool for choice in value.tools if choice.mode == 'on')})))
             return agent_tools(conn, agent_id)
 
     return router

@@ -194,3 +194,14 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
                                            'search_documents', 'read_document'}
     update(client, documents, documents_grounded=True)
     assert offered(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
+
+
+def test_saving_tools_is_audited_against_the_agent(store, saved_agent):
+    client = saved_agent[0]
+    blank = create(client, 'Audited')
+    assert put(client, blank['id'], view(client, blank['id'])['revision'], []).status_code == 200
+    assert put(client, 'operations', view(client)['revision'], []).status_code == 200  # not a UUID: no resource_id
+    with store.connect() as conn:
+        audited = conn.execute("""SELECT resource_id::text AS resource_id,details->>'agent_id' AS agent FROM ka.audit_events
+            WHERE action='agent.tools.updated' ORDER BY created_at""").fetchall()
+    assert [(row['agent'], row['resource_id']) for row in audited] == [(blank['id'], blank['id']), ('operations', None)]
