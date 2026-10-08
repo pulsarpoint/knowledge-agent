@@ -11,6 +11,16 @@ export function topTools(counts?: ToolCount[] | null, limit = 3) {
   return toolUsageLine(counts.slice(0, limit)) + (more > 0 ? ` +${more}` : '');
 }
 
+/** Loaded counts plus the live tool calls after the last one they include (through: that call's event id), most
+ * used first, ties by name. Without through nothing is added: the counts may already include the calls. */
+export function withLaterCalls(counts: ToolCount[], through: number | undefined, calls: { id: number; name: string }[]) {
+  if (through === undefined) return counts;
+  const totals = new Map(counts.map(({ name, calls: n }) => [name, n]));
+  for (const call of calls) if (call.id > through) totals.set(call.name, (totals.get(call.name) ?? 0) + 1);
+  return [...totals].map(([name, n]) => ({ name, calls: n }))
+    .sort((a, b) => b.calls - a.calls || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 export interface RunSummary {
   run_key: string; agent_id: string; agent: string | null; kind: string | null; title: string | null;
   user: string | null; status: string | null; total_tokens: number; started_at: string; tool_counts: ToolCount[];

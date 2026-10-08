@@ -30,6 +30,8 @@ export interface SessionSummary {
 }
 export interface SessionDetail extends SessionSummary {
   tool_counts?: ToolCount[];
+  /** The id of the last tool_call event the counts include (0: none). */
+  tool_counts_through_id?: number;
   document_name: string; draft: string | null; draft_turn: number | null; model_id: string;
   /** The agent's own instructions when the session started (earlier sessions also hold their documentation prompt). */
   prompt_snapshot: { system_prompt: string; claude_code_tools?: string[]; agent_version?: { id: string; version: number; label: string } | null };

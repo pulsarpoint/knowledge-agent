@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { toolUsageLine } from '../lib/runs';
+import { toolUsageLine, withLaterCalls } from '../lib/runs';
 import { closeSession, formatTokens, getSession, getSessionHistory, saveSessionDocument, sendMessage, sessionEventsUrl, statusLabels,
   stopSession, type SavedDocument, type SessionDetail, type SessionEvent, type SessionState } from '~/lib/claudeCode';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
@@ -40,6 +40,8 @@ const NEAR_BOTTOM = 40;  // px: this close to the bottom, Activity follows new e
 export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
+  // Tool calls of the opening page and the stream (never earlier pages), by event id: a replay is counted once.
+  const [liveCalls, setLiveCalls] = useState<Map<number, string>>(() => new Map());
   const [older, setOlder] = useState<'more' | 'loading' | 'start'>('more');
   const [following, setFollowing] = useState(true);
   const [message, setMessage] = useState('');
@@ -61,14 +63,23 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
 
   useEffect(() => {
     const controller = new AbortController();
-    setSession(null); setEvents([]); setError(''); setReconnecting(false); setOlder('more'); setFollowing(true);
+    setSession(null); setEvents([]); setLiveCalls(new Map()); setError(''); setReconnecting(false); setOlder('more'); setFollowing(true);
     let streamed: SessionState | null = null;  // newer than a page load that finishes after it
-    getSession(sessionId, controller.signal).then(detail => setSession(streamed ? { ...detail, ...streamed } : detail))
+    getSession(sessionId, controller.signal).then(detail => setSession(streamed
+      ? { ...detail, ...streamed, tool_counts: detail.tool_counts, tool_counts_through_id: detail.tool_counts_through_id } : detail))
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not open the session'); });
     let stream: EventSource | null = null;
     let lastId = 0, frame = 0;
     let pending: SessionEvent[] = [];
-    const flush = () => { frame = 0; const batch = pending; pending = []; setEvents(current => [...current, ...batch]); };
+    const addCalls = (batch: SessionEvent[]) => {
+      const found = batch.filter(event => event.kind === 'tool_call');
+      if (found.length) setLiveCalls(current => {
+        const next = new Map(current);
+        for (const event of found) next.set(event.id, String(event.payload.name ?? ''));
+        return next;
+      });
+    };
+    const flush = () => { frame = 0; const batch = pending; pending = []; setEvents(current => [...current, ...batch]); addCalls(batch); };
     // The latest page first, then the live stream after its newest event: nothing is shown twice or skipped. Event ids
     // increase, so anything at or below the last one is a replay after a reconnect. New events are appended once per
     // animation frame, so a burst renders in a few frames.
@@ -76,6 +87,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
       if (controller.signal.aborted) return;
       lastId = page.events.length ? page.events[page.events.length - 1].id : 0;
       setEvents(page.events);
+      addCalls(page.events);
       setOlder(page.has_more ? 'more' : 'start');
       // Leaving the page closes only this stream; the session keeps running.
       const source = new EventSource(sessionEventsUrl(sessionId, lastId));
@@ -92,7 +104,8 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
         setReconnecting(false);
         const next = JSON.parse((e as MessageEvent).data) as SessionState;
         streamed = next;
-        setSession(current => current && { ...current, ...next });
+        setSession(current => current && { ...current, ...next, tool_counts: current.tool_counts,
+          tool_counts_through_id: current.tool_counts_through_id });
       });
       source.addEventListener('open', () => setReconnecting(false));
       source.addEventListener('error', () => { if (source.readyState !== 2) setReconnecting(true); });
@@ -183,6 +196,8 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
 
   if (!session) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   const closed = session.status === 'closed';
+  const toolCounts = session.tool_counts && withLaterCalls(session.tool_counts, session.tool_counts_through_id,
+    [...liveCalls].map(([id, name]) => ({ id, name })));
   // Header 4rem + main padding 3rem: the page never grows past the screen, so the message box stays visible.
   return <div className="flex h-[calc(100dvh-7rem)] min-h-[36rem] flex-col gap-3">
     <div className="flex shrink-0 flex-col gap-2">
@@ -191,7 +206,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
         <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge></div>
       <p className="text-sm text-muted-foreground">{session.agent_name} · {session.model_name} · {session.folder}/</p>
       <p className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`}</p>
-      {session.tool_counts && <p className="text-sm text-muted-foreground" aria-label="Tools used">{toolUsageLine(session.tool_counts)}</p>}
+      {toolCounts && <p className="text-sm text-muted-foreground" aria-label="Tools used">{toolUsageLine(toolCounts)}</p>}
       {session.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
       {session.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}

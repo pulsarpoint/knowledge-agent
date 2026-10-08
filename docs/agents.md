@@ -115,7 +115,9 @@ the graph was generated, the answer carries a note to regenerate it or confirm w
 
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists
 all), the run record, the session page and Test chats show a line such as `code_graph 12 · read_file 31 · shell_run 4`
-or `No tools used`. Counts refresh with the session detail, not live during a turn.
+or `No tools used`. A Claude Code session page counts live: the session detail returns its counts with the id of the
+last tool call they include, and the page adds the streamed tool calls after it (a replay after a reconnect counts
+once; earlier activity loaded by scrolling up is already counted). Test chats refresh their counts with the chat.
 
 ## Configuration versions
 
