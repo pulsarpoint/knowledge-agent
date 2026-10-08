@@ -2,19 +2,32 @@
 from uuid import uuid4
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.knowledge_agents.config import changed_sections, fingerprint, get_agent_config
+from knowledge_admin.profiles_api import WORKING
 
 NAME_TAKEN = 'An agent with this name already exists.'
 NAME_LIMIT = 100
+NOT_A_CLONE = 'This agent is not a clone.'
+APPLY_WORKING = ('The original agent is working right now. Wait for its documentation sessions and runs to finish, '
+                 'then apply.')
+ORIGINAL_CHANGED = 'The original changed; review again.'
 # Everything an agent runs with on ka.agents. Name, description, enabled and cloned_from belong to the agent itself.
 CONFIGURATION = ('when_to_use', 'model_id', 'runtime', 'claude_code_tools', 'resources', 'system_prompt',
                  'documents_enabled', 'documents_grounded', 'repositories_enabled', 'ssh_enabled', 'skills_enabled',
                  'mcp_enabled', 'services_enabled', 'all_collections', 'all_repositories')
 SELECTIONS = (('agent_collections', 'collection_id'), ('agent_repositories', 'repository_id'),
               ('agent_services', 'service_id'))
+
+
+class ApplyInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: int = Field(ge=1, strict=True)
+    fingerprint: str = Field(min_length=64, max_length=64)
 
 
 def clone_name(conn, name: str) -> str:
@@ -53,6 +66,8 @@ def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
         SELECT project_id,%s,%s FROM ka.operations_settings WHERE agent=%s
         ON CONFLICT (project_id,agent) DO UPDATE SET revision=ka.operations_settings.revision+1,
             updated_by=EXCLUDED.updated_by''', (target_id, actor_id, source_id))
+    conn.execute('''DELETE FROM ka.operations_settings t WHERE t.agent=%s AND NOT EXISTS (
+        SELECT 1 FROM ka.operations_settings s WHERE s.agent=%s AND s.project_id=t.project_id)''', (target_id, source_id))
     conn.execute('''INSERT INTO ka.operations_servers(project_id,agent,server_id)
         SELECT project_id,%s,server_id FROM ka.operations_servers WHERE agent=%s''', (target_id, source_id))
     conn.execute('''INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,username,port,allow_sudo,
@@ -109,5 +124,49 @@ def build_api(app_name, store):
                 return created
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, NAME_TAKEN) from None
+
+    def config(agent_id: str) -> dict:
+        try:
+            return get_agent_config(agent_id, conninfo=store.conninfo)
+        except LookupError:
+            raise HTTPException(404, 'Agent not found') from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    def original_of(conn, agent_id: str) -> dict:
+        row = conn.execute('SELECT cloned_from FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, 'Agent not found')
+        if row['cloned_from'] is None:  # never a clone, or its original was deleted
+            raise HTTPException(404, NOT_A_CLONE)
+        return conn.execute('SELECT id,name,revision FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone()
+
+    @router.get('/apply')
+    def preview(agent_id: str, response: Response):
+        """What Apply would replace on the original, and the fingerprint the dialog sends back."""
+        response.headers['Cache-Control'] = 'no-store'
+        with database().connect() as conn:
+            original = original_of(conn, agent_id)
+        target = config(original['id'])
+        return {'original': original, 'fingerprint': fingerprint(target),
+                'changes': changed_sections(config(agent_id), target)}
+
+    @router.post('/apply')
+    def apply(agent_id: str, value: ApplyInput, request: Request):
+        """Copy the clone's configuration onto its original in one transaction (not its name, description, on/off
+        switch or cloned_from)."""
+        with database().connect() as conn:
+            original = original_of(conn, agent_id)
+            for row_id in sorted((agent_id, original['id'])):
+                conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (row_id,))
+            original = original_of(conn, agent_id)  # again, under the locks
+            if conn.execute(WORKING, {'a': original['id']}).fetchone():
+                raise HTTPException(409, APPLY_WORKING)
+            if original['revision'] != value.revision or fingerprint(config(original['id'])) != value.fingerprint:
+                raise HTTPException(409, ORIGINAL_CHANGED)
+            actor = store.actor(conn, *request_actor(request))
+            copy_configuration(conn, agent_id, original['id'], actor)
+            audit(conn, actor, 'agent.config.applied', {'agent_id': original['id'], 'clone_id': agent_id})
+            return conn.execute('SELECT id,revision FROM ka.agents WHERE id=%s', (original['id'],)).fetchone()
 
     return router

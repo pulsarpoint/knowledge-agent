@@ -32,6 +32,17 @@ def clone(client, agent_id: str = 'operations') -> dict:
     return response.json()
 
 
+def per_server(conn, server, skill, mcp, agent_id: str = 'operations') -> None:
+    """A per-server override with its own skill and MCP server rows (the per-server copy loop must copy them)."""
+    config = conn.execute("""INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,
+            inherit_mcp_servers)
+        SELECT project_id,%s,id,'Check only the queue.',false,false FROM ka.servers WHERE id=%s RETURNING id,project_id""",
+        (agent_id, UUID(server['id']))).fetchone()
+    conn.execute('INSERT INTO ka.agent_config_skills VALUES (%s,%s,%s)', (config['id'], config['project_id'], UUID(skill['id'])))
+    conn.execute('INSERT INTO ka.agent_config_mcp_servers VALUES (%s,%s,%s)',
+                 (config['id'], config['project_id'], UUID(mcp['id'])))
+
+
 def own_connection(client, server) -> None:
     """An SSH key saved for this agent only (a credential the clone must reference, not copy)."""
     key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
@@ -43,9 +54,7 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     client, server = saved_agent[0], saved_agent[1]
     own_connection(client, server)
     with store.connect() as conn:
-        conn.execute("""INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            SELECT project_id,'operations',id,'Check only the queue.',false,true FROM ka.servers WHERE id=%s""",
-            (UUID(server['id']),))
+        per_server(conn, server, saved_agent[3], saved_agent[4])
         conn.execute("""INSERT INTO ka.agent_tools(agent_id,tool,usage) VALUES ('operations','read_file','Read narrowly.')
             ON CONFLICT (agent_id,tool) DO UPDATE SET usage=EXCLUDED.usage""")
         conn.execute("UPDATE ka.agents SET system_prompt='Answer from evidence.',resources='per_run' WHERE id='operations'")
@@ -55,6 +64,9 @@ def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     assert comparable(copied) == comparable(original)
     assert sections(copied) == sections(original)
     assert copied['ssh']['servers'][0]['private_key_ref'] == original['ssh']['servers'][0]['private_key_ref']
+    assert (copied['ssh']['servers'][0]['skills_source'], copied['ssh']['servers'][0]['mcp_source']) == (
+        'server_override', 'server_override')
+    assert [item['id'] for item in copied['ssh']['servers'][0]['mcp_servers']] == [saved_agent[4]['id']]
     with store.connect() as conn:  # the saved key is referenced, not duplicated
         assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials
 

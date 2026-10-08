@@ -1,5 +1,7 @@
 """The agent config: one shape for Native and Claude Code agents, the agent type and model rules, and loading the
 resolved snapshot. Loading never decrypts credentials or starts a runtime."""
+import hashlib
+import json
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
@@ -169,6 +171,17 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'services': {'enabled': config['services']['enabled'], 'items': _ids(config['services']['items'])},
     }
 
+
+def fingerprint(config: Mapping[str, Any]) -> str:
+    """Changes whenever what the agent runs with changes, whichever tab saved it (instructions and SSH saves do not
+    bump agents.revision)."""
+    return hashlib.sha256(json.dumps(sections(config), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
+    """The labels of the sections that differ, in SECTIONS order."""
+    ours, theirs = sections(source), sections(target)
+    return [label for key, label in SECTIONS.items() if ours[key] != theirs[key]]
 
 def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
     """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent of
