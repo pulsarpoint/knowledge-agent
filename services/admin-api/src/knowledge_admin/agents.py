@@ -24,7 +24,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
-from knowledge_admin.tools.catalog import effective_tools, mcp_allowed, mcp_blocked, mcp_notes
+from knowledge_admin.tools.catalog import SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import function_tool
 from knowledge_admin.knowledge_agents.config import credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
@@ -88,7 +88,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
         with trace_secrets(secrets), trace(redact(config['name'], secrets)):
             try:
                 async with asyncio.timeout(turn_timeout_seconds), create_agent(config, credentials=credentials,
-                        timeout_seconds=timeout_seconds, output_type=output_type) as assistant:
+                        timeout_seconds=timeout_seconds, output_type=output_type,
+                        subagents=subagents is not None) as assistant:
                     # The adapter's backstop and the shell switch follow exactly the tools the model was given.
                     context['tools'] = frozenset(tool.name for tool in assistant.tools)
                     context['shell_enabled'] = 'shell_run' in context['tools']
@@ -133,11 +134,14 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
 
 @asynccontextmanager
 async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str],
-                       timeout_seconds: float, output_type: type[BaseModel] | None = None) -> AsyncIterator[Agent]:
+                       timeout_seconds: float, output_type: type[BaseModel] | None = None,
+                       subagents: bool = False) -> AsyncIterator[Agent]:
     """Instantiate a native Agent and keep its model/MCP connections open for the caller.
 
     Used by agent() for test chats, live runs and native sessions. This does
     not run the agent or read the database; credentials stay in backend objects.
+    subagents: whether the run can start subagents (a native session turn); without, run_subagent is not offered
+    even when its row is on (the tuning reviewer, test chats, live runs), since it could only fail.
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
@@ -149,7 +153,8 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
     model_api_key = credentials[reference['id']] if reference is not None else None
     ssh_servers = get_ssh(config, credentials)
     selected_mcp = mcp.selected_servers(config, ssh_servers)
-    offered = effective_tools(config, ssh_servers)
+    offered = [(spec, usage) for spec, usage in effective_tools(config, ssh_servers)
+               if subagents or spec.name != SUBAGENT]
     prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
     tools = [function_tool(spec, usage) for spec, usage in offered]
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal

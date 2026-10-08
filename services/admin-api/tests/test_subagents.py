@@ -24,7 +24,7 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
 from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, NOT_OFFERED, PROMPT, Subagents, run_subagent
 from knowledge_admin.run_record import RunRecorder
-from knowledge_admin.tools.catalog import CATALOG
+from knowledge_admin.tools.catalog import CATALOG, item
 from knowledge_admin.tools.sdk import function_tool
 from test_claude_code_runner import events as run_events, post, session_row, wait_for
 from test_claude_code_sessions import sessions  # noqa: F401  (fixture)
@@ -402,3 +402,19 @@ def test_a_call_waiting_for_a_slot_starts_nothing_once_the_turn_ends():
 
     asyncio.run(asyncio.wait_for(scenario(), 5))
     assert [call['task'] for call in fake.calls] == ['First']
+
+
+def test_run_subagent_is_offered_only_to_a_run_with_the_turns_subagents(config, responses_api):
+    """A run without a Subagents host (the tuning reviewer, a test chat, a live run) is never offered run_subagent,
+    even when its row is on: the call could only fail with UNAVAILABLE."""
+    _, requests = responses_api
+    config['tools'] = {'items': [item('read_file', 'on'), item('run_subagent', 'on', subagent_allowed=False)]}
+
+    def offered(**extra) -> list[str]:
+        requests.clear()
+        asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}, stream=False,
+                          **extra))
+        return [tool.get('name') for tool in requests[0]['body'].get('tools', [])]
+    assert 'run_subagent' not in offered()
+    assert 'Start a helper' not in json.dumps(requests[0]['body'])  # nor described anywhere
+    assert 'run_subagent' in offered(subagents=object())
