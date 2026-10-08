@@ -125,6 +125,10 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
   const closed = session?.status === 'closed';
   const modelCalls = session?.runtime !== 'claude_code';
   const toolCalls = (toolCounts ?? []).reduce((sum, count) => sum + count.calls, 0);
+  // A failed turn shows its error under the turn: the header repeats the session's message only when no turn carries it
+  // (no turns loaded, or the last turn did not fail with that message).
+  const last = turns.at(-1);
+  const turnCarries = session?.status === 'failed' && last?.status === 'failed' && last.error === session.status_message;
   const canSend = !composer.busy && !composer.blockedReason && Boolean(composer.value.trim());
   const agents = <div className="flex flex-col gap-4">
     <section aria-label="Agents in this run" className="flex flex-col gap-2">
@@ -159,7 +163,7 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
         + (session.reasoning_tokens > 0 ? ` · Reasoning ${formatTokens(session.reasoning_tokens)}` : '')}</p>}
       {toolCounts && <p aria-label="Tools used" className="text-sm text-muted-foreground">{toolUsageLine(toolCounts)}</p>}
       {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
-      {session?.status_message && ['failed', 'stopped'].includes(session.status) && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
+      {session?.status_message && ['failed', 'stopped'].includes(session.status) && !turnCarries && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {run.error && <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert>}
       {run.reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
       {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}

@@ -129,3 +129,13 @@ test('the header row wraps on a phone instead of forcing a horizontal scroll', (
   expect(row).toHaveClass('min-w-0', 'flex-wrap');
   for (const part of row.children) expect(part).toHaveClass('min-w-0', 'flex-wrap');
 });
+
+test('a failed turn shows its error once: the header repeats the session message only when no turn carries it', () => {
+  const failed = { ...detail, status: 'failed' as const, status_message: 'Agent execution failed (RuntimeError).' };
+  const lastFailed = conversation.slice(0, 9);  // turn 2, the last, failed with that error
+  const view = show({ run: run({ session: failed, events: lastFailed }) });
+  expect(screen.getAllByText('Agent execution failed (RuntimeError).')).toHaveLength(1);
+  view.unmount();
+  show({ run: run({ session: failed, events: [] }) });
+  expect(screen.getByText('Agent execution failed (RuntimeError).')).toBeVisible();
+});
