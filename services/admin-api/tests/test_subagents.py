@@ -418,3 +418,32 @@ def test_run_subagent_is_offered_only_to_a_run_with_the_turns_subagents(config, 
     assert 'run_subagent' not in offered()
     assert 'Start a helper' not in json.dumps(requests[0]['body'])  # nor described anywhere
     assert 'run_subagent' in offered(subagents=object())
+
+
+def test_a_subagent_ignoring_cancellation_starts_no_tool_call_while_close_waits_and_has_no_credentials(monkeypatch):
+    """close() runs before the parent's events close: during its grace wait, a subagent that swallows its cancellation
+    and goes on starts no tool call (nor model call), and the credentials it was handed are already empty."""
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 2.0)
+    started, seen = asyncio.Event(), []
+
+    async def swallow(turn):
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            seen.append(dict(subagents.issued[0]))  # what it still holds once cancelled
+    subagents, fake, recorder, lead = host({'Stubborn': {'steps': [swallow, tool('r1', 'read_file', 'late')],
+                                                         'answer': 'late'}})
+
+    async def scenario():
+        call = asyncio.create_task(start(subagents, 's1', 'Stubborn'))
+        await asyncio.wait_for(started.wait(), 2)
+        assert subagents.issued[0]  # it got the model key
+        await asyncio.wait_for(subagents.close(), 1)  # the subagent ends at its next tool call, well within the grace
+        assert not lead.closed
+        return await asyncio.gather(call, return_exceptions=True)
+
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert seen == [{}]
+    assert fake.calls[0]['tools'] == []
+    assert 'tool_result' not in [kind for kind, _ in recorder.events]

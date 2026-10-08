@@ -188,16 +188,18 @@ def _abandon(task: asyncio.Task) -> None:
 class SubagentEvents(SessionEvents):
     """A subagent's SDK lifecycle as events of its parent's turn record: the kinds SessionEvents writes, each with
     parent_call_id (the run_subagent call). It is closed exactly while the parent's events are (Stop, Close, a lost
-    lease, the end of the turn), so a subagent that outlives its turn starts no tool call and records nothing more."""
+    lease, the end of the turn) or its Subagents are (close(), which runs before the parent's events close), so a
+    subagent that outlives its turn, or ignores its cancellation while close() waits, starts no tool call and records
+    nothing more."""
 
     def __init__(self, parent: SessionEvents, parent_call_id: str, *, secrets: list[str],
-                 record_usage: Callable[[dict[str, Any]], None] | None):
+                 record_usage: Callable[[dict[str, Any]], None] | None, host: 'Subagents | None' = None):
         super().__init__(parent.recorder, secrets=secrets, first=True, record_usage=record_usage)
-        self.parent, self.parent_call_id = parent, parent_call_id
+        self.parent, self.parent_call_id, self.host = parent, parent_call_id, host
 
     @property
     def closed(self) -> bool:
-        return self.parent.closed
+        return self.parent.closed or (self.host is not None and self.host.closed)
 
     @closed.setter
     def closed(self, value: bool) -> None:
@@ -248,7 +250,8 @@ class Subagents:
         credentials = referenced_credentials(sub, context['credentials'])
         self.issued.append(credentials)
         try:
-            events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage)
+            events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage,
+                                    host=self)
             events.add('input', {'task': task, 'subagent': {'task': task}})
             # The slot first, then the flush: calls take slots in the order they were made (a waiting call's input
             # event is written by the next flush of the turn).
@@ -284,11 +287,15 @@ class Subagents:
     async def close(self) -> None:
         """The turn ends (Stop, Close, a lost lease or its answer): no more subagents start, running ones are cancelled
         and waited for at most STOP_GRACE_SECONDS (one still running then is left to end by itself, recording
-        nothing), and every credential map handed to a subagent is emptied."""
+        nothing), and every credential map handed to a subagent is emptied before the wait: a subagent that ignores
+        its cancellation starts no tool or model call meanwhile (SubagentEvents and model_filter follow `closed`)
+        and has no credentials for a new connection."""
         self.closed = True
         running = set(self.running)
         for task in running:
             task.cancel()
+        for credentials in self.issued:
+            credentials.clear()
         if running:
             await asyncio.wait(running, timeout=native_sessions.STOP_GRACE_SECONDS)
             if any(not task.done() for task in running):
