@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import SuggestionApply from '../SuggestionApply';
 import * as api from '../../lib/reviews';
+import { ApiError } from '../../lib/api';
 vi.mock('../../lib/reviews');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
@@ -56,4 +57,47 @@ it('needs a system prompt', async () => {
   fireEvent.change(await screen.findByLabelText('System prompt'), { target: { value: '  ' } });
   expect(screen.getByRole('button', { name: 'Apply to this agent' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Apply to a new clone' })).toBeDisabled();
+});
+
+it('reloads the latest agent after a conflict, keeps the edits and applies with the new revision', async () => {
+  const latest: api.ReviewSource = { ...structuredClone(source), revision: 4, fingerprint: 'e'.repeat(64), system_prompt: 'Use sources.',
+    servers: [...structuredClone(source.servers), { id: 'server-3', name: 'New host', instructions: 'Read logs.', inherits: false }] };
+  vi.mocked(api.getReviewSource).mockResolvedValueOnce(structuredClone(source)).mockResolvedValueOnce(structuredClone(latest));
+  vi.mocked(api.applyReview)
+    .mockRejectedValueOnce(new ApiError('The agent changed since you opened the suggestion. Review it again.', 409))
+    .mockResolvedValueOnce({ agent_id: 'custom' });
+  page();
+  fireEvent.change(await screen.findByLabelText('System prompt'), { target: { value: 'Answer from evidence.' } });
+  fireEvent.change(screen.getByLabelText('Queue host instructions'), { target: { value: 'Check the queue only.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to this agent' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Reload latest' }));
+  expect(await screen.findByLabelText('New host instructions')).toHaveValue('Read logs.');
+  expect(api.getReviewSource).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('button', { name: 'Reload latest' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('System prompt')).toHaveValue('Answer from evidence.');
+  expect(screen.getByLabelText('Additional instructions')).toHaveValue('State uncertainty.');
+  expect(screen.getByLabelText('Queue host instructions')).toHaveValue('Check the queue only.');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to this agent' }));
+  await waitFor(() => expect(applied).toHaveBeenCalledWith('agent', 'custom'));
+  const [, , sent, , changes] = vi.mocked(api.applyReview).mock.calls[1];
+  expect([sent.revision, sent.fingerprint]).toEqual([4, 'e'.repeat(64)]);
+  expect(changes).toEqual({ system_prompt: 'Answer from evidence.', instructions: 'State uncertainty.',
+    server_instructions: [{ server_id: 'server-2', instructions: 'Check the queue only.' }] });
+});
+
+it('offers Reload latest when the suggestion fails to load', async () => {
+  vi.mocked(api.getReviewSource).mockRejectedValueOnce(new ApiError('request failed (500)', 500)).mockResolvedValueOnce(structuredClone(source));
+  page();
+  expect(await screen.findByText('request failed (500)')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Reload latest' }));
+  expect(await screen.findByLabelText('Additional instructions')).toHaveValue('State uncertainty.');
+  expect(screen.queryByText('request failed (500)')).not.toBeInTheDocument();
+});
+
+it('does not offer Reload latest after other apply failures', async () => {
+  vi.mocked(api.applyReview).mockRejectedValueOnce(new ApiError('Instructions refer to a server outside this agent.', 422));
+  page();
+  fireEvent.click(await screen.findByRole('button', { name: 'Apply to this agent' }));
+  expect(await screen.findByText('Instructions refer to a server outside this agent.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Reload latest' })).not.toBeInTheDocument();
 });

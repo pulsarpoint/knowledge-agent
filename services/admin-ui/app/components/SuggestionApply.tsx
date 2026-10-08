@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ApiError } from '../lib/api';
 import { applyReview, getReviewSource, type InstructionChanges, type ReviewSource } from '../lib/reviews';
 import type { SessionReview } from '../lib/operations';
 import Markdown from './Markdown';
@@ -17,19 +18,37 @@ export default function SuggestionApply({ agentId, review, onClose, onApplied }:
   const [servers, setServers] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reloadable, setReloadable] = useState(false);
+  function prefill(value: ReviewSource) {
+    const proposed = value.changes.instructions ?? value.instructions;
+    setSource(value); setPrompt(value.changes.system_prompt ?? value.system_prompt); setInstructions(proposed);
+    setServers(Object.fromEntries(value.servers.map(server => [server.id,
+      value.changes.server_instructions.find(change => change.server_id === server.id)?.instructions
+        ?? (server.inherits ? proposed : server.instructions)])));
+  }
   useEffect(() => {
     if (!review) return;
-    let live = true; setSource(undefined); setError('');
-    getReviewSource(agentId, review.id).then(value => {
-      if (!live) return;
-      const proposed = value.changes.instructions ?? value.instructions;
-      setSource(value); setPrompt(value.changes.system_prompt ?? value.system_prompt); setInstructions(proposed);
-      setServers(Object.fromEntries(value.servers.map(server => [server.id,
-        value.changes.server_instructions.find(change => change.server_id === server.id)?.instructions
-          ?? (server.inherits ? proposed : server.instructions)])));
-    }).catch(reason => { if (live) setError(reason instanceof Error ? reason.message : 'Could not load the suggestion.'); });
+    let live = true; setSource(undefined); setError(''); setReloadable(false);
+    getReviewSource(agentId, review.id).then(value => { if (live) prefill(value); })
+      .catch(reason => { if (live) { setError(reason instanceof Error ? reason.message : 'Could not load the suggestion.'); setReloadable(true); } });
     return () => { live = false; };
   }, [agentId, review]);
+  /** Fetch the agent's latest texts and revision; the user's edits stay (new servers get their proposed text). */
+  async function reload() {
+    if (!review) return;
+    setBusy(true); setError(''); setReloadable(false);
+    try {
+      const value = await getReviewSource(agentId, review.id);
+      if (!source) prefill(value);
+      else {
+        setSource(value);
+        setServers(current => Object.fromEntries(value.servers.map(server => [server.id, current[server.id]
+          ?? value.changes.server_instructions.find(change => change.server_id === server.id)?.instructions
+          ?? (server.inherits ? instructions : server.instructions)])));
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load the suggestion.'); setReloadable(true); }
+    finally { setBusy(false); }
+  }
   function editInstructions(next: string) {
     // Servers that inherit the instructions follow them until edited on their own.
     setServers(current => Object.fromEntries(Object.entries(current).map(([id, text]) =>
@@ -46,9 +65,12 @@ export default function SuggestionApply({ agentId, review, onClose, onApplied }:
   }
   async function apply(target: 'agent' | 'clone') {
     if (!source || !review) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setReloadable(false);
     try { const result = await applyReview(agentId, review.id, source, target, changes(source)); onApplied(target, result.agent_id); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not apply the suggestion.'); }
+    catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not apply the suggestion.');
+      setReloadable(reason instanceof ApiError && reason.status === 409);
+    }
     finally { setBusy(false); }
   }
   return <Sheet open={review !== null} onOpenChange={open => { if (!open && !busy) onClose(); }}>
@@ -56,6 +78,7 @@ export default function SuggestionApply({ agentId, review, onClose, onApplied }:
       <SheetHeader><SheetTitle>Apply suggestions</SheetTitle><SheetDescription>Review the proposed texts. Apply them to this agent, or to a new clone to test them first. Only the prompt and instructions change.</SheetDescription></SheetHeader>
       <div className="mt-6 flex flex-col gap-5">
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        {reloadable && <div><Button type="button" variant="outline" disabled={busy} onClick={() => void reload()}>Reload latest</Button></div>}
         {!source ? !error && <Skeleton className="h-48 w-full" /> : <FieldGroup>
           <details><summary className="cursor-pointer text-sm font-medium">Reviewer’s suggestions</summary><div className="mt-3"><Markdown content={source.suggestion} /></div></details>
           <Field><FieldLabel htmlFor="apply-system-prompt">System prompt</FieldLabel><Textarea id="apply-system-prompt" rows={10} maxLength={100000} value={prompt} disabled={busy} onChange={event => setPrompt(event.target.value)} /></Field>
