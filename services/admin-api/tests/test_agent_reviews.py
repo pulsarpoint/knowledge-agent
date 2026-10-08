@@ -1,4 +1,5 @@
-"""Tuning reviews: the reviewer's output shape, its correction, and (Task 6) applying a reviewed suggestion."""
+"""Tuning reviews: the reviewer's output shape and applying a reviewed suggestion. Correcting invalid reviewer output
+is tested with the Test session review in test_test_session_feedback.py."""
 import json
 from uuid import uuid4
 
