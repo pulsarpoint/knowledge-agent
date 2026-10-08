@@ -258,7 +258,7 @@ def build_api(app_name, store):
                     chosen = next(m for m in catalog['models'] if str(m['id']) == str(value.model_id))
                     if not model_fits('claude_code', chosen):
                         raise HTTPException(400, CHOOSE_CLAUDE)
-                if value.runtime == 'claude_code' and value.tools is not None:
+                if value.runtime == 'claude_code' and value.tools:
                     raise HTTPException(400, CLAUDE_CODE)
                 for name in value.tools or []:
                     if name not in CATALOG:

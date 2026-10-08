@@ -33,6 +33,7 @@ class ToolChoice(BaseModel):
     tool: str = Field(min_length=1, max_length=300)
     mode: Literal['on', 'off']  # per run comes with a later step
     usage: str | None = Field(default=None, max_length=8000)
+    subagent_allowed: bool | None = None  # accepted and ignored: step 1 always saves true
 
 
 class ToolsInput(BaseModel):

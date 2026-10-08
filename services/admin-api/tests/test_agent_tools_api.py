@@ -143,6 +143,22 @@ def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     assert refused.status_code == 400 and refused.json()['error']['message'] == UNKNOWN.format(tool='grep')
     writer = claude_code_agent(client, 'Writer', repositories_enabled=True)
     assert rows(store, writer) == set()
+    empty = claude_code_agent(client, 'Empty', tools=[])  # the wizard may send no tools for Claude Code
+    assert rows(store, empty) == set()
+    some = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
+        'Some', description='', when_to_use='', runtime='claude_code', tools=['read_file']))
+    assert some.status_code == 400 and some.json()['error']['message'] == CLAUDE_CODE
+
+
+def test_a_choice_may_carry_subagent_allowed_which_is_ignored(store, saved_agent):
+    client = saved_agent[0]
+    revision = view(client)['revision']
+    saved = put(client, 'operations', revision, [{'tool': 'read_file', 'mode': 'on', 'usage': None,
+                                                  'subagent_allowed': False}])
+    assert saved.status_code == 200, saved.text
+    with store.connect() as conn:
+        assert conn.execute("SELECT subagent_allowed FROM ka.agent_tools WHERE agent_id='operations' AND tool='read_file'"
+                            ).fetchone()['subagent_allowed'] is True
 
 
 def test_the_list_summarises_the_tools_that_run(store, saved_agent):
