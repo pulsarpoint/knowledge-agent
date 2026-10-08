@@ -146,9 +146,10 @@ before the page`.
   failure` writes it, redacted). `agent_activity.tool_failed` also recognises that prefix, so the `tool_result` event
   has `is_error = true` and the workspace shows the subagent as failed. Refusals (the checks) raise `ValueError`, which
   the adapter returns as its usual error text (also `is_error`).
-- **The switch keeps its row while an agent is Claude Code.** `GET /api/agents/{id}` reports `subagents` only for
-  native agents; switching to Claude Code and back keeps the row and its usage. `subagents: true` for a Claude Code
-  agent is refused; `subagents` omitted (`None`) keeps the switch.
+- **Switching an agent to Claude Code deletes the switch's row.** `GET /api/agents/{id}` reports `subagents` only for
+  native agents; the profile PUT that makes an agent Claude Code deletes its `run_subagent` row (and its usage), so
+  switching back to native leaves May start subagents off until it is turned on again. `subagents: true` for a Claude
+  Code agent is refused; `subagents` omitted (`None`) keeps the switch of a native agent.
 - **The wizard** gets `subagents: bool = False` and `subagent_blocked: list[str]` (tools a subagent may not use);
   `tools` may not contain `run_subagent`.
 - **Turn usage and tool calls in the workspace** stay the main agent's own (a subagent's model calls are on its line);
