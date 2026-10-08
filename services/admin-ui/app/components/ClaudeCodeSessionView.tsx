@@ -4,6 +4,7 @@ import { ApiError } from '~/lib/api';
 import { closeSession, saveSessionDocument, sendMessage, sessionTypeLabel, stopSession, type SavedDocument } from '~/lib/claudeCode';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
 import { runPath } from '~/lib/runs';
+import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
 import Markdown from './Markdown';
 import RunWorkspace from './RunWorkspace';
@@ -25,6 +26,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const [draftOpen, setDraftOpen] = useState(false);
   const [saved, setSaved] = useState<SavedDocument | null>(null);
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
+  const fill = useFillViewport<HTMLDivElement>();
 
   async function act(action: () => Promise<void>) {
     setBusy(true); run.setError(''); clear();
@@ -52,13 +54,13 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
-  // Header 4rem + main padding 3rem: the page never grows past the screen, so the message box stays visible.
-  return <div className="flex h-[calc(100dvh-7rem)] min-h-[36rem] flex-col">
+  // The page fills the screen below the app header and never grows past it, so the message box stays visible.
+  return <div ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col">
     <RunWorkspace run={run} agentName={session.agent_name} agentType={sessionTypeLabel(session.runtime)}
       resources={session.run_resources ? 'Per run' : 'Fixed'} notice={notice}
       heading={<>
         <Link className="self-start underline" to="/documentation/generations">Generate documents</Link>
-        <h1 className="text-2xl font-semibold">{session.title}</h1>
+        <h1 className="break-words text-2xl font-semibold">{session.title}</h1>
         <p className="text-sm text-muted-foreground">{session.model_name} · {session.folder}/</p>
       </>}
       headerActions={<Button type="button" variant="outline" size="sm" disabled={busy || closed} onClick={() => void close()}>Close session</Button>}

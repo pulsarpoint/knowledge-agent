@@ -122,3 +122,10 @@ test('on narrow screens the sidebar opens as a drawer from the header', () => {
   expect(drawer.getByRole('region', { name: 'Agents in this run' })).toBeVisible();
   expect(drawer.getByText('Draft · turn 3')).toBeVisible();
 });
+
+test('the header row wraps on a phone instead of forcing a horizontal scroll', () => {
+  show({ headerActions: <button type="button">History</button> });
+  const row = screen.getByTestId('run-header');
+  expect(row).toHaveClass('min-w-0', 'flex-wrap');
+  for (const part of row.children) expect(part).toHaveClass('min-w-0', 'flex-wrap');
+});

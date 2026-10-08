@@ -202,3 +202,14 @@ test('a native session waits for the agent session worker, and a comment to a wo
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
 });
+
+test('the session page fills the screen below the app header, so the message box stays visible', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top: 100 } as DOMRect));
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 });
+  try {
+    render(<MemoryRouter><ClaudeCodeSessionView sessionId="s1" /></MemoryRouter>);
+    const box = await screen.findByRole('form', { name: 'Message box' });
+    expect(box.closest<HTMLElement>('[style]')?.style.height).toBe('576px');  // 700 - 100 - 24 (the main padding)
+  } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
+});

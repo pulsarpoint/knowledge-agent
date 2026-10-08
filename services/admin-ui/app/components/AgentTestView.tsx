@@ -6,6 +6,7 @@ import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_K
 import { runPath } from '../lib/runs';
 import { createTestSession, getTestSessions, reviewTestSession, type SessionReview, type TestSessionSummary } from '../lib/testSessions';
 import type { Turn } from '../lib/turns';
+import { useFillViewport } from '../lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '../lib/useSessionEvents';
 import Markdown from './Markdown';
 import RunWorkspace from './RunWorkspace';
@@ -60,6 +61,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const [runResources, setRunResources] = useState<RunResourcesInput>(NO_RUN_RESOURCES);
   const perRun = runOptions?.resources === 'per_run';
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
+  const fill = useFillViewport<HTMLDivElement>();
 
   useEffect(() => {
     let live = true; setRunOptionsError('');  // the old options stay visible while these load
@@ -146,9 +148,9 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const preview = session ? { prompt: message, config: config ?? {}, ...(run.toolCounts ? { tool_counts: run.toolCounts } : {}) }
     : perRun ? { prompt: message, config, run_resources: runResources } : { prompt: message, config };
 
-  // The agent page's header, title and tabs take about 19rem: the tab never grows past the screen, so the message box
+  // The tab fills the screen below the agent page's header, title and tabs and never grows past it, so the message box
   // stays visible; the main pane scrolls on its own.
-  return <div className="flex h-[calc(100dvh-19rem)] min-h-[32rem] min-w-0 flex-col gap-3">
+  return <div ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col gap-3">
     {error && panel !== 'feedback' && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {!sessionId && runOptionsError && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">
       <span>{runOptionsError}</span><Button variant="outline" size="sm" onClick={() => setRunOptionsRetry(count => count + 1)}>Retry</Button>

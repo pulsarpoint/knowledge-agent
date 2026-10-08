@@ -139,16 +139,18 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
     {sidebar}
   </div>;
 
-  return <div className="flex h-full min-h-0 flex-col gap-3">
-    <header className="flex shrink-0 flex-col gap-2">
+  // The main pane shrinks (min-h-0) so the message box stays on screen; nothing in the header forces a horizontal
+  // scroll on a phone (min-w-0, wrapping rows, long words break).
+  return <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
+    <header className="flex min-w-0 shrink-0 flex-col gap-2 break-words">
       {heading}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
+      <div data-testid="run-header" className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{agentName}</span><Badge variant="outline">{agentType}</Badge>
           <span className="text-muted-foreground">Resources: {resources}</span>
           {session && <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge>}
         </div>
-        <div className="flex flex-wrap items-center gap-1">{headerActions}
+        <div className="flex min-w-0 flex-wrap items-center gap-1">{headerActions}
           <Button type="button" variant="ghost" size="sm" className="lg:hidden" onClick={() => setDrawer(true)}><PanelRight data-icon="inline-start" />Run details</Button>
         </div>
       </div>

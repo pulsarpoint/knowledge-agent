@@ -308,3 +308,13 @@ it('a History load failure shows in the History panel', async () => {
   expect(await sheet.findByText('Sessions unavailable')).toBeVisible();
   expect(sheet.queryByText('Loading sessions…')).toBeNull();
 });
+
+it('the Test tab fills the screen below the agent page header, so the message box stays visible', async () => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top: 300 } as DOMRect));
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 });
+  try {
+    renderPage();
+    const tab = screen.getByRole('form', { name: 'Message box' }).closest<HTMLElement>('[style]');
+    expect(tab?.style.height).toBe('576px');  // 900 - 300 - 24 (the main padding)
+  } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
+});
