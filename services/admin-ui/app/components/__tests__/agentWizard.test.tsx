@@ -215,6 +215,28 @@ test('the wizard Tools page follows the capabilities until changed and sends the
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ tools: ['read_file', 'search_documents'] }));
 });
 
+test('Follow the capabilities drops the tool choice: the switches follow the capabilities and no tools are sent', async () => {
+  const { user } = await open();
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  await screen.findByLabelText('Agent name');
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  const checked = () => ['Read file', 'Code search', 'Search documents', 'SSH'].filter(name => screen.getByRole('switch', { name }).getAttribute('aria-checked') === 'true');
+  expect(screen.queryByRole('button', { name: 'Follow the capabilities' })).toBeNull();
+  await user.click(screen.getByRole('switch', { name: 'Code search' }));
+  expect(checked()).toEqual(['Read file', 'Search documents', 'SSH']);
+  expect(screen.getByText(/Your choice of tools\./)).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Follow the capabilities' }));
+  expect(checked()).toEqual(['Read file', 'Code search', 'Search documents', 'SSH']);
+  expect(screen.getByText(/Follows the capability switches until you change a tool\./)).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Follow the capabilities' })).toBeNull();
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  await user.click(screen.getByRole('switch', { name: 'Enable SSH' }));
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  expect(checked()).toEqual(['Read file', 'Code search', 'Search documents']);  // following again
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(vi.mocked(api.createWizardAgent).mock.calls[0][0]).not.toHaveProperty('tools');
+});
+
 test('an untouched Tools page lets the backend apply the capabilities; Claude Code agents have no Tools page', async () => {
   const { user } = await open();
   await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
