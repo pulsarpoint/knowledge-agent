@@ -351,3 +351,33 @@ def mcp_notes(config: Mapping[str, Any], servers: list[dict[str, Any]]) -> list[
             if name.startswith(prefix) and entry['mode'] == 'on' and entry['usage']:
                 notes.append(f"- {server['name']}/{name.removeprefix(prefix)}: {entry['usage']}")
     return notes
+
+
+def catalog_listing() -> list[dict[str, Any]]:
+    return [{'name': spec.name, 'group': spec.group, 'label': spec.label, 'summary': spec.summary,
+             'usage': spec.usage, 'needs': spec.needs} for spec in CATALOG.values()]
+
+
+def capability_defaults(capability: str, config: Mapping[str, Any]) -> list[str]:
+    """The tools a capability switched on gets, by the backfill rule for the new switches. With code projects on,
+    the file tools belong to code, so documents do not bring them."""
+    needs = {'code': ('files', 'code', 'code_graph'), 'ssh': ('ssh',),
+             'documents': ('documents', 'grounded') + (() if _code(config) else ('files',))}[capability]
+    return [spec.name for spec in CATALOG.values() if spec.needs in needs and spec.default_on(config)]
+
+
+def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
+    """All agents: how many tools are on, per group; Claude Code agents: their Claude Code tools."""
+    if config.get('runtime', 'openai') != 'openai':
+        return {'claude_code_tools': list(config.get('claude_code_tools', []))}
+    chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
+    groups = {'code': 0, 'documents': 0, 'servers': 0, 'mcp': 0, 'agents': 0}
+    for spec in CATALOG.values():
+        if chosen.get(spec.name, {}).get('mode') == 'on':
+            groups[spec.group] += 1
+    if config['mcp']['enabled']:
+        for server in config['mcp']['servers']:
+            for found in server.get('tools', []):
+                if chosen.get(f"mcp:{server['id']}:{found['name']}", {}).get('mode', 'on') == 'on':
+                    groups['mcp'] += 1
+    return {'on': sum(groups.values()), 'per_run': 0, 'groups': groups}
