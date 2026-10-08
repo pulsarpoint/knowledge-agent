@@ -155,6 +155,10 @@ class SessionHub:
                 subscription.told_unavailable = False
         self._mark(list(self._watched))
 
+    async def _listener_connection(self) -> psycopg.AsyncConnection:
+        """Open the listener's connection (tests wrap it)."""
+        return await psycopg.AsyncConnection.connect(self.conninfo, autocommit=True, connect_timeout=CONNECT_TIMEOUT)
+
     async def _listen(self) -> None:
         """LISTEN on one connection. A lost connection is reopened after `backoff_start`; a connect that fails is an
         outage, retried with backoff doubling to `backoff_max`. Once listening again every watched session is read.
@@ -162,8 +166,7 @@ class SessionHub:
         delay = self.backoff_start
         while True:
             try:
-                async with await psycopg.AsyncConnection.connect(self.conninfo, autocommit=True,
-                                                                 connect_timeout=CONNECT_TIMEOUT) as conn:
+                async with await self._listener_connection() as conn:
                     await conn.execute(f'LISTEN {CHANNEL}')
                     self.listener_pid, delay = conn.info.backend_pid, self.backoff_start
                     self.listening.set()
@@ -173,7 +176,7 @@ class SessionHub:
                             self._notice(notice.payload)
                         await asyncio.wait_for(conn.execute('SELECT 1'), CONNECT_TIMEOUT)  # a dead connection raises
                         self._mark(list(self._watched))
-            except (psycopg.Error, TimeoutError) as exc:  # only the class name: a message can echo connection details
+            except Exception as exc:  # noqa: BLE001 - the listener must outlive any error; only the class name is logged
                 lost = self.listening.is_set()
                 self.listening.clear()
                 self.listener_pid = None
@@ -189,8 +192,8 @@ class SessionHub:
     async def _read_loop(self) -> None:
         """Drain dirty sessions; a burst of notices (within coalesce_seconds) becomes one read per session. A failed
         read is an outage: every watched session (the rest of the batch with them) stays dirty and is retried with
-        backoff."""
-        delay = self.backoff_start
+        backoff, at once when there is news (a notice, or the listener connected again)."""
+        delay, failing = self.backoff_start, False
         while True:
             await self._wake.wait()
             await asyncio.sleep(self.coalesce_seconds)
@@ -201,13 +204,18 @@ class SessionHub:
             except Exception as exc:  # noqa: BLE001 - the hub must outlive any failed read
                 # only the class name, never the traceback: a psycopg message can echo connection details
                 logger.warning('Session hub cannot read sessions (%s); retrying in %.1f s', type(exc).__name__, delay)
+                failing = True
                 self._outage()
-                await asyncio.sleep(delay)
+                self._wake.clear()
+                try:
+                    await asyncio.wait_for(self._wake.wait(), delay)
+                except TimeoutError:
+                    pass
                 delay = min(delay * 2, self.backoff_max)
                 self._wake.set()
             else:
-                if delay != self.backoff_start:  # it had failed: recovered
-                    delay = self.backoff_start
+                if failing:
+                    failing, delay = False, self.backoff_start
                     self._recovered()
 
     async def _read_all(self, batch: set[UUID]) -> None:

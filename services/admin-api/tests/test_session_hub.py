@@ -251,11 +251,27 @@ def test_a_tool_result_reaches_the_subscriber_without_its_full_output(store):
     asyncio.run(scenario())
 
 
+def gated_reconnects(hub) -> asyncio.Event:
+    """Hold every listener connection after the first until the returned event is set."""
+    connect, gate, opened = hub._listener_connection, asyncio.Event(), [0]
+
+    async def gated():
+        opened[0] += 1
+        if opened[0] > 1:
+            await gate.wait()
+        return await connect()
+    hub._listener_connection = gated
+    return gate
+
+
 def test_the_listener_reconnects_and_reads_every_watched_session_again(store):
     session = a_session(store)
 
     async def scenario():
-        hub = await running(store, backoff_start=0.5, backoff_max=1.0)
+        hub = SessionHub(store.conninfo, backoff_start=0.05, backoff_max=0.1)
+        gate = gated_reconnects(hub)
+        await hub.start()
+        await asyncio.wait_for(hub.listening.wait(), 5)
         try:
             async with hub.subscribe(session, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
@@ -264,10 +280,48 @@ def test_the_listener_reconnects_and_reads_every_watched_session_again(store):
                 await until(lambda: not hub.listening.is_set())
                 # replica mode skips ordinary triggers: no notice, so only the re-read on reconnect can deliver it
                 await db(write, store, ('SET LOCAL session_replication_role = replica', None), event(session, 1))
+                gate.set()  # the reconnect happens only now, after the write committed
                 [(kind, row)] = await take(page, 1)
                 assert kind == 'event' and row['seq'] == 1
                 assert hub.listener_pid not in (None, old)
                 assert await nothing_more(page)  # no 'unavailable': the database was reachable
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_any_error_on_the_listener_connection_is_survived(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = SessionHub(store.conninfo, backoff_start=0.05, backoff_max=0.1)
+        connect, fail, opened = hub._listener_connection, asyncio.Event(), [0]
+
+        async def breaking():  # the first connection's notices end in a raw OSError once `fail` is set
+            conn = await connect()
+            opened[0] += 1
+            if opened[0] == 1:
+                async def notifies(**_options):
+                    await fail.wait()
+                    raise OSError('connection reset')
+                    yield  # an async generator
+                conn.notifies = notifies
+            return conn
+        hub._listener_connection = breaking
+        await hub.start()
+        await asyncio.wait_for(hub.listening.wait(), 5)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                await db(write, store, ('SET LOCAL session_replication_role = replica', None), event(session, 1))
+                fail.set()
+                [(kind, row)] = await take(page, 1)  # reconnected and read again
+                assert kind == 'event' and row['seq'] == 1
+                assert opened[0] == 2 and hub.listening.is_set()
+                await db(write, store, event(session, 2))
+                [(kind, row)] = await take(page, 1)  # and its notices arrive
+                assert kind == 'event' and row['seq'] == 2
+                assert await nothing_more(page)
         finally:
             await hub.stop()
     asyncio.run(scenario())
@@ -379,7 +433,7 @@ def test_a_failed_read_never_ends_the_reader(store):
     asyncio.run(scenario())
 
 
-def test_a_failed_read_leaves_the_rest_of_its_batch_dirty(store):
+def test_a_failed_read_retries_every_session_of_its_batch(store):
     first, second = a_session(store), a_session(store)
 
     async def scenario():
@@ -396,6 +450,25 @@ def test_a_failed_read_leaves_the_rest_of_its_batch_dirty(store):
                     [(kind, row)] = await take(page, 1)
                     assert kind == 'event' and row['seq'] == 1
                     assert await nothing_more(page)
+        finally:
+            await hub.stop()
+    asyncio.run(scenario())
+
+
+def test_a_failing_reader_retries_at_once_when_the_database_is_back(store):
+    session = a_session(store)
+
+    async def scenario():
+        hub = await running(store, backoff_start=10.0, backoff_max=10.0)
+        try:
+            async with hub.subscribe(session, 0) as page:
+                assert summary(await take(page, 1)) == [('session', 'working')]
+                failing_reads(hub, 1, psycopg.OperationalError('server closed the connection'))
+                await db(write, store, event(session, 1))
+                assert summary(await take(page, 1)) == [('unavailable', None)]  # the reader now backs off 10 s
+                hub._recovered()  # what the listener does once it is connected again
+                [(kind, row)] = await take(page, 1, timeout=2)
+                assert kind == 'event' and row['seq'] == 1
         finally:
             await hub.stop()
     asyncio.run(scenario())
