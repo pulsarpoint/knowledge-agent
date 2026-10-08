@@ -127,3 +127,44 @@ test('the agent list empty row spans every column', async () => {
   const cell = await screen.findByText('No agents match your search.');
   expect(cell).toHaveAttribute('colspan', String(screen.getAllByRole('columnheader').length));
 });
+
+test('Delete this clone shows the history deleted with it', async () => {
+  const user = userEvent.setup();
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Apply' }));
+  await user.click(await screen.findByRole('button', { name: 'Delete this clone' }));
+  const dialog = await screen.findByRole('alertdialog');
+  expect(await within(dialog).findByText('2 test chats')).toBeVisible();
+  expect(profiles.getAgentHistory).toHaveBeenCalledWith('clone-1');
+  await user.click(within(dialog).getByRole('button', { name: 'Delete clone' }));
+  await waitFor(() => expect(profiles.deleteAgent).toHaveBeenCalledWith('clone-1', 2, true));
+});
+
+test('a clone without history is deleted without history', async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, chats: 0, claude_code_sessions: 0, runs: 0 });
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Apply' }));
+  await user.click(await screen.findByRole('button', { name: 'Delete this clone' }));
+  const dialog = await screen.findByRole('alertdialog');
+  await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Delete clone' })).toBeEnabled());
+  expect(within(dialog).queryByText(/history that will be deleted/)).toBeNull();
+  await user.click(within(dialog).getByRole('button', { name: 'Delete clone' }));
+  await waitFor(() => expect(profiles.deleteAgent).toHaveBeenCalledWith('clone-1', 2, false));
+});
+
+test('a failed comparison offers Compare again', async () => {
+  const user = userEvent.setup();
+  vi.mocked(clones.getApplyPreview).mockRejectedValueOnce(new ApiError('request failed (500)', 500))
+    .mockResolvedValueOnce(structuredClone(preview));
+  open('/agents/clone-1');
+  await user.click(await screen.findByRole('button', { name: 'Apply to SSH agent' }));
+  const dialog = await screen.findByRole('alertdialog');
+  expect(await within(dialog).findByText('request failed (500)')).toBeVisible();
+  await user.click(within(dialog).getByRole('button', { name: 'Compare again' }));
+  expect(await within(dialog).findByText(/replaced by this clone’s: Prompt, Tools\./)).toBeVisible();
+  expect(within(dialog).queryByText('request failed (500)')).toBeNull();
+  expect(within(dialog).queryByRole('button', { name: 'Compare again' })).toBeNull();
+});

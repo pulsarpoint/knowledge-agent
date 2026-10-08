@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Copy, MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,6 +24,15 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
   const [preview, setPreview] = useState<ApplyPreview | null>(null);
   const [applied, setApplied] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [compareFailed, setCompareFailed] = useState(false);
+  // What would go with the clone: undefined while checking, '' without history (or when it could not be checked).
+  const [history, setHistory] = useState<string>();
+  useEffect(() => {
+    if (!deleting) return;
+    let live = true; setHistory(undefined);
+    getAgentHistory(profile.id).then(value => { if (live) setHistory(describeHistory(value)); }).catch(() => { if (live) setHistory(''); });
+    return () => { live = false; };
+  }, [deleting, profile.id]);
   function refused(reason: unknown, fallback: string) {
     setError(message(reason, fallback));
     if (status(reason) === 404) { setNotClone(true); setApplying(false); }
@@ -35,9 +44,11 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
     finally { setBusy(false); }
   }
   async function compare() {
-    setPreview(null);
-    try { setPreview(await getApplyPreview(profile.id)); } catch (reason) { refused(reason, 'Could not compare the configurations.'); }
+    setPreview(null); setCompareFailed(false);
+    try { setPreview(await getApplyPreview(profile.id)); }
+    catch (reason) { refused(reason, 'Could not compare the configurations.'); setCompareFailed(status(reason) !== 404); }
   }
+  function compareAgain() { setError(''); void compare(); }
   function openApply() { setApplying(true); setError(''); void compare(); }
   async function apply() {
     if (!preview) return;
@@ -53,11 +64,15 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
   async function removeClone() {
     if (!original) return;
     setBusy(true); setError('');
+    const withHistory = Boolean(history);
     try {
-      const history = describeHistory(await getAgentHistory(profile.id));
-      await deleteAgent(profile.id, profile.revision, Boolean(history));
+      await deleteAgent(profile.id, profile.revision, withHistory);
       toast.success(`Clone ${profile.name} deleted`); navigate(`/agents/${encodeURIComponent(original.id)}`);
-    } catch (reason) { setDeleting(false); setError(message(reason, 'Could not delete the clone.')); }
+    } catch (reason) {
+      setError(message(reason, 'Could not delete the clone.'));
+      // History may have appeared since the dialog opened; show it (next to the reason) so it can be deleted too.
+      if (!withHistory) await getAgentHistory(profile.id).then(value => { const found = describeHistory(value); if (found) setHistory(found); }).catch(() => undefined);
+    }
     finally { setBusy(false); }
   }
   return <div className="flex flex-wrap items-center gap-2">
@@ -66,7 +81,7 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
     <DropdownMenu modal={false}><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${profile.name}`} disabled={busy}><MoreHorizontal /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void clone()}><Copy />Clone agent</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
     {applied && original && <p role="status" className="text-sm text-muted-foreground">Applied to {original.name}.</p>}
-    {error && !applying && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {error && !applying && !deleting && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <AlertDialog open={applying} onOpenChange={open => { if (!open && !busy) setApplying(false); }}><AlertDialogContent>
       <AlertDialogHeader><AlertDialogTitle>Apply to {original?.name}?</AlertDialogTitle>
         <AlertDialogDescription>{!preview ? 'Comparing the configurations…' : preview.changes.length
@@ -74,13 +89,16 @@ export default function AgentActions({ profile, onChanged }: { profile: AgentPro
           : 'The original already runs this configuration.'}</AlertDialogDescription></AlertDialogHeader>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+        {compareFailed && <Button variant="outline" disabled={busy} onClick={compareAgain}>Compare again</Button>}
         <AlertDialogAction disabled={busy || !preview?.changes.length} onClick={event => { event.preventDefault(); void apply(); }}>Apply</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
-    <AlertDialog open={deleting} onOpenChange={open => { if (!open && !busy) setDeleting(false); }}><AlertDialogContent>
+    <AlertDialog open={deleting} onOpenChange={open => { if (!open && !busy) { setDeleting(false); setError(''); } }}><AlertDialogContent>
       <AlertDialogHeader><AlertDialogTitle>Delete this clone?</AlertDialogTitle>
-        <AlertDialogDescription>{profile.name} and its test chats are deleted. {original?.name} keeps the applied configuration.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogDescription>{profile.name} is deleted. {original?.name} keeps the applied configuration.</AlertDialogDescription></AlertDialogHeader>
+      {history && <div className="flex flex-col gap-1 text-sm"><p>This clone has history that will be deleted with it:</p><p className="font-medium">{history}</p><p className="text-muted-foreground">Saved documents are kept.</p></div>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <AlertDialogFooter><AlertDialogCancel disabled={busy}>Keep clone</AlertDialogCancel>
-        <AlertDialogAction className={buttonVariants({ variant: 'destructive' })} disabled={busy} onClick={event => { event.preventDefault(); void removeClone(); }}>Delete clone</AlertDialogAction></AlertDialogFooter>
+        <AlertDialogAction className={buttonVariants({ variant: 'destructive' })} disabled={busy || history === undefined} onClick={event => { event.preventDefault(); void removeClone(); }}>Delete clone</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
   </div>;
 }
