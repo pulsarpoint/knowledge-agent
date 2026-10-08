@@ -81,7 +81,9 @@ def instrument(provider):
 
 @contextmanager
 def trace_secrets(values: Iterable[str]):
-    token = _secrets.set(tuple(values))
+    """Redact `values` from traces in this block, together with an enclosing run's (a subagent's traces are redacted
+    with its parent's secrets too)."""
+    token = _secrets.set(tuple(dict.fromkeys((*_secrets.get(), *values))))
     try:
         yield
     finally:

@@ -63,6 +63,8 @@ def summary(name: str, arguments: Any) -> str:
         return f"{value('collection')}/{value('path')}"
     if name == 'code_graph':
         return f"{value('action')} {value('query') or value('node_id')}".strip()
+    if name == 'run_subagent':
+        return value('task')
     return ''
 
 
@@ -92,12 +94,16 @@ class SessionEvents(RunHooks):
     async def _flush(self) -> None:
         await asyncio.to_thread(self.recorder.flush)
 
+    def add(self, kind: str, payload: dict[str, Any]) -> None:
+        """One event of this turn (a subagent's SubagentEvents marks its own with the run_subagent call id)."""
+        self.recorder.add(kind, payload)
+
     async def on_agent_start(self, context, agent) -> None:
         if self.closed or not self.first:
             return
         self.first = False
         text = agent.instructions if isinstance(agent.instructions, str) else '(generated at run time)'
-        self.recorder.add('instructions', {'agent': agent.name, 'text': text})
+        self.add('instructions', {'agent': agent.name, 'text': text})
         await self._flush()
 
     async def on_llm_end(self, context, agent, response) -> None:
@@ -109,16 +115,16 @@ class SessionEvents(RunHooks):
                 parts = [part.text for part in (getattr(item, 'summary', None) or [])]
                 parts += [part.text for part in (getattr(item, 'content', None) or [])]
                 if any(part.strip() for part in parts):
-                    self.recorder.add('reasoning', {'text': '\n'.join(parts)})
+                    self.add('reasoning', {'text': '\n'.join(parts)})
             elif kind == 'message':
                 text = ''.join(getattr(part, 'text', '') for part in item.content)
                 if text.strip():
                     self.texts.append(text)
-                    self.recorder.add('message', {'text': text})
+                    self.add('message', {'text': text})
             elif kind == 'function_call':
                 arguments = _arguments(item.arguments)
-                self.recorder.add('tool_call', {'name': item.name, 'call_id': item.call_id, 'arguments': arguments,
-                                                'summary': summary(item.name, arguments)})
+                self.add('tool_call', {'name': item.name, 'call_id': item.call_id, 'arguments': arguments,
+                                       'summary': summary(item.name, arguments)})
         usage = response.usage
         details = getattr(usage, 'input_tokens_details', None)
         output_details = getattr(usage, 'output_tokens_details', None)
@@ -128,7 +134,7 @@ class SessionEvents(RunHooks):
                 'total_tokens': int(usage.total_tokens or 0), 'cost_usd': 0.0}
         for key, value in call.items():
             self.usage[key] += value
-        self.recorder.add('usage', call)
+        self.add('usage', call)
         if self.record_usage is None:
             await self._flush()
         else:
@@ -144,7 +150,7 @@ class SessionEvents(RunHooks):
         if self.closed:
             return
         output = clean_text(str(result), self.secrets)
-        self.recorder.add('tool_result', {
+        self.add('tool_result', {
             'name': tool.name, 'call_id': getattr(context, 'tool_call_id', None) or '',
             'output': capped(output, MAX_TOOL_OUTPUT),
             'preview': capped('\n'.join(output.splitlines()[:PREVIEW_LINES]), MAX_PREVIEW_CHARS),
@@ -248,10 +254,11 @@ class NativeRunner(shared.SessionRunner):
     history, runs the native runtime as a task (cancelled on Stop, Close or a lost lease, wherever it is), then records
     the outcome with the history commit in one transaction. Credentials are cleared after every turn."""
 
-    def __init__(self, store: RepositoryStore, session: dict, run_agent=agent, *, poll: float = 1.0,
+    def __init__(self, store: RepositoryStore, session: dict, run_agent=agent, *, run_subagent=None, poll: float = 1.0,
                  idle_release: float = IDLE_RELEASE_SECONDS, slot: int = 1):
         super().__init__(store, session, poll=poll, idle_release=idle_release, slot=slot)
         self.run_agent = run_agent
+        self.run_subagent = run_subagent or run_agent  # how subagents run (tests pass a stand-in)
 
     def load(self) -> tuple[dict, dict[str, str], HistorySession]:
         """The pinned config, its credentials (decrypted now, for this turn) and the saved history. load_credentials
@@ -265,8 +272,10 @@ class NativeRunner(shared.SessionRunner):
 
     def add_usage(self, recorder: RunRecorder, usage: dict[str, Any]) -> None:
         """One model call: its events and its tokens on the session, in one transaction, while this worker holds the
-        session (as finish_turn), so the session page's totals rise during the turn."""
-        with self.store.connect() as conn:
+        session (as finish_turn), so the session page's totals rise during the turn. The recorder's lock is held until
+        the commit, so no other flush (a parallel subagent's) commits later events first and a live view following
+        event ids skips none."""
+        with recorder._lock, self.store.connect() as conn:
             recorder.flush_in(conn)
             conn.execute('''UPDATE ka.agent_sessions_cc SET input_tokens=input_tokens+%(input)s,
                 output_tokens=output_tokens+%(output)s, cached_tokens=cached_tokens+%(cached)s,
@@ -292,18 +301,25 @@ class NativeRunner(shared.SessionRunner):
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
+        subagents = None
         status, message, result = 'failed', '', None
         try:
             try:
+                # Imported here: the subagent runtime builds on this module's SessionEvents.
+                from knowledge_admin.knowledge_agents.subagents import Subagents
+                subagents = Subagents(events, secrets=secrets, record_usage=events.record_usage,
+                                      run_agent=self.run_subagent)
                 config, credentials, history = await asyncio.to_thread(self.load)
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
-                status, result = await self.drive(config, text, credentials, history, events, comments)
+                status, result = await self.drive(config, text, credentials, history, events, comments, subagents)
                 message = STOPPED if status == 'stopped' else ''
             except Exception as exc:
                 status, message = 'failed', failure(exc, secrets)
                 recorder.add('error', {'type': type(exc).__name__, 'message': message})
                 logger.warning('Agent session %s turn %s failed (%s)', self.id, number, type(exc).__name__)
+            if subagents is not None:
+                await subagents.close()  # none outlives the turn with credentials or records events after it
             events.closed = True
             credentials.clear()  # a turn that outlived Stop cannot use them for new connections (such as ssh_run)
             if comments is not None:
@@ -335,17 +351,19 @@ class NativeRunner(shared.SessionRunner):
         finally:
             if history is not None:
                 history.drop()
+            if subagents is not None:
+                subagents.forget()
             credentials.clear()
             self.secrets = []  # the worker forgets them; the turn's own list stays with what may still use it
 
     async def drive(self, config: dict, text: str, credentials: dict[str, str], history: HistorySession,
-                    events: SessionEvents, comments: Comments) -> tuple[str, Any]:
+                    events: SessionEvents, comments: Comments, subagents: Any) -> tuple[str, Any]:
         """Run the turn without time or model-call limits: ('waiting', the run result) or ('stopped', None). Stop, Close or
         a lost lease cancels it wherever it is (connecting, in a model request, in a tool call); a runner that is itself
         cancelled (the worker stops) cancels it too."""
         turn = asyncio.create_task(self.run_agent(
             config, text, credentials=credentials, session=history, hooks=events, max_turns=None,
-            turn_timeout_seconds=None, call_model_input_filter=comments, stream=False))
+            turn_timeout_seconds=None, call_model_input_filter=comments, stream=False, subagents=subagents))
         try:
             while not turn.done():
                 await asyncio.wait({turn}, timeout=self.poll)

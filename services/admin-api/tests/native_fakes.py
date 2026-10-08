@@ -2,11 +2,14 @@
 real ones (test_native_session_events checks the fields)."""
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from agents.run_config import CallModelData, ModelInputData
 
 from claude_code_fakes import Recorder as _Recorder
+from knowledge_admin.capabilities.context import TOOL_CALL_ID
+from knowledge_admin.knowledge_agents.subagents import run_subagent
 
 
 class Recorder(_Recorder):
@@ -42,10 +45,12 @@ def response(*items, input_tokens: int = 0, output_tokens: int = 0, cached: int 
 
 class Turn:
     """One scripted native turn while it runs: the model input so far (history, the user item, then each model call's
-    output and tool results), the hooks, and the call_model_input_filter the runner passed."""
+    output and tool results), the hooks, the call_model_input_filter the runner passed, and the run context the tools
+    see."""
 
-    def __init__(self, record: dict, hooks, writer, model_filter, items: list):
+    def __init__(self, record: dict, hooks, writer, model_filter, items: list, context: dict | None = None):
         self.record, self.hooks, self.writer, self.filter, self.items = record, hooks, writer, model_filter, items
+        self.context = context
 
     async def model_call(self) -> None:
         """What the SDK does before each model request: the filter sees (and may change) the input the model gets."""
@@ -70,7 +75,7 @@ class FakeAgent:
         self.running = 0
 
     async def __call__(self, config, task, *, credentials, session, hooks, max_turns, turn_timeout_seconds,
-                       call_model_input_filter, stream):
+                       call_model_input_filter, stream, subagents=None):
         index = len(self.calls)
         record = {'config': config, 'task': task, 'credentials': dict(credentials), 'history': await session.get_items(),
                   'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream, 'inputs': [],
@@ -82,7 +87,11 @@ class FakeAgent:
             user = {'role': 'user', 'content': task}
             await session.add_items([user])
             writer = SimpleNamespace(name=config['name'], instructions='Native prompt for ' + config['name'])
-            turn = Turn(record, hooks, writer, call_model_input_filter, [*record['history'], user])
+            # The run context the tools see, as agent() builds it: `offered` names the run's catalog tools.
+            context = {'config': config, 'credentials': credentials, 'workspace': Path('/work/agent-workspaces/turn'),
+                       'shell_enabled': False, 'tools': frozenset(script.get('offered', ())), 'mcp_tools': {},
+                       'subagents': subagents}
+            turn = Turn(record, hooks, writer, call_model_input_filter, [*record['history'], user], context)
             await hooks.on_agent_start(None, writer)
             for step in script.get('steps', []):
                 await step(turn)
@@ -155,4 +164,57 @@ def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event)
                 await release.wait()
             except asyncio.CancelledError:
                 ignored.append('cancel')
+    return step
+
+
+class FakeSubagent:
+    """Stands in for knowledge_admin.agents.agent when Subagents runs a subagent: the script named by the task plays
+    with the subagent's hooks and model filter like a FakeAgent turn, without a session, then raises the script's error
+    or returns its answer."""
+
+    def __init__(self, turns: dict[str, dict]):
+        self.turns = turns
+        self.calls: list[dict] = []
+
+    async def __call__(self, config, task, *, credentials, workspace, hooks, max_turns, turn_timeout_seconds,
+                       call_model_input_filter, stream):
+        record = {'config': config, 'task': task, 'credentials': dict(credentials), 'workspace': workspace,
+                  'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream,
+                  'filter': call_model_input_filter, 'inputs': [], 'tools': []}
+        self.calls.append(record)
+        script = self.turns[task]
+        writer = SimpleNamespace(name=config['name'], instructions=config['system_prompt']['content'])
+        turn = Turn(record, hooks, writer, call_model_input_filter, [{'role': 'user', 'content': task}])
+        await hooks.on_agent_start(None, writer)
+        for step in script.get('steps', []):
+            await step(turn)
+        if 'error' in script:
+            raise script['error']
+        return SimpleNamespace(final_output=script['answer'])
+
+
+def delegate(call_id: str, task: str, tools: list[str], resources: dict | None = None, results: list | None = None):
+    """The parent's run_subagent call as the SDK runs it: on_tool_start, the catalog tool with this call id (a refusal
+    becomes the SDK's error text), on_tool_end with its result. `results` collects the results."""
+    async def step(turn: Turn):
+        context, function = SimpleNamespace(tool_call_id=call_id), SimpleNamespace(name='run_subagent')
+        await turn.hooks.on_tool_start(context, turn.writer, function)
+        token = TOOL_CALL_ID.set(call_id)
+        try:
+            output = await run_subagent(turn.context, task, tools, resources)
+        except Exception as exc:
+            output = f'An error occurred while running the tool. Please try again. Error: {exc}'
+        finally:
+            TOOL_CALL_ID.reset(token)
+        if results is not None:
+            results.append(output)
+        await turn.hooks.on_tool_end(context, turn.writer, function, output)
+        turn.items.append({'type': 'function_call_output', 'call_id': call_id, 'output': output})
+    return step
+
+
+def together(*steps):
+    """Steps the SDK runs at once, such as the function calls of one model response."""
+    async def step(turn: Turn):
+        await asyncio.gather(*(each(turn) for each in steps))
     return step

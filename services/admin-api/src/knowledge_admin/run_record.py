@@ -69,7 +69,8 @@ class RunRecorder(RunHooks):
         self.events: list[dict[str, Any]] = []
         self.flushed = 0
         self.closed = False  # close(): nothing more is added
-        self._lock = threading.Lock()  # one flush at a time
+        # One flush at a time; reentrant, so a caller can hold it for a whole transaction that flushes (add_usage).
+        self._lock = threading.RLock()
 
     def _clean(self, value: Any) -> Any:
         if isinstance(value, str):

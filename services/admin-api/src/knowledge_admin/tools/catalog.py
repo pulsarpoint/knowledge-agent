@@ -374,6 +374,14 @@ def mcp_blocked(config: Mapping[str, Any], server_id: str) -> list[str]:
                   if name.startswith(prefix) and entry['mode'] != 'on')
 
 
+def mcp_allowed(config: Mapping[str, Any], server_id: str) -> list[str]:
+    """The tool names of one MCP server switched on in the configuration: a subagent's allowlist (subagents.py), so a
+    tool without a row stays off."""
+    prefix = f'mcp:{server_id}:'
+    return sorted(name.removeprefix(prefix) for name, entry in _mcp_rows(config).items()
+                  if name.startswith(prefix) and entry['mode'] == 'on')
+
+
 def mcp_notes(config: Mapping[str, Any], servers: list[dict[str, Any]]) -> list[str]:
     """Edited usage of MCP tools that are on, as prompt lines: the description itself comes from the server."""
     rows = _mcp_rows(config)

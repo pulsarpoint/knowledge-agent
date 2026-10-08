@@ -9,6 +9,7 @@ from agents.strict_schema import ensure_strict_json_schema
 from agents.tool_context import ToolContext
 
 from knowledge_admin.agent_activity import redact
+from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.tools.catalog import ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
     credentials redacted, as decorated function tools did, and go back to the model in the SDK's default error text,
     also redacted; cancellation propagates."""
     async def invoke(ctx: ToolContext[Any], raw: str) -> str:
+        token = TOOL_CALL_ID.set(ctx.tool_call_id)  # run_subagent records its subagent under this call
         try:
             if spec.name not in ctx.context.get('tools', ()):
                 raise ValueError(NOT_OFFERED.format(name=spec.name))
@@ -36,6 +38,8 @@ def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
                                          data={'tool_name': spec.name, 'error': error}))
             logger.error('Tool %s failed: %s', spec.name, error)
             return f'An error occurred while running the tool. Please try again. Error: {error}'
+        finally:
+            TOOL_CALL_ID.reset(token)
 
     return FunctionTool(name=spec.name, description=usage,
                         params_json_schema=ensure_strict_json_schema(spec.arguments.model_json_schema()),

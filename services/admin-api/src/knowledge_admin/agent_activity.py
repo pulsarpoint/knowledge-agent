@@ -37,9 +37,9 @@ def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
 
 
 def tool_failed(detail: str) -> bool:
-    """A tool result reported as failed: the SDK's error text, or JSON with error, isError, timed_out or a non-zero
-    exit_code."""
-    failed = detail.startswith('An error occurred while running the tool')
+    """A tool result reported as failed: the SDK's error text, a failed subagent (run_subagent), or JSON with error,
+    isError, timed_out or a non-zero exit_code."""
+    failed = detail.startswith(('An error occurred while running the tool', 'Subagent failed: '))
     try:
         output = json.loads(detail)
     except (ValueError, TypeError):

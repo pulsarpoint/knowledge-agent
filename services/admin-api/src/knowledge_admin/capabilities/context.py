@@ -1,5 +1,6 @@
 """The run context every capability receives, and the per-run rule for kinds a run was given nothing of."""
 from collections.abc import Mapping
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
@@ -17,6 +18,12 @@ class RunContext(TypedDict):
     shell_enabled: bool
     tools: frozenset[str]  # the catalog tools offered to this run
     mcp_tools: NotRequired[dict[str, str]]  # the MCP tools as the model sees them → mcp:<server id>:<tool name>
+    subagents: NotRequired[Any]  # the turn's knowledge_agents.subagents.Subagents (native sessions only)
+
+
+# The id of the tool call running in this task: tools/sdk.py sets it around each invocation, run_subagent records its
+# subagent under it. Concurrent calls run in their own tasks, so each sees its own id.
+TOOL_CALL_ID: ContextVar[str | None] = ContextVar('tool_call_id', default=None)
 
 
 NOTHING_GIVEN = {

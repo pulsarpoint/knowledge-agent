@@ -3,16 +3,30 @@ the tools and resources it is given and without the conversation. Subagents run 
 and Generate documents), whose runner puts the turn's Subagents into the run context.
 
 The checks and the subagent's configuration are pure: a deep copy of the parent's effective configuration with only
-the given tools on and the resource lists narrowed, the built-in prompt, no instructions and no skills."""
+the given tools on and the resource lists narrowed, the built-in prompt, no instructions and no skills.
+
+Running (Subagents): one per native turn, in parallel up to AGENT_MAX_SUBAGENTS, each recorded in the turn's record
+with parent_call_id and counted in the session's totals; Stop cancels them with the turn."""
+import asyncio
 import copy
-from collections.abc import Collection, Mapping
+import logging
+import os
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 
+from agents.run_config import CallModelData, ModelInputData
+
+from knowledge_admin.capabilities.context import TOOL_CALL_ID
+from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.config import credential_references
+from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
 from knowledge_admin.knowledge_agents.run_resources import KINDS
+from knowledge_admin.knowledge_agents.session_worker import clean_text
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item, tools_of
 from knowledge_admin.tools.sdk import NOT_OFFERED
+
+logger = logging.getLogger(__name__)
 
 MAX_TASK = 20_000
 MAX_PER_TURN = 16
@@ -101,15 +115,23 @@ def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
 def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_tools: Mapping[str, str]) -> None:
     """Only the given tools on: catalog tools by name; MCP servers kept only for given MCP tools, every other tool of
     those servers off (from the snapshot's tool lists, the run's live names and the parent's own mcp:<server>:* rows,
-    so a tool switched off for the parent stays off for the subagent)."""
+    so a tool switched off for the parent stays off for the subagent). The kept servers offer only the tools switched
+    on (an allowlist: a tool a server adds later stays out). Without ssh_run, only the SSH servers that host a kept MCP
+    server stay (agent() requires their keys), so a subagent gets no other SSH private key."""
     rows = {entry['tool']: entry for entry in tools_of(sub)['items']}
     items = [item(name, 'on' if name in catalog else 'off', rows.get(name, {}).get('usage')) for name in CATALOG]
 
     def keep(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [server for server in servers if str(server['id']) in mcp]
-    sub['mcp'] = {**sub['mcp'], 'enabled': bool(mcp) and sub['mcp']['enabled'], 'servers': keep(sub['mcp']['servers'])}
+    sub['mcp'] = {**sub['mcp'], 'enabled': bool(mcp) and sub['mcp']['enabled'], 'servers': keep(sub['mcp']['servers']),
+                  'allowlist': True}
     for server in sub['ssh']['servers']:
         server['mcp_servers'] = keep(server.get('mcp_servers', []))
+    if 'ssh_run' not in catalog:
+        hosts = [server for server in sub['ssh']['servers'] if server['mcp_servers'] and sub['mcp']['enabled']]
+        sub['ssh'] = {**sub['ssh'], 'servers': hosts}
+        if 'run_resources' in sub:
+            sub['run_resources'] = {**sub['run_resources'], 'server_ids': [str(server['id']) for server in hosts]}
     kept = [*sub['mcp']['servers'], *(found for server in sub['ssh']['servers'] for found in server['mcp_servers'])]
     for server_id, given in sorted(mcp.items()):
         listed = {tool['name'] for server in kept if str(server['id']) == server_id for tool in server.get('tools', [])}
@@ -149,4 +171,119 @@ async def run_subagent(context: Any, task: str, tools: list[str], resources: dic
     host = context.get('subagents')
     if host is None:
         raise ValueError(UNAVAILABLE)
-    return await host.run(context, task, tools, resources)
+    return await host.run(context, task, tools, resources, TOOL_CALL_ID.get() or '')
+
+
+class SubagentEvents(SessionEvents):
+    """A subagent's SDK lifecycle as events of its parent's turn record: the kinds SessionEvents writes, each with
+    parent_call_id (the run_subagent call). It is closed exactly while the parent's events are (Stop, Close, a lost
+    lease, the end of the turn), so a subagent that outlives its turn starts no tool call and records nothing more."""
+
+    def __init__(self, parent: SessionEvents, parent_call_id: str, *, secrets: list[str],
+                 record_usage: Callable[[dict[str, Any]], None] | None):
+        super().__init__(parent.recorder, secrets=secrets, first=True, record_usage=record_usage)
+        self.parent, self.parent_call_id = parent, parent_call_id
+
+    @property
+    def closed(self) -> bool:
+        return self.parent.closed
+
+    @closed.setter
+    def closed(self, value: bool) -> None:
+        pass  # follows the parent's events
+
+    def add(self, kind: str, payload: dict[str, Any]) -> None:
+        self.recorder.add(kind, {**payload, 'parent_call_id': self.parent_call_id})
+
+
+class Subagents:
+    """The subagents of one native session turn (NativeRunner.run_turn makes one; agent() puts it in the run context).
+    At most MAX_PER_TURN are started; `limit` run at once (AGENT_MAX_SUBAGENTS, default 4, at least 1) and later calls
+    wait for a slot. Each runs through `run_agent` (knowledge_admin.agents.agent) as its own task, with the parent's
+    scratch workspace, no history, no turn or time limit, SubagentEvents hooks and `model_filter`, and only the parent
+    turn's credentials its configuration references. Cancelling the turn (Stop) cancels the tool call and with it the
+    subagent's run; close() (the end of the turn) cancels any still running and empties their credentials."""
+
+    def __init__(self, parent: SessionEvents, *, secrets: list[str],
+                 record_usage: Callable[[dict[str, Any]], None] | None, run_agent: Callable[..., Awaitable[Any]],
+                 limit: int | None = None):
+        self.parent, self.secrets, self.record_usage, self.run_agent = parent, secrets, record_usage, run_agent
+        self.limit = limit or max(1, int(os.environ.get('AGENT_MAX_SUBAGENTS', '4')))
+        self.slots = asyncio.Semaphore(self.limit)
+        self.started = 0
+        self.closed = False
+        self.running: set[asyncio.Task] = set()
+        self.issued: list[dict[str, str]] = []  # the credential maps handed to subagents, emptied by close()
+
+    async def model_filter(self, data: CallModelData) -> ModelInputData:
+        """Like the parent's comments filter for a closed turn: no new model request once the turn has ended (one
+        already sent cannot be recalled). No comments are delivered to subagents."""
+        if self.closed or self.parent.closed:
+            raise asyncio.CancelledError
+        return data.model_data
+
+    async def run(self, context: Mapping[str, Any], task: str, tools: list[str],
+                  resources: Mapping[str, list[str]] | None, call_id: str) -> str:
+        """One run_subagent call: the subagent's final answer (redacted), FAILED with the redacted reason when it fails,
+        or a ValueError for a refused call (refused calls do not count towards MAX_PER_TURN)."""
+        check_task(task)
+        sub = subagent_config(context['config'], tools, resources, offered=context['tools'],
+                              mcp_tools=context.get('mcp_tools', {}))
+        if self.closed or self.parent.closed:
+            raise asyncio.CancelledError
+        if self.started >= MAX_PER_TURN:
+            raise ValueError(LIMIT)
+        self.started += 1  # no await since the check: calls arriving together cannot pass it twice
+        credentials = referenced_credentials(sub, context['credentials'])
+        self.issued.append(credentials)
+        try:
+            events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage)
+            events.add('input', {'task': task, 'subagent': {'task': task}})
+            # The slot first, then the flush: calls take slots in the order they were made (a waiting call's input
+            # event is written by the next flush of the turn).
+            async with self.slots:
+                if self.closed:
+                    raise asyncio.CancelledError
+                await asyncio.to_thread(self.parent.recorder.flush)
+                running = asyncio.create_task(self.run_agent(
+                    sub, task, credentials=credentials, workspace=context['workspace'], hooks=events, max_turns=None,
+                    turn_timeout_seconds=None, call_model_input_filter=self.model_filter, stream=False))
+                self.running.add(running)
+                running.add_done_callback(self.running.discard)
+                try:
+                    result = await running  # cancelling this call (Stop) cancels the subagent's task too
+                except asyncio.CancelledError:
+                    running.cancel()
+                    raise
+                except Exception as exc:
+                    message = failure(exc, self.secrets)
+                    events.add('error', {'type': type(exc).__name__, 'message': message})
+                    await asyncio.to_thread(self.parent.recorder.flush)
+                    return FAILED.format(message=message)
+            return clean_text(events.draft(result.final_output), self.secrets)
+        finally:
+            credentials.clear()
+
+    async def close(self) -> None:
+        """The turn ends (Stop, Close, a lost lease or its answer): no more subagents start, running ones are cancelled
+        and waited for at most STOP_GRACE_SECONDS (one still running then is left to end by itself, recording
+        nothing), and every credential map handed to a subagent is emptied."""
+        self.closed = True
+        running = set(self.running)
+        for task in running:
+            task.cancel()
+        if running:
+            await asyncio.wait(running, timeout=native_sessions.STOP_GRACE_SECONDS)
+            if any(not task.done() for task in running):
+                logger.warning('A subagent did not end within %ss of the end of its turn; it is left to end',
+                               native_sessions.STOP_GRACE_SECONDS)
+        self.forget()
+
+    def forget(self) -> None:
+        """At once, without waiting: no more subagents start, running ones are cancelled and every credential map
+        handed to a subagent is emptied (also run when the turn itself is cancelled)."""
+        self.closed = True
+        for task in list(self.running):
+            task.cancel()
+        for credentials in self.issued:
+            credentials.clear()

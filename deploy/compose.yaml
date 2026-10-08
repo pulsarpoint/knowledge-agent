@@ -235,6 +235,7 @@ services:
       AGENT_SHELL_URL: http://shell-worker:8796
       AGENT_WORKSPACE_ROOT: /work/agent-workspaces
       AGENT_SESSION_MAX_SESSIONS: ${AGENT_SESSION_MAX_SESSIONS:-4}
+      AGENT_MAX_SUBAGENTS: ${AGENT_MAX_SUBAGENTS:-4}
       DOCS_WIKI_RAG_URL: http://rag:8790
       RAG_BACKOFFICE_KEY: ${RAG_BACKOFFICE_KEY:?Run make setup}
       DOCS_WIKI_PHOENIX_ENDPOINT: http://phoenix:6006/v1/traces

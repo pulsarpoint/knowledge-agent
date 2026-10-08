@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Collection, Mapping
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -24,7 +24,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
-from knowledge_admin.tools.catalog import effective_tools, mcp_blocked, mcp_notes
+from knowledge_admin.tools.catalog import effective_tools, mcp_allowed, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import function_tool
 from knowledge_admin.knowledge_agents.config import credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
@@ -36,7 +36,8 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                 history: list[dict[str, Any]] | None = None, max_turns: int | None = 20,
                 max_output_tokens: int | None = None, stream: bool = True,
                 session: Session | None = None, hooks: RunHooks | None = None,
-                call_model_input_filter: CallModelInputFilter | None = None) -> RunResult | RunResultStreaming:
+                call_model_input_filter: CallModelInputFilter | None = None, workspace: Path | None = None,
+                subagents: Any = None) -> RunResult | RunResultStreaming:
     """Run a saved configuration without reading the database; return the native SDK result.
 
     The caller resolves credentials and owns session locking and expiry. Only
@@ -52,6 +53,9 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
     passes no history and does not stream, so every item has been added when the run returns. hooks receive the SDK
     lifecycle too (a session's run events). call_model_input_filter (RunConfig) may change each model call's input,
     such as a session's comments delivered while the turn runs.
+
+    workspace: a scratch workspace to share (a subagent uses its parent's); None: a new one for this run, removed
+    afterwards. subagents: the session turn's Subagents, which run_subagent finds in the run context.
     """
     if not task.strip() or timeout_seconds <= 0 or (turn_timeout_seconds is not None and turn_timeout_seconds <= 0) or (max_turns is not None and max_turns < 1) or (max_output_tokens is not None and max_output_tokens < 1):
         raise ValueError('Provide a task and positive execution limits.')
@@ -59,12 +63,15 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
         raise ValueError('Run a session turn without history and without streaming.')
 
     task_input = task if session is not None else [*(history or []), {'role': 'user', 'content': task}]
-    with TemporaryDirectory(prefix='knowledge-agent-work-', dir=os.environ.get('AGENT_WORKSPACE_ROOT')) as directory:
+    shared = workspace is not None
+    scratch = nullcontext(str(workspace)) if shared else TemporaryDirectory(
+        prefix='knowledge-agent-work-', dir=os.environ.get('AGENT_WORKSPACE_ROOT'))
+    with scratch as directory:
         workspace = Path(directory).resolve()
-        if os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
+        if not shared and os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
             os.chown(workspace, 1000, 1000)  # The unprivileged shell-worker user owns its scratch files.
         context = {'config': config, 'credentials': credentials, 'workspace': workspace,
-                   'shell_enabled': False, 'tools': frozenset(), 'mcp_tools': {}}
+                   'shell_enabled': False, 'tools': frozenset(), 'mcp_tools': {}, 'subagents': subagents}
         # A snapshot: redaction keeps working when the caller clears `credentials` (a session turn after Stop).
         secrets = tuple(value for value in credentials.values() if value)
         activity = SdkActivity(secrets, on_activity, on_usage)
@@ -153,11 +160,14 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
         sdk_model, model_settings = await connections.enter_async_context(agent_model(model, model_api_key, timeout_seconds))
         mcp_servers = []
         for server in selected_mcp:
-            blocked = mcp_blocked(config, server['id'])
+            if config['mcp'].get('allowlist'):  # a subagent: only its given tools, never one the server adds later
+                tool_filter = create_static_tool_filter(allowed_tool_names=mcp_allowed(config, server['id']))
+            else:
+                blocked = mcp_blocked(config, server['id'])
+                tool_filter = create_static_tool_filter(blocked_tool_names=blocked) if blocked else None
             mcp_servers.append(await connections.enter_async_context(MCPServerStreamableHttp(
                 name=server['id'], params={'url': server['url'], 'headers': mcp.auth_headers(server, credentials)},
-                cache_tools_list=True, client_session_timeout_seconds=timeout_seconds,
-                tool_filter=create_static_tool_filter(blocked_tool_names=blocked) if blocked else None)))
+                cache_tools_list=True, client_session_timeout_seconds=timeout_seconds, tool_filter=tool_filter)))
         yield Agent(name=config['name'], instructions=prompt, model=sdk_model,
             model_settings=model_settings, tools=tools, mcp_servers=mcp_servers,
             mcp_config={'include_server_in_tool_names': True},
