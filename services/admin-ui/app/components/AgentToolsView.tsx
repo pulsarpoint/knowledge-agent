@@ -2,17 +2,18 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '../lib/api';
 import { toast } from 'sonner';
-import { CLAUDE_CODE_TOOLS_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
+import { CLAUDE_CODE_TOOLS_NOTE, SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
+import { Checkbox } from '~/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';
 import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from '~/components/ui/field';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Switch } from '~/components/ui/switch';
 import { Textarea } from '~/components/ui/textarea';
 
-function ToolRow({ tool, editing, disabled, onEdit, onChange }: { tool: AgentTool; editing: boolean; disabled: boolean; onEdit: () => void; onChange: (patch: Partial<AgentTool>) => void }) {
+function ToolRow({ tool, editing, disabled, locked, onEdit, onChange }: { tool: AgentTool; editing: boolean; disabled: boolean; locked?: boolean; onEdit: () => void; onChange: (patch: Partial<AgentTool>) => void }) {
   const id = useId();
   const [text, setText] = useState(tool.usage ?? tool.default_usage);
   useEffect(() => { if (editing) setText(tool.usage ?? tool.default_usage); }, [editing]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -20,12 +21,13 @@ function ToolRow({ tool, editing, disabled, onEdit, onChange }: { tool: AgentToo
   function type(value: string) { setText(value); onChange({ usage: !value.trim() || value === tool.default_usage ? null : value }); }
   return <div data-tool={tool.tool} className={`flex flex-col gap-3 p-3 ${tool.available ? '' : 'opacity-60'}`}>
     <div className="flex items-start gap-3">
-      <Switch id={id} aria-label={tool.label} disabled={disabled} checked={tool.mode === 'on'} onCheckedChange={on => onChange({ mode: on ? 'on' : 'off' })} />
+      <Switch id={id} aria-label={tool.label} disabled={disabled || locked} checked={tool.mode === 'on'} onCheckedChange={on => onChange({ mode: on ? 'on' : 'off' })} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2"><label htmlFor={id} className="text-sm font-medium">{tool.label}</label>
           {tool.group !== 'mcp' && <code className="text-xs text-muted-foreground">{tool.tool}</code>}
           {tool.usage !== null && <Badge variant="outline">Edited</Badge>}</div>
         {tool.summary && <p className="text-sm text-muted-foreground">{tool.summary}</p>}
+        {locked && <p className="text-sm text-muted-foreground">Switched with May start subagents on the General tab.</p>}
         {!tool.available && tool.reason && <p className="text-sm text-muted-foreground">{tool.reason}{tool.tab && <> · <Link className="underline underline-offset-4" to={`?view=${tool.tab}`}>Open {TAB_LABELS[tool.tab] ?? tool.tab}</Link></>}</p>}
       </div>
       <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={onEdit} aria-expanded={editing} aria-controls={`${id}-panel`}
@@ -41,11 +43,23 @@ function ToolRow({ tool, editing, disabled, onEdit, onChange }: { tool: AgentToo
   </div>;
 }
 
+/** "A subagent may use": the agent's tools that are on (catalog and MCP), checked when run_subagent may give them. */
+function SubagentTools({ tools, disabled, onChange }: { tools: AgentTool[]; disabled: boolean; onChange: (tool: string, allowed: boolean) => void }) {
+  const id = useId();
+  const offered = tools.filter(item => item.tool !== SUBAGENT_TOOL && item.mode === 'on');
+  return <FieldSet className="px-3 pb-3"><FieldLegend variant="label">A subagent may use</FieldLegend>
+    {offered.length ? offered.map(item => <Field key={item.tool} orientation="horizontal">
+      <Checkbox id={`${id}-${item.tool}`} disabled={disabled} checked={item.subagent_allowed} onCheckedChange={checked => onChange(item.tool, checked === true)} />
+      <FieldLabel htmlFor={`${id}-${item.tool}`}>{item.label}</FieldLabel></Field>)
+      : <FieldDescription>No tools are on.</FieldDescription>}
+  </FieldSet>;
+}
+
 /** Fresh rows from the server with the choices (mode, usage) the user touched in the draft put back on top; untouched
  * rows take the server's, so defaults a General save switched on are not undone by a stale 'off'. */
 export function keepChoices(fresh: AgentTool[], draft: AgentTool[], touched: ReadonlySet<string>): AgentTool[] {
   const mine = new Map(draft.filter(item => touched.has(item.tool)).map(item => [item.tool, item]));
-  return fresh.map(item => { const own = mine.get(item.tool); return own ? { ...item, mode: own.mode, usage: own.usage } : item; });
+  return fresh.map(item => { const own = mine.get(item.tool); return own ? { ...item, mode: own.mode, usage: own.usage, subagent_allowed: own.subagent_allowed } : item; });
 }
 
 /** `revision` is the agent's revision as the page knows it: a newer one (a General save) refreshes the tools and
@@ -110,9 +124,14 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
         <Button variant="outline" size="sm" disabled={busy} onClick={() => void load(true)}>Reload tools</Button></>}</AlertDescription></Alert>}
       {TOOL_GROUPS.map(([group, label]) => {
         const items = draft.filter(item => item.group === group);
+        const row = (item: AgentTool) => <ToolRow key={item.tool} tool={item} disabled={busy} locked={item.tool === SUBAGENT_TOOL} editing={editing === item.tool}
+          onEdit={() => setEditing(current => current === item.tool ? null : item.tool)} onChange={patch => change(item.tool, patch)} />;
+        if (group === 'agents') return <FieldSet key={group}><FieldLegend>{label}</FieldLegend>{items.length
+          ? <div className="flex flex-col divide-y rounded-md border">{items.map(item => <div key={item.tool}>{row(item)}
+              {item.tool === SUBAGENT_TOOL && <SubagentTools tools={draft} disabled={busy} onChange={(name, allowed) => change(name, { subagent_allowed: allowed })} />}</div>)}</div>
+          : <FieldDescription>{SUBAGENTS_OFF_NOTE}</FieldDescription>}</FieldSet>;
         return items.length ? <FieldSet key={group}><FieldLegend>{label}</FieldLegend><div className="flex flex-col divide-y rounded-md border">
-          {items.map(item => <ToolRow key={item.tool} tool={item} disabled={busy} editing={editing === item.tool}
-            onEdit={() => setEditing(current => current === item.tool ? null : item.tool)} onChange={patch => change(item.tool, patch)} />)}
+          {items.map(row)}
         </div></FieldSet> : null;
       })}
     </CardContent>

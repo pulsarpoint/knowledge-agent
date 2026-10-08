@@ -30,7 +30,9 @@ export interface WizardOptions {
     services: WizardResource[]; existing_agents: { name: string; description: string; when_to_use: string }[];
   };
 }
-export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[]; tools?: string[] };
+export type NewAgent = AgentProposal & { runtime: AgentRuntime; resources: AgentResources; claude_code_tools: ClaudeCodeTool[]; tools?: string[];
+  /** May start subagents, and the tools a subagent may not be given (native agents). */
+  subagents?: boolean; subagent_blocked?: string[] };
 export const getWizardOptions = () => request<WizardOptions>('/api/agents/wizard/options');
 /** The designer proposes the agent's model only among models that fit the chosen agent type. */
 export const generateAgent = (role: string, model_id: string, runtime: AgentRuntime) => request<{ proposal: AgentProposal }>('/api/agents/wizard/generate', {

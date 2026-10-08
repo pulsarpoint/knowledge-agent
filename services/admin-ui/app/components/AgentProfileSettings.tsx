@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
 import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources, type AgentRuntime } from '../lib/profiles';
+import { SUBAGENTS_HELP } from '../lib/tools';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -57,6 +58,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
           <SelectTrigger id="agent-resources"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
         <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>
+      {draft.runtime !== 'claude_code' && <Field orientation="horizontal"><Switch id="agent-subagents" disabled={busy} checked={Boolean(draft.subagents)} onCheckedChange={subagents => change({ subagents })} /><div><FieldLabel htmlFor="agent-subagents">May start subagents</FieldLabel><FieldDescription>{SUBAGENTS_HELP}</FieldDescription></div></Field>}
       <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>
       </FieldGroup></div>
       {view === 'general' && draft.runtime === 'claude_code' && <FieldSet className="rounded-lg border p-4"><FieldLegend>Claude Code tools</FieldLegend>

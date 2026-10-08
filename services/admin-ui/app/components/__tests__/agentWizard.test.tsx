@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import AgentWizard from '../AgentWizard';
@@ -19,6 +19,7 @@ const catalogTools = [
   { name: 'code_search', group: 'code', label: 'Code search', summary: 'Find functions.', usage: '', needs: 'code' },
   { name: 'search_documents', group: 'documents', label: 'Search documents', summary: 'Search.', usage: '', needs: 'documents' },
   { name: 'ssh_run', group: 'servers', label: 'SSH', summary: 'Run a command.', usage: '', needs: 'ssh' },
+  { name: 'run_subagent', group: 'agents', label: 'Start subagents', summary: 'Hand work to a helper.', usage: '', needs: null },
 ] as const;
 const options: api.WizardOptions = {
   tools: [...catalogTools],
@@ -249,4 +250,23 @@ test('an untouched Tools page lets the backend apply the capabilities; Claude Co
   await user.click(screen.getByRole('option', { name: 'Claude Code' }));
   await user.click(screen.getByRole('button', { name: 'Back to proposal' }));
   expect(screen.queryByRole('tab', { name: 'Tools' })).toBeNull();
+});
+
+test('the wizard Tools page switches May start subagents and chooses what a subagent may use', async () => {
+  const { user } = await open();
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
+  await screen.findByLabelText('Agent name');
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  expect(screen.queryByRole('switch', { name: 'Start subagents' })).toBeNull();  // not a tool to switch: May start subagents is
+  const subagents = screen.getByRole('switch', { name: 'May start subagents' });
+  expect(subagents).not.toBeChecked();
+  expect(screen.queryByRole('group', { name: 'A subagent may use' })).toBeNull();
+  await user.click(subagents);
+  const may = screen.getByRole('group', { name: 'A subagent may use' });
+  for (const name of ['Read file', 'Code search', 'Search documents', 'SSH']) expect(within(may).getByRole('checkbox', { name })).toBeChecked();
+  await user.click(within(may).getByRole('checkbox', { name: 'SSH' }));
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  const created = vi.mocked(api.createWizardAgent).mock.calls[0][0];
+  expect(created).toMatchObject({ subagents: true, subagent_blocked: ['ssh_run'] });
+  expect(created).not.toHaveProperty('tools');  // the tools still follow the capabilities
 });

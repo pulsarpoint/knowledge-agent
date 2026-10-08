@@ -161,3 +161,18 @@ test('All agents shows each agent\'s tools', async () => {
   expect(within(screen.getByText('Analyst').closest('tr')!).getByText('3 tools · Code 1 · Servers 1 · MCP 1')).toBeVisible();
   expect(within(screen.getByText('Technical writer').closest('tr')!).getByText('Read, Grep, Glob, Bash')).toBeVisible();
 });
+
+test('General switches May start subagents, for native agents only', async () => {
+  const user = userEvent.setup();
+  const view = open('/agents/search');
+  const subagents = await screen.findByRole('switch', { name: 'May start subagents' });
+  expect(subagents).not.toBeChecked();
+  expect(screen.getByText('The agent can hand separate parts of its work to helpers that run in parallel.')).toBeVisible();
+  await user.click(subagents);
+  await user.click(screen.getByRole('button', { name: 'Save details' }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'search', subagents: true })));
+  view.unmount();
+  open('/agents/writer');
+  await screen.findByRole('combobox', { name: 'Agent type' });
+  expect(screen.queryByRole('switch', { name: 'May start subagents' })).toBeNull();
+});

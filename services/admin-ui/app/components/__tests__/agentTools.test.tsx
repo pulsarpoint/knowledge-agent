@@ -52,7 +52,8 @@ test('the Tools tab switches tools, edits and resets usage and saves once', asyn
   open('/agents/payments?view=tools');
   expect(await screen.findByRole('group', { name: 'Code' })).toBeVisible();
   expect(screen.getAllByRole('tab').map(tab => tab.textContent).slice(0, 2)).toEqual(['General', 'Tools']);
-  expect(screen.queryByRole('group', { name: 'Agents' })).toBeNull();  // empty groups are hidden
+  expect(screen.queryByRole('group', { name: 'Documents' })).toBeNull();  // empty groups are hidden
+  expect(within(screen.getByRole('group', { name: 'Agents' })).getByText(tools.SUBAGENTS_OFF_NOTE)).toBeVisible();
   await user.click(screen.getByRole('switch', { name: 'Shell' }));
   const toggle = within(row('Read file')).getByRole('button', { name: 'Edit usage for Read file' });
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -179,10 +180,41 @@ test('a stale save keeps the draft so a retry saves it, and Reload tools discard
   expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
 });
 
+test('with subagents on, the Agents group edits run_subagent and what a subagent may use', async () => {
+  const user = userEvent.setup();
+  vi.mocked(tools.getAgentTools).mockResolvedValue({ ...structuredClone(native), tools: [...structuredClone(native.tools),
+    tool({ tool: 'run_subagent', label: 'Start subagents', summary: 'Hand a separate part of the work to a helper that runs in parallel.',
+      group: 'agents', subagent_allowed: false, default_usage: 'Start a helper for a separate, well-defined part of your work.', tab: null })] });
+  open('/agents/payments?view=tools');
+  const agents = await screen.findByRole('group', { name: 'Agents' });
+  const start = within(agents).getByRole('switch', { name: 'Start subagents' });
+  expect(start).toBeChecked();
+  expect(start).toBeDisabled();  // switched with May start subagents on General
+  const may = within(agents).getByRole('group', { name: 'A subagent may use' });
+  expect(within(may).getByRole('checkbox', { name: 'Read file' })).toBeChecked();
+  expect(within(may).getByRole('checkbox', { name: 'Docs / lookup' })).toBeChecked();
+  expect(within(may).queryByRole('checkbox', { name: 'Shell' })).toBeNull();  // off: not one of the agent's tools
+  expect(within(may).queryByRole('checkbox', { name: 'Start subagents' })).toBeNull();
+  await user.click(within(may).getByRole('checkbox', { name: 'Read file' }));
+  await user.click(within(agents).getByRole('button', { name: 'Edit usage for Start subagents' }));
+  const usage = screen.getByLabelText('Usage for Start subagents');
+  await user.clear(usage); await user.type(usage, 'Split the work by project.');
+  expect(within(agents).getByText('Edited')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  await waitFor(() => expect(tools.saveAgentTools).toHaveBeenCalledTimes(1));
+  const saved = vi.mocked(tools.saveAgentTools).mock.calls[0][2];
+  expect(saved.find(item => item.tool === 'read_file')?.subagent_allowed).toBe(false);
+  expect(saved.find(item => item.tool === 'run_subagent')).toMatchObject({ mode: 'on', usage: 'Split the work by project.' });
+  await user.click(within(agents).getByRole('button', { name: 'Edit usage for Start subagents' }));
+  await user.click(within(agents).getByRole('button', { name: 'Reset usage for Start subagents' }));
+  expect(within(agents).queryByText('Edited')).toBeNull();
+  expect(screen.getByLabelText('Usage for Start subagents')).toHaveValue('Start a helper for a separate, well-defined part of your work.');
+});
+
 test('fresh rows keep only the choices the user touched', () => {
   const fresh = [tool({}), tool({ tool: 'shell_run', mode: 'off' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'on' })];
-  const draft = [tool({ usage: 'Narrow reads.' }), tool({ tool: 'shell_run', mode: 'on' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'off' })];
+  const draft = [tool({ usage: 'Narrow reads.', subagent_allowed: false }), tool({ tool: 'shell_run', mode: 'on' }), tool({ tool: 'ssh_run', group: 'servers', mode: 'off' })];
   // ssh_run was switched on by a General save; its stale 'off' in the draft was never touched.
-  expect(keepChoices(fresh, draft, new Set(['read_file', 'shell_run'])).map(item => [item.tool, item.mode, item.usage])).toEqual([
-    ['read_file', 'on', 'Narrow reads.'], ['shell_run', 'on', null], ['ssh_run', 'on', null]]);
+  expect(keepChoices(fresh, draft, new Set(['read_file', 'shell_run'])).map(item => [item.tool, item.mode, item.usage, item.subagent_allowed])).toEqual([
+    ['read_file', 'on', 'Narrow reads.', false], ['shell_run', 'on', null, true], ['ssh_run', 'on', null, true]]);
 });

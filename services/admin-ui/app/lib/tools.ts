@@ -16,16 +16,19 @@ export const NEED_REASONS: Record<ToolNeed, string> = {
   code_graph: 'Needs code projects', documents: 'Needs documents', grounded: 'Needs "Answer only from documents"', ssh: 'Needs SSH servers' };
 export const CLAUDE_CODE_TOOLS_NOTE = "Claude Code agents use Claude Code's own tools on their working folders. Switch them on the General tab.";
 export const TOOLS_TAB_NOTE = 'Tools for these projects are chosen on the Tools tab.';
+export const SUBAGENT_TOOL = 'run_subagent';
+export const SUBAGENTS_HELP = 'The agent can hand separate parts of its work to helpers that run in parallel.';
+export const SUBAGENTS_OFF_NOTE = 'Turn on May start subagents in General to let this agent start helpers.';
 export const TAB_LABELS: Record<string, string> = { git: 'Code projects', documents: 'Documents', ssh: 'SSH', mcp: 'MCP' };
 
 const path = (id: string) => `/api/agents/${encodeURIComponent(id)}/tools`;
 export const getToolCatalog = () => request<{ tools: CatalogTool[] }>('/api/tools');
 export const getAgentTools = (id: string) => request<AgentTools>(path(id));
-/** Replaces the agent's tools; a usage of null keeps the built-in text. */
+/** Replaces the agent's tools; a usage of null keeps the built-in text; subagent_allowed: whether run_subagent may give it to a subagent. */
 export const saveAgentTools = (id: string, revision: number, tools: AgentTool[]) => request<AgentTools>(path(id), {
   method: 'PUT', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ expected_revision: revision,
-    tools: tools.map(({ tool, mode, usage }) => ({ tool, mode: mode === 'on' ? 'on' : 'off', usage })) }),
+    tools: tools.map(({ tool, mode, usage, subagent_allowed }) => ({ tool, mode: mode === 'on' ? 'on' : 'off', usage, subagent_allowed })) }),
 });
 
 export interface ToolSwitches { repositories_enabled: boolean; documents_enabled: boolean; documents_grounded?: boolean; ssh_enabled: boolean }
@@ -41,8 +44,10 @@ export function toolNeedMet(need: ToolNeed | null, s: ToolSwitches): boolean {
     case 'ssh': return s.ssh_enabled;
   }
 }
-/** The tools a new agent gets from its capabilities (the backend's implied_tools). */
-export const impliedTools = (catalog: CatalogTool[], s: ToolSwitches) => catalog.filter(t => toolNeedMet(t.needs, s)).map(t => t.name);
+/** The tools a new agent gets from its capabilities (the backend's enabled_capability_tools); never run_subagent,
+ * which comes with May start subagents. */
+export const impliedTools = (catalog: CatalogTool[], s: ToolSwitches) =>
+  catalog.filter(t => t.group !== 'agents' && toolNeedMet(t.needs, s)).map(t => t.name);
 /** All agents: "7 tools · Code 6 · Servers 1"; Claude Code agents: "Read, Grep, Glob, Bash". */
 export function toolsSummaryLabel(summary?: ToolsSummary): string {
   if (!summary) return '—';
