@@ -152,7 +152,8 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
           <Button type="button" variant="ghost" size="sm" className="lg:hidden" onClick={() => setDrawer(true)}><PanelRight data-icon="inline-start" />Run details</Button>
         </div>
       </div>
-      {session && <p aria-label="Token totals" className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)} · Model calls ${formatTokens(session.model_calls)}`
+      {session && <p aria-label="Token totals" className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`
+        + (modelCalls ? ` · Model calls ${formatTokens(session.model_calls)}` : '')
         + (session.reasoning_tokens > 0 ? ` · Reasoning ${formatTokens(session.reasoning_tokens)}` : '')}</p>}
       {toolCounts && <p aria-label="Tools used" className="text-sm text-muted-foreground">{toolUsageLine(toolCounts)}</p>}
       {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}

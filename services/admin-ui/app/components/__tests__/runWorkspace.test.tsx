@@ -45,6 +45,12 @@ test('the header shows the agent, its type and resources, the status, the tokens
   expect(screen.getByRole('button', { name: 'History' })).toBeVisible();
 });
 
+test('the header omits Model calls for Claude Code, which records one aggregate usage per turn', () => {
+  show({ run: run({ session: { ...detail, runtime: 'claude_code' } }) });
+  expect(screen.getByLabelText('Token totals')).toHaveTextContent('In 1,300 · Out 300 · Cached 20 · Reasoning 30');
+  expect(screen.getByLabelText('Token totals')).not.toHaveTextContent('Model calls');
+});
+
 test('a turn is your message, a collapsed Worked block and the answer with its sources; failed and stopped turns say so', () => {
   show({ answerActions: turn => <button type="button">Feedback on turn {turn.turn}</button> });
   const [first, second, third] = screen.getAllByRole('listitem').filter(item => item.hasAttribute('data-turn'));
