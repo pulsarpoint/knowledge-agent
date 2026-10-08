@@ -43,8 +43,29 @@ class AgentConfig(TypedDict):
     mcp: dict[str, Any]
     ssh: dict[str, Any]
     services: dict[str, Any]
+    tools: dict[str, list[dict[str, Any]]]
     config_version: NotRequired[dict[str, Any]]
     run_resources: NotRequired[dict[str, list[str]]]
+
+
+def tool_items(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """The agent's tools in config shape: every catalog tool (no row: off), then MCP rows by name."""
+    from knowledge_admin.tools.catalog import CATALOG, item  # the catalog imports this module
+
+    saved = {row['tool']: row for row in rows}
+    items = []
+    for name in CATALOG:
+        row = saved.get(name)
+        items.append(item(name, row['mode'] if row else 'off', row['usage'] if row else None))
+    for name in sorted(tool for tool in saved if tool.startswith('mcp:')):
+        items.append(item(name, saved[name]['mode'], saved[name]['usage'], group='mcp'))
+    return {'items': items}
+
+
+def native_tools(conn, agent_id: str, runtime: str) -> dict[str, list[dict[str, Any]]]:
+    if runtime != 'openai':
+        return {'items': []}
+    return tool_items(conn.execute('SELECT tool,mode,usage FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)))
 
 
 def normalize_tools(values: Iterable[str]) -> list[str]:
@@ -108,6 +129,11 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             config['runtime'] = agent['runtime']  # the agent type belongs to the agent, never to a version
             config.setdefault('claude_code_tools', list(CLAUDE_CODE_TOOLS))  # versions saved before 0072
             config.setdefault('resources', 'fixed')  # versions saved before 0075
+            if agent['runtime'] != 'openai':
+                config['tools'] = {'items': []}
+            else:
+                from knowledge_admin.tools.catalog import implied_tools  # the catalog imports this module
+                config.setdefault('tools', implied_tools(config))  # versions saved before 0078
             config['config_version'] = jsonable_encoder({key:version[key] for key in ('id','version','label')})
             return config
         prompt = conn.execute("""SELECT v.id,v.title,v.version,v.revision,v.content
@@ -252,5 +278,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'mcp': {'enabled': agent['mcp_enabled'], 'servers': agent_mcp},
             'ssh': {'enabled': agent['ssh_enabled'], 'servers': servers},
             'services': {'enabled': agent['services_enabled'], 'items': services},
+            'tools': native_tools(conn, agent_id, agent['runtime']),
         })
 
