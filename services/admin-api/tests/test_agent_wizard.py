@@ -205,6 +205,11 @@ def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch
     assert agent['name'] == 'Blank agent' and agent['model_id'] is None
     assert agent['system_prompt'] == BLANK['system_prompt']
     assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Other', 'system_prompt': ' '}).status_code == 400
+    long = 'p' * 100000
+    response = client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Long prompt', 'system_prompt': long})
+    assert response.status_code == 201, response.text
+    assert client.get('/api/agents/' + response.json()['id'], headers=HEADERS).json()['system_prompt'] == long
+    assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Too long', 'system_prompt': long + 'p'}).status_code == 400
 
 
 def test_wizard_creates_claude_code_agents_with_claude_models_only(store, wizard):

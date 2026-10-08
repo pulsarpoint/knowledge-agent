@@ -69,6 +69,7 @@ test('generates a reviewable proposal, edits resources and SSH overrides, then c
   await user.click(screen.getByRole('switch', { name: 'Override server connection' }));
   fireEvent.change(screen.getByLabelText('SSH login user'), { target: { value: 'observer' } });
   await user.click(screen.getByRole('tab', { name: 'Prompt' }));
+  expect(screen.getByLabelText('System prompt')).toHaveAttribute('maxLength', '100000');
   fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Use evidence and cite sources.' } });
   await user.click(screen.getByRole('button', { name: 'Create agent' }));
   expect(api.createWizardAgent).toHaveBeenCalledTimes(1);

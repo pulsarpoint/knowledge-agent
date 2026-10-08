@@ -18,6 +18,7 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE, CLAUDE_CODE_TOOLS, ClaudeCodeTool, model_fits, normalize_tools
 from knowledge_admin.operations_store import SSHInput
+from knowledge_admin.profiles_api import PROMPT_LIMIT
 from knowledge_admin.tools.catalog import CATALOG, catalog_listing, implied_tools
 from knowledge_admin.tools_api import CLAUDE_CODE, UNKNOWN, flags
 
@@ -74,7 +75,7 @@ class AgentProposal(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(max_length=4000)
     when_to_use: str = Field(max_length=4000)
-    system_prompt: str = Field(min_length=1, max_length=40000)
+    system_prompt: str = Field(min_length=1, max_length=PROMPT_LIMIT)
     instructions: str = Field(max_length=40000)
     model_id: UUID | None
     enabled: bool = Field(strict=True)

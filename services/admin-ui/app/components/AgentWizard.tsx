@@ -5,6 +5,7 @@ import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal,
 import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, agentTypeLabel, resourcesLabel, type AgentResources, type AgentRuntime } from '../lib/profiles';
 import { NEED_REASONS, TOOL_GROUPS, impliedTools, toolNeedMet } from '../lib/tools';
 import { claudeModel } from '~/lib/claudeCode';
+import { PROMPT_LIMIT } from './AgentPromptCard';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -135,7 +136,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
           <Field><FieldLabel htmlFor="wizard-instructions">Additional instructions</FieldLabel><Textarea id="wizard-instructions" rows={5} maxLength={40000} value={proposal.instructions} onChange={e => edit({ instructions: e.target.value })} /></Field>
           <FieldSet><FieldLegend>Proposed access</FieldLegend><div className="flex flex-wrap gap-2">{([['documents_enabled','Documents'],['repositories_enabled','Code projects'],['ssh_enabled','SSH'],['skills_enabled','Skills'],['mcp_enabled','MCP'],['services_enabled','Services']] as const).map(([key,label]) => <Badge key={key} variant={proposal[key] ? 'default' : 'outline'}>{label}: {proposal[key] ? 'on' : 'off'}</Badge>)}</div><FieldDescription>Review each tab to change access and resource selections.</FieldDescription></FieldSet>
         </FieldGroup></TabsContent>
-        <TabsContent value="prompt"><FieldGroup><Field><FieldLabel htmlFor="wizard-prompt">System prompt</FieldLabel><Textarea id="wizard-prompt" rows={16} maxLength={40000} value={proposal.system_prompt} onChange={e => edit({ system_prompt: e.target.value })} /><FieldDescription>Required. Saved as this agent’s system prompt; edit it later on its General tab.</FieldDescription></Field></FieldGroup></TabsContent>
+        <TabsContent value="prompt"><FieldGroup><Field><FieldLabel htmlFor="wizard-prompt">System prompt</FieldLabel><Textarea id="wizard-prompt" rows={16} maxLength={PROMPT_LIMIT} value={proposal.system_prompt} onChange={e => edit({ system_prompt: e.target.value })} /><FieldDescription>Required. Saved as this agent’s system prompt; edit it later on its General tab.</FieldDescription></Field></FieldGroup></TabsContent>
         <TabsContent value="documents"><FieldGroup>
           <Toggle label="Enable documents" checked={proposal.documents_enabled} onChange={documents_enabled => edit({ documents_enabled })} />
           {proposal.documents_enabled && <><Toggle label="All collections" checked={proposal.all_collections} onChange={all_collections => edit({ all_collections, collection_ids: [] })} />
