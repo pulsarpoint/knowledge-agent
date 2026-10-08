@@ -19,7 +19,7 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
 from test_claude_code_runner import done, events, post, session_row, wait_for
-from test_claude_code_sessions import native_agent, sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import claude_code_session, native_agent, sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -539,7 +539,7 @@ def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
 def test_both_workers_run_only_their_own_sessions(native):
     sessions, native_id = native
     store = sessions.store
-    claude_id = UUID(start(sessions)['id'])
+    claude_id = UUID(claude_code_session(sessions)['id'])
     client = FakeClient([[done('# Claude draft')]])
     fake = FakeAgent([{'steps': [llm(message('# Native draft'))], 'answer': '# Native draft'}])
 

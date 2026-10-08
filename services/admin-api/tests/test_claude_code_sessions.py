@@ -78,6 +78,25 @@ def refused(sessions, **change) -> str:
     return response.json()['error']['message']
 
 
+def claude_code_session(sessions, *, document_name: str = 'Payments – API reference') -> dict:
+    """A Claude Code documentation session as the removed saved-agent path inserted it: the Claude Code worker still
+    runs existing ones."""
+    session_id, app = uuid4(), f'{sessions.data}/code/app'
+    with sessions.store.connect() as conn:
+        project = sessions.store.project(conn, 'shop')
+        actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
+        conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+            context_snapshot,document_name,folder,runtime) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'claude_code')""",
+            (session_id, project, sessions.agent, actor, sessions.claude, document_name,
+             Jsonb({'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}),
+             Jsonb({'folders': [{'path': app, 'kind': 'code_project', 'name': 'Payments API',
+                                 'code_project_id': sessions.repo}], 'code_project_ids': [sessions.repo]}),
+             document_name, 'payments-api-docs'))
+        conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                     (session_id, actor, f'Document the Payments API.\n\n{FINAL_ANSWER}'))
+    return {'id': str(session_id)}
+
+
 def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
     session = start(sessions)
     data = sessions.data

@@ -6,13 +6,13 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_worker
 from knowledge_admin.knowledge_agents import session_worker as shared
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import sessions, claude_code_session  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 
 def test_each_worker_claims_only_sessions_of_its_agent_type(sessions):
     store = sessions.store
-    claude, native = UUID(start(sessions)['id']), UUID(start(sessions)['id'])
+    claude, native = UUID(claude_code_session(sessions)['id']), UUID(claude_code_session(sessions)['id'])
     with store.connect() as conn:  # the second one as a native session (Task 3 creates them through the API)
         conn.execute("UPDATE ka.agent_sessions_cc SET runtime='openai',agent_config=%s WHERE id=%s",
                      (Jsonb({'id': sessions.agent}), native))
@@ -26,7 +26,7 @@ def test_each_worker_claims_only_sessions_of_its_agent_type(sessions):
 
 def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     store = sessions.store
-    sid = UUID(start(sessions)['id'])
+    sid = UUID(claude_code_session(sessions)['id'])
     [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
     runner = shared.SessionRunner(store, row)
     committed = []
@@ -60,7 +60,7 @@ def test_claude_code_worker_keeps_its_names():
 def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(sessions):
     """Delivery inside a running turn (native sessions): queued messages go to that turn once, under the lease."""
     store = sessions.store
-    sid = UUID(start(sessions)['id'])
+    sid = UUID(claude_code_session(sessions)['id'])
     [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
     runner = shared.SessionRunner(store, row)
     assert runner.next_turn()[0] == 1  # the first message starts turn 1
