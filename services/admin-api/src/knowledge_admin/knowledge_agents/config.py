@@ -89,7 +89,7 @@ def require_native(config: Mapping[str, Any]) -> None:
         raise ValueError(NATIVE_ONLY)
 
 
-GRAPH_PROJECTS = '''SELECT r.id::text AS id,r.name,
+GRAPH_PROJECTS = '''SELECT r.id::text AS id,r.name,r.synced_at,
     ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
     FROM ka.repositories r WHERE r.project_id=%s AND r.id=ANY(%s::uuid[]) AND r.archived_at IS NULL
     ORDER BY lower(r.name),r.id'''
@@ -104,7 +104,7 @@ def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
     if project_id is None or not ids:
         return []
     return [graph for row in conn.execute(GRAPH_PROJECTS, (project_id, ids))
-            if (graph := code_graph.current_graph({'id': row['id'], 'name': row['name'],
+            if (graph := code_graph.current_graph({'id': row['id'], 'name': row['name'], 'synced_at': row['synced_at'],
                                                    'folder_paths': list(row['folder_paths'])})) is not None]
 
 

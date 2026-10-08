@@ -3,6 +3,8 @@
 import asyncio
 import json
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import Literal
@@ -32,7 +34,8 @@ def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
         'code_root': str(root / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}
 
 
-GRAPH_KEYS = ('id', 'name', 'graph_path', 'code_root', 'source_hash')
+SYNCED_AFTER = 'The code was synced after this graph was generated; regenerate it or confirm with read_file.'
+SOURCE_HASH = re.compile(r'[0-9a-f]{64}')
 
 
 def _relative_folders(paths, root: PurePosixPath) -> list[str]:
@@ -44,12 +47,21 @@ def _relative_folders(paths, root: PurePosixPath) -> list[str]:
     return sorted(folders)
 
 
+def _generated_at(value) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
 def current_graph(project: dict) -> dict | None:
     """The project's generated graph as the code_graph and shell tools read it, decided from what generation stored
     (the manifest and the snapshot it names) without reading or hashing source files; None when it was never
-    generated, its snapshot is gone, the folder selection changed since, or the index or code mount is not configured.
-    A source edit since generation is not detected here.
-    project: id, name and folder_paths (absolute under CODE_ROOT or relative to it, as source_inventory takes them)."""
+    generated, its snapshot is gone, the manifest is not one generation writes, the folder selection changed since,
+    or the index or code mount is not configured. Source edits are not detected here: code queries compare each file
+    with its indexed hash, and a sync after generation (project's synced_at) adds a note.
+    project: id, name, folder_paths (absolute under CODE_ROOT or relative to it) and optionally synced_at."""
     root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
     if root.anchor != '/':
         return None
@@ -59,17 +71,25 @@ def current_graph(project: dict) -> dict | None:
         if not manifest.is_file():
             return None
         saved = json.loads(manifest.read_text())
-        source_hash = saved['source_hash']
+        source_hash, relative_root = saved['source_hash'], PurePosixPath(saved.get('relative_root', '.'))
+        if (not isinstance(source_hash, str) or not SOURCE_HASH.fullmatch(source_hash)
+                or relative_root.is_absolute() or '..' in relative_root.parts):
+            return None
         graph_path = directory / source_hash / 'graph.sqlite'
         if not graph_path.is_file():
             return None
-        if _relative_folders(saved['folder_paths'], root) != _relative_folders(project['folder_paths'], root):
+        folders = _relative_folders(saved['folder_paths'], root)
+        if folders != _relative_folders(project['folder_paths'], root):
             return None
-        relative_root = saved.get('relative_root', '.')
     except (CodeProcessingError, OSError, ValueError, KeyError, TypeError):
         return None
-    return {'id': str(project['id']), 'name': project['name'], 'graph_path': str(graph_path),
-            'code_root': str(root / relative_root), 'source_hash': source_hash}
+    graph = {'id': str(project['id']), 'name': project['name'], 'graph_path': str(graph_path),
+             'code_root': str(root / relative_root), 'source_hash': source_hash,
+             'folder_paths': [str(root / folder) for folder in folders], 'generated_at': saved.get('processed_at')}
+    generated, synced = _generated_at(saved.get('processed_at')), project.get('synced_at')
+    if generated is not None and synced is not None and synced > generated:
+        graph['note'] = SYNCED_AFTER
+    return graph
 
 
 async def code_graph(context: RunContext, project_id: str,
@@ -116,6 +136,7 @@ async def code_graph(context: RunContext, project_id: str,
                 error = redact(stderr.decode(errors='replace'), context['credentials'].values()).strip()
                 raise ValueError(error or 'CodeGraph query failed. Check the graph snapshot and SDK installation.')
             result = json.loads(output.read_text(encoding='utf-8'))
-        result.update(source_hash=graph['source_hash'], path_base=graph['code_root'],
-            note='CodeGraph SDK results. An absent or heuristic edge is not proof of runtime behavior; verify source and unresolved calls.')
+        note = 'CodeGraph SDK results. An absent or heuristic edge is not proof of runtime behavior; verify source and unresolved calls.'
+        result.update(source_hash=graph['source_hash'], path_base=graph['code_root'], generated_at=graph.get('generated_at'),
+            note=f"{graph['note']} {note}" if graph.get('note') else note)
     return redact(json.dumps(result), context['credentials'].values())

@@ -176,7 +176,7 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
     graphs = [graph for graph in effective['code'].get('graphs', []) if str(graph.get('id')) in code_ids]
     known = {str(graph['id']) for graph in graphs}
     missing = [item for item in wanted['code_project_ids'] if item not in known]
-    if missing and effective['code']['enabled']:
+    if missing and effective['code']['enabled'] and effective['runtime'] == 'openai':
         graphs += load_graphs(conn, project_id, missing)  # "All code projects": projects added after the snapshot
     effective['code']['graphs'] = graphs
     documents = {key: value for key, value in effective['documents'].items() if key not in ('folders', 'all_folders')}
