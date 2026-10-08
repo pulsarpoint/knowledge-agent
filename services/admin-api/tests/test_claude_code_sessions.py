@@ -84,6 +84,8 @@ def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
     assert (session['status'], session['turns'], session['title'], session['folder'], session['agent_name'], session['model_name']) == (
         'starting', 0, 'Payments – API reference', 'payments-api-docs', 'Technical writer', 'Claude')
     assert session['runtime'] == 'claude_code' and 'agent_config' not in session and 'history' not in session
+    assert (session['purpose'], session['model_calls'], session['reasoning_tokens']) == ('documents', 0, 0)
+    assert 'config' not in session and 'reviews' not in session  # a documentation session's pinned config stays private
     app, worker = f'{data}/code/app', f'{data}/code/worker'
     context = session['context_snapshot']
     assert context['folders'] == [  # chosen first, then linked through the environment and the service, once each

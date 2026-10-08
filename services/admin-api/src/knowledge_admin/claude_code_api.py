@@ -1,4 +1,4 @@
-"""Generate documents sessions for both agent types: create, list, detail, send, stop, close, the event stream
+"""Generate documents and Test sessions for both agent types: create, list, detail, send, stop, close, the event stream
 and saving the draft as a document. Claude Code turns run in claude-code-worker, native turns in
 agent-session-worker."""
 import asyncio
@@ -33,6 +33,7 @@ NO_RUN_FOLDER = ('Claude Code needs at least one working folder: choose code pro
                  'with code projects, that this agent accepts.')
 NO_AGENT = 'Select an enabled agent.'
 AGENT_MODEL = 'The agent has no enabled model for its agent type. Choose one on its General tab.'
+ONLY_DOCUMENTS = 'Only documentation sessions have a document.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
@@ -86,7 +87,7 @@ class MessageInput(BaseModel):
 
 def _select(extra: str = '') -> str:
     return f"""SELECT s.id,s.title,s.runtime,s.agent_id,a.name AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
-        s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.document_id,d.title AS document_title,s.folder,
+        s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
         (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
         s.created_at,s.last_activity_at,s.closed_at{extra}
@@ -106,6 +107,11 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
+    if row['purpose'] == 'test':  # its pinned configuration (credential references only) and its suggestions
+        row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
+                                     (session_id,)).fetchone()['agent_config']
+        row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
+            FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id''', (session_id,)).fetchall()
     return row
 
 
@@ -159,7 +165,7 @@ STREAM_POLL_SECONDS = 1.0
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
 HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
-STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.draft,
+STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.cost_usd,s.model_calls,s.reasoning_tokens,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
     FROM ka.agent_sessions_cc s WHERE s.id=%s"""
@@ -252,7 +258,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             close_idle(conn)
             project = db.project(conn, app_name)
-            return {'sessions': conn.execute(SUMMARY + ' WHERE s.project_id=%s ORDER BY s.created_at DESC,s.id LIMIT 50 OFFSET %s',
+            return {'sessions': conn.execute(SUMMARY + " WHERE s.project_id=%s AND s.purpose='documents' ORDER BY s.created_at DESC,s.id LIMIT 50 OFFSET %s",
                                              (project, offset)).fetchall()}
 
     @router.get('/sessions/{session_id}')
@@ -302,6 +308,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                    (session_id, project)).fetchone()
             if session is None:
                 raise HTTPException(404, 'Session not found.')
+            if session['purpose'] != 'documents':
+                raise HTTPException(400, ONLY_DOCUMENTS)
             if not (session['draft'] or '').strip():
                 raise HTTPException(409, 'There is no draft yet. Wait for the agent to finish a turn.')
             actor = db.actor(conn, *request_actor(request))
