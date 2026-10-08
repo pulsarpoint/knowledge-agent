@@ -100,10 +100,9 @@ def _line(name: str, description: str, parts: list[tuple[str, list[str]]]) -> st
     return text + (' — ' + '; '.join(details) if details else '')
 
 
-def first_message(context: dict[str, Any]) -> str:
-    """The message the form sends, as a user could have typed it: what to document, the instructions, and how to answer
-    so that the answer becomes the draft."""
-    sections = ['Document the following.']
+def _sections(context: dict[str, Any]) -> list[str]:
+    """The selected subjects, one Markdown section per kind; names and descriptions stay on one line."""
+    sections = []
     if context['code_projects']:
         sections.append('## Code\n' + '\n'.join(
             f"- {_flat(p['name'])} — {', '.join(map(_flat, p['paths']))}" for p in context['code_projects']))
@@ -120,6 +119,19 @@ def first_message(context: dict[str, Any]) -> str:
     if context['servers']:
         sections.append('## Servers\n' + '\n'.join(
             _line(f"{s['name']} ({s['hostname']})", s['description'], []) for s in context['servers']))
+    return sections
+
+
+def resource_context(context: dict[str, Any]) -> str:
+    """What a run documents, for the ad-hoc agent's system prompt: the selection under one heading ('' for none)."""
+    sections = _sections(context)
+    return '\n\n'.join(['# What you are documenting', *sections]) if sections else ''
+
+
+def first_message(context: dict[str, Any]) -> str:
+    """The message the form sends, as a user could have typed it: what to document, the instructions, and how to answer
+    so that the answer becomes the draft."""
+    sections = ['Document the following.', *_sections(context)]
     if context['instructions']:
         sections.append('## Instructions\n' + context['instructions'])
     sections.append(FINAL_ANSWER)
