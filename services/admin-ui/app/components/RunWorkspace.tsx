@@ -2,12 +2,14 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Reac
 import { PanelRight } from 'lucide-react';
 import { formatTokens, statusLabels } from '~/lib/claudeCode';
 import { toolUsageLine } from '~/lib/runs';
-import { compactTokens, groupTurns, type Turn, type WorkItem } from '~/lib/turns';
+import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from '~/lib/turns';
+import { SUBAGENT_TOOL } from '~/lib/tools';
 import type { SessionRun } from '~/lib/useSessionEvents';
 import GroundingSources from './GroundingSources';
 import Markdown from './Markdown';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '~/components/ui/breadcrumb';
 import { Button } from '~/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '~/components/ui/field';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '~/components/ui/sheet';
@@ -37,8 +39,15 @@ export interface RunWorkspaceProps {
 }
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`;
+const short = (value: string, length = 60) => value.length > length ? `${value.slice(0, length - 1)}…` : value;
+const subagentUsage = (sub: Subagent) => `${plural(sub.toolCalls, 'tool call')} · ${compactTokens(sub.usage.total)} tokens`;
 
-function WorkLine({ item }: { item: WorkItem }) {
+function WorkLine({ item, subagents, onOpen }: { item: WorkItem; subagents?: Map<string, Subagent>; onOpen?: (callId: string) => void }) {
+  const sub = item.kind === 'tool' && item.name === SUBAGENT_TOOL && item.callId ? subagents?.get(item.callId) : undefined;
+  if (sub) return <div className="flex flex-wrap items-center gap-2 text-sm">
+    <span className="break-words">{`Subagent · ${short(sub.task) || 'no task yet'} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
+    {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open subagent: ${sub.task}`} onClick={() => onOpen(sub.callId)}>Open</Button>}
+  </div>;
   switch (item.kind) {
     case 'reasoning': return <p className="whitespace-pre-wrap text-sm italic text-muted-foreground">{item.text}</p>;
     case 'comment': return <p className="whitespace-pre-wrap text-sm"><span className="font-medium">Your comment: </span>{item.text}</p>;
@@ -51,8 +60,9 @@ function WorkLine({ item }: { item: WorkItem }) {
 }
 
 /** `modelCalls` is false for Claude Code: it records one aggregate usage per turn, so a call count would read "1". */
-function TurnView({ turn, live, modelCalls, actions }: { turn: Turn; live: boolean; modelCalls: boolean; actions?: ReactNode }) {
+function TurnView({ turn, live, modelCalls, actions, onOpen }: { turn: Turn; live: boolean; modelCalls: boolean; actions?: ReactNode; onOpen: (callId: string) => void }) {
   const worked = turn.work.length > 0 || turn.usage.total > 0;
+  const subagents = new Map(turn.subagents.map(sub => [sub.callId, sub]));
   return <li data-turn={turn.turn} className="flex flex-col gap-3">
     {turn.input !== null && <div aria-label="Your message" className="self-end rounded-md bg-muted p-3 sm:max-w-[85%]">
       <p className="text-xs font-medium text-muted-foreground">You · turn {turn.turn}</p>
@@ -64,7 +74,7 @@ function TurnView({ turn, live, modelCalls, actions }: { turn: Turn; live: boole
         {turn.usage.total > 0 && <p aria-label={`Turn ${turn.turn} usage`} className="text-xs text-muted-foreground">
           {`In ${formatTokens(turn.usage.input)} · Out ${formatTokens(turn.usage.output)} · Cached ${formatTokens(turn.usage.cached)}`
             + (modelCalls ? ` · Model calls ${formatTokens(turn.usage.calls)}` : '')}</p>}
-        {turn.work.map(item => <WorkLine key={item.id} item={item} />)}</div>
+        {turn.work.map(item => <WorkLine key={item.id} item={item} subagents={subagents} onOpen={onOpen} />)}</div>
     </details>}
     {turn.answer !== null && <article aria-label="Agent answer" className="flex flex-col gap-2">
       <Markdown content={turn.answer} />
@@ -78,10 +88,36 @@ function TurnView({ turn, live, modelCalls, actions }: { turn: Turn; live: boole
   </li>;
 }
 
+/** One subagent's own history in the main pane: the task, its Worked block, its answer and status; live while it runs. */
+function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
+  const live = sub.status === 'working';
+  const worked = sub.work.length > 0 || sub.usage.total > 0;
+  return <div className="flex flex-col gap-3">
+    <Breadcrumb><BreadcrumbList>
+      <BreadcrumbItem><Button type="button" variant="link" className="h-auto p-0" onClick={onBack}>Main agent</Button></BreadcrumbItem>
+      <BreadcrumbSeparator>›</BreadcrumbSeparator>
+      <BreadcrumbItem><BreadcrumbPage>Subagent: {short(sub.task)}</BreadcrumbPage></BreadcrumbItem>
+    </BreadcrumbList></Breadcrumb>
+    <div aria-label="Subagent task" className="self-end rounded-md bg-muted p-3 sm:max-w-[85%]">
+      <p className="text-xs font-medium text-muted-foreground">Task · turn {sub.turn}</p>
+      <p className="whitespace-pre-wrap break-words text-sm">{sub.task}</p></div>
+    {worked && <details className="rounded-md border px-3 py-2">
+      <summary className="cursor-pointer text-sm text-muted-foreground">{`${live ? 'Working' : 'Worked'} · ${subagentUsage(sub)}`}</summary>
+      <div className="mt-3 flex flex-col gap-3">{sub.work.map(item => <WorkLine key={item.id} item={item} />)}</div>
+    </details>}
+    {sub.answer !== null && <article aria-label="Subagent answer" className="flex flex-col gap-2"><Markdown content={sub.answer} /></article>}
+    {live && <p role="status" className="text-sm text-muted-foreground">Working…</p>}
+    {sub.status === 'failed' && <Alert variant="destructive"><AlertDescription>{sub.error ?? 'This subagent failed.'}</AlertDescription></Alert>}
+    {sub.status === 'stopped' && <p className="text-sm text-muted-foreground">Stopped.</p>}
+  </div>;
+}
+
 /** One run of an agent: the header (agent, type, resources, status, tokens, tools used), the main pane of turns (it
  * scrolls on its own; earlier pages load near the top; it follows new events at the bottom), the sidebar (the agents
  * in this run, then the page's sections; a drawer on narrow screens) and the message box, always on screen. The Test
- * tab and the Generate documents session page pass their own parts as props. */
+ * tab and the Generate documents session page pass their own parts as props. The sidebar lists the main agent and every
+ * subagent of the loaded events; selecting one shows its own history in the main pane (the message box still talks to
+ * the main agent). */
 export default function RunWorkspace({ run, agentName, agentType, resources, heading, headerActions, sidebar, answerActions,
   empty, notice, composer }: RunWorkspaceProps) {
   const { session, events, older, toolCounts } = run;
@@ -91,6 +127,11 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
   const pane = useRef<HTMLDivElement>(null);
   const anchor = useRef<number | null>(null);  // the pane's scroll height before an earlier page went above
   const id = useId();
+  const [selected, setSelected] = useState<string | null>(null);  // the subagent shown in the main pane (its call id)
+  useEffect(() => { setSelected(null); }, [session?.id]);
+  const subagents = useMemo(() => turns.flatMap(turn => turn.subagents), [turns]);
+  const shown = selected === null ? null : subagents.find(sub => sub.callId === selected) ?? null;
+  const pick = (callId: string | null) => { setSelected(callId); setDrawer(false); };
 
   useLayoutEffect(() => {
     const panel = pane.current;
@@ -133,12 +174,18 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
   const agents = <div className="flex flex-col gap-4">
     <section aria-label="Agents in this run" className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold">Agents in this run</h2>
-      <div className="rounded-md border p-2 text-sm">
-        <p className="font-medium">{agentName}</p>
-        <p className="text-xs text-muted-foreground">{session
-          ? `${statusLabels[session.status]} · ${plural(toolCalls, 'tool call')} · ${compactTokens(session.input_tokens + session.output_tokens)} tokens`
-          : 'Not started'}</p>
-      </div>
+      <ul className="flex flex-col gap-2">
+        <li><button type="button" aria-pressed={shown === null} onClick={() => pick(null)}
+          className={`w-full rounded-md border p-2 text-left text-sm${shown === null ? ' border-primary' : ''}`}>
+          <p className="font-medium">{agentName}</p>
+          <p className="text-xs text-muted-foreground">{session
+            ? `${statusLabels[session.status]} · ${plural(toolCalls, 'tool call')} · ${compactTokens(session.input_tokens + session.output_tokens)} tokens`
+            : 'Not started'}</p></button></li>
+        {subagents.map(sub => <li key={sub.callId}><button type="button" aria-pressed={shown?.callId === sub.callId} onClick={() => pick(sub.callId)}
+          className={`w-full rounded-md border p-2 text-left text-sm${shown?.callId === sub.callId ? ' border-primary' : ''}`}>
+          <p className="break-words font-medium">{short(sub.task, 48) || 'Subagent'}</p>
+          <p className="text-xs text-muted-foreground">{`${SUBAGENT_STATUS_LABELS[sub.status]} · ${subagentUsage(sub)}`}</p></button></li>)}
+      </ul>
     </section>
     {sidebar}
   </div>;
@@ -173,9 +220,10 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
         <div ref={pane} data-testid="run-scroll" onScroll={scrolled} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
           {older === 'start' && events.length > 0 && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
           {older === 'loading' && <p role="status" className="text-center text-xs text-muted-foreground">Loading earlier activity…</p>}
-          {turns.length === 0 ? empty : <ol className="flex flex-col gap-6">{turns.map((turn, index) =>
-            <TurnView key={turn.turn} turn={turn} live={working && index === turns.length - 1 && turn.status === 'working'}
-              modelCalls={modelCalls} actions={answerActions?.(turn)} />)}</ol>}
+          {shown ? <SubagentView sub={shown} onBack={() => setSelected(null)} />
+            : turns.length === 0 ? empty : <ol className="flex flex-col gap-6">{turns.map((turn, index) =>
+              <TurnView key={turn.turn} turn={turn} live={working && index === turns.length - 1 && turn.status === 'working'}
+                modelCalls={modelCalls} actions={answerActions?.(turn)} onOpen={callId => setSelected(callId)} />)}</ol>}
           {session && session.queued > 0 && <p className="text-sm text-muted-foreground">{plural(session.queued, 'message')} queued</p>}
         </div>
         {!following && <div className="shrink-0 border-t p-2 text-center"><Button type="button" size="sm" variant="secondary" onClick={jump}>Jump to latest</Button></div>}

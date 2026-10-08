@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
@@ -143,4 +143,63 @@ test('a failed turn shows its error once: the header repeats the session message
 test('the run pane keeps a minimum height so a tiny screen scrolls the page instead of collapsing the conversation', () => {
   show();
   expect(screen.getByRole('region', { name: 'Run' }).parentElement!.className).toContain('min-h-48');
+});
+
+const delegated = [
+  event(5, 'input', { task: 'Compare the services.' }),
+  event(5, 'tool_call', { name: 'run_subagent', call_id: 's1', summary: 'Read the worker', arguments: { task: 'Read the worker' } }),
+  event(5, 'input', { task: 'Read the worker', subagent: { task: 'Read the worker' }, parent_call_id: 's1' }),
+  event(5, 'tool_call', { name: 'read_file', call_id: 'r1', summary: 'w.py', parent_call_id: 's1' }),
+  event(5, 'usage', { input_tokens: 20000, output_tokens: 3000, total_tokens: 23000, parent_call_id: 's1' }),
+  event(5, 'tool_result', { name: 'read_file', call_id: 'r1', preview: 'def main', is_error: false, parent_call_id: 's1' }),
+  event(5, 'message', { text: 'Worker reads w.py.', parent_call_id: 's1' }),
+];
+
+test('a subagent is a line in the Worked block and an entry in the sidebar; Open shows its own history', () => {
+  const working = { ...detail, status: 'working' as const };
+  const view = show({ run: run({ session: working, events: delegated }) });
+  expect(screen.getByText('Subagent · Read the worker · 1 tool call · 23k tokens · working')).toBeInTheDocument();
+  const agents = within(screen.getByRole('region', { name: 'Agents in this run' }));
+  const entry = agents.getByRole('button', { name: /Read the worker/ });
+  expect(entry).toHaveTextContent('Working · 1 tool call · 23k tokens');
+  fireEvent.click(screen.getByRole('button', { name: 'Open subagent: Read the worker' }));
+  const crumbs = screen.getByRole('navigation', { name: 'breadcrumb' });
+  expect(crumbs).toHaveTextContent(/Main agent\s*›\s*Subagent: Read the worker/);
+  expect(screen.getByLabelText('Subagent task')).toHaveTextContent('Read the worker');
+  expect(within(screen.getByLabelText('Subagent answer')).getByTestId('markdown')).toHaveTextContent('Worker reads w.py.');
+  expect(screen.getByText('def main')).toBeInTheDocument();  // its own Worked block
+  expect(screen.queryByLabelText('Your message')).toBeNull();
+  expect(entry).toHaveAttribute('aria-pressed', 'true');
+  view.rerender(<MemoryRouter><RunWorkspace run={run({ session: working, events: [...delegated,
+    event(5, 'tool_result', { name: 'run_subagent', call_id: 's1', preview: 'Worker reads w.py.', is_error: false })] })}
+    agentName="Payments helper" agentType="Native" resources="Fixed" composer={composer} /></MemoryRouter>);
+  expect(agents.getByRole('button', { name: /Read the worker/ })).toHaveTextContent('Done · 1 tool call · 23k tokens');  // live
+  expect(screen.getByRole('form', { name: 'Message box' })).toBeVisible();  // still talks to the main agent
+  fireEvent.click(within(crumbs).getByRole('button', { name: 'Main agent' }));
+  expect(screen.getByLabelText('Your message')).toHaveTextContent('Compare the services.');
+  expect(screen.queryByLabelText('Subagent task')).toBeNull();
+  fireEvent.click(agents.getByRole('button', { name: /Read the worker/ }));  // the sidebar selects too
+  expect(screen.getByLabelText('Subagent task')).toHaveTextContent('Read the worker');
+  fireEvent.click(agents.getByRole('button', { name: /Payments helper/ }));
+  expect(screen.getByLabelText('Your message')).toBeVisible();
+});
+
+test('a subagent that was still waiting for a slot when its turn ended shows stopped', () => {
+  show({ run: run({ session: { ...detail, status: 'stopped' }, events: [
+    event(6, 'input', { task: 'Compare.' }),
+    event(6, 'tool_call', { name: 'run_subagent', call_id: 'w1', summary: 'Queued work', arguments: { task: 'Queued work' } }),
+    event(6, 'input', { task: 'Queued work', subagent: { task: 'Queued work' }, parent_call_id: 'w1' }),
+    event(6, 'end', { status: 'stopped' })] }) });
+  expect(screen.getByText('Subagent · Queued work · 0 tool calls · 0 tokens · stopped')).toBeInTheDocument();
+  const agents = within(screen.getByRole('region', { name: 'Agents in this run' }));
+  expect(agents.getByRole('button', { name: /Queued work/ })).toHaveTextContent('Stopped · 0 tool calls · 0 tokens');
+});
+
+test('the drawer lists the subagents too; picking one shows it and closes the drawer', async () => {
+  show({ run: run({ session: { ...detail, status: 'working' }, events: delegated }) });
+  fireEvent.click(screen.getByRole('button', { name: 'Run details' }));
+  const drawer = within(screen.getByRole('dialog'));
+  fireEvent.click(within(drawer.getByRole('region', { name: 'Agents in this run' })).getByRole('button', { name: /Read the worker/ }));
+  expect(screen.getByLabelText('Subagent task')).toHaveTextContent('Read the worker');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
