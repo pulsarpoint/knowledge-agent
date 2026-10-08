@@ -23,7 +23,7 @@ AGENT = '''SELECT id,runtime,revision,claude_code_tools,repositories_enabled,doc
     ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
 # As the agent configuration selects them: the application project's servers, linked in the same project.
 SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
-    WHERE m.project_id IN (SELECT id FROM ka.projects WHERE archived_at IS NULL) AND EXISTS (
+    WHERE m.project_id=%s AND EXISTS (
     SELECT 1 FROM ka.agent_config_mcp_servers s JOIN ka.agent_configs c ON c.id=s.config_id
     WHERE s.mcp_server_id=m.id AND c.agent=%s AND c.project_id=m.project_id) ORDER BY lower(m.name),m.id'''
 ON = "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'"
@@ -71,7 +71,7 @@ def _usage(text: str | None) -> str | None:
     return text if text is not None and text.strip() else None  # blank: the built-in text
 
 
-def agent_tools(conn, agent_id: str) -> dict[str, Any]:
+def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     agent = conn.execute(AGENT, (agent_id,)).fetchone()
     if agent is None:
         raise HTTPException(404, 'Agent not found.')
@@ -90,7 +90,7 @@ def agent_tools(conn, agent_id: str) -> dict[str, Any]:
                       'default_usage': spec.usage, 'subagent_allowed': row['subagent_allowed'] if row else True,
                       'available': available, 'reason': None if available else NEED_REASONS[spec.needs],
                       'tab': NEED_TABS.get(spec.needs)})
-    for server in conn.execute(SELECTED_MCP, (agent_id,)):
+    for server in conn.execute(SELECTED_MCP, (project, agent_id)):
         available = agent['mcp_enabled'] and server['enabled']
         for found in server['tools']:
             name = f"mcp:{server['id']}:{found['name']}"
@@ -146,7 +146,7 @@ def build_api(app_name, store):
     def tools(agent_id: str, response: Response):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
-            return agent_tools(conn, agent_id)
+            return agent_tools(conn, agent_id, store.project(conn, app_name))
 
     @router.put('/agents/{agent_id}/tools')
     def save(agent_id: str, value: ToolsInput, request: Request):
@@ -158,7 +158,7 @@ def build_api(app_name, store):
                 raise HTTPException(400, CLAUDE_CODE)
             if agent['revision'] != value.expected_revision:
                 raise HTTPException(409, STALE)
-            servers = {row['id']: {found['name'] for found in row['tools']} for row in conn.execute(SELECTED_MCP, (agent_id,))}
+            servers = {row['id']: {found['name'] for found in row['tools']} for row in conn.execute(SELECTED_MCP, (store.project(conn, app_name), agent_id))}
             for choice in value.tools:
                 if choice.tool in CATALOG:
                     continue
@@ -185,6 +185,6 @@ def build_api(app_name, store):
                 VALUES (%s,%s,'agent.tools.updated','agent',%s,%s)''', (store.project(conn, app_name), actor,
                 _uuid(agent_id), Jsonb({'agent_id': agent_id,
                                         'on': sorted(choice.tool for choice in value.tools if choice.mode == 'on')})))
-            return agent_tools(conn, agent_id)
+            return agent_tools(conn, agent_id, store.project(conn, app_name))
 
     return router

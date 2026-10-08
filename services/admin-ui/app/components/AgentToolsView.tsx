@@ -117,6 +117,6 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
       })}
     </CardContent>
     <CardFooter className="flex-wrap gap-2"><Button disabled={busy || !dirty} onClick={() => void save()}>Save tools</Button>
-      <Button variant="outline" disabled={busy || !dirty} onClick={() => { setDraft(saved.tools); setDirty(false); setEditing(null); setError(''); setStale(false); }}>Discard changes</Button></CardFooter>
+      <Button variant="outline" disabled={busy || !dirty} onClick={() => { touched.current.clear(); setDraft(saved.tools); setDirty(false); setEditing(null); setError(''); setStale(false); }}>Discard changes</Button></CardFooter>
   </Card>;
 }
