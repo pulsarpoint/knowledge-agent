@@ -56,14 +56,21 @@ test('the Tools tab switches tools, edits and resets usage and saves once', asyn
   expect(screen.getAllByRole('tab').map(tab => tab.textContent).slice(0, 2)).toEqual(['General', 'Tools']);
   expect(screen.queryByRole('group', { name: 'Agents' })).toBeNull();  // empty groups are hidden
   await user.click(screen.getByRole('switch', { name: 'Shell' }));
-  await user.click(within(row('Read file')).getByRole('button', { name: 'Edit usage' }));
+  const toggle = within(row('Read file')).getByRole('button', { name: 'Edit usage for Read file' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await user.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle).toHaveAccessibleName('Close usage for Read file');
+  expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toContainElement(screen.getByLabelText('Usage for Read file'));
   const usage = screen.getByLabelText('Usage for Read file');
   expect(usage).toHaveValue('Read a source line range.');
   await user.clear(usage); await user.type(usage, 'Read only named files.');
   expect(within(row('Read file')).getByText('Edited')).toBeVisible();
   expect(within(row('Docs / lookup')).getByText('Edited')).toBeVisible();
-  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Edit usage' }));
-  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Reset' }));
+  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Edit usage for Docs / lookup' }));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('Use for API pages.');
+  await user.click(within(row('Docs / lookup')).getByRole('button', { name: 'Reset usage for Docs / lookup' }));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('Look up docs.');
   expect(within(row('Docs / lookup')).queryByText('Edited')).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Save tools' }));
   await waitFor(() => expect(tools.saveAgentTools).toHaveBeenCalledTimes(1));
@@ -79,10 +86,9 @@ test('unmet needs are greyed out with their reason and link', async () => {
   open('/agents/payments?view=tools');
   const ssh = await screen.findByRole('switch', { name: 'SSH' });
   const line = ssh.closest('[data-tool]') as HTMLElement;
-  expect(line).toHaveClass('opacity-60');
   expect(within(line).getByText(/Needs SSH servers/)).toBeVisible();
   expect(within(line).getByRole('link', { name: 'Open SSH' })).toHaveAttribute('href', '/agents/payments?view=ssh');
-  expect(row('Read file')).not.toHaveClass('opacity-60');
+  expect(within(row('Read file')).queryByText(/Needs/)).toBeNull();
 });
 
 test('capability tabs of a native agent point to the Tools tab', async () => {
@@ -99,31 +105,78 @@ test('a Claude Code agent lists its Claude Code tools', async () => {
   expect(screen.queryByRole('switch', { name: 'Read file' })).toBeNull();
 });
 
-test('a stale save offers a reload that brings back the saved tools', async () => {
+test('an emptied usage saves as the default text', async () => {
   const user = userEvent.setup();
-  vi.mocked(tools.saveAgentTools).mockRejectedValueOnce(new ApiError('The tools changed since you opened them. Reload.', 409));
   open('/agents/payments?view=tools');
-  await user.click(await screen.findByRole('switch', { name: 'Shell' }));
+  await user.click(await screen.findByRole('button', { name: 'Edit usage for Docs / lookup' }));
+  expect(screen.getByText(/Empty restores the default text/)).toBeVisible();
+  await user.clear(screen.getByLabelText('Usage for Docs / lookup'));
+  expect(screen.getByLabelText('Usage for Docs / lookup')).toHaveValue('');
+  expect(within(row('Docs / lookup')).queryByText('Edited')).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Save tools' }));
-  expect(await screen.findByText('The tools changed since you opened them. Reload.')).toBeVisible();
-  await user.click(screen.getByRole('button', { name: 'Reload tools' }));
-  await waitFor(() => expect(tools.getAgentTools).toHaveBeenCalledTimes(2));
-  expect(await screen.findByRole('switch', { name: 'Shell' })).not.toBeChecked();
-  expect(screen.queryByText('The tools changed since you opened them. Reload.')).toBeNull();
+  await waitFor(() => expect(tools.saveAgentTools).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(tools.saveAgentTools).mock.calls[0][2].find(item => item.tool === 'mcp:m1:lookup')?.usage).toBeNull();
 });
 
-test('saving tools hands the new revision to the General tab and a General save reloads the tools', async () => {
+/** A server that answers with its current revision and refuses saves made against an older one. */
+function server(start: { revision: number; ssh: boolean }) {
+  const state = { ...start };
+  vi.mocked(tools.getAgentTools).mockImplementation(async () => ({ ...structuredClone(native), revision: state.revision,
+    tools: native.tools.map(item => item.tool === 'ssh_run' && state.ssh ? { ...item, available: true, reason: null } : item) }));
+  vi.mocked(tools.saveAgentTools).mockImplementation(async (_id, revision, saved) => {
+    if (revision !== state.revision) throw new ApiError('The tools changed since you opened them. Reload.', 409);
+    state.revision += 1;
+    return { ...native, revision: state.revision, tools: saved };
+  });
+  vi.mocked(profiles.saveAgent).mockImplementation(async value => {
+    state.revision += 1; state.ssh = value.ssh_enabled;
+    return { ...structuredClone(agent), ...value, revision: state.revision };
+  });
+  return state;
+}
+
+test('a capability saved on another tab keeps unsaved tool choices and refreshes availability', async () => {
   const user = userEvent.setup();
-  vi.mocked(profiles.saveAgent).mockImplementation(async value => ({ ...structuredClone(agent), ...value, revision: value.revision + 1 }));
+  server({ revision: 4, ssh: false });
   open('/agents/payments?view=tools');
   await user.click(await screen.findByRole('switch', { name: 'Shell' }));
-  await user.click(screen.getByRole('button', { name: 'Save tools' }));
-  await screen.findByText('Tools saved.');
-  await user.click(screen.getByRole('tab', { name: 'General' }));
-  const name = screen.getByRole('textbox', { name: 'Name' });
-  await user.type(name, ' 2');
-  await user.click(screen.getByRole('button', { name: 'Save details' }));
+  expect(within(row('SSH')).getByText(/Needs SSH servers/)).toBeVisible();
+  await user.click(screen.getByRole('tab', { name: 'SSH' }));
+  await user.click(screen.getByRole('switch', { name: 'Enable SSH access' }));
+  await user.click(screen.getByRole('button', { name: 'Save SSH access' }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
-  expect(vi.mocked(profiles.saveAgent).mock.calls[0][0]).toMatchObject({ revision: 5 });
-  await waitFor(() => expect(tools.getAgentTools).toHaveBeenCalledTimes(2));
+  await user.click(screen.getByRole('tab', { name: 'Tools' }));
+  await waitFor(() => expect(within(row('SSH')).queryByText(/Needs SSH servers/)).toBeNull());
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText('Tools saved.')).toBeInTheDocument();  // a toast; sonner animates it in
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+  expect(vi.mocked(tools.saveAgentTools).mock.calls.at(-1)?.[1]).toBe(5);
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+});
+
+test('a stale save keeps the draft so a retry saves it, and Reload tools discards it on request', async () => {
+  const user = userEvent.setup();
+  const state = server({ revision: 4, ssh: false });
+  open('/agents/payments?view=tools');
+  await user.click(await screen.findByRole('switch', { name: 'Shell' }));
+  state.revision = 6;  // someone else saved in between
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText(/The tools changed since you opened them/)).toBeVisible();
+  expect(screen.getByRole('switch', { name: 'Shell' })).toBeChecked();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save tools' })).toBeEnabled());
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  expect(await screen.findByText('Tools saved.')).toBeInTheDocument();  // a toast; sonner animates it in
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
+  expect(vi.mocked(tools.saveAgentTools).mock.calls.at(-1)?.[1]).toBe(6);
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+
+  await user.click(screen.getByRole('switch', { name: 'Read file' }));
+  state.revision = 9;
+  await user.click(screen.getByRole('button', { name: 'Save tools' }));
+  await user.click(await screen.findByRole('button', { name: 'Reload tools' }));
+  await waitFor(() => expect(screen.getByRole('switch', { name: 'Read file' })).toBeChecked());
+  expect(screen.queryByText(/The tools changed/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Save tools' })).toBeDisabled();
 });
