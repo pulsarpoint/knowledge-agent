@@ -367,16 +367,19 @@ def capability_defaults(capability: str, config: Mapping[str, Any]) -> list[str]
 
 
 def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
-    """All agents: how many tools are on, per group; Claude Code agents: their Claude Code tools."""
+    """All agents: how many tools are on with their need met (by the capability switches, as the Tools tab judges),
+    per group, MCP tools of enabled servers included; Claude Code agents: their Claude Code tools."""
     if config.get('runtime', 'openai') != 'openai':
         return {'claude_code_tools': list(config.get('claude_code_tools', []))}
     chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
     groups = {'code': 0, 'documents': 0, 'servers': 0, 'mcp': 0, 'agents': 0}
     for spec in CATALOG.values():
-        if chosen.get(spec.name, {}).get('mode') == 'on':
+        if chosen.get(spec.name, {}).get('mode') == 'on' and needs_met(spec.needs, config, None):
             groups[spec.group] += 1
     if config['mcp']['enabled']:
         for server in config['mcp']['servers']:
+            if not server.get('enabled', True):
+                continue
             for found in server.get('tools', []):
                 if chosen.get(f"mcp:{server['id']}:{found['name']}", {}).get('mode', 'on') == 'on':
                     groups['mcp'] += 1

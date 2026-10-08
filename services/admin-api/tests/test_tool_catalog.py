@@ -9,7 +9,7 @@ from agents import FunctionTool
 from agents.tool_context import ToolContext
 
 from knowledge_admin.agents import get_prompt
-from knowledge_admin.tools.catalog import CATALOG, effective_tools, implied_tools
+from knowledge_admin.tools.catalog import CATALOG, effective_tools, implied_tools, tools_summary
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
 
 SERVER = {'id': 'host', 'name': 'Host', 'hostname': 'host.test', 'port': 22, 'username': 'ops', 'description': '',
@@ -158,3 +158,13 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
     [error] = errors
     assert error['message'] == 'Error running tool (non-fatal)' and error['data']['tool_name'] == 'read_file'
     assert 'TOP-SECRET' not in error['data']['error'] and '[redacted]' in error['data']['error']
+
+
+def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mcp_servers():
+    c = config(code=True, tools=['read_file', 'code_search', 'ssh_run', 'search_documents', 'code_graph'])
+    c['mcp'] = {'enabled': True, 'servers': [
+        {'id': 'm1', 'name': 'One', 'enabled': True, 'tools': [{'name': 'a'}, {'name': 'b'}]},
+        {'id': 'm2', 'name': 'Two', 'enabled': False, 'tools': [{'name': 'c'}]}]}
+    summary = tools_summary(c)  # ssh_run: no SSH; search_documents: no documents; code_graph counts by the switch
+    assert summary['groups'] == {'code': 3, 'documents': 0, 'servers': 0, 'mcp': 2, 'agents': 0}
+    assert summary['on'] == 5

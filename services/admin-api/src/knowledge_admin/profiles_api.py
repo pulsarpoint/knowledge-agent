@@ -154,7 +154,7 @@ def build_api(app_name, store):
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
                           'documents': 'any' if row['all_collections'] else collection_count,
                           'servers': row.pop('server_count'), 'services': row.pop('service_count')}
-                working = {'runtime': row['runtime'], 'claude_code_tools': row['claude_code_tools'],
+                working = {**flags(row), 'claude_code_tools': row['claude_code_tools'],
                            'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
                            'tools': tool_items(saved_tools.get(row['id'], []))}
                 config = row.pop('version_config')
