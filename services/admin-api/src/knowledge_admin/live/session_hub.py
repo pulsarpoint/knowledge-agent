@@ -50,11 +50,10 @@ class Subscription:
 
 
 class Watched:
-    """A session somebody watches: its subscribers and the newest event id read for it."""
+    """A session somebody watches: its subscribers (each knows its own position)."""
 
-    def __init__(self, read_to: int):
+    def __init__(self):
         self.subscribers: list[Subscription] = []
-        self.read_to = read_to
 
 
 class SessionHub:
@@ -99,7 +98,7 @@ class SessionHub:
         subscription = Subscription(after_id)
         watched = self._watched.get(session_id)
         if watched is None:
-            watched = self._watched[session_id] = Watched(after_id)
+            watched = self._watched[session_id] = Watched()
         watched.subscribers.append(subscription)
         try:
             if self._stopped:  # nothing would ever read for it
@@ -261,7 +260,7 @@ class SessionHub:
             self._close(session_id, present)
             return
         keys = [f'cc:{session_id}:{turn}' for turn in range(1, state['turns'] + 1)]
-        after = min([subscription.position for subscription in present] + [watched.read_to])
+        after = min(subscription.position for subscription in present)
         while keys:
             rows = await (await conn.execute(EVENTS, (keys, after, PAGE))).fetchall()
             for row in rows:
@@ -270,7 +269,6 @@ class SessionHub:
                         subscription.position = row['id']
             if rows:
                 after = rows[-1]['id']
-                watched.read_to = max(watched.read_to, after)
             present = [subscription for subscription in present if not subscription.dropped]
             if not present:  # every subscriber fell behind and was dropped
                 return

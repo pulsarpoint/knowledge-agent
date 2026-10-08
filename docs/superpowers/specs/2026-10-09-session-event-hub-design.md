@@ -39,10 +39,9 @@ Out of scope: other pages' polling; a connection pool for the rest of the API; c
 - **Subscribe:** `hub.subscribe(session_id, after_id) -> Subscription` (async context manager) gives a bounded
   `asyncio.Queue` (500 items) of messages: `('event', row)`, `('session', state)`, `('closed', None)`,
   `('unavailable', None)`, `('resync', None)`. Unsubscribe on exit; a session with no subscribers is forgotten.
-- **Per watched session** the hub keeps: subscribers (each with its own last event id), the newest event id read
-  (`read_to`), and the last state sent.
+- **Per watched session** the hub keeps its subscribers, each with its own last event id and the last state sent to it.
 - **On a notice** for a watched session, the hub marks it dirty; a single reader task drains dirty sessions: for each,
-  over one short-lived connection, it reads events `id > min(subscriber positions, read_to)` for the session's turn
+  over one short-lived connection, it reads events `id > min(subscriber positions)` for the session's turn
   keys (500 per query, repeated until fewer come back) and the `STATE` row; it gives each subscriber only events with
   `id >` its own position (advancing that position) and the state when it changed; a missing row or `closed` status
   sends `closed`. A burst of notices for one session results in one read.
