@@ -37,7 +37,7 @@ export const RUN_RESOURCE_KINDS: [RunResourceKind, keyof RunResourcesInput, stri
 export const CLAUDE_CODE_TOOL_NAMES = ['Read', 'Grep', 'Glob', 'Bash'] as const;
 export type ClaudeCodeTool = typeof CLAUDE_CODE_TOOL_NAMES[number];
 export interface AgentProfile {
-  id: string; name: string; description: string; when_to_use: string; enabled: boolean; is_coordinator: boolean;
+  id: string; name: string; description: string; when_to_use: string; enabled: boolean;
   runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[]; resources?: AgentResources;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   active_config_version_id?: string | null;

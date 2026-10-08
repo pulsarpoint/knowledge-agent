@@ -7,15 +7,14 @@ afterEach(() => vi.unstubAllGlobals());
 const NO_FOLDER = 'Claude Code needs at least one working folder: choose code projects, or environments or services with code projects, or give the agent code projects.';
 const bodies: Record<string, unknown> = {
   '/api/agents': { agents: [
-    { id: 'api-writer', name: 'API writer', runtime: 'claude_code', enabled: true, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
-    { id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
-    { id: 'no-model', name: 'Unfinished writer', runtime: 'claude_code', enabled: true, is_coordinator: false, model_id: null, model_name: null },
-    { id: 'retired', name: 'Retired writer', runtime: 'claude_code', enabled: false, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
-    { id: 'search', name: 'Search agent', runtime: 'openai', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' },
-    { id: 'coordinator', name: 'Coordinator', runtime: 'openai', enabled: true, is_coordinator: true, model_id: 'gpt', model_name: 'GPT' },
-    { id: 'analyst', name: 'Code analyst', runtime: 'openai', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' },
-    { id: 'reader', name: 'Code reader', runtime: 'claude_code', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
-    { id: 'librarian', name: 'Librarian', runtime: 'openai', resources: 'per_run', enabled: true, is_coordinator: false, model_id: 'gpt', model_name: 'GPT' }] },
+    { id: 'api-writer', name: 'API writer', runtime: 'claude_code', enabled: true, model_id: 'claude', model_name: 'Claude on Bedrock' },
+    { id: 'writer', name: 'Technical writer', runtime: 'claude_code', enabled: true, model_id: 'claude', model_name: 'Claude on Bedrock' },
+    { id: 'no-model', name: 'Unfinished writer', runtime: 'claude_code', enabled: true, model_id: null, model_name: null },
+    { id: 'retired', name: 'Retired writer', runtime: 'claude_code', enabled: false, model_id: 'claude', model_name: 'Claude on Bedrock' },
+    { id: 'search', name: 'Search agent', runtime: 'openai', enabled: true, model_id: 'gpt', model_name: 'GPT' },
+    { id: 'analyst', name: 'Code analyst', runtime: 'openai', resources: 'per_run', enabled: true, model_id: 'gpt', model_name: 'GPT' },
+    { id: 'reader', name: 'Code reader', runtime: 'claude_code', resources: 'per_run', enabled: true, model_id: 'claude', model_name: 'Claude on Bedrock' },
+    { id: 'librarian', name: 'Librarian', runtime: 'openai', resources: 'per_run', enabled: true, model_id: 'gpt', model_name: 'GPT' }] },
   '/api/code-projects': { projects: [{ id: 'repo', name: 'Payments API' }, { id: 'worker', name: 'Payments worker' }] },
   '/api/environments': { environments: [{ id: 'env', name: 'Production', services: [], servers: [] }] },
   '/api/services': { services: [{ id: 'svc', name: 'Payments' }] },
@@ -56,7 +55,7 @@ test('Generate starts a session from an agent, what to document and instructions
   fireEvent.click(await screen.findByLabelText('Agent'));
   expect(await screen.findByRole('option', { name: 'Technical writer (Claude Code)' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'Search agent (Native)' })).toBeVisible();  // both agent types
-  for (const hidden of [/Retired writer/, /Unfinished writer/, /Coordinator/]) expect(screen.queryByRole('option', { name: hidden })).toBeNull();
+  for (const hidden of [/Retired writer/, /Unfinished writer/]) expect(screen.queryByRole('option', { name: hidden })).toBeNull();
   fireEvent.click(screen.getByRole('option', { name: 'Technical writer (Claude Code)' }));
   expect(screen.getByText(/own model, prompt, instructions, skills and tools \(Claude on Bedrock\)/)).toBeVisible();
   for (const removed of ['Model', 'Prompt', 'Notes', 'Comments']) expect(screen.queryByLabelText(removed)).toBeNull();

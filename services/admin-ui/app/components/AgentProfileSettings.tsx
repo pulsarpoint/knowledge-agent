@@ -40,26 +40,24 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
     finally { setBusy(false); }
   }
   const capability = ({ documents: ['documents_enabled','Document search'], git: ['repositories_enabled','Code project access'], ssh: ['ssh_enabled','SSH access'], skills: ['skills_enabled','Skills'], mcp: ['mcp_enabled','MCP tools'], services: ['services_enabled','Service context'] } as const)[view as 'documents' | 'git' | 'ssh' | 'skills' | 'mcp' | 'services'];
-  return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>{profile.is_coordinator ? 'Edit the coordinator’s identity. Model, notes, and prompt versions are configured below and in Prompts.' : 'Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.'}</CardDescription></CardHeader>
+  return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>'Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.'</CardDescription></CardHeader>
     <form onSubmit={event => void save(event)}><CardContent className="pb-6"><FieldGroup>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}{notice && <p role="status" className="text-sm">{notice}</p>}
       <div hidden={view !== 'general'}><FieldGroup>
       <Field><FieldLabel htmlFor="agent-name">Name</FieldLabel><Input id="agent-name" required maxLength={100} disabled={busy} value={draft.name} onChange={e => change({ name: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
-      <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. {profile.is_coordinator ? 'The coordinator handles every board task.' : 'Agents are currently selected explicitly.'}</FieldDescription></Field>
-      {!profile.is_coordinator && <Field><FieldLabel htmlFor="agent-type">Agent type</FieldLabel>
+      <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. Agents are currently selected explicitly.</FieldDescription></Field>
+      <Field><FieldLabel htmlFor="agent-type">Agent type</FieldLabel>
         <Select value={draft.runtime ?? 'openai'} disabled={busy} onValueChange={value => change({ runtime: value as AgentRuntime })}>
           <SelectTrigger id="agent-type"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
-        <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>}
-      {profile.is_coordinator ? <Field><FieldLabel>Resources</FieldLabel><p className="text-sm">Fixed</p>
-        <FieldDescription>The coordinator works through the specialists it delegates to.</FieldDescription></Field>
-        : <Field><FieldLabel htmlFor="agent-resources">Resources</FieldLabel>
+        <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>
+            <Field><FieldLabel htmlFor="agent-resources">Resources</FieldLabel>
         <Select value={draft.resources ?? 'fixed'} disabled={busy} onValueChange={value => change({ resources: value as AgentResources })}>
           <SelectTrigger id="agent-resources"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
-        <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>}
-      {profile.is_coordinator ? <FieldDescription>The coordinator is always enabled.</FieldDescription> : <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>}
+        <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>
+      <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>
       </FieldGroup></div>
       {view === 'general' && draft.runtime === 'claude_code' && <FieldSet className="rounded-lg border p-4"><FieldLegend>Claude Code tools</FieldLegend>
         <FieldDescription>Claude Code’s own tools over the agent’s working folders. With all four off, the agent has only catalog tools, which come in the next update.</FieldDescription>

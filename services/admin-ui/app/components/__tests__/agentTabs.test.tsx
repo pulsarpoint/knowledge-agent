@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
   vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
-  agents = ['search', 'operations', 'code', 'custom-code'].map(id => ({ id, is_coordinator: false, documents_grounded: false, name: id === 'custom-code' ? 'Payments code' : prompts.agentNames[id as prompts.AgentName], documents_enabled: id === 'search', repositories_enabled: id !== 'operations', ssh_enabled: id === 'operations', skills_enabled: true, mcp_enabled: id !== 'search', services_enabled: true, description: '', when_to_use: '', enabled: true, revision: 1, model_id: null, all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null, model_name: null, prompt_title: `${id} prompt`, prompt_version: 3 }));
+  agents = ['search', 'operations', 'code', 'custom-code'].map(id => ({ id, documents_grounded: false, name: id === 'custom-code' ? 'Payments code' : prompts.agentNames[id as prompts.AgentName], documents_enabled: id === 'search', repositories_enabled: id !== 'operations', ssh_enabled: id === 'operations', skills_enabled: true, mcp_enabled: id !== 'search', services_enabled: true, description: '', when_to_use: '', enabled: true, revision: 1, model_id: null, all_collections: false, all_repositories: false, collection_ids: [], repository_ids: [], service_ids: [], skill_ids: [], active_prompt: null, model_name: null, prompt_title: `${id} prompt`, prompt_version: 3 }));
   data = {
     agents: agents.map(a => ({ agent: a.id, active_version_id: a.id, revision: 1 })),
     versions: agents.map(a => ({ agent: a.id, id: a.id, version: 3, title: `${a.id} prompt`, content: `${a.id} instructions`, revision: 1, status: 'active', created_at: '', updated_at: '' })),
@@ -59,6 +59,14 @@ test('catalog opens distinct agents with one model card and preserves SSH tasks 
   expect(screen.getAllByRole('combobox', { name: 'Model connection', hidden: true })).toHaveLength(1);
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.getByText('SSH test custom-code')).toBeVisible();
+});
+
+test('an agent flagged by an older API is still an ordinary agent', async () => {
+  Object.assign(agents[0], { is_coordinator: true });
+  render(app('/agents'));
+  for (const agent of agents) expect(await screen.findByRole('button', { name: `Remove ${agent.name}` })).toBeVisible();
+  expect(screen.queryByText('Coordinator')).toBeNull();
+  expect(screen.queryByText('Delegation')).toBeNull();
 });
 
 test('a custom agent prompt draft survives section changes and saves to its own identity', async () => {

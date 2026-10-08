@@ -19,7 +19,7 @@ export interface AgentProposal {
   mcp_server_ids: string[]; service_ids: string[]; servers: WizardServer[];
 }
 export interface WizardOptions {
-  default_model_id: string | null; prompt: string; schema: Record<string, unknown>;
+  prompt: string; schema: Record<string, unknown>;
   catalog: {
     models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
