@@ -15,8 +15,10 @@ from knowledge_admin.code_paths import code_root, rebase_code_path
 from knowledge_admin.code_processing import CodeProcessingError, index_directory, source_inventory
 
 
-def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
-    """Require an explicitly generated graph that still describes the selected source."""
+def load_code_graph_hashing(project: dict, expected_hash: str | None = None) -> dict:
+    """Require an explicitly generated graph that still describes the selected source, hashing every source file to
+    check it. For the benchmark export and tests only: loading a configuration must not use it (it reads all source
+    files); configurations use current_graph."""
     directory = index_directory(project['id'])
     manifest = directory / 'manifest.json'
     if not manifest.is_file():
@@ -36,6 +38,7 @@ def load_code_graph(project: dict, expected_hash: str | None = None) -> dict:
 
 SYNCED_AFTER = 'The code was synced after this graph was generated; regenerate it or confirm with read_file.'
 SOURCE_HASH = re.compile(r'[0-9a-f]{64}')
+USABLE = ('ready', 'partial')  # generation statuses with a graph worth querying
 
 
 def _relative_folders(paths, root: PurePosixPath) -> list[str]:
@@ -58,8 +61,8 @@ def _generated_at(value) -> datetime | None:
 def current_graph(project: dict) -> dict | None:
     """The project's generated graph as the code_graph and shell tools read it, decided from what generation stored
     (the manifest and the snapshot it names) without reading or hashing source files; None when it was never
-    generated, its snapshot is gone, the manifest is not one generation writes, the folder selection changed since,
-    or the index or code mount is not configured. Source edits are not detected here: code queries compare each file
+    generated, generation did not end ready or partial, its snapshot is gone, the manifest is not one generation
+    writes, the folder selection changed since, or the index or code mount is not configured. Source edits are not detected here: code queries compare each file
     with its indexed hash, and a sync after generation (project's synced_at) adds a note.
     project: id, name, folder_paths (absolute under CODE_ROOT or relative to it) and optionally synced_at."""
     root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
@@ -71,6 +74,8 @@ def current_graph(project: dict) -> dict | None:
         if not manifest.is_file():
             return None
         saved = json.loads(manifest.read_text())
+        if saved.get('status') not in USABLE:
+            return None
         source_hash, relative_root = saved['source_hash'], PurePosixPath(saved.get('relative_root', '.'))
         if (not isinstance(source_hash, str) or not SOURCE_HASH.fullmatch(source_hash)
                 or relative_root.is_absolute() or '..' in relative_root.parts):

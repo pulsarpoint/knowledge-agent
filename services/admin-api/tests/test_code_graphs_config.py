@@ -93,6 +93,7 @@ PROCESSED = '2026-10-01T10:00:00+00:00'
 def write_graph(index_root, project_id, folders, code_root='/work/code', **manifest):
     """What process_code leaves behind: a manifest and the snapshot it names."""
     saved = {'id': project_id, 'name': 'Old name', 'source_hash': HASH, 'relative_root': '.', 'processed_at': PROCESSED,
+             'status': 'ready',
              'folder_paths': [f'{code_root}/{folder}' for folder in folders], 'files': {'app/a.py': 'x'}, **manifest}
     directory = index_root / project_id
     (directory / saved['source_hash']).mkdir(parents=True, exist_ok=True)
@@ -141,6 +142,16 @@ def test_a_manifest_with_unsafe_values_is_not_offered(tmp_path, monkeypatch, man
     assert code_graph.current_graph(project) is None
     write_graph(tmp_path / 'indexes', project['id'], ['app'], relative_root='app')
     assert code_graph.current_graph(project)['code_root'] == '/work/code/app'
+
+
+@pytest.mark.parametrize('status, offered', [('ready', True), ('partial', True), ('unavailable', False),
+                                             ('unsupported', False), (None, False)])
+def test_only_a_ready_or_partial_graph_is_offered(tmp_path, monkeypatch, status, offered):
+    monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
+    monkeypatch.setenv('CODE_ROOT', '/work/code')
+    project = {'id': str(uuid4()), 'name': 'App', 'folder_paths': ['/work/code/app']}
+    write_graph(tmp_path / 'indexes', project['id'], ['app'], status=status)
+    assert (code_graph.current_graph(project) is not None) is offered
 
 
 def test_code_synced_after_generation_carries_a_note(tmp_path, monkeypatch):
