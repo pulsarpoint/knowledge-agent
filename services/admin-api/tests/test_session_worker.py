@@ -6,13 +6,14 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_worker
 from knowledge_admin.knowledge_agents import session_worker as shared
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import sessions, claude_code_session  # noqa: F401  (fixture)
+from session_rows import a_model, add_ad_hoc_session
 from test_repositories import HEADERS
 
 
 def test_each_worker_claims_only_sessions_of_its_agent_type(sessions):
     store = sessions.store
-    claude, native = UUID(start(sessions)['id']), UUID(start(sessions)['id'])
+    claude, native = UUID(claude_code_session(sessions)['id']), UUID(claude_code_session(sessions)['id'])
     with store.connect() as conn:  # the second one as a native session (Task 3 creates them through the API)
         conn.execute("UPDATE ka.agent_sessions_cc SET runtime='openai',agent_config=%s WHERE id=%s",
                      (Jsonb({'id': sessions.agent}), native))
@@ -26,7 +27,7 @@ def test_each_worker_claims_only_sessions_of_its_agent_type(sessions):
 
 def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     store = sessions.store
-    sid = UUID(start(sessions)['id'])
+    sid = UUID(claude_code_session(sessions)['id'])
     [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
     runner = shared.SessionRunner(store, row)
     committed = []
@@ -60,7 +61,7 @@ def test_claude_code_worker_keeps_its_names():
 def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(sessions):
     """Delivery inside a running turn (native sessions): queued messages go to that turn once, under the lease."""
     store = sessions.store
-    sid = UUID(start(sessions)['id'])
+    sid = UUID(claude_code_session(sessions)['id'])
     [row] = claude_code_worker.claim(store, 'worker-1', [], 4)
     runner = shared.SessionRunner(store, row)
     assert runner.next_turn()[0] == 1  # the first message starts turn 1
@@ -78,3 +79,20 @@ def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(ses
         conn.execute("UPDATE ka.agent_sessions_cc SET worker_id='other' WHERE id=%s", (sid,))
     assert sessions.client.post(url, headers=HEADERS, json={'text': 'Lost?'}).status_code == 202
     assert runner.queued_comments(1) == []  # a runner that lost the session takes nothing
+
+
+def test_an_interrupted_ad_hoc_turn_is_recorded_under_the_ad_hoc_agent(sessions):
+    """A session left working by a lost worker fails; its error and end events name the agent 'ad-hoc' (no agents row)."""
+    store = sessions.store
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        actor = store.actor(conn, 'admin-id', 'admin@example.test')
+        sid = add_ad_hoc_session(conn, project, actor, a_model(conn, actor))
+        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=%s", (sid,))
+    [row] = shared.claim(store, 'native-1', [], 4, 'openai')
+    assert (row['id'], row['agent_id']) == (sid, None)
+    with store.connect() as conn:
+        assert conn.execute('SELECT status FROM ka.agent_sessions_cc WHERE id=%s', (sid,)).fetchone()['status'] == 'failed'
+        events = conn.execute('SELECT kind,agent_id FROM ka.agent_run_events WHERE run_key=%s ORDER BY seq',
+                              (shared.run_key(sid, 1),)).fetchall()
+    assert [(e['kind'], e['agent_id']) for e in events] == [('error', 'ad-hoc'), ('end', 'ad-hoc')]

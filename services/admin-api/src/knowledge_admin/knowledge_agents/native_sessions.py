@@ -23,6 +23,7 @@ from knowledge_admin import agent_tracing, grounding, run_record
 from knowledge_admin.agent_activity import tool_failed
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from knowledge_admin.knowledge_agents.history import HistorySession
 from knowledge_admin.knowledge_agents.session_worker import (END_STATUS, IDLE_RELEASE_SECONDS, MAX_PREVIEW_CHARS,
                                                              MAX_TOOL_OUTPUT, PREVIEW_LINES, STOPPED, capped, clean_text,
@@ -305,7 +306,7 @@ class NativeRunner(shared.SessionRunner):
         self.secrets = secrets
         self.stop_deadline = None
         recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
-                               agent_id=self.session['agent_id'], actor_id=str(self.session['actor_id']), secrets=secrets)
+                               agent_id=self.session['agent_id'] or AD_HOC_AGENT, actor_id=str(self.session['actor_id']), secrets=secrets)
         kind = 'test_session' if self.session.get('purpose') == 'test' else 'native_session'
         recorder.add('start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'],
                                'turn': number})

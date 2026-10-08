@@ -19,7 +19,7 @@ from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
 from test_claude_code_runner import done, events, post, session_row, wait_for
-from test_claude_code_sessions import native_agent, sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import claude_code_session, sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -29,13 +29,10 @@ FAILED = 'Agent execution failed (RuntimeError). Check the model connection and 
 
 @pytest.fixture
 def native(sessions, monkeypatch):
-    """A native writer with the Claude model and the Payments worker as its own code project, and a session that
-    documents the Payments API code project (named in the first message) and the prod-1 server."""
+    """An ad-hoc session with the Claude model that documents the Payments API code project and runs with it."""
     monkeypatch.setattr(run_record, '_store', sessions.store)
     monkeypatch.setattr(claude_code_worker, 'reclaim_slot', lambda session_id, slot: None)
-    agent_id = native_agent(sessions.client, model_id=sessions.claude, repositories_enabled=True,
-                            repository_ids=[sessions.worker])
-    session = start(sessions, agent_id=agent_id, environment_ids=[], service_ids=[])
+    session = start(sessions, model_id=sessions.claude, environment_ids=[], service_ids=[])
     return sessions, UUID(session['id'])
 
 
@@ -88,7 +85,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
 
     asyncio.run(scenario())
     first, second = fake.calls
-    assert first['task'].startswith('Document the following.') and second['task'] == 'Shorten it.'
+    assert first['task'].startswith('Write the API reference.') and second['task'] == 'Shorten it.'
     assert first['history'] == [] and second['history'] == [
         {'role': 'user', 'content': first['task']}, {'role': 'assistant', 'content': '# Payments API'}]
     # No turn limits: a session turn runs until it ends or Stop.
@@ -96,7 +93,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert first['credentials'] == {sessions.claude: KEY}  # decrypted in the worker, for this turn
     assert 'record' not in first['config']
     code = first['config']['code']
-    assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/worker']]
+    assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
     row = session_row(store, sid)
     assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'], row['cached_tokens'],
             row['cost_usd']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40, 0)
@@ -106,10 +103,10 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     turn1 = [e for e in recorded if e['run_key'] == f'cc:{sid}:1']
     assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
                                           'message', 'usage', 'end']
-    assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Payments – API reference', 'agent': 'Native writer',
+    assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Payments – API reference', 'agent': 'Ad-hoc agent',
                                    'turn': 1}
     assert turn1[1]['payload'] == {'task': first['task']}  # no empty history from agent()'s own run record
-    assert turn1[2]['payload']['text'] == 'Native prompt for Native writer'
+    assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
     assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
     assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
         {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110, 'cost_usd': 0.0},
@@ -118,7 +115,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']
     assert [(r['run_key'], r['status'], r['agent'], r['total_tokens']) for r in runs] == [
-        (f'cc:{sid}:2', 'completed', 'Native writer', 58), (f'cc:{sid}:1', 'completed', 'Native writer', 260)]
+        (f'cc:{sid}:2', 'completed', 'Ad-hoc agent', 58), (f'cc:{sid}:1', 'completed', 'Ad-hoc agent', 260)]
     page = sessions.client.get(url + '/events/history', headers=HEADERS).json()['events']
     assert [e['kind'] for e in page if e['turn'] == 1][3:6] == ['tool_call', 'usage', 'tool_result']
     assert 'output' not in next(e['payload'] for e in page if e['kind'] == 'tool_result')  # the page gets the preview
@@ -582,7 +579,7 @@ def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
 def test_both_workers_run_only_their_own_sessions(native):
     sessions, native_id = native
     store = sessions.store
-    claude_id = UUID(start(sessions)['id'])
+    claude_id = UUID(claude_code_session(sessions)['id'])
     client = FakeClient([[done('# Claude draft')]])
     fake = FakeAgent([{'steps': [llm(message('# Native draft'))], 'answer': '# Native draft'}])
 
@@ -659,3 +656,32 @@ def test_a_comment_stays_in_place_in_the_real_sdk_input_and_history(config, resp
     kinds = [item.get('type') or item.get('role') for item in history.pending]
     assert kinds == ['user', 'function_call', 'function_call_output', 'user', 'message']
     assert history.pending[0]['content'] == 'FILES_TOOL_CYCLE' and history.pending[3] == note
+
+
+def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native):
+    sessions, sid = native
+    store = sessions.store
+    row = claimed(store)
+    assert (row['id'], row['agent_id'], row['agent_name']) == (sid, None, 'Ad-hoc agent')
+    with store.connect() as conn:  # hand the claimed session back so serve() claims it itself
+        conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
+    fake = FakeAgent([{'steps': [llm(message('# Draft'))], 'answer': '# Draft'}])
+
+    async def scenario():
+        stopped = asyncio.Event()
+        serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
+                                                            poll=0.02))
+        await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await wait_for(store, sid, lambda s: s['worker_id'] is None)
+        stopped.set()
+        await asyncio.wait_for(serving, 5)
+
+    asyncio.run(scenario())
+    assert session_row(store, sid)['draft'] == '# Draft'
+    with store.connect() as conn:
+        agents = conn.execute('SELECT DISTINCT agent_id FROM ka.agent_run_events WHERE starts_with(run_key,%s)',
+                              (f'cc:{sid}:',)).fetchall()
+    assert [a['agent_id'] for a in agents] == ['ad-hoc']
+    [start_event] = [e for e in events(store, sid) if e['kind'] == 'start']
+    assert start_event['payload']['agent'] == 'Ad-hoc agent'

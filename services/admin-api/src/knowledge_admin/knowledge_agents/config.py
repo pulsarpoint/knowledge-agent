@@ -21,6 +21,28 @@ CLAUDE_CODE_TOOLS: tuple[str, ...] = ('Read', 'Grep', 'Glob', 'Bash')
 CHOOSE_CLAUDE = 'Choose a Claude model for Claude Code agents'
 NATIVE_ONLY = 'Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.'
 NO_RUN_RESOURCES = 'This agent receives its resources per run, and this run was started without them.'
+AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
+AD_HOC_NAME = 'Ad-hoc agent'
+MODEL = """SELECT id,name,provider,model,api_format,base_url,aws_region,enabled,revision,
+    api_key_ciphertext IS NOT NULL AS has_api_key FROM ka.llm_models WHERE id=%s"""
+
+
+def load_model(conn, model_id) -> dict[str, Any] | None:
+    """A model in config shape: its key as a reference, never decrypted."""
+    model = conn.execute(MODEL, (model_id,)).fetchone() if model_id else None
+    if model is not None:
+        model['api_key_ref'] = {
+            'table': 'ka.llm_models', 'id': model['id'], 'column': 'api_key_ciphertext',
+            'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'aad': f"llm:{model['id']}:v1",
+        } if model.pop('has_api_key') else None
+    return model
+
+
+def private_key_ref(credential_id, project_id, key_version) -> dict[str, Any] | None:
+    """An SSH key in config shape, as a reference."""
+    return {'table': 'ka.credentials', 'id': credential_id, 'column': 'ciphertext',
+            'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'key_version': key_version,
+            'aad': f'{project_id}:{credential_id}:ssh_private_key:{key_version}'} if credential_id is not None else None
 
 
 class AgentConfig(TypedDict):
@@ -246,14 +268,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
         agent_settings = config_by_server.get(None)
         instructions = agent_settings['instructions'] if agent_settings is not None else ''
 
-        model = conn.execute("""SELECT id,name,provider,model,api_format,base_url,aws_region,enabled,revision,
-            api_key_ciphertext IS NOT NULL AS has_api_key FROM ka.llm_models WHERE id=%s""",
-            (agent['model_id'],)).fetchone()
-        if model is not None:
-            model['api_key_ref'] = {
-                'table': 'ka.llm_models', 'id': model['id'], 'column': 'api_key_ciphertext',
-                'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'aad': f"llm:{model['id']}:v1",
-            } if model.pop('has_api_key') else None
+        model = load_model(conn, agent['model_id'])
 
         collections = conn.execute("""SELECT c.id,c.name,c.description,
             ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
@@ -336,11 +351,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
             credential_id = server.pop('credential_id')
             credential_project_id = server.pop('credential_project_id')
             key_version = server.pop('key_version')
-            server['private_key_ref'] = {
-                'table': 'ka.credentials', 'id': credential_id, 'column': 'ciphertext',
-                'key_env': 'CREDENTIAL_ENCRYPTION_KEY', 'key_version': key_version,
-                'aad': f'{credential_project_id}:{credential_id}:ssh_private_key:{key_version}',
-            } if credential_id is not None else None
+            server['private_key_ref'] = private_key_ref(credential_id, credential_project_id, key_version)
             server_settings = config_by_server.get(server['id'])
             server['config_revision'] = server_settings['revision'] if server_settings is not None else None
             overrides_instructions = server_settings is not None and server_settings['instructions'] is not None

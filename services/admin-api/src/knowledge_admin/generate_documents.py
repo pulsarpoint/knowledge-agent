@@ -1,5 +1,5 @@
-"""Docs → Generate documents: what the form asks an agent to document, as the session's context snapshot and its one
-first message. Names, addresses, descriptions and container paths only: never credentials."""
+"""Docs → Generate documents: what the form asks an agent to document, as the session's context snapshot and the
+ad-hoc agent's context. Names, addresses, descriptions and container paths only: never credentials."""
 import os
 from pathlib import PurePosixPath
 from typing import Any
@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from knowledge_admin.claude_code import FINAL_ANSWER
 
 FOLDER_PATHS = 'ARRAY(SELECT path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY path) AS folder_paths'
 
@@ -82,7 +81,7 @@ def subjects(conn, project: UUID, value) -> dict:
         'services': [{'id': s['id'], 'name': s['name'], 'description': s['description'],
                       'deployments': [f"{d['server']['name']} ({d['environment']})" for d in s['deployments']],
                       'code_projects': linked.get(s['id'], [])} for s in services],
-        'servers': servers, 'instructions': value.instructions})
+        'servers': servers})
 
 
 def _flat(text: str) -> str:
@@ -100,10 +99,9 @@ def _line(name: str, description: str, parts: list[tuple[str, list[str]]]) -> st
     return text + (' — ' + '; '.join(details) if details else '')
 
 
-def first_message(context: dict[str, Any]) -> str:
-    """The message the form sends, as a user could have typed it: what to document, the instructions, and how to answer
-    so that the answer becomes the draft."""
-    sections = ['Document the following.']
+def _sections(context: dict[str, Any]) -> list[str]:
+    """The selected subjects, one Markdown section per kind; names and descriptions stay on one line."""
+    sections = []
     if context['code_projects']:
         sections.append('## Code\n' + '\n'.join(
             f"- {_flat(p['name'])} — {', '.join(map(_flat, p['paths']))}" for p in context['code_projects']))
@@ -120,7 +118,10 @@ def first_message(context: dict[str, Any]) -> str:
     if context['servers']:
         sections.append('## Servers\n' + '\n'.join(
             _line(f"{s['name']} ({s['hostname']})", s['description'], []) for s in context['servers']))
-    if context['instructions']:
-        sections.append('## Instructions\n' + context['instructions'])
-    sections.append(FINAL_ANSWER)
-    return '\n\n'.join(sections)
+    return sections
+
+
+def resource_context(context: dict[str, Any]) -> str:
+    """What a run documents, for the ad-hoc agent's system prompt: the selection under one heading ('' for none)."""
+    sections = _sections(context)
+    return '\n\n'.join(['# What you are documenting', *sections]) if sections else ''

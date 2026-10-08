@@ -26,7 +26,7 @@ from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import function_tool
-from knowledge_admin.knowledge_agents.config import credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
+from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
@@ -296,7 +296,8 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
     }
     credentials = {}
     with store.connect() as conn:
-        current = conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (config['id'],)).fetchone()
+        # The ad-hoc agent has no agents row: a saved agent that happens to be called 'ad-hoc' must never block its turns.
+        current = None if config['id'] == AD_HOC_AGENT else conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (config['id'],)).fetchone()
         if current is not None and not current['enabled']:
             raise ValueError('Agent is disabled.')
         if config['model'] is not None and not conn.execute('SELECT 1 FROM ka.llm_models WHERE id=%s AND enabled', (config['model']['id'],)).fetchone():

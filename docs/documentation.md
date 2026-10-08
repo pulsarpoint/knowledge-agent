@@ -89,43 +89,32 @@ confirmation and navigation with unsaved edits.
 
 ## Generate documents
 
-**Docs → Generate documents** starts an agent session (native or Claude Code); the agent writes one document. The agent runs with
-its own model, prompt, instructions, skills and tools; the form has no model or prompt field.
+**Docs → Generate documents** starts a session with an ad-hoc native agent: no `agents` row, no saved agent. The form picks the
+model and system prompt, shows the context generated from what to document (editable), and takes a saved or own prompt.
 
-`POST /api/claude-code/sessions` takes nine fields: `agent_id`, `code_project_ids`, `collection_ids`, `environment_ids`, `service_ids`,
-`server_ids`, `instructions`, `document_name` and `folder`. At least one code project, collection, environment, service or server is
-required. Refusals (400): `NOTHING_CHOSEN` (nothing chosen), `NO_FOLDER` (Claude Code agents only: at least one working
-folder: code projects, or environments or services linked to code projects, or an agent with code projects), `AGENT_MODEL`
-("The agent has no enabled model for its agent type…": Claude Code needs a Claude connection, native a Responses or Claude
-connection), `NO_AGENT` ("Select an enabled agent.": unknown or disabled), and unknown or unavailable ids
-("Select available ..."). For per-run agents it also refuses `This agent does not use <kind>.`, `<label> <name> is not allowed for this agent.`, `<label> <name> is not available: it was removed, archived or disabled.` and, for Claude Code, `NO_RUN_FOLDER` (no working folder among the run's code projects).
+`POST /api/claude-code/context` takes the five id lists and returns `{text}`: the context the form shows and the agent reads.
 
-The session stores two snapshots and a `runtime` (`openai` | `claude_code`). `prompt_snapshot` holds `system_prompt`, plus
-`claude_code_tools` for Claude Code; only sessions saved before migration 0080 may also carry `agent_version`. Native sessions also store `agent_config` (the agent's config pinned
-at creation: a fixed agent's own configuration, or a per-run agent's configuration narrowed to the form's sources (`run_resources.resolve`); credential references only) and
-`history` (Agents SDK items of successful turns, redacted); listing and detail return `runtime`, never `agent_config` or
-`history`.
-`context_snapshot` holds the chosen `code_projects`, `collections`, `environments`, `services`, `servers` and `instructions`, plus
+`POST /api/claude-code/sessions` takes `model_id`, `code_project_ids`, `collection_ids`, `environment_ids`, `service_ids`,
+`server_ids`, `system_prompt` (up to 20,000 characters), `context` (up to 100,000), `prompt` (up to 100,000), `prompt_id`
+(the saved prompt it came from, or null), `document_name` and `folder`. At least one code project, collection, environment,
+service or server is required. Refusals (400): `NOTHING_CHOSEN`, `NO_MODEL` ("Choose an enabled model.": unknown, disabled or
+not a Responses or Claude connection), unknown or unavailable ids ("Select available ..."), and the per-run resource refusals
+`<label> <name> is not available: it was removed, archived or disabled.` Servers brought by environments or services that have no
+usable connection are left out of the agent's tools.
+
+The session stores two snapshots and `runtime = 'openai'`. `prompt_snapshot` holds `system_prompt`, `context` and `prompt_id`;
+the pinned agent's system prompt is the system prompt followed by the context. `agent_config` is the ad-hoc configuration
+narrowed to the form's sources (`run_resources.resolve`; credential references only), and `history` holds the Agents SDK items
+of successful turns, redacted; listing and detail return `runtime`, never `agent_config` or `history`. Migration 0082 lets these
+sessions have `agent_id` NULL, and their run records carry the agent `ad-hoc`.
+`context_snapshot` holds the chosen `code_projects`, `collections`, `environments`, `services`, `servers`, plus
 `folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
-never included. Sessions of per-run agents also store `run_resources` (ids only). Generate documents sessions have `purpose = 'documents'`; the agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft) and are not listed in Generate documents.
+never included. Sessions also store `run_resources` (ids only). Generate documents sessions have `purpose = 'documents'`; the agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft) and are not listed in Generate documents.
 
-The first message is built from the context (`first_message` in `generate_documents.py`) and queued as the session's
-first input. Names, descriptions and paths are collapsed to one line, so inventory text cannot start a section:
+The first message is the prompt followed by the final-answer instruction, queued as the session's first input:
 
 ```
-Document the following.
-
-## Code
-- Payments API — /work/data/code/payments-api
-
-## Services
-- Payments — deployed on prod-1 (production); code: Payments API (/work/data/code/payments-api)
-
-## Servers
-- prod-1 (10.0.0.5): Payments host
-
-## Instructions
-Focus on the public API.
+<prompt>
 
 When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
 later message, reply again with the complete updated document.

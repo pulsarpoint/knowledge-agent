@@ -1,4 +1,5 @@
-"""Interactive Claude Code sessions: the context snapshot, queued messages, Stop, Close and idle closing."""
+"""Generate documents sessions (an ad-hoc native agent): creation, the context, queued messages, Stop, Close and idle
+closing."""
 import json
 import threading
 import time
@@ -10,11 +11,10 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin import claude_code_api
 from knowledge_admin.claude_code import FINAL_ANSWER, IDLE_CLOSED, SYSTEM_PROMPT
-from knowledge_admin.claude_code_api import AGENT_MODEL, NO_AGENT, NO_FOLDER, NOTHING_CHOSEN
+from knowledge_admin.claude_code_api import NO_MODEL, NOTHING_CHOSEN
 from knowledge_admin.documents import SAME_DOCUMENT_NAME
 from test_api import _client
 from test_claude_code_agents import claude_code_agent
-from test_operations import setup as ssh_setup
 from test_profiles import wizard_payload
 from test_repositories import HEADERS
 
@@ -59,8 +59,9 @@ def sessions(store, tmp_path, monkeypatch):
                      (project, environment, server['id']))
         conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,
             runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'payments-api',8080)""", (project, service, server['id'], environment))
-    body = {'agent_id': agent, 'code_project_ids': [str(repo)], 'environment_ids': [str(environment)],
-            'service_ids': [str(service)], 'server_ids': [server['id']], 'instructions': ' Focus on the public API. ',
+    body = {'model_id': gpt, 'code_project_ids': [str(repo)], 'environment_ids': [str(environment)],
+            'service_ids': [str(service)], 'server_ids': [], 'system_prompt': ' You document systems. ',
+            'context': '# What you are documenting\n\nPayments', 'prompt': ' Write the API reference. ',
             'document_name': 'Payments – API reference', 'folder': 'payments-api-docs'}
     return SimpleNamespace(client=client, store=store, body=body, agent=agent, claude=claude, gpt=gpt, repo=str(repo),
                            worker=str(worker), environment=str(environment), service=str(service), server=server, data=data)
@@ -78,84 +79,106 @@ def refused(sessions, **change) -> str:
     return response.json()['error']['message']
 
 
-def test_generate_documents_sends_one_message_and_opens_the_folders(sessions):
-    session = start(sessions)
-    data = sessions.data
-    assert (session['status'], session['turns'], session['title'], session['folder'], session['agent_name'], session['model_name']) == (
-        'starting', 0, 'Payments – API reference', 'payments-api-docs', 'Technical writer', 'Claude')
-    assert session['runtime'] == 'claude_code' and 'agent_config' not in session and 'history' not in session
-    assert (session['purpose'], session['model_calls'], session['reasoning_tokens']) == ('documents', 0, 0)
-    assert 'config' not in session and 'reviews' not in session  # a documentation session's pinned config stays private
-    app, worker = f'{data}/code/app', f'{data}/code/worker'
-    context = session['context_snapshot']
-    assert context['folders'] == [  # chosen first, then linked through the environment and the service, once each
-        {'path': app, 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo},
-        {'path': worker, 'kind': 'code_project', 'name': 'Payments worker', 'code_project_id': sessions.worker}]
-    assert context['code_project_ids'] == [sessions.repo]  # the saved document links the chosen projects only
-    assert context['servers'] == [{'id': sessions.server['id'], 'name': 'prod-1', 'hostname': '10.0.0.5',
-                                   'description': 'Payments host'}]
-    assert session['prompt_snapshot'] == {'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}
+def claude_code_session(sessions, *, document_name: str = 'Payments – API reference') -> dict:
+    """A Claude Code documentation session as the removed saved-agent path inserted it: the Claude Code worker still
+    runs existing ones."""
+    session_id, app = uuid4(), f'{sessions.data}/code/app'
+    with sessions.store.connect() as conn:
+        project = sessions.store.project(conn, 'shop')
+        actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
+        conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+            context_snapshot,document_name,folder,runtime) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'claude_code')""",
+            (session_id, project, sessions.agent, actor, sessions.claude, document_name,
+             Jsonb({'system_prompt': SYSTEM_PROMPT, 'claude_code_tools': ['Read', 'Grep', 'Glob', 'Bash']}),
+             Jsonb({'folders': [{'path': app, 'kind': 'code_project', 'name': 'Payments API',
+                                 'code_project_id': sessions.repo}], 'code_project_ids': [sessions.repo]}),
+             document_name, 'payments-api-docs'))
+        conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                     (session_id, actor, f'Document the Payments API.\n\n{FINAL_ANSWER}'))
+    return {'id': str(session_id)}
+
+
+def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context_and_selection(sessions):
+    s = sessions
+    session = start(s, prompt_id=None)
+    app, worker = f'{s.data}/code/app', f'{s.data}/code/worker'
+    assert (session['agent_id'], session['agent_name'], session['model_name'], session['runtime']) == (
+        None, 'Ad-hoc agent', 'GPT', 'openai')
+    assert (session['title'], session['folder'], session['status']) == ('Payments – API reference', 'payments-api-docs', 'starting')
+    assert session['prompt_snapshot'] == {'system_prompt': 'You document systems.',
+                                          'context': '# What you are documenting\n\nPayments', 'prompt_id': None}
+    assert session['context_snapshot']['code_project_ids'] == [s.repo]  # Save document links the chosen projects
+    assert [f['path'] for f in session['context_snapshot']['folders']] == [app, worker]  # chosen, then brought
+    assert session['inputs'][0]['text'] == f'Write the API reference.\n\n{FINAL_ANSWER}'
+    assert session['run_resources']['service_ids'] == [s.service]
     [first] = session['inputs']
     assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
-    assert first['text'] == '\n\n'.join([
-        'Document the following.',
-        f'## Code\n- Payments API — {app}',
-        '## Environments\n- Production: Live systems — servers: prod-1 (10.0.0.5); services: Payments; '
-        f'deployments: Payments on prod-1; code: Payments API ({app}), Payments worker ({worker})',
-        f'## Services\n- Payments — deployed on prod-1 (Production); code: Payments API ({app}), Payments worker ({worker})',
-        '## Servers\n- prod-1 (10.0.0.5): Payments host',
-        '## Instructions\nFocus on the public API.',
-        FINAL_ANSWER])
-    serialized = json.dumps(session)
-    for secret in ('bedrock-secret-token', 'api_key_ref', 'private_key', 'credential'):
-        assert secret not in serialized
-    # Servers only, without instructions: one section; the folders come from the agent's code projects (none here).
-    assert refused(sessions, code_project_ids=[], environment_ids=[], service_ids=[], instructions='') == NO_FOLDER
-    # A service alone opens its linked code projects.
-    service_only = start(sessions, code_project_ids=[], environment_ids=[], server_ids=[], instructions='')
-    assert [f['path'] for f in service_only['context_snapshot']['folders']] == [app, worker]
-    assert service_only['inputs'][0]['text'] == '\n\n'.join([
-        'Document the following.',
-        f'## Services\n- Payments — deployed on prod-1 (Production); code: Payments API ({app}), Payments worker ({worker})',
-        FINAL_ANSWER])
-    # An archived project is never linked.
-    with sessions.store.connect() as conn:
-        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (sessions.worker,))
-    linked = start(sessions, code_project_ids=[], environment_ids=[], server_ids=[])
-    assert [f['path'] for f in linked['context_snapshot']['folders']] == [app]
+    detail = s.client.get(f"/api/claude-code/sessions/{session['id']}", headers=HEADERS).json()
+    for shown in (session, detail):  # a documentation session's pinned config and history stay private
+        assert shown['purpose'] == 'documents'
+        for hidden in ('config', 'reviews', 'agent_config', 'history'):
+            assert hidden not in shown
+        serialized = json.dumps(shown)
+        for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token', 'private_key',
+                       'credential'):
+            assert secret not in serialized
+    with s.store.connect() as conn:
+        row = conn.execute('SELECT agent_id,agent_config FROM ka.agent_sessions_cc WHERE id=%s', (session['id'],)).fetchone()
+        audit = conn.execute("SELECT details FROM ka.audit_events WHERE resource_id=%s", (session['id'],)).fetchone()
+        assert conn.execute('SELECT count(*) AS n FROM ka.agents WHERE id=%s', ('ad-hoc',)).fetchone()['n'] == 0
+    assert row['agent_id'] is None
+    assert row['agent_config']['system_prompt']['content'] == 'You document systems.\n\n# What you are documenting\n\nPayments'
+    assert audit['details'] == {'runtime': 'openai', 'ephemeral': True, 'model_id': s.gpt, 'prompt_id': None}
+    no_context = start(s, context='  ')
+    with s.store.connect() as conn:
+        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s', (no_context['id'],)).fetchone()
+    assert pinned['agent_config']['system_prompt']['content'] == 'You document systems.'
+    listed = s.client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
+    assert {row['agent_name'] for row in listed} == {'Ad-hoc agent'}
+
+
+def test_the_context_endpoint_describes_the_selection(sessions):
+    s = sessions
+    response = s.client.post('/api/claude-code/context', headers=HEADERS, json={'service_ids': [s.service]})
+    assert response.status_code == 200, response.text
+    assert response.json()['text'].startswith('# What you are documenting\n\n## Services\n- Payments — deployed on prod-1')
+    assert s.client.post('/api/claude-code/context', headers=HEADERS, json={}).json() == {'text': ''}
+    assert s.client.post('/api/claude-code/context', headers=HEADERS,
+                         json={'server_ids': [str(uuid4())]}).status_code == 400
+
+
+def test_ad_hoc_sessions_refuse_what_cannot_run(sessions):
+    s = sessions
+    chat = s.client.post('/api/llm/models', headers=HEADERS, json={
+        'name': 'Chat', 'provider': 'openai', 'model': 'gpt-4o', 'api_format': 'chat_completions',
+        'base_url': 'http://model.test/v1'}).json()['id']
+    assert refused(s, model_id=chat) == NO_MODEL  # Chat Completions does not fit native agents
+    assert refused(s, model_id=str(uuid4())) == NO_MODEL
+    with s.store.connect() as conn:
+        conn.execute('UPDATE ka.llm_models SET enabled=false WHERE id=%s', (s.gpt,))
+    assert refused(s) == NO_MODEL
+    with s.store.connect() as conn:
+        conn.execute('UPDATE ka.llm_models SET enabled=true WHERE id=%s', (s.gpt,))
+    # prod-1 has no SSH connection: brought by Production it is left out, chosen directly it is refused by name.
+    assert refused(s, server_ids=[s.server['id']]) == 'Server prod-1 is not available: it was removed, archived or disabled.'
+    with s.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
 
 @pytest.mark.parametrize('change, status', [
-    ({'agent_id': 'search'}, 400), ({'agent_id': 'missing'}, 400),
+    ({'model_id': 'not-a-uuid'}, 400), ({'agent_id': 'search'}, 400), ({'instructions': 'x'}, 400),
     ({'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}, 400),
     ({'code_project_ids': ['not-a-uuid']}, 400), ({'code_project_ids': [str(uuid4())]}, 400),
     ({'environment_ids': [str(uuid4())]}, 400), ({'service_ids': [str(uuid4())]}, 400), ({'server_ids': [str(uuid4())]}, 400),
     ({'folder': 'Payments'}, 400), ({'folder': 'services/x'}, 400), ({'folder': '../docs'}, 400),
-    ({'document_name': '– –'}, 400), ({'instructions': 'a\x00b'}, 400), ({'instructions': 'x' * 20001}, 400),
-    # The agent runs with its own model and prompt: the form cannot override them or add folders or notes.
-    ({'model_id': 'CLAUDE'}, 400), ({'prompt_id': str(uuid4())}, 400), ({'prompt_version_id': str(uuid4())}, 400),
-    ({'comments': 'Extra'}, 400), ({'folders': ['jira']}, 400), ({'notes': 'Deployed with Helm.'}, 400)])
+    ({'document_name': '– –'}, 400), ({'system_prompt': '  '}, 400), ({'system_prompt': 'x' * 20001}, 400),
+    ({'prompt': ''}, 400), ({'prompt': 'a\x00b'}, 400), ({'prompt': 'x' * 100001}, 400),
+    ({'context': 'x' * 100001}, 400), ({'context': 'a\x00b'}, 400), ({'prompt_id': 'nope'}, 400)])
 def test_session_input_is_validated(sessions, change, status):
-    if change.get('model_id') == 'CLAUDE':
-        change = {'model_id': sessions.claude}
     response = sessions.client.post('/api/claude-code/sessions', headers=HEADERS, json={**sessions.body, **change})
     assert response.status_code == status, response.text
     if change == {'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}:
         assert NOTHING_CHOSEN in response.json()['error']['message']
-    with sessions.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
-
-
-def test_a_removed_folder_or_disabled_agent_refuses_the_session(sessions):
-    (sessions.data / 'code/app').rmdir()
-    assert refused(sessions).startswith(f"The folder {sessions.data}/code/app of the code project Payments API does not exist.")
-    with sessions.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (sessions.agent,))
-    assert refused(sessions) == NO_AGENT
-    with sessions.store.connect() as conn:  # an enabled agent with a disabled Claude model is refused as well
-        conn.execute('UPDATE ka.agents SET enabled=true WHERE id=%s', (sessions.agent,))
-        conn.execute('UPDATE ka.llm_models SET enabled=false WHERE id=%s', (sessions.claude,))
-    assert refused(sessions) == AGENT_MODEL
     with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
 
@@ -187,12 +210,13 @@ def test_messages_stop_and_close(sessions):
     assert client.post(url + '/close', headers=HEADERS).status_code == 200  # idempotent
     listed = client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
     assert [(s['id'], s['status'], s['agent_name'], s['model_name'], s['queued']) for s in listed] == [
-        (session['id'], 'closed', 'Technical writer', 'Claude', 0)]
+        (session['id'], 'closed', 'Ad-hoc agent', 'GPT', 0)]
     assert 'draft' not in listed[0] and 'prompt_snapshot' not in listed[0]
     assert client.get(f'/api/claude-code/sessions/{uuid4()}', headers=HEADERS).status_code == 404
     for path in (url + '/messages', url + '/stop', url + '/close'):
         assert client.post(path, json={'text': 'x'}).status_code == 403
     assert client.get('/api/claude-code/sessions').status_code == 403
+    claude_code_session(sessions)  # an agent with a session keeps it
     revision = client.get(f'/api/agents/{sessions.agent}', headers=HEADERS).json()['revision']
     assert client.request('DELETE', f'/api/agents/{sessions.agent}', headers=HEADERS,
                           json={'revision': revision, 'confirmed': True}).status_code == 409  # retained session history
@@ -222,7 +246,7 @@ def parse(text: str) -> list[dict]:
 
 def record(conn, session_id, turn: int, seq: int, kind: str, payload: dict) -> None:
     conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        SELECT project_id,%s,%s,%s,agent_id,%s FROM ka.agent_sessions_cc WHERE id=%s''',
+        SELECT project_id,%s,%s,%s,coalesce(agent_id,'ad-hoc'),%s FROM ka.agent_sessions_cc WHERE id=%s''',
         (f'cc:{session_id}:{turn}', seq, kind, Jsonb(payload), session_id))
 
 
@@ -346,18 +370,6 @@ def test_save_document_needs_confirmation_for_the_same_name_and_exports_into_the
     assert client.post(url + '/document', json={}).status_code == 403
 
 
-def test_symlinked_code_folders_are_refused(sessions, tmp_path):
-    outside = tmp_path / 'outside'
-    outside.mkdir()
-    (sessions.data / 'code/app-link').symlink_to(outside)
-    with sessions.store.connect() as conn:
-        conn.execute("UPDATE ka.code_project_folders SET path='app-link' WHERE code_project_id=%s", (sessions.repo,))
-    assert refused(sessions) == (f'The folder {sessions.data}/code/app-link is a symbolic link or outside DATA_ROOT. '
-                                 "Check the code project's folders.")
-    with sessions.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0
-
-
 def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
     sid = start(sessions)['id']
     url = f'/api/claude-code/sessions/{sid}'
@@ -400,127 +412,9 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
     assert claude_code_api.KEEPALIVE_SECONDS == 60 and 10 <= claude_code_api.DEFAULT_KEEPALIVE_SECONDS <= 20
 
 
-def test_session_uses_the_agent_prompt_instructions_skills_tools_and_code_projects(sessions):
-    client, data = sessions.client, sessions.data
-    skill = client.post('/api/skills', headers=HEADERS, json={
-        'name': 'reference', 'description': 'API reference style', 'instructions': 'List every endpoint with its errors.'}).json()
-    agent = claude_code_agent(client, 'API writer', system_prompt='You write API references.',
-                              instructions='Write for operators.', model_id=sessions.claude, skills_enabled=True,
-                              skill_ids=[skill['id']], repositories_enabled=True, repository_ids=[sessions.repo],
-                              claude_code_tools=['Grep', 'Read'])
-    body = {**sessions.body, 'code_project_ids': [], 'environment_ids': [], 'service_ids': []}  # servers only
-    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent})
-    assert response.status_code == 201, response.text
-    session = response.json()
-    assert session['model_name'] == 'Claude'
-    assert session['context_snapshot']['folders'] == [  # only the agent's own code projects
-        {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
-    assert session['context_snapshot']['code_project_ids'] == []
-    snapshot = session['prompt_snapshot']
-    assert snapshot['system_prompt'] == ('You write API references.\n\n## Instructions\n\nWrite for operators.\n\n'
-                                         '## Skills\n\n### reference\n\nAPI reference style\n\nList every endpoint with its errors.')
-    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and 'agent_version' not in snapshot
-    assert '## Servers\n- prod-1 (10.0.0.5): Payments host' in session['inputs'][0]['text'] and '## Code' not in session['inputs'][0]['text']
-    serialized = json.dumps(session)
-    for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token'):
-        assert secret not in serialized
-    # An agent without a model is refused: the form has no model.
-    plain = claude_code_agent(client, 'Plain writer')
-    missing = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': plain})
-    assert missing.status_code == 400 and missing.json()['error']['message'] == AGENT_MODEL
-    # The agent's own folders must exist too.
-    (data / 'code/app').rmdir()
-    gone = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent, 'code_project_ids': []})
-    assert gone.status_code == 400 and "of the agent's code project Payments API does not exist" in gone.json()['error']['message']
-
-
-def test_session_uses_the_agents_tools_and_code_projects(sessions):
-    from test_profiles import update
-    client, data = sessions.client, sessions.data
-    agent = claude_code_agent(client, 'Configured writer', model_id=sessions.claude, repositories_enabled=True,
-                              repository_ids=[sessions.repo], claude_code_tools=['Bash'])
-    profile = client.get(f'/api/agents/{agent}', headers=HEADERS).json()
-    changed = update(client, profile, claude_code_tools=['Grep', 'Read'])  # what the tabs show is what runs
-    assert changed.status_code == 200, changed.text
-    body = {**sessions.body, 'code_project_ids': [], 'environment_ids': [], 'service_ids': []}
-    response = client.post('/api/claude-code/sessions', headers=HEADERS, json={**body, 'agent_id': agent})
-    assert response.status_code == 201, response.text
-    session = response.json()
-    assert session['model_name'] == 'Claude'
-    snapshot = session['prompt_snapshot']
-    assert snapshot['claude_code_tools'] == ['Read', 'Grep'] and 'agent_version' not in snapshot
-    assert session['context_snapshot']['folders'] == [
-        {'path': f'{data}/code/app', 'kind': 'code_project', 'name': 'Payments API', 'code_project_id': sessions.repo}]
-
-
 def native_agent(client, name: str = 'Native writer', **change) -> str:
     """Create a native agent as New agent → Agent type: Native does."""
     body = wizard_payload(name, description='', when_to_use='', system_prompt='You document systems.', runtime='openai')
     response = client.post('/api/agents/wizard', headers=HEADERS, json={**body, **change})
     assert response.status_code == 201, response.text
     return response.json()['id']
-
-
-def test_native_agents_start_sessions_with_their_own_config(sessions):
-    client, data = sessions.client, sessions.data
-    ssh_server, ssh = ssh_setup(client)  # a saved private key
-    mcp = client.post('/api/mcp/servers', headers=HEADERS, json={
-        'name': 'Docs', 'url': 'http://mock.test/mcp', 'token': 'test-mcp-secret'}).json()
-    agent = native_agent(client, model_id=sessions.claude, repositories_enabled=True, repository_ids=[sessions.worker],
-                         ssh_enabled=True, mcp_enabled=True, mcp_server_ids=[mcp['id']], servers=[
-                             {'server_id': ssh_server['id'], 'instructions': None, 'skill_ids': None,
-                              'mcp_server_ids': None, 'connection': None}])
-    session = start(sessions, agent_id=agent, environment_ids=[], service_ids=[])
-    app, worker = f'{data}/code/app', f'{data}/code/worker'
-    assert (session['runtime'], session['status'], session['agent_name'], session['model_name']) == (
-        'openai', 'starting', 'Native writer', 'Claude')
-    assert [f['path'] for f in session['context_snapshot']['folders']] == [worker]  # its own code projects only
-    assert set(session['prompt_snapshot']) == {'system_prompt'}  # no Claude Code tools
-    assert session['prompt_snapshot']['system_prompt'].startswith('You document systems.')
-    assert session['inputs'][0]['text'].startswith(f'Document the following.\n\n## Code\n- Payments API — {app}')
-    serialized = json.dumps(session)
-    for hidden in ('agent_config', 'history', 'api_key_ref', 'bedrock-secret-token'):
-        assert hidden not in serialized
-    with sessions.store.connect() as conn:
-        row = conn.execute('SELECT runtime,agent_config,history FROM ka.agent_sessions_cc WHERE id=%s',
-                           (session['id'],)).fetchone()
-    assert (row['runtime'], row['history']) == ('openai', [])
-    pinned = row['agent_config']
-    assert (pinned['id'], pinned['runtime'], pinned['model']['id']) == (agent, 'openai', sessions.claude)
-    assert pinned['code']['enabled'] is True and [(p['name'], p['folder_paths']) for p in pinned['code']['projects']] == [
-        ('Payments worker', [worker])]
-    assert pinned['model']['api_key_ref']['id'] == sessions.claude  # a reference: nothing is decrypted here
-    [pinned_ssh], [pinned_mcp] = pinned['ssh']['servers'], pinned['mcp']['servers']
-    assert pinned_ssh['private_key_ref']['id'] and pinned_mcp['bearer_token_ref']['id']  # references only
-    for secret in ('bedrock-secret-token', ssh['private_key'], 'test-mcp-secret'):
-        assert secret not in json.dumps(pinned)
-    listed = client.get('/api/claude-code/sessions', headers=HEADERS).json()['sessions']
-    assert [(s['id'], s['runtime']) for s in listed] == [(session['id'], 'openai')]
-    # A native agent needs no working folder: servers only, without code projects of its own.
-    plain = native_agent(client, 'Server writer', model_id=sessions.gpt)
-    servers_only = start(sessions, agent_id=plain, code_project_ids=[], environment_ids=[], service_ids=[])
-    assert servers_only['context_snapshot']['folders'] == []
-    with sessions.store.connect() as conn:
-        code = conn.execute('SELECT agent_config FROM ka.agent_sessions_cc WHERE id=%s',
-                            (servers_only['id'],)).fetchone()['agent_config']['code']
-    assert (code['enabled'], code['projects']) == (False, [])
-
-
-def test_native_sessions_need_an_enabled_agent_whose_model_fits_its_type(sessions):
-    client = sessions.client
-    agent = native_agent(client, model_id=sessions.gpt)
-    chat = client.post('/api/llm/models', headers=HEADERS, json={
-        'name': 'Chat', 'provider': 'openai', 'model': 'gpt-4o', 'api_format': 'chat_completions',
-        'base_url': 'http://model.test/v1'}).json()['id']
-    with sessions.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET model_id=%s WHERE id=%s', (chat, agent))
-    assert refused(sessions, agent_id=agent) == AGENT_MODEL  # Chat Completions does not fit native agents
-    with sessions.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET model_id=%s,enabled=false WHERE id=%s', (sessions.gpt, agent))
-    assert refused(sessions, agent_id=agent) == NO_AGENT
-    claude_code = claude_code_agent(client, 'GPT writer', model_id=sessions.claude)
-    with sessions.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET model_id=%s WHERE id=%s', (sessions.gpt, claude_code))
-    assert refused(sessions, agent_id=claude_code) == AGENT_MODEL  # Claude Code needs a Claude connection
-    with sessions.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions_cc').fetchone()['n'] == 0

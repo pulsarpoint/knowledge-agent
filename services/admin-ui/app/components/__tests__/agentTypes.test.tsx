@@ -66,7 +66,7 @@ test('a native agent shows its type, every compatible model and no Claude Code t
   expect(screen.getByRole('option', { name: 'Claude on Bedrock' })).toBeVisible();
 });
 
-test('tool tabs say what Claude Code gets now, and Test starts a session', async () => {
+test('tool tabs say what Claude Code gets now, and Test no longer starts sessions', async () => {
   const user = userEvent.setup();
   open('/agents/writer?view=documents');
   expect(await screen.findByText(/get these tools in the next update/)).toBeVisible();
@@ -76,8 +76,8 @@ test('tool tabs say what Claude Code gets now, and Test starts a session', async
   expect(screen.queryByText(/next update/)).toBeNull();
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.queryByText('Native test chat')).toBeNull();
-  expect(screen.getByText('Test in a Claude Code session')).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Start a session' })).toHaveAttribute('href', '/documentation/generations/new?agent=writer');
+  expect(screen.getByText('Claude Code agents can no longer start sessions. Use a native agent.')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Start a session' })).toBeNull();
 });
 
 test('a native agent keeps its test chat', async () => {

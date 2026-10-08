@@ -14,7 +14,7 @@ from claude_code_fakes import AssistantMessage, FakeClient, ResultMessage, TextB
 from knowledge_admin import claude_code_cli as cli
 from knowledge_admin import claude_code_worker as worker
 from knowledge_admin import run_record
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import sessions, claude_code_session  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 KEY = 'bedrock-secret-token'
@@ -35,7 +35,7 @@ def started(sessions, monkeypatch):
     monkeypatch.setattr(run_record, '_store', sessions.store)
     RECLAIMED.clear()
     monkeypatch.setattr(worker, 'reclaim_slot', lambda session_id, slot: RECLAIMED.append((session_id, slot)))
-    return sessions, UUID(start(sessions)['id'])
+    return sessions, UUID(claude_code_session(sessions)['id'])
 
 
 def claimed(sessions, worker_id: str = 'worker-1') -> dict:
@@ -463,7 +463,7 @@ def test_cli_wrapper_drops_to_the_slot_user_before_running_the_bundled_cli(monke
 
 def test_concurrent_sessions_run_in_different_slots_and_keep_their_home(started):
     sessions, first = started
-    second = UUID(start(sessions)['id'])
+    second = UUID(claude_code_session(sessions)['id'])
     store = sessions.store
     clients: list[FakeClient] = []
 

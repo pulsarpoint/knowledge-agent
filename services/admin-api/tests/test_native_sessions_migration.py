@@ -4,7 +4,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from test_claude_code_sessions import sessions, start  # noqa: F401  (fixture)
+from test_claude_code_sessions import sessions, claude_code_session  # noqa: F401  (fixture)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0074_native_agent_sessions.up.sql', '0074_native_agent_sessions.down.sql'
@@ -20,7 +20,7 @@ def columns(conn) -> set[str]:
 
 
 def test_existing_sessions_are_claude_code_and_native_sessions_need_a_pinned_config(sessions):
-    sid = start(sessions)['id']
+    sid = claude_code_session(sessions)['id']
     with sessions.store.connect() as conn:
         row = conn.execute('SELECT runtime,agent_config,history FROM ka.agent_sessions_cc WHERE id=%s', (sid,)).fetchone()
         assert row == {'runtime': 'claude_code', 'agent_config': None, 'history': []}
@@ -34,7 +34,7 @@ def test_existing_sessions_are_claude_code_and_native_sessions_need_a_pinned_con
 
 def test_down_refuses_native_sessions_then_drops_the_columns_and_up_restores_them(sessions):
     store = sessions.store
-    sid = start(sessions)['id']
+    sid = claude_code_session(sessions)['id']
     with store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions_cc SET runtime='openai',agent_config='{}' WHERE id=%s", (sid,))
         conn.commit()

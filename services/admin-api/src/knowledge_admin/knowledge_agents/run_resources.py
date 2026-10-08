@@ -131,7 +131,7 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
     with `run_resources` recording them. A chosen service brings its code projects and the servers it is deployed on;
     an environment (Generate documents) brings its services and servers, and through them their code projects and
     servers. What they bring is added only for kinds the agent uses, and only when it can be given (not archived, SSH
-    allowed). Every resource must exist in this workspace, be usable, be of a kind the agent uses and be inside the
+    allowed, a usable connection). Every resource must exist in this workspace, be usable, be of a kind the agent uses and be inside the
     agent's saved selection; otherwise RunResourceError names it.
     """
     if not per_run(config):
@@ -155,7 +155,11 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
         brought['server_ids'] += _ids(conn.execute(SERVICE_SERVERS, (project_id, services)))
     for kind in KINDS:
         if kind.key in brought and effective[kind.capability]['enabled']:
-            wanted[kind.key] = list(dict.fromkeys([*wanted[kind.key], *brought[kind.key]]))
+            extra = brought[kind.key]
+            if kind.capability == 'ssh':  # a brought server it cannot connect to is left out, as archived projects are
+                servers = _selection(effective, kind)
+                extra = [item for item in extra if item not in servers or _usable_server(servers[item])]
+            wanted[kind.key] = list(dict.fromkeys([*wanted[kind.key], *extra]))
     given: dict[str, list[dict[str, Any]]] = {}
     for kind in KINDS:
         ids = wanted[kind.key]
