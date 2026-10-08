@@ -139,3 +139,8 @@ test('a failed turn shows its error once: the header repeats the session message
   show({ run: run({ session: failed, events: [] }) });
   expect(screen.getByText('Agent execution failed (RuntimeError).')).toBeVisible();
 });
+
+test('the run pane keeps a minimum height so a tiny screen scrolls the page instead of collapsing the conversation', () => {
+  show();
+  expect(screen.getByRole('region', { name: 'Run' }).parentElement!.className).toContain('min-h-48');
+});

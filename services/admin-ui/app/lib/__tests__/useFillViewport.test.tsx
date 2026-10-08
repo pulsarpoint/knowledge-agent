@@ -4,11 +4,12 @@ import { useFillViewport } from '../useFillViewport';
 
 let top = 100;
 const observers: (() => void)[] = [];
+const observed: Element[] = [];
 beforeEach(() => {
-  top = 100; observers.length = 0;
+  top = 100; observers.length = 0; observed.length = 0;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top } as DOMRect));
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 });
-  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { observers.push(callback); } observe() {} disconnect() {} });
+  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { observers.push(callback); } observe(target: Element) { observed.push(target); } disconnect() {} });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -30,8 +31,21 @@ test('the height follows the window size and content above the container', () =>
   expect(screen.getByTestId('filled').style.height).toBe('676px');
 });
 
-test('on a tiny screen the height stops at 20rem, so the page scrolls instead of collapsing the panes', () => {
+test('the height is floored, not rounded, so fractional space never pushes the form past the screen', () => {
+  top = 100.6;
+  render(<Filled />);
+  expect(screen.getByTestId('filled').style.height).toBe('675px');  // floor(800 - 100.6 - 24) = floor(675.4)
+  top = 100.3; observers.forEach(callback => act(callback));
+  expect(screen.getByTestId('filled').style.height).toBe('675px');  // 675.7 would round up to 676
+});
+
+test('it re-measures when the container parent resizes (an alert above it disappears)', () => {
+  render(<div data-testid="parent"><Filled /></div>);
+  expect(observed).toContain(screen.getByTestId('parent'));
+});
+
+test('on a tiny screen the height stops at 26rem, so the page scrolls instead of collapsing the panes', () => {
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 300 });
   render(<Filled />);
-  expect(screen.getByTestId('filled').style.height).toBe('320px');
+  expect(screen.getByTestId('filled').style.height).toBe('416px');
 });

@@ -168,7 +168,7 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
       {run.reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
       {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
     </header>
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+    <div className="grid min-h-48 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <section aria-label="Run" className="flex min-h-0 min-w-0 flex-col rounded-lg border">
         <div ref={pane} data-testid="run-scroll" onScroll={scrolled} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
           {older === 'start' && events.length > 0 && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
