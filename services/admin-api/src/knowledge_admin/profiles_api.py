@@ -132,7 +132,8 @@ def build_api(app_name, store):
         row['skill_ids'] = [r['id'] for r in row['skills']]
         row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
         row['subagents'] = subagents_on(conn, agent_id)
-        row.pop('runtime'), row.pop('claude_code_tools')  # columns kept until the schema drops them
+        for retired in ('runtime', 'claude_code_tools'):  # columns kept until the schema drops them
+            row.pop(retired, None)
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -166,7 +167,8 @@ def build_api(app_name, store):
                     WHERE c.server_id IS NULL AND m.enabled'''):
                 agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
-                row.pop('runtime'), row.pop('claude_code_tools')
+                for retired in ('runtime', 'claude_code_tools'):
+                    row.pop(retired, None)
                 row.pop('system_prompt')  # read with the agent, not in the list
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,

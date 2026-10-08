@@ -214,6 +214,12 @@ def test_save_details_sets_the_model(store, tmp_path):
     assert details == {'agent_id': agent['id'], 'model_id': {'from': claude, 'to': None}}
     for bad in (str(uuid4()), 'not-a-uuid'):
         assert update(client, cleared.json(), model_id=bad).status_code == 400, bad
+    plain = update(client, cleared.json(), description='plain edit')
+    assert plain.status_code == 200, plain.text
+    with store.connect() as conn:
+        details = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent.updated' AND details->>'agent_id'=%s
+            ORDER BY created_at DESC,id DESC LIMIT 1""", (agent['id'],)).fetchone()['details']
+    assert details == {'agent_id': agent['id']}  # no model or resources change: nothing else is audited
 
 
 def test_an_agent_without_sessions_is_deleted(store, tmp_path):
@@ -232,12 +238,16 @@ def test_agents_have_no_type(store, tmp_path):
     assert 'runtime' not in agent and 'claude_code_tools' not in agent
     listed = next(a for a in client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent['id'])
     assert 'runtime' not in listed and 'claude_code_tools' not in listed
+    extra = 'Extra inputs are not permitted'  # the validation handler answers 400 with the pydantic messages
     for bad in ({'runtime': 'openai'}, {'claude_code_tools': ['Read']}):
-        assert update(client, agent, **bad).status_code == 400, bad  # the validation handler answers 400
+        refused = update(client, agent, **bad)
+        assert refused.status_code == 400 and extra in refused.json()['error']['message'], bad
     wizard = {**wizard_payload('Typed'), 'runtime': 'openai'}
-    assert client.post('/api/agents/wizard', headers=HEADERS, json=wizard).status_code == 400
+    refused = client.post('/api/agents/wizard', headers=HEADERS, json=wizard)
+    assert refused.status_code == 400 and extra in refused.json()['error']['message']
+    _, gpt = models(client)  # a real model, so only the extra field can refuse the request
     generate = client.post('/api/agents/wizard/generate', headers=HEADERS,
-                           json={'role': 'x', 'model_id': str(uuid4()), 'runtime': 'openai'})
-    assert generate.status_code == 400
+                           json={'role': 'x', 'model_id': gpt, 'runtime': 'openai'})
+    assert generate.status_code == 400 and extra in generate.json()['error']['message']
     config = client.get(f"/api/agents/{agent['id']}/config", headers=HEADERS).json()
     assert 'runtime' not in config and 'claude_code_tools' not in config
