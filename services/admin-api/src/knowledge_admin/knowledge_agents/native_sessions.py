@@ -311,7 +311,13 @@ class NativeRunner(shared.SessionRunner):
                 await comments.settle()
             answer = clean_text(events.draft(None if result is None else result.final_output), secrets)
             end = {'status': END_STATUS[status]}
-            sources = grounding_of(result, answer) if status == 'waiting' else None
+            sources = None
+            if status == 'waiting':
+                try:
+                    sources = grounding_of(result, answer)
+                except Exception as exc:  # the turn still ends with its answer; only the cited sources are lost
+                    logger.warning('Agent session %s turn %s grounding failed (%s)', self.id, number,
+                                   type(exc).__name__)
             if sources is not None:
                 end['grounding'] = sources  # the recorder redacts it with the turn's secrets
             recorder.add('end', end)

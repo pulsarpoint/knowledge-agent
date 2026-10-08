@@ -159,6 +159,30 @@ def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     assert [e['payload']['message'] for e in recorded if e['kind'] == 'error'] == [FAILED]
 
 
+def test_a_grounding_failure_still_finishes_the_turn_as_waiting_with_its_answer(native, monkeypatch, caplog):
+    sessions, sid = native
+    store = sessions.store
+
+    def broken(result, answer):
+        raise ValueError(f'bad citation near {KEY}')
+    monkeypatch.setattr(native_sessions, 'grounding_of', broken)
+    fake = FakeAgent([{'steps': [llm(message('# Payments API'), input_tokens=10, output_tokens=5)],
+                       'answer': '# Payments API'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await asyncio.wait_for(runner, 5)
+        return done
+
+    done = asyncio.run(scenario())
+    assert (done['draft'], done['draft_turn'], done['status_message']) == ('# Payments API', 1, '')
+    [end] = [e['payload'] for e in events(store, sid) if e['kind'] == 'end']
+    assert end == {'status': 'completed'}  # no grounding, the turn still ends
+    assert 'grounding' in caplog.text and KEY not in caplog.text
+
+
 def test_session_tokens_rise_after_every_model_call_and_count_once(native):
     """The session page's In/Out/Cached follow the turn live; the end of the turn adds nothing more, and a stopped turn
     keeps the tokens of its finished model calls."""
