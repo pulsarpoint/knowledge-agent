@@ -326,3 +326,28 @@ def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]
             continue
         offered.append((spec, entry['usage'] or spec.usage))
     return offered
+
+
+def _mcp_rows(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    return {entry['tool']: entry for entry in tools_of(config)['items'] if entry['tool'].startswith('mcp:')}
+
+
+def mcp_blocked(config: Mapping[str, Any], server_id: str) -> list[str]:
+    """The tool names of one MCP server the model must not get: switched off (or per run, not offered in step 1).
+    A tool without a row is on."""
+    prefix = f'mcp:{server_id}:'
+    return sorted(name.removeprefix(prefix) for name, entry in _mcp_rows(config).items()
+                  if name.startswith(prefix) and entry['mode'] != 'on')
+
+
+def mcp_notes(config: Mapping[str, Any], servers: list[dict[str, Any]]) -> list[str]:
+    """Edited usage of MCP tools that are on, as prompt lines: the description itself comes from the server."""
+    rows = _mcp_rows(config)
+    notes = []
+    for server in servers:
+        prefix = f"mcp:{server['id']}:"
+        for name in sorted(rows):
+            entry = rows[name]
+            if name.startswith(prefix) and entry['mode'] == 'on' and entry['usage']:
+                notes.append(f"- {server['name']}/{name.removeprefix(prefix)}: {entry['usage']}")
+    return notes

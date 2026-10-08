@@ -9,7 +9,8 @@ from agents.tool_context import ToolContext
 from knowledge_admin.agents import get_prompt
 from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
 from knowledge_admin.capabilities.context import NOTHING_GIVEN
-from tool_helpers import tools
+from knowledge_admin.tools.catalog import implied_tools
+from tool_helpers import tool, tools
 from test_document_tools import rag  # noqa: F401  (fixture)
 
 ast_grep, code_graph, code_search, read_document, search_documents, list_files, read_file, shell_run, ssh_run = tools(
@@ -101,3 +102,13 @@ def test_the_prompt_says_the_run_got_only_these_resources(folders):
     assert str(folders['given']) in prompt and str(folders['other']) not in prompt
     fixed = run_context(folders, code=['given'])['config'] | {'resources': 'fixed'}
     assert 'This run was given only' not in get_prompt(fixed, [], [])
+
+
+def test_per_run_narrowing_still_decides_what_tools_reach(folders):
+    """A per-run run with every file tool switched on still reads only its own code project."""
+    context = run_context(folders, code=['given'])
+    context['config']['tools'] = implied_tools(context['config'])
+    read = tool('read_file')
+    assert 'given' in invoke(read, context, path=str(folders['given'] / 'a.py'))
+    refused = invoke(read, context, path=str(folders['other'] / 'b.py'))
+    assert 'outside the agent' in refused
