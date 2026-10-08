@@ -37,7 +37,7 @@ def update(client, profile, **changes):
     return client.put(f"/api/agents/{profile['id']}", headers=HEADERS, json={**value, **changes})
 
 
-def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
+def test_catalog_creation_and_independent_prompts(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     assert client.get('/api/agents').status_code == 403
     original = client.get('/api/agents', headers=HEADERS).json()['agents']
@@ -48,16 +48,12 @@ def test_catalog_creation_and_independent_prompt_versions(store, tmp_path):
     assert not any(first[name + '_enabled'] for name in ('documents','repositories','ssh','skills','mcp','services'))
     assert first['model_id'] is None and first['collection_ids'] == first['repository_ids'] == first['skill_ids'] == []
     assert not first['all_collections'] and not first['all_repositories']
-    assert first['active_prompt']['id'] != second['active_prompt']['id']
-    versions = client.get('/api/llm/prompts', headers=HEADERS).json()
-    assert next(v for v in versions['versions'] if v['agent'] == first['id'])['content'] == 'Instructions for Payments.'
-    draft = client.post(f"/api/llm/prompts/{first['id']}/versions", headers=HEADERS, json={'title': 'Payments only', 'content': 'Payments instructions.'})
-    assert draft.status_code == 201, draft.text
-    prompt = next(p for p in versions['agents'] if p['agent'] == first['id'])
-    activation = client.post(f"/api/llm/prompts/{first['id']}/versions/{draft.json()['id']}/activate", headers=HEADERS, json={'revision': draft.json()['revision'], 'prompt_revision': prompt['revision']})
-    assert activation.status_code == 200, activation.text
-    assert client.get(f"/api/agents/{first['id']}", headers=HEADERS).json()['active_prompt']['title'] == 'Payments only'
-    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['active_prompt'] == second['active_prompt']
+    assert (first['system_prompt'], second['system_prompt']) == ('Instructions for Payments.', 'Instructions for Documentation.')
+    saved = client.put(f"/api/agents/{first['id']}/prompt", headers=HEADERS,
+                       json={'revision': first['revision'], 'system_prompt': 'Payments instructions.'})
+    assert saved.status_code == 200, saved.text
+    assert client.get(f"/api/agents/{second['id']}", headers=HEADERS).json()['system_prompt'] == second['system_prompt']
+    first = saved.json()
     assert client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Payments')).status_code == 409
     assert client.get('/api/agents/missing', headers=HEADERS).status_code == 404
     assert update(client, first, name='Renamed').status_code == 200
@@ -119,9 +115,9 @@ def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
         response = client.post('/api/agents/wizard', headers=HEADERS, json=payload)
         assert response.status_code == 400, response.text
     assert len(client.get('/api/agents', headers=HEADERS).json()['agents']) == 3
-    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+    with pytest.raises(psycopg.errors.NotNullViolation):
         with store.connect() as conn:
-            conn.execute("INSERT INTO ka.agents(id,name) VALUES ('missing-prompt','Missing prompt')")
+            conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES ('missing-prompt','Missing prompt',NULL)")
 
 
 def test_agent_skill_assignments_are_many_to_many_and_atomic(store, tmp_path):

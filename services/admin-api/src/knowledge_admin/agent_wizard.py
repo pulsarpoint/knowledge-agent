@@ -148,9 +148,7 @@ def inventory(conn, project):
             ARRAY(SELECT repository_id FROM ka.service_repositories r WHERE r.service_id=s.id) AS repository_ids,
             ARRAY(SELECT server_id FROM ka.service_deployments d WHERE d.service_id=s.id) AS server_ids
             FROM ka.services s WHERE project_id=%s ORDER BY name''', (project,)).fetchall(),
-        'existing_agents': conn.execute('''SELECT a.name,a.description,a.when_to_use,v.title AS prompt_title
-            FROM ka.agents a JOIN ka.agent_prompts p ON p.agent=a.id
-            JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id ORDER BY a.name''').fetchall(),
+        'existing_agents': conn.execute('SELECT name,description,when_to_use FROM ka.agents ORDER BY name').fetchall(),
     }
 
 
@@ -248,7 +246,7 @@ def build_api(app_name, store):
 
     @router.post('', status_code=201)
     def create(value: CreateInput, request: Request):
-        agent_id, prompt_id = str(uuid4()), uuid4()
+        agent_id = str(uuid4())
         try:
             with database().connect() as conn:
                 project = store.project(conn, app_name)
@@ -264,18 +262,15 @@ def build_api(app_name, store):
                     if name not in CATALOG:
                         raise HTTPException(400, UNKNOWN.format(tool=name))
                 actor = store.actor(conn, *request_actor(request))
-                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,resources,
+                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,runtime,claude_code_tools,resources,system_prompt,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
                     all_collections,all_repositories,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                     (agent_id,value.name,value.description,value.when_to_use,value.enabled,value.model_id,
-                     value.runtime,normalize_tools(value.claude_code_tools),value.resources,
+                     value.runtime,normalize_tools(value.claude_code_tools),value.resources,value.system_prompt,
                      value.documents_enabled,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,
                      value.mcp_enabled,value.services_enabled,value.all_collections,value.all_repositories,
                      actor,actor))
-                conn.execute('INSERT INTO ka.agent_prompts(agent,active_version_id,next_version) VALUES (%s,%s,2)', (agent_id,prompt_id))
-                conn.execute('''INSERT INTO ka.agent_prompt_versions(id,agent,version,title,content,created_by,updated_by,published_at)
-                    VALUES (%s,%s,1,%s,%s,%s,%s,now())''', (prompt_id,agent_id,value.name,value.system_prompt,actor,actor))
                 if value.runtime == 'openai':
                     proposed = flags({'runtime': 'openai', 'repositories_enabled': value.repositories_enabled,
                                       'documents_enabled': value.documents_enabled, 'documents_grounded': False,

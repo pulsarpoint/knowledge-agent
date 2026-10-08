@@ -5,6 +5,7 @@ from uuid import UUID
 
 import asyncssh
 import pytest
+from knowledge_llm.prompts import DEFAULT_PROMPTS
 
 from knowledge_admin.agents import get_agent_config
 from knowledge_admin.operations_store import OperationsStore
@@ -38,9 +39,6 @@ def saved_agent(store, tmp_path):
     model = client.post('/api/llm/models', headers=HEADERS, json={
         'name': 'Claude', 'provider': 'bedrock', 'model': 'test-claude', 'api_format': 'native',
         'aws_region': 'eu-west-1', 'api_key': 'test-model-secret'}).json()
-    draft = client.post('/api/llm/prompts/operations/versions', headers=HEADERS,
-        json={'title': 'Unpublished', 'content': 'Never use this draft.'})
-    assert draft.status_code == 201, draft.text
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (project,))
@@ -70,7 +68,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     _, server, ssh, skill, mcp, repo, model = saved_agent
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert config['id'] == 'operations' and config['enabled']
-    assert config['system_prompt']['content'] and config['system_prompt']['version'] == 1
+    assert config['system_prompt'] == {'content': DEFAULT_PROMPTS['operations']}
     assert config['instructions'] == 'Verify every change.'
     assert config['model']['provider'] == 'bedrock' and config['model']['aws_region'] == 'eu-west-1'
     assert config['documents']['all_collections'] is False and 'folders' not in config['documents']
@@ -104,7 +102,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
         connection = OperationsStore(store, 'shop').agent_connection(conn, UUID(host['id']))
         assert connection.private_key == ssh['private_key']
     serialized = json.dumps(config)
-    for excluded in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret', 'Never use this draft.'):
+    for excluded in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret'):
         assert excluded not in serialized
     assert config['model']['api_key_ref']['id'] == model['id']
     assert config['mcp']['servers'][0]['bearer_token_ref']['id'] == mcp['id']

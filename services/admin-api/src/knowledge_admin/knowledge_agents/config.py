@@ -133,7 +133,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
     """
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,runtime,claude_code_tools,resources,
+        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,runtime,claude_code_tools,resources,system_prompt,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_collections,all_repositories,active_config_version_id FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
@@ -161,12 +161,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
                                         if config['runtime'] == 'openai' and config['code']['enabled'] else [])
             config['config_version'] = jsonable_encoder({key:version[key] for key in ('id','version','label')})
             return config
-        prompt = conn.execute("""SELECT v.id,v.title,v.version,v.revision,v.content
-            FROM ka.agent_prompts p JOIN ka.agent_prompt_versions v
-            ON v.agent=p.agent AND v.id=p.active_version_id WHERE p.agent=%s""", (agent_id,)).fetchone()
-        if prompt is None:
-            raise ValueError(f"Agent {agent_id!r} has no active system prompt")
-
         code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
         if code_root.anchor != '/' or '..' in code_root.parts:
             raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
@@ -289,7 +283,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "", version_id: UUID | No
             'when_to_use': agent['when_to_use'], 'enabled': agent['enabled'], 'revision': agent['revision'],
             'runtime': agent['runtime'], 'claude_code_tools': list(agent['claude_code_tools']),
             'resources': agent['resources'],
-            'model': model, 'system_prompt': prompt, 'instructions': instructions,
+            'model': model, 'system_prompt': {'content': agent['system_prompt']}, 'instructions': instructions,
             'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
             'documents': {'enabled': agent['documents_enabled'], 'grounded': agent['documents_grounded'],
                 'all_collections': agent['all_collections'], 'collections': collections},

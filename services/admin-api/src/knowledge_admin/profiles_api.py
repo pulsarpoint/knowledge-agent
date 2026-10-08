@@ -61,6 +61,23 @@ class ModelInput(BaseModel):
     model_id: UUID | None
 
 
+PROMPT_LIMIT = 100000
+PROMPT_STALE = 'Agent changed. Reload before saving.'
+
+
+class PromptInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: int = Field(ge=1, strict=True)
+    system_prompt: str = Field(min_length=1, max_length=PROMPT_LIMIT)
+
+    @field_validator('system_prompt')
+    @classmethod
+    def valid_text(cls, value: str) -> str:
+        if not value.strip() or '\x00' in value:
+            raise ValueError('Enter a system prompt without null characters')
+        return value
+
+
 HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
 WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions and runs, '
                    'or wait for them to finish, then delete it.')
@@ -113,8 +130,6 @@ def build_api(app_name, store):
         row['collection_ids'] = [r['collection_id'] for r in conn.execute('SELECT a.collection_id FROM ka.agent_collections a JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY a.collection_id', (agent_id,))]
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
-        row['active_prompt'] = conn.execute('''SELECT v.id,v.title,v.version FROM ka.agent_prompts p
-            JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id WHERE p.agent=%s''', (agent_id,)).fetchone()
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -126,7 +141,7 @@ def build_api(app_name, store):
     @router.get('')
     def listing():
         with database().connect() as conn:
-            rows = conn.execute('''SELECT a.*,m.name AS model_name,v.title AS prompt_title,v.version AS prompt_version,
+            rows = conn.execute('''SELECT a.*,m.name AS model_name,
                 saved.config AS version_config,saved.version AS config_version,
                 (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
                     WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
@@ -138,7 +153,6 @@ def build_api(app_name, store):
                         ELSE c.credential_id IS NOT NULL AND c.username IS NOT NULL END)::int AS server_count,
                 (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
-                LEFT JOIN ka.agent_prompts p ON p.agent=a.id LEFT JOIN ka.agent_prompt_versions v ON v.id=p.active_version_id
                 LEFT JOIN ka.agent_versions saved ON saved.id=a.active_config_version_id
                 ORDER BY a.created_at,a.id''').fetchall()
             saved_tools: dict[str, list[dict]] = {}
@@ -150,6 +164,7 @@ def build_api(app_name, store):
                     WHERE c.server_id IS NULL AND m.enabled'''):
                 agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
+                row.pop('system_prompt')  # read with the agent, not in the list
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
                 limits = {'code': 'any' if row['all_repositories'] else code_count,
                           'documents': 'any' if row['all_collections'] else collection_count,
@@ -165,8 +180,6 @@ def build_api(app_name, store):
                         row[key] = config[key]
                     row['model_id'] = config['model']['id'] if config['model'] else None
                     row['model_name'] = config['model']['name'] if config['model'] else None
-                    row['prompt_title'] = config['system_prompt']['title']
-                    row['prompt_version'] = config['system_prompt']['version']
                     for flag, capability in (('documents_enabled','documents'),('repositories_enabled','code'),('ssh_enabled','ssh'),('skills_enabled','skills'),('mcp_enabled','mcp'),('services_enabled','services')):
                         row[flag] = config[capability]['enabled']
                     limits = {'code': 'any' if config['code'].get('all_projects') else len(config['code']['projects']),
@@ -286,6 +299,19 @@ def build_api(app_name, store):
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
+
+    @router.put('/{agent_id}/prompt')
+    def prompt(agent_id: str, value: PromptInput, request: Request):
+        """The agent's system prompt, saved with its revision: what new conversations and runs use."""
+        with database().connect() as conn:
+            conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
+            old = read(conn, agent_id)
+            if old['revision'] != value.revision:
+                raise HTTPException(409, PROMPT_STALE)
+            actor = audit(conn, request, agent_id, 'agent.prompt.updated')
+            conn.execute('UPDATE ka.agents SET system_prompt=%s,revision=revision+1,updated_by=%s WHERE id=%s',
+                         (value.system_prompt, actor, agent_id))
+            return read(conn, agent_id)
 
     @router.get('/{agent_id}/history')
     def history(agent_id: str):

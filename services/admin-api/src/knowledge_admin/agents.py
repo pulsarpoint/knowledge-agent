@@ -212,7 +212,7 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
     catalog tools (None: worked out from the configuration); code graphs are listed only for code_graph or shell_run."""
     prompt = config['system_prompt']['content']
     if not prompt.strip():
-        raise ValueError('The agent requires an active system prompt.')
+        raise ValueError('The agent requires a system prompt.')
     if tool_names is None:
         tool_names = {spec.name for spec, _ in effective_tools(config, ssh_servers)}
     resources = {'name': config['name'], 'description': config['description']}

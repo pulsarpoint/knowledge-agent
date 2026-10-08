@@ -41,7 +41,7 @@ def writer(store, tmp_path, monkeypatch):
 def test_claude_code_agent_is_listed_with_its_type_prompt_and_tools(writer):
     client, agent_id = writer
     listed = next(a for a in client.get('/api/agents', headers=HEADERS).json()['agents'] if a['id'] == agent_id)
-    assert (listed['runtime'], listed['claude_code_tools'], listed['prompt_version']) == ('claude_code', ALL_TOOLS, 1)
+    assert (listed['runtime'], listed['claude_code_tools']) == ('claude_code', ALL_TOOLS)
     config = client.get(f'/api/agents/{agent_id}/config', headers=HEADERS)
     assert config.status_code == 200 and config.json()['system_prompt']['content'] == SYSTEM_PROMPT
     # One way to create and edit agents: the registration routes are gone.
@@ -91,8 +91,8 @@ def test_switching_the_type_keeps_the_config_and_needs_a_claude_model(store, tmp
                              json={'revision': with_gpt['revision'], 'model_id': claude}).json()
     switched = update(client, with_claude, runtime='claude_code', description='Same agent, other runtime')
     assert switched.status_code == 200, switched.text
-    assert (switched.json()['runtime'], switched.json()['description'], switched.json()['active_prompt']['title']) == (
-        'claude_code', 'Same agent, other runtime', native['active_prompt']['title'])
+    assert (switched.json()['runtime'], switched.json()['description'], switched.json()['system_prompt']) == (
+        'claude_code', 'Same agent, other runtime', native['system_prompt'])
     model = client.put(f"/api/agents/{native['id']}/model", headers=HEADERS,
                        json={'revision': switched.json()['revision'], 'model_id': gpt})
     assert model.status_code == 400 and model.json()['error']['message'] == CHOOSE_CLAUDE

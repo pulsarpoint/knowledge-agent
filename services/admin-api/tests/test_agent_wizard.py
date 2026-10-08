@@ -60,7 +60,6 @@ def test_wizard_roundtrip_every_resource_and_ssh_override(store, wizard):
     agent_id = response.json()['id']
     config = get_agent_config(agent_id, conninfo=store.conninfo)
     assert config['system_prompt']['content'] == proposal['system_prompt']
-    assert config['system_prompt']['version'] == 1
     assert config['instructions'] == proposal['instructions']
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
     assert [p['id'] for p in config['code']['projects']] == proposal['repository_ids']
@@ -204,7 +203,7 @@ def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch
     assert response.status_code == 201, response.text
     agent = client.get('/api/agents/' + response.json()['id'], headers=HEADERS).json()
     assert agent['name'] == 'Blank agent' and agent['model_id'] is None
-    assert agent['active_prompt']['version'] == 1
+    assert agent['system_prompt'] == BLANK['system_prompt']
     assert client.post('/api/agents/wizard', headers=HEADERS, json={**BLANK, 'name': 'Other', 'system_prompt': ' '}).status_code == 400
 
 

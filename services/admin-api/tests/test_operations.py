@@ -106,9 +106,7 @@ def test_builtin_mcp_endpoint_removed_and_model_gateway_rejects_unleased_request
 def test_operations_prompt_seed_and_assignment_compatibility(store, tmp_path):
     from knowledge_llm.prompts import DEFAULT_PROMPTS
     client = _client(tmp_path, repository_store=store)
-    prompts = client.get('/api/llm/prompts', headers=HEADERS).json()
-    operations = [p for p in prompts['versions'] if p['agent'] == 'operations']
-    assert len(operations) == 1 and operations[0]['content'] == DEFAULT_PROMPTS['operations']
+    assert client.get('/api/agents/operations', headers=HEADERS).json()['system_prompt'] == DEFAULT_PROMPTS['operations']
     model = client.post('/api/llm/models', headers=HEADERS, json={'name': 'chat', 'provider': 'openai', 'model': 'chat', 'api_format': 'chat_completions', 'base_url': 'http://test/v1'}).json()
     result = client.put('/api/llm/assignments', headers=HEADERS, json={'revision': 1, 'search_model_id': None, 'code_model_id': None, 'operations_model_id': model['id']})
     assert result.status_code == 400

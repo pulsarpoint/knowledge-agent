@@ -254,7 +254,7 @@ def test_missing_mcp_credential_cleans_temporary_runtime(config, monkeypatch, tm
 
 
 @pytest.mark.parametrize('problem, message', [
-    ('disabled', 'agent is disabled'), ('prompt', 'active system prompt'), ('model', 'enabled model'),
+    ('disabled', 'agent is disabled'), ('prompt', 'requires a system prompt'), ('model', 'enabled model'),
     ('credential', 'API key'), ('unsupported', 'Unsupported model'), ('path', 'folder is unavailable'), ('task', 'Provide a task'),
 ])
 def test_invalid_config_fails_before_starting_sdk(config, responses_api, monkeypatch, problem, message):

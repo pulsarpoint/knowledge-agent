@@ -8,6 +8,7 @@ import pytest
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0070_claude_code_agents.up.sql', '0070_claude_code_agents.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
+LATER = ('0079_agent_system_prompt.down.sql',)  # 0072 down drops the prompt FK that 0079 removed
 LATER_UP, LATER_DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 
 
@@ -34,6 +35,8 @@ def model(conn, actor):
 
 def test_claude_code_agents_are_registrations_only(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, REMOVED)
         conn.commit()
         run(conn, LATER_DOWN)
@@ -89,6 +92,8 @@ def test_sessions_hold_status_folder_and_ordered_inputs(store):
 
 def test_down_refuses_claude_code_agents_and_restores_the_prompt_rule(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, REMOVED)
         conn.commit()
         run(conn, LATER_DOWN)

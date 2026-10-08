@@ -9,6 +9,7 @@ from knowledge_admin.claude_code import BUILT_IN_PROMPT_TITLE, SYSTEM_PROMPT
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0072_knowledge_agents_config.up.sql', '0072_knowledge_agents_config.down.sql'
 REMOVED = '0077_remove_coordinator.down.sql'  # 0072 down reads agents.is_coordinator
+LATER = ('0079_agent_system_prompt.down.sql',)  # 0072 down drops the prompt FK that 0079 removed
 ALL_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 
 
@@ -29,6 +30,8 @@ def has_column(conn, name: str) -> bool:
 
 def test_registrations_get_the_built_in_prompt_and_every_tool(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, REMOVED)
         conn.commit()
         run(conn, DOWN)
@@ -46,7 +49,7 @@ def test_registrations_get_the_built_in_prompt_and_every_tool(store):
         assert not has_column(conn, 'prompt_agent')
 
 
-def test_claude_code_agents_take_every_capability_but_need_a_prompt(store):
+def test_claude_code_agents_take_every_capability(store):
     with store.connect() as conn:
         conn.execute("""UPDATE ka.agents SET runtime='claude_code',documents_enabled=true,documents_grounded=true,
             repositories_enabled=true,ssh_enabled=true,skills_enabled=true,mcp_enabled=true,services_enabled=true,
@@ -60,13 +63,12 @@ def test_claude_code_agents_take_every_capability_but_need_a_prompt(store):
             with pytest.raises(error):
                 with conn.transaction():
                     conn.execute(statement)
-    with pytest.raises(psycopg.errors.ForeignKeyViolation):  # like every agent, a Claude Code agent needs its prompt
-        with store.connect() as conn:
-            conn.execute("INSERT INTO ka.agents(id,name,runtime) VALUES ('no-prompt','No prompt','claude_code')")
 
 
 def test_down_refuses_configured_claude_code_agents_and_keeps_registrations(store):
     with store.connect() as conn:
+        for name in LATER:
+            run(conn, name)
         run(conn, REMOVED)
         conn.commit()
         conn.execute("UPDATE ka.agents SET runtime='claude_code' WHERE id='search'")  # documents on: more than 0070 keeps
