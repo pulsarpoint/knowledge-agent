@@ -23,6 +23,17 @@ def tool_counts(conn, run_keys: list[str]) -> list[dict[str, Any]]:
         return []
     return [dict(row) for row in conn.execute(TOOL_COUNTS, (list(run_keys),))]
 
+
+def tool_counts_through(conn, run_keys: list[str]) -> tuple[list[dict[str, Any]], int]:
+    """tool_counts and the id of the last tool_call event they include (0: none), read in one statement, so a live
+    view can add only the streamed tool calls after it."""
+    if not run_keys:
+        return [], 0
+    rows = conn.execute('''SELECT payload->>'name' AS name, count(*)::int AS calls, max(id) AS last
+        FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1''',
+        (list(run_keys),)).fetchall()
+    return [{'name': row['name'], 'calls': row['calls']} for row in rows], max((row['last'] for row in rows), default=0)
+
 _store = None
 _app_name = None
 

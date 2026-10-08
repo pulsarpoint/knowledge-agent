@@ -53,6 +53,16 @@ def test_sessions_count_only_their_own_turns_and_runs(store, sessions):
     calls(store, f'cc:{sid}0:1', ['Glob'])  # another session sharing the prefix
     detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
     assert detail['tool_counts'] == [{'name': 'Read', 'calls': 2}, {'name': 'Grep', 'calls': 1}]
+    with store.connect() as conn:  # the last tool_call counted, so a live view adds only later streamed calls
+        last = conn.execute("SELECT max(id) AS id FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'",
+                            ([f'cc:{sid}:1', f'cc:{sid}:2'],)).fetchone()['id']
+    assert detail['tool_counts_through_id'] == last
+
+
+def test_a_session_without_tool_calls_counts_through_zero(store, sessions):
+    sid = start(sessions)['id']
+    detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
+    assert detail['tool_counts'] == [] and detail['tool_counts_through_id'] == 0
 
 
 def test_a_test_chat_counts_its_runs_and_each_run(store, saved_agent):
