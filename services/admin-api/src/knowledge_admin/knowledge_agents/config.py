@@ -124,6 +124,29 @@ def require_run_resources(config: Mapping[str, Any]) -> None:
         raise ValueError(NO_RUN_RESOURCES)
 
 
+def mcp_definitions(config: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The MCP servers a configuration may connect to: the agent's and, with MCP on, those of its usable SSH servers."""
+    if not config['mcp']['enabled']:
+        return []
+    servers = list(config['mcp']['servers'])
+    if config['ssh']['enabled']:
+        for server in config['ssh']['servers']:
+            if server['enabled'] and server['ssh_allowed']:
+                servers.extend(server['mcp_servers'])
+    return servers
+
+
+def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | None]:
+    """The credential references of the enabled parts of a configuration (None: a part without one): the model key,
+    the SSH keys of usable servers and the tokens of enabled MCP servers. Nothing is decrypted here."""
+    references = [config['model']['api_key_ref']] if config['model'] is not None else []
+    if config['ssh']['enabled']:
+        references += [server['private_key_ref'] for server in config['ssh']['servers']
+                       if server['enabled'] and server['ssh_allowed']]
+    references += [server['bearer_token_ref'] for server in mcp_definitions(config) if server['enabled']]
+    return references
+
+
 SECTIONS: dict[str, str] = {
     'prompt': 'Prompt', 'instructions': 'Instructions', 'when_to_use': 'When to use', 'model': 'Model',
     'type': 'Agent type', 'resources': 'Resources', 'tools': 'Tools', 'skills': 'Skills', 'documents': 'Documents',

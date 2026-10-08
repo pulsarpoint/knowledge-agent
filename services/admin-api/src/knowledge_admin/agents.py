@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import psycopg
-from agents import Agent, AgentOutputSchema, ModelSettings, RunConfig, RunHooks, Runner, RunResult, RunResultStreaming, Session, trace
+from agents import Agent, AgentOutputSchema, ModelSettings, RunConfig, RunContextWrapper, RunHooks, Runner, RunResult, RunResultStreaming, Session, trace
 from agents.mcp import MCPServerStreamableHttp, create_static_tool_filter
 from agents.run_config import CallModelInputFilter
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import effective_tools, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import function_tool
-from knowledge_admin.knowledge_agents.config import get_agent_config, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
+from knowledge_admin.knowledge_agents.config import credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
@@ -64,7 +64,7 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
         if os.environ.get('AGENT_SHELL_URL') and os.geteuid() == 0:
             os.chown(workspace, 1000, 1000)  # The unprivileged shell-worker user owns its scratch files.
         context = {'config': config, 'credentials': credentials, 'workspace': workspace,
-                   'shell_enabled': False, 'tools': frozenset()}
+                   'shell_enabled': False, 'tools': frozenset(), 'mcp_tools': {}}
         # A snapshot: redaction keeps working when the caller clears `credentials` (a session turn after Stop).
         secrets = tuple(value for value in credentials.values() if value)
         activity = SdkActivity(secrets, on_activity, on_usage)
@@ -85,6 +85,7 @@ async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, 
                     # The adapter's backstop and the shell switch follow exactly the tools the model was given.
                     context['tools'] = frozenset(tool.name for tool in assistant.tools)
                     context['shell_enabled'] = 'shell_run' in context['tools']
+                    context['mcp_tools'] = await mcp_tool_names(assistant, context)
                     run_config = RunConfig(tracing={'include_task_and_turn_spans': False},
                                            model_settings=ModelSettings(max_tokens=max_output_tokens),
                                            call_model_input_filter=call_model_input_filter)
@@ -161,6 +162,21 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
             model_settings=model_settings, tools=tools, mcp_servers=mcp_servers,
             mcp_config={'include_server_in_tool_names': True},
             output_type=AgentOutputSchema(output_type, strict_json_schema=False) if output_type is not None else None)
+
+
+async def mcp_tool_names(assistant: Agent, context: dict[str, Any]) -> dict[str, str]:
+    """The run's MCP tools as the model sees them (the SDK's server-prefixed names), each with its Tools tab name
+    mcp:<server id>:<tool>. Both listings are the SDK's own (cached, filtered, in the same server and tool order); if
+    they ever disagree, no MCP tool is named, so run_subagent cannot give a wrong one."""
+    if not assistant.mcp_servers:
+        return {}
+    wrapper = RunContextWrapper(context)
+    visible = await assistant.get_mcp_tools(wrapper)
+    names = [f'mcp:{server.name}:{tool.name}' for server in assistant.mcp_servers
+             for tool in await server.list_tools(wrapper, assistant)]
+    if len(visible) != len(names):
+        return {}
+    return {tool.name: name for tool, name in zip(visible, names)}
 
 
 def get_model(config: dict[str, Any]) -> dict[str, Any]:
@@ -256,15 +272,8 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
 
 def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str, str]:
     """Decrypt only the credentials referenced by the enabled saved configuration."""
-    references = [config['model']['api_key_ref']] if config['model'] is not None else []
-    mcp = list(config['mcp']['servers']) if config['mcp']['enabled'] else []
-    if config['ssh']['enabled']:
-        for server in config['ssh']['servers']:
-            if server['enabled'] and server['ssh_allowed']:
-                references.append(server['private_key_ref'])
-                if config['mcp']['enabled']:
-                    mcp.extend(server['mcp_servers'])
-    references.extend(server['bearer_token_ref'] for server in mcp if server['enabled'])
+    references = credential_references(config)
+    mcp = mcp_definitions(config)
     queries = {
         'ka.llm_models': 'SELECT api_key_ciphertext AS secret FROM ka.llm_models WHERE id=%s AND enabled',
         'ka.credentials': "SELECT ciphertext AS secret FROM ka.credentials WHERE id=%s AND kind='ssh_private_key'",

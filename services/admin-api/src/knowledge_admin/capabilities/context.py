@@ -1,7 +1,7 @@
 """The run context every capability receives, and the per-run rule for kinds a run was given nothing of."""
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from knowledge_admin.collections import document_collections
 from knowledge_admin.knowledge_agents.config import per_run, require_run_resources
@@ -16,6 +16,7 @@ class RunContext(TypedDict):
     workspace: Path
     shell_enabled: bool
     tools: frozenset[str]  # the catalog tools offered to this run
+    mcp_tools: NotRequired[dict[str, str]]  # the MCP tools as the model sees them → mcp:<server id>:<tool name>
 
 
 NOTHING_GIVEN = {
