@@ -69,8 +69,21 @@ def bad(message: str) -> HTTPException:
     return HTTPException(400, message)
 
 
+def refuse_nul(draft: HandlerDraft) -> None:
+    """PostgreSQL text cannot hold NUL: say which field has one instead of failing on the insert."""
+    emit = draft.emit or EmitTemplates()
+    fields = (('Name', draft.name), ('Event type', draft.type_pattern),
+              ('Conditions', [condition.model_dump() for condition in draft.conditions]),
+              ('New event type', emit.type), ('Subject', emit.subject), ('Title', emit.title), ('Payload', emit.payload),
+              ('Agent', draft.agent_id), ('Prompt', draft.prompt))
+    for label, value in fields:
+        if event_templates.has_nul(value):
+            raise bad(f'Remove the NUL character from {label}.')
+
+
 def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
     """The handler's columns, validated: 400 with a message for the form when something is wrong."""
+    refuse_nul(draft)
     name = draft.name.strip()
     if named and not name:
         raise bad('Enter a name.')
@@ -135,7 +148,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         """Agents a handler can send to: enabled, with fixed resources."""
         db = database()
         with db.connect() as conn:
-            return {'agents': conn.execute("SELECT id,name FROM ka.agents WHERE enabled AND resources='fixed' ORDER BY name COLLATE \"C\"").fetchall()}
+            return {'agents': conn.execute("SELECT id,name FROM ka.agents WHERE enabled AND resources='fixed' ORDER BY name,id").fetchall()}
 
     @router.post('/event-handlers/preview')
     def preview(value: PreviewInput) -> dict:
@@ -180,14 +193,16 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
-            current = conn.execute('SELECT revision FROM ka.event_handlers WHERE id=%s AND project_id=%s FOR UPDATE',
+            current = conn.execute('SELECT revision,enabled,agent_id FROM ka.event_handlers WHERE id=%s AND project_id=%s FOR UPDATE',
                                    (handler_id, project)).fetchone()
             if current is None:
                 raise HTTPException(404, NOT_FOUND)
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE)
             values = stored(conn, value)
-            if values['agent_id']:
+            # Only a new agent or turning the handler on checks the agent: a handler whose agent was deleted or
+            # switched to per-run resources can still be turned off and edited.
+            if values['agent_id'] and (values['agent_id'] != current['agent_id'] or (values['enabled'] and not current['enabled'])):
                 agent_usable(conn, values['agent_id'])
             try:
                 with conn.transaction():

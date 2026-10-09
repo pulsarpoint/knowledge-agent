@@ -67,6 +67,12 @@ def test_last_run_is_listed(client, store):
     ({'action': 'agent', 'emit': None}, 'Choose an agent.'),
     ({'action': 'agent', 'emit': None, 'agent_id': 'nope', 'prompt': 'Hi'}, 'Agent not found.'),
     ({'name': ' '}, 'Enter a name.'),
+    ({'name': 'A\x00'}, 'Remove the NUL character from Name.'),
+    ({'type_pattern': 'jira.\x00'}, 'Remove the NUL character from Event type.'),
+    ({'conditions': [{'field': 'title', 'op': 'equals', 'value': 'x\x00'}]}, 'Remove the NUL character from Conditions.'),
+    ({'emit': {'type': 'a.b', 'title': '\x00'}}, 'Remove the NUL character from Title.'),
+    ({'action': 'agent', 'emit': None, 'agent_id': 'x', 'prompt': 'Hi\x00'}, 'Remove the NUL character from Prompt.'),
+    ({'action': 'agent', 'emit': None, 'agent_id': 'x\x00', 'prompt': 'Hi'}, 'Remove the NUL character from Agent.'),
 ])
 def test_validation(client, changes, message):
     assert error(client.post('/api/event-handlers', headers=HEADERS, json={**EMIT, **changes}), 400).startswith(message)
@@ -76,7 +82,9 @@ def test_send_to_agent_handlers_and_the_agent_list(tester):
     t = tester
     listed = t.client.get('/api/event-handlers/agents', headers=HEADERS).json()['agents']
     assert {'id': t.agent, 'name': 'Tester'} in listed  # seeded agents (0020, 0031) may be listed too
-    assert [agent['name'] for agent in listed] == sorted(agent['name'] for agent in listed)
+    with t.store.connect() as conn:  # the database's own collation, as the picker shows them
+        expected = [row['id'] for row in conn.execute("SELECT id FROM ka.agents WHERE enabled AND resources='fixed' ORDER BY name,id")]
+    assert [agent['id'] for agent in listed] == expected
     body = {**EMIT, 'action': 'agent', 'emit': {'type': 'ignored.type'}, 'agent_id': t.agent, 'prompt': 'Triage {{ event.subject }}'}
     response = t.client.post('/api/event-handlers', headers=HEADERS, json=body)
     assert response.status_code == 201, response.text
@@ -107,3 +115,24 @@ def test_preview(client, store):
     assert client.post('/api/event-handlers/preview', headers=HEADERS,
                        json={'handler': agent, 'event_id': labelled}).json()['output'] == {'prompt': 'Do DEMO-9'}
     assert error(client.post('/api/event-handlers/preview', headers=HEADERS, json={'handler': EMIT, 'event_id': 999999}), 404) == 'Event not found.'
+
+
+def test_a_handler_whose_agent_is_gone_can_still_be_turned_off_and_edited(tester):
+    t = tester
+    body = {**EMIT, 'action': 'agent', 'emit': None, 'agent_id': t.agent, 'prompt': 'Triage {{ event.subject }}'}
+    handler = t.client.post('/api/event-handlers', headers=HEADERS, json=body).json()['handler']
+    with t.store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
+    url = f"/api/event-handlers/{handler['id']}"
+    saved = t.client.put(url, headers=HEADERS, json={**body, 'enabled': False, 'revision': 1})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['handler']['enabled'] is False
+    assert 'resources per run' in error(t.client.put(url, headers=HEADERS, json={**body, 'revision': 2}), 400)  # turning it on checks
+    revision = t.client.get(f'/api/agents/{t.agent}', headers=HEADERS).json()['revision']
+    deleted = t.client.request('DELETE', f'/api/agents/{t.agent}', headers=HEADERS, json={'revision': revision, 'confirmed': True, 'with_history': True})
+    assert deleted.status_code == 204, deleted.text
+    edited = t.client.put(url, headers=HEADERS, json={**body, 'enabled': False, 'prompt': 'Later {{ event.subject }}', 'revision': 2})
+    assert edited.status_code == 200, edited.text
+    assert (edited.json()['handler']['agent_id'], edited.json()['handler']['agent_name']) == (t.agent, None)
+    assert error(t.client.put(url, headers=HEADERS, json={**body, 'enabled': False, 'agent_id': 'missing', 'revision': 3}), 400) == \
+        'Agent not found.'
