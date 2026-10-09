@@ -13,7 +13,8 @@ export interface PreviewResult { matches: boolean; reason: string | null; output
 export const OPERATOR_LABELS: Record<Operator, string> = { equals: "equals", not_equals: "does not equal", contains: "contains",
   in: "is one of", matches: "matches regex", exists: "exists" };
 export const FIELD_SUGGESTIONS = ["source", "type", "subject", "title", "payload.status", "payload.labels", "payload.assignee",
-  "payload.priority", "payload.issue_type", "payload.summary", "payload.changes.status", "payload.changes.assignee"];
+  "payload.priority", "payload.issue_type", "payload.summary", "payload.changes.status.to", "payload.changes.status.from",
+  "payload.changes.assignee.to", "payload.changes.priority.to", "payload.changes.labels.added", "payload.changes.labels.removed"];
 
 const json = (method: string, value: unknown) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
 export const getHandlers = () => request<{ handlers: EventHandler[] }>("/api/event-handlers");

@@ -20,6 +20,8 @@ interface Form { name: string; enabled: boolean; type_pattern: string; condition
 
 const BLANK: Form = { name: "", enabled: true, type_pattern: "jira.ticket.*", conditions: [], action: "emit",
   emit: { type: "", subject: "", title: "", payload: "" }, agent_id: "", prompt: "" };
+/** Send to agent on a pattern like * or jira.ticket.* can start many sessions at once (the first Jira pull records every ticket). */
+const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
 const HELP = "event.id, event.source, event.type, event.subject, event.title, event.occurred_at, event.payload.<field>, event.parent_id, event.root_id, event.depth";
 
 function fromHandler(handler: EventHandler): Form {
@@ -37,7 +39,7 @@ function toDraft(form: Form): HandlerDraft {
 
 function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSaved: (handler: EventHandler) => void }) {
   const [form, setForm] = useState<Form>(handler ? fromHandler(handler) : BLANK);
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string }[] | null>(null);
   const [types, setTypes] = useState<string[]>([]);
   const [recent, setRecent] = useState<EventRow[]>([]);
   const [previewEvent, setPreviewEvent] = useState("");
@@ -54,6 +56,10 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
     getEvents(NO_FILTERS, DEFAULT_SORT).then(result => setRecent(result.events)).catch(() => setRecent([]));
   }, []);
 
+  // A saved handler keeps its agent even when it is no longer offered (deleted, disabled or per-run): show it so the
+  // handler can still be turned off or edited.
+  const storedAgent = handler?.agent_id && !agents?.some(agent => agent.id === handler.agent_id)
+    ? [{ id: handler.agent_id, name: `${handler.agent_name ?? handler.agent_id}${agents ? " (not available)" : ""}` }] : [];
   const update = (changes: Partial<Form>) => setForm(current => ({ ...current, ...changes }));
   const setCondition = (index: number, changes: Partial<ConditionRow>) =>
     update({ conditions: form.conditions.map((row, at) => at === index ? { ...row, ...changes } : row) });
@@ -91,7 +97,7 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
         <datalist id="handler-types">{["*", "jira.ticket.*", ...types].map(type => <option key={type} value={type} />)}</datalist>
         <FieldDescription>Use * for any part, e.g. jira.ticket.* or jira.*.created.</FieldDescription></Field>
       <FieldSet><FieldLegend variant="label">Conditions</FieldLegend>
-        <FieldDescription>All conditions must hold.</FieldDescription>
+        <FieldDescription>All conditions must hold. For “is one of”, separate the values with commas.</FieldDescription>
         <datalist id="handler-fields">{FIELD_SUGGESTIONS.map(field => <option key={field} value={field} />)}</datalist>
         {form.conditions.map((row, index) => <div key={index} className="flex flex-wrap items-center gap-2">
           <Input aria-label={`Condition ${index + 1} field`} list="handler-fields" className="w-40" value={row.field} onChange={e => setCondition(index, { field: e.target.value })} />
@@ -111,7 +117,9 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
         <Select value={form.action} onValueChange={action => update({ action: action as Form["action"] })}>
           <SelectTrigger id="handler-action" aria-label="Action" className="w-full"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup><SelectItem value="emit">Emit event</SelectItem><SelectItem value="agent">Send to agent</SelectItem></SelectGroup></SelectContent>
-        </Select></Field>
+        </Select>
+        {form.action === "agent" && broad(form.type_pattern.trim()) &&
+          <FieldDescription className="text-amber-700 dark:text-amber-400">Starts one agent session for every matching event.</FieldDescription>}</Field>
       {form.action === "emit" ? <>
         <Field><FieldLabel htmlFor="emit-type">New event type</FieldLabel><Input id="emit-type" placeholder="triage.requested" value={form.emit.type} onChange={e => setEmit("type", e.target.value)} /></Field>
         <Field><FieldLabel htmlFor="emit-subject">Subject</FieldLabel><Input id="emit-subject" placeholder="{{ event.subject }}" value={form.emit.subject} onChange={e => setEmit("subject", e.target.value)} /></Field>
@@ -122,7 +130,7 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
         <Field><FieldLabel htmlFor="handler-agent">Agent</FieldLabel>
           <Select value={form.agent_id} onValueChange={agent_id => update({ agent_id })}>
             <SelectTrigger id="handler-agent" aria-label="Agent" className="w-full"><SelectValue placeholder="Choose an agent" /></SelectTrigger>
-            <SelectContent><SelectGroup>{agents.map(agent => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectGroup></SelectContent>
+            <SelectContent><SelectGroup>{[...storedAgent, ...(agents ?? [])].map(agent => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectGroup></SelectContent>
           </Select>
           <FieldDescription>Enabled agents with fixed resources. Each matching event starts a new session.</FieldDescription></Field>
         <Field><FieldLabel htmlFor="handler-prompt">Prompt</FieldLabel>

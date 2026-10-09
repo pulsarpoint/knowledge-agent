@@ -110,7 +110,7 @@ export default function EventsView() {
         options={facets.types.map(type => ({ value: type, label: typeLabel(type) }))} />
       <FilterSelect id="events-status" label="Status" all="All statuses" className="w-full sm:w-40" value={filters.status} onChange={set("status")}
         options={facets.statuses.map(status => ({ value: status, label: STATUS_LABELS[status] ?? status }))} />
-      <FilterSelect id="events-handler" label="Handler" all="All handlers" className="w-full sm:w-44" value={filters.handler} onChange={set("handler")}
+      <FilterSelect id="events-handler" label="Emitted by" all="All handlers" className="w-full sm:w-44" value={filters.handler} onChange={set("handler")}
         options={facets.handlers.map(handler => ({ value: handler.id, label: handler.name }))} />
       <Field className="w-full sm:w-56"><FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>
         <Input id="events-search" value={filters.q} onChange={event => set("q")(event.target.value)} /></Field>

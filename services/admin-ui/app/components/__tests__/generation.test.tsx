@@ -212,9 +212,9 @@ test('the session page fills the screen below the app header, so the message box
   } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
 });
 
-test('a Test session opened here goes to its agent Test tab', async () => {
+test.each([['a Test', 'test'], ['an event', 'event']])('%s session opened here goes to its agent Test tab', async (_, purpose) => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : Response.json({ ...detail, purpose: 'test', agent_id: 'custom agent' })));
+    : Response.json({ ...detail, purpose, agent_id: 'custom agent' })));
   function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname + location.search}</output>; }
   render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
     <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />

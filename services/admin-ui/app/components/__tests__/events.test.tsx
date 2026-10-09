@@ -74,7 +74,7 @@ test("filters by type, status, handler and search", async () => {
   await user.click(screen.getByRole("combobox", { name: "Status" }));
   await user.click(screen.getByRole("option", { name: "Failed" }));
   expect(await screen.findByText("DEMO-8")).toBeInTheDocument();
-  await user.click(screen.getByRole("combobox", { name: "Handler" }));
+  await user.click(screen.getByRole("combobox", { name: "Emitted by" }));
   await user.click(screen.getByRole("option", { name: "Triage" }));
   expect(await screen.findByText("DEMO-7")).toBeInTheDocument();
   await user.type(screen.getByLabelText("Ticket or title"), "DEMO-7");

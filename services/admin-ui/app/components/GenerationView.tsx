@@ -52,8 +52,8 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
   }
 
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
-  // A Test session belongs to its agent's Test tab (an old link, or one from Agent runs).
-  if (session.purpose === 'test') return <Navigate replace
+  // A Test or event session belongs to its agent's Test tab (an old link, or one from Agent runs).
+  if (session.purpose === 'test' || session.purpose === 'event') return <Navigate replace
     to={`/agents/${encodeURIComponent(session.agent_id ?? '')}?view=test&session_id=${encodeURIComponent(session.id)}`} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
