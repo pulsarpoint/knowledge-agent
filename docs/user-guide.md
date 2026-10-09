@@ -526,7 +526,7 @@ and close after 24 idle hours (a session idle for 5 minutes is paused and resume
 
 The agent gets exactly what you choose: its code projects, collections and servers are the ones ticked (environments and
 services also bring their code projects and the servers they are deployed on; servers without SSH are skipped). Its tools
-(`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents) work as in an agent's Test tab.
+(`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and `ssh_run` when servers are chosen) work as in an agent's Test tab. The agent can connect over SSH to the servers you tick and to the SSH-allowed servers that environments and services bring; servers without a usable connection are left out, and a ticked server that cannot be used is refused.
 
 **What the agent receives.** The system prompt and context from the form, then one first message listing
 what to document, as a user could have typed it:
@@ -676,7 +676,7 @@ Records are kept until deleted; only administrators can see them.
 2. **Services**: add deployments (server + environment + container/unit + port + log path).
 3. **Generate documents → New**: tick **Environment** and pick it (or tick **Servers**), add instructions about
    deployments → **Generate**.
-4. Servers are described as text until agents get SSH tools; the agent does not connect to them.
+4. The agent connects over SSH to the chosen servers (and to those the environment brings).
 
 ### D. Build and test an operations agent
 
@@ -775,7 +775,6 @@ before exposing it beyond localhost.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
-- Generate documents describes servers as text (no SSH from the form).
 
 ---
 

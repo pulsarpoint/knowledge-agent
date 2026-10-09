@@ -30,7 +30,6 @@ flowchart LR
     AdminAPI --> RAG[Local RAG]
     AdminAPI --> DB[(PostgreSQL metadata and jobs)]
     Worker[Planned admin worker] --> DB
-    Worker --> Plugin[Claude Agent SDK + app-docs]
     Worker --> Jira[Jira Data Center]
     Worker --> RAG
     AdminAPI -. traces .-> Phoenix
@@ -142,47 +141,9 @@ mapping and sync status. Existing snapshot-style projects keep their old folders
 and IDs; editing one adopts its current checkout as the fixed clone path. Mapping
 changes never remove source files. No automatic cache/snapshot cleanup is added.
 
-## Generate documentation through Claude
+## Generate documentation
 
-The worker loads the bundled plugin directory via the SDK's local `plugins`
-option and explicitly invokes `/app-docs:docs build` or `update`, passing the
-prepared source-root and docs workspace. This is supported by the
-[Claude Agent SDK plugin documentation](https://code.claude.com/docs/en/agent-sdk/plugins).
-
-Capture the selected repository commits, plugin version/digest, starting
-documentation revision, and SDK session ID in the generation record. Prepare an
-isolated control directory, read-only sources, and a job-owned writable docs Git
-worktree seeded from the current file manifest. The API, not the agent, creates
-the repositories/worktrees. Empty bootstrap commits are local worker state.
-
-The v2 plugin's [interview workflow](../plugins/app-docs/references/interview-workflow.md)
-requires a clean Git tree, prepares drafts, asks questions, and writes after
-confirmation. It also invokes `rag index` for chunk validation. The admin adapter
-must explicitly supply this invocation contract before the feature ships:
-
-- Generate authorizes analysis and draft writes within the job workspace. Reuse
-  the plugin's Diátaxis rules, source citations, incremental update logic, and
-  chunk contract. Supply this user authorization in the run context; do not
-  simulate user approval events or claim unattended support for the unchanged
-  interactive plugin.
-- Prepare the full draft first. Persist any real questions about intent as
-  `job_questions`; set `waiting_input`, release the worker lease, and resume from
-  persisted SDK state after the admin answers. Unknown/deferred facts remain
-  visibly marked. The adapter must be tested for the plugin's confirmation turn.
-- Validate chunking only in a disposable job index with no active collection
-  pointer. Generation must never automatically publish live RAG data.
-- Persist output bytes and hashes, validate relative Markdown paths, then merge
-  the accepted output as one new document-set revision in a DB transaction.
-  Lock the document-set row and compare `base_revision`. A concurrent upload
-  causes a conflict with a reviewable draft, never silent overwrite.
-- An uploaded file is user-owned. If generated output targets it, preserve the
-  upload and surface the proposed replacement for explicit selection in the UI.
-  Omitted files are not implicitly deleted; deletions belong in the proposed
-  manifest and must preserve uploaded content unless explicitly selected.
-
-The documentation writer must have its own SDK permission policy. Scope writable mounts to job output, keep
-application code read-only, and keep unrelated Jira/SSH credentials out of the
-Claude worker subprocess environment.
+The earlier job-based design with the Claude Agent SDK plugin was superseded by Generate documents agent sessions (migrations 0073 and 0083); see [Documentation administration](documentation.md#generate-documents).
 
 ## File uploads and directory consistency
 
