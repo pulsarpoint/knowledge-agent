@@ -72,3 +72,27 @@ def test_the_token_never_reaches_the_audit(store, tmp_path):
     setup(store, tmp_path)
     auto_pull(store, a_schedule(store), transport=httpx.MockTransport(jira_response))
     assert SETTINGS['token'] not in str(audits(store))
+
+
+def test_auto_pull_uses_its_own_query_after_a_manual_fetch(store, tmp_path):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        if request.url.path.endswith('/search'):
+            return httpx.Response(200, json={'startAt': 0, 'total': 0, 'issues': []})
+        return jira_response(request)
+
+    client, _ = setup(store, tmp_path, handler)
+    assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5, 'jql': 'project = MANUAL'}).status_code == 200
+    schedule = {**a_schedule(store), 'params': {'jql': 'project = AUTO', 'limit': 7}}
+    calls.clear()
+    assert auto_pull(store, schedule, transport=httpx.MockTransport(handler)) == ('succeeded', 'Pulled 0 of 0 tickets.')
+    searches = [url for url in calls if url.path.endswith('/search')]
+    assert searches[0].params['jql'] == 'project = AUTO' and searches[0].params['maxResults'] == '7'
+
+
+def test_auto_pull_without_params_falls_back_to_the_connection(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
+    assert auto_pull(store, {**a_schedule(store), 'params': {}}, transport=httpx.MockTransport(jira_response)) == ('succeeded', 'Pulled 5 of 7 tickets.')

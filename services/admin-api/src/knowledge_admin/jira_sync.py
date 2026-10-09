@@ -76,15 +76,17 @@ def pull_tickets(store: RepositoryStore, project_id: UUID, jql: str, limit: int,
 
 
 def auto_pull(store: RepositoryStore, schedule: dict, transport: httpx.BaseTransport | None = None) -> tuple[str, str]:
-    """Target jira.pull: the Fetch tickets pull with the query and limit of the last fetch."""
+    """Target jira.pull: pull with the schedule's own query and limit (params), else the connection's last fetch."""
     with store.connect() as conn:
         connection = conn.execute("""SELECT jql,last_fetch_limit FROM ka.jira_connections
             WHERE id=%s AND project_id=%s AND name='primary'""", (schedule['target_id'], schedule['project_id'])).fetchone()
     if connection is None:
         raise TargetMissing()
+    params = schedule.get('params') or {}
+    jql = params.get('jql') or connection['jql']
+    limit = params.get('limit') or connection['last_fetch_limit'] or DEFAULT_LIMIT
     try:
-        result = pull_tickets(store, schedule['project_id'], connection['jql'], connection['last_fetch_limit'] or DEFAULT_LIMIT,
-                              None, transport, action='jira.tickets_auto_pulled')
+        result = pull_tickets(store, schedule['project_id'], jql, limit, None, transport, action='jira.tickets_auto_pulled')
     except HTTPException as exc:
         if exc.status_code == 409 and exc.detail == FETCH_CLASH:
             return 'skipped', CLASH_SKIPPED

@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+params_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'schedules' AND column_name = 'params')")
+[ "$params_removed" = t ] || { echo 'FAIL: 0087 down left schedules.params' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 schedules_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.schedules') IS NULL AND to_regclass('ka.schedule_runs') IS NULL")
 [ "$schedules_removed" = t ] || { echo 'FAIL: 0086 down left the schedule tables' >&2; exit 1; }
@@ -136,6 +141,11 @@ schedules=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.schedules_due') IS NOT NULL")
 [ "$schedules" = t ] || { echo 'FAIL: 0086 schedule tables missing' >&2; exit 1; }
 printf '%s\n' 'PASS: schedules and their run history exist.'
+params=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'schedules' AND column_name = 'params')")
+[ "$params" = t ] || { echo 'FAIL: 0087 schedules.params missing' >&2; exit 1; }
+printf '%s\n' 'PASS: schedules have target params.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
