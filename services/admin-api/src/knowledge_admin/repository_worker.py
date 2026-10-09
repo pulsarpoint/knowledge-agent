@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import scheduler
+from knowledge_admin import event_processor, event_templates, scheduler
 from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.code_paths import code_path
 from knowledge_admin.code_processing import process_code, CodeProcessingError
@@ -191,6 +191,9 @@ def main() -> None:
     # Schedules (e.g. the Jira auto pull) run beside the repository jobs; a running target finishes before exit.
     schedules = threading.Thread(target=scheduler.loop, args=(store, stopped), name="scheduler")
     schedules.start()
+    # Pending events go through the event handlers every 2 s (event_processor.py).
+    events = threading.Thread(target=event_processor.loop, args=(store, stopped), name="event-processor")
+    events.start()
     try:
         while not stopped.is_set():
             try:
@@ -203,3 +206,5 @@ def main() -> None:
     finally:
         stopped.set()
         schedules.join()
+        events.join()
+        event_templates.shutdown()
