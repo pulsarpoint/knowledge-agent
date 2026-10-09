@@ -162,3 +162,12 @@ test('a failed expert call is failed with its error; a plain subagent has no exp
     event(2, 'input', { task: 'Read', subagent: { task: 'Read' }, parent_call_id: 's1' })]);
   expect(plain.subagents[0].expert).toBeNull();
 });
+
+test('a tool named ask_* with no expert input is an ordinary tool, not a helper', () => {
+  const [turn] = groupTurns([
+    event(3, 'input', { task: 'Hi' }),
+    event(3, 'tool_call', { name: 'ask_question', call_id: 'q1', summary: 'why' }),
+    event(3, 'tool_result', { name: 'ask_question', call_id: 'q1', preview: 'because', is_error: false })]);
+  expect(turn.subagents).toEqual([]);
+  expect(turn.work[0]).toMatchObject({ kind: 'tool', name: 'ask_question', preview: 'because' });
+});

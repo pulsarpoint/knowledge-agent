@@ -3,7 +3,6 @@ import { PanelRight } from 'lucide-react';
 import { formatTokens, statusLabels } from '~/lib/generations';
 import { toolUsageLine } from '~/lib/runs';
 import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from '~/lib/turns';
-import { SUBAGENT_TOOL } from '~/lib/tools';
 import type { SessionRun } from '~/lib/useSessionEvents';
 import GroundingSources from './GroundingSources';
 import Markdown from './Markdown';
@@ -44,7 +43,7 @@ const taskLabel = (sub: Subagent, length?: number) => short(sub.task, length) ||
 const subagentUsage = (sub: Subagent) => `${plural(sub.toolCalls, 'tool call')} · ${compactTokens(sub.usage.total)} tokens`;
 
 function WorkLine({ item, subagents, onOpen }: { item: WorkItem; subagents?: Map<string, Subagent>; onOpen?: (callId: string) => void }) {
-  const sub = item.kind === 'tool' && (item.name === SUBAGENT_TOOL || item.name?.startsWith('ask_')) && item.callId ? subagents?.get(item.callId) : undefined;
+  const sub = item.kind === 'tool' && item.callId ? subagents?.get(item.callId) : undefined;
   if (sub) return <div className="flex flex-wrap items-center gap-2 text-sm">
     <span className="break-words">{`${sub.expert ? `Asked ${sub.expert.name}` : 'Subagent'} · ${taskLabel(sub)} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
     {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open ${sub.expert ? 'expert' : 'subagent'}: ${sub.task || NO_TASK}`} onClick={() => onOpen(sub.callId)}>Open</Button>}

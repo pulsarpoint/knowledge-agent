@@ -263,3 +263,12 @@ test('a subagent with no task yet is named the same way everywhere', () => {
   expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(/Subagent: no task yet/);
   expect(screen.getByLabelText('Subagent task')).toHaveTextContent('no task yet');
 });
+
+test('a tool named ask_* that is not an expert is a plain tool line', () => {
+  show({ run: run({ session: { ...detail, status: 'working' as const }, events: [
+    event(5, 'input', { task: 'Hi' }),
+    event(5, 'tool_call', { name: 'ask_question', call_id: 'q1', summary: 'why' }),
+    event(5, 'tool_result', { name: 'ask_question', call_id: 'q1', preview: 'because', is_error: false })] }) });
+  expect(screen.queryByRole('button', { name: /^Open / })).toBeNull();
+  expect(screen.queryByText(/^Asked /)).toBeNull();
+});

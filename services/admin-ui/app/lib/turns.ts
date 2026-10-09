@@ -32,7 +32,6 @@ const amount = (payload: Record<string, unknown>, key: string) => Number(payload
 /** A run_subagent result that is a failure: the subagent failed, or the call was refused (the SDK's tool error text).
  * Not every is_error: a subagent's successful answer may be JSON with an error key. */
 const SUBAGENT_FAILED = [/^Subagent failed: /, /^Expert .+ failed: /, /^An error occurred while running the tool/];
-const EXPERT_TOOL_PREFIX = 'ask_';
 const noUsage = (): TurnUsage => ({ input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 });
 
 type Pending = { pending: { id: number; text: string } | null };
@@ -134,9 +133,9 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
       default: {
         addWork(turn, event);
         const callId = text(p, 'call_id');
-        const name = text(p, 'name');
-        if ((name !== SUBAGENT_TOOL && !name.startsWith(EXPERT_TOOL_PREFIX)) || !callId) break;
-        if (event.kind === 'tool_call') {
+        if (!callId) break;
+        // Only run_subagent starts a helper on its own call; an expert's helper starts with its input event.
+        if (event.kind === 'tool_call' && text(p, 'name') === SUBAGENT_TOOL) {
           const sub = helper(turn, callId, event);
           const args = p.arguments as Record<string, unknown> | undefined;
           if (!sub.task && args && typeof args.task === 'string') sub.task = args.task;
