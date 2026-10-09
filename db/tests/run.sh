@@ -56,6 +56,10 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+tasks_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_tasks') IS NULL AND to_regclass('ka.notifications') IS NULL")
+[ "$tasks_removed" = t ] || { echo 'FAIL: 0090 down left agent tasks or notifications' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 handlers_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.event_handlers') IS NULL AND to_regclass('ka.event_handler_runs') IS NULL
         AND NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -164,6 +168,11 @@ handlers=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.events_pending') IS NOT NULL")
 [ "$handlers" = t ] || { echo 'FAIL: 0089 event handlers missing' >&2; exit 1; }
 printf '%s\n' 'PASS: events have a status and a chain; handlers and their runs exist.'
+tasks=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_tasks') IS NOT NULL AND to_regclass('ka.notifications') IS NOT NULL
+        AND to_regclass('ka.agent_tasks_due') IS NOT NULL")
+[ "$tasks" = t ] || { echo 'FAIL: 0090 agent tasks or notifications missing' >&2; exit 1; }
+printf '%s\n' 'PASS: agent tasks and notifications exist.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
