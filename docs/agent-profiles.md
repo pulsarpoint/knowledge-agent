@@ -77,6 +77,18 @@ default (`subagent_allowed`). While it is off, the group says "Turn on May start
 agent start helpers." and the Tools API refuses `run_subagent` ("Turn on May start subagents in General first.").
 Clone and Apply copy the row and `subagent_allowed` with the other tool rows.
 
+**Experts.** **Offer as an expert** (General, native agents, off by default; `expert` in `GET/PUT /api/agents/{id}` and
+in the list, which shows an **Expert** badge) offers the agent to every other native agent as a tool. Saving it on
+needs a non-empty When to use (400 "Experts need When to use."). An expert is offered while it is enabled and has a
+model; a caller never gets itself. The Tools tab's **Experts** group lists every other expert with its When to use,
+Fixed / Per run and a switch, on by default; switching one off stores an `expert:<agent id>` row in `ka.agent_tools`
+(`mode = 'off'`, `subagent_allowed = false`) and switching it back on deletes the row. `PUT /api/agents/{id}/tools`
+accepts `expert:<id>` entries (`on` or `off`) for existing experts other than the agent; usage is not editable. With
+no experts the group says "No experts yet. Turn on Offer as an expert on an agent's General tab."; on an agent that is
+itself an expert it says "When this agent runs as an expert it cannot call experts." Clone copies the `expert:` rows
+and starts with the switch off; Apply to original leaves the original's switch as it is and never copies a row naming
+the original itself. Deleting an agent deletes the `expert:<its id>` rows of all callers.
+
 ## New agent
 
 Agents → New agent designs a specialist from a role description. Choose
@@ -188,3 +200,5 @@ Migration `0080_clone_agents` makes each agent's active configuration version it
 Migration `0081_test_sessions` turns Test chats into sessions of `agent_sessions_cc` (`purpose`), adds `model_calls` and `reasoning_tokens`, moves suggestions onto it and drops the old Test chat tables (their run records stay). See `deploy/README.md`.
 
 Migration `0084_remove_claude_code` converted Claude Code agents to native agents (the tools of their enabled capabilities are switched on; model, prompt and resources are kept), drops `agents.runtime` and `agents.claude_code_tools`, renames `agent_sessions_cc` to `agent_sessions` and drops its `runtime`, `claude_session_id` and `cost_usd` columns (`agent_config` is required). It deleted Claude Code sessions with their inputs and reviews; their run records (`cc:` keys) stay. Older audit rows keep the `claude_code.session.*` actions.
+
+Migration `0085_agent_experts` adds `agents.expert` and lets `ka.agent_tools` hold `expert:<agent id>` rows (off only; never allowed for subagents). Its down migration drops the column and deletes those rows, so callers lose their choices of experts to switch off.

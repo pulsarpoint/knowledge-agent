@@ -30,7 +30,10 @@ a header (agent, type, resources, status, tokens, tools used), turns with a coll
 with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
 box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream (fed by the admin-api session hub, see
 [documentation](documentation.md)); `groupTurns`
-turns events into turns. A `run_subagent` call shows in the Worked block as `Subagent · <task> · <n> tool calls ·
+turns events into turns. An `ask_<slug>` call shows in the Worked block as `Asked <name> · <task> · <n> tool calls · <tokens>
+tokens · <status>` with **Open**, and the sidebar lists `Expert · <name> · <task>` (breadcrumb **Main agent › <name>: <task>**);
+an expert entry appears only once the expert has started (its first event), so a call refused before starting shows as a
+failed tool line. A `run_subagent` call shows in the Worked block as `Subagent · <task> · <n> tool calls ·
 <tokens> tokens · <status>` with **Open**; **Agents in this run** lists the main agent and every subagent (working,
 done, failed or stopped, with tokens and tool calls, live), and selecting one shows its own history in the main pane
 with the breadcrumb **Main agent › Subagent: <task>**. `groupTurns` puts events with a `parent_call_id` into the
@@ -95,12 +98,45 @@ lists narrowed to the given ids (each must be in the agent's current lists; give
 an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, skills off
 and the same model. It gets only the turn's already decrypted credentials its configuration references (SSH private
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
-most 16 subagents ("This turn already started 16 subagents.") and runs `AGENT_MAX_SUBAGENTS` (default 4) at once; later
-calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
+most 16 helpers, subagents and expert calls together ("This turn already started 16 helpers."), and runs
+`AGENT_MAX_SUBAGENTS` (default 4) at once, shared with expert calls; later calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
 errors naming the tool or resource. Subagents run only in native agent sessions (Test and Generate documents). Their
 events go into the turn's record (`cc:<session>:<turn>`) with `payload.parent_call_id` (the `run_subagent` call id; the
 first is `input {task, subagent}`), their model calls into the session's totals and their tool calls into the tool
 counts. **Stop** stops the agent and every subagent; a subagent of an ended turn starts no model or tool call.
+
+**Experts (`ask_<slug>`).** A native agent, including a Generate documents agent, gets one tool per offered expert
+(see [agent configuration](agent-profiles.md)): an agent with **Offer as an expert** that is enabled, has a model and
+is not the caller, and that the caller has not switched off. The name is `ask_` plus the expert's name lowercased with
+every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
+`expert`; a slug taken by an earlier expert, ordered by name and id, gets `_2`, `_3`, ...). The description is `Ask <name>, an
+expert agent. <When to use>` plus, for a per-run expert, ` It works only on the resources you pass (it accepts: code
+projects, document collections, servers, services).` (only the kinds it uses) or, for a fixed one, ` It uses its own
+resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for per-run experts only, `resources`
+(`code_project_ids`, `collection_ids`, `server_ids`, `service_ids`). The experts a session may call are pinned with its
+configuration (`config['experts']`: id, name, tool, When to use, resources); later changes to the expert list apply to
+new sessions, and Generate documents pins every offered expert. The expert's own configuration is loaded when it is
+called. Refusals are tool errors: `Expert <name> is not available.` (deleted, no longer an expert, disabled or without
+a model), `<kind> <id> is not one of your resources.`, the expert's own resource message, the 16-helper limit, an empty
+or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin. A failure returns `Expert <name>
+failed: <reason>` (redacted) and the caller goes on.
+
+A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with the resolved
+resources (per run) or its own (fixed), no conversation, and no expert tools (an expert cannot call experts). It keeps
+`run_subagent` if it has it: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
+16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
+experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it
+runs with; `load_credentials` also refuses a disabled model, server or MCP server); they are added to the turn's
+redaction secrets, so the caller's record shows them redacted, and cleared when the call ends. The call takes a slot
+like a subagent. Subagents never get expert tools.
+
+An expert call is recorded in the caller's turn record like a subagent: events carry `payload.parent_call_id` (the `ask_`
+call id), every event's `agent_id` is the expert's, and the first is `input {task, parent_call_id, expert: {id, name}}`;
+model calls go into the session's totals and tool calls into the tool counts. `GET /api/agent-runs?agent_id=<expert>`
+also lists the calls made to the expert (kind `expert_call`: time, caller, task, status, tokens, run key and call id;
+served by the partial index `agent_run_events_expert_calls`), and `GET /api/agent-runs/{run_key}?call=<call id>` returns
+the caller's record narrowed to that call, including the expert's own subagents. Events are not copied; tokens are
+counted once, in the caller's run.
 
 ## Clones
 

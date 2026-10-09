@@ -441,13 +441,13 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **General** | **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP. For a per-run agent: what callers may pass (the tab says so) |
 | **MCP** | Pick tested MCP servers (and their tools) |
-| **Tools** | Switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. |
+| **Tools** | Switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. The **Experts** group lists the agents offered as experts, each with a switch (on by default). |
 | **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
 | **Test** | Chat with the agent (a per-run agent first picks **Resources for this run**) |
 
@@ -473,11 +473,26 @@ editing, then **Apply to this agent** or **Apply to a new clone**.
 **Subagents.** With **May start subagents** on (General, or the wizard's Tools page) a native agent can start helpers
 with `run_subagent`: each gets a complete task, the tools you allow under **A subagent may use** that the agent passes
 it, and some or all of the agent's resources, but not the conversation. Helpers run in parallel (`AGENT_MAX_SUBAGENTS`,
-default 4, at once; at most 16 per turn) and their final answer comes back to the agent. In the Test tab and on the
+default 4, at once; at most 16 helpers per turn, together with expert calls) and their final answer comes back to the agent. In the Test tab and on the
 session page each helper appears in the Worked block (**Open**) and under **Agents in this run** (helpers in the loaded
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
 answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
 the main turn's Worked line counts only the agent's own work. **Stop** stops the agent and all of its helpers.
+
+**Experts.** Turn on **Offer as an expert** on an agent's General tab (it needs a When to use text, which tells other
+agents when to call it; the agent must be enabled and have a model). Every other native agent, including Generate
+documents agents, then gets a tool `ask_<name>` for it. In an agent's **Tools** tab the **Experts** group lists the
+experts with their When to use and whether they use fixed or per-run resources; switch one off to stop this agent
+from calling it. The group says "No experts yet. Turn on Offer as an expert on an agent's General tab." when there is
+none, and an expert itself sees "When this agent runs as an expert it cannot call experts." A per-run expert works
+only on the resources the caller passes from its own; a fixed expert uses its own. An expert starts without the
+conversation, may start its own subagents if it has that switch on, uses its own model and keys, and returns its final
+answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
+expert was added do not see it. In the Test tab and on the session page an expert call appears in the Worked block as
+`Asked <name> · <task>` with **Open**, and under **Agents in this run** as `Expert · <name>` once it has started
+(selecting it shows its history; **Main agent** goes back); a call refused before it started shows as a failed tool
+line. In **Agent runs**, filtering by the expert's agent lists the calls made to it as "Called as expert by <caller>";
+opening one shows that call's record, including the expert's own subagents.
 In the wizard, a hand-picked tool
 list wins over the "all tools" default.
 
@@ -523,6 +538,8 @@ and close after 24 idle hours (a session idle for 5 minutes is paused and resume
   lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
   characters. The name needs ASCII letters or digits (the file name is made from them).
+
+The agent also gets `run_subagent` and every agent offered as an expert (`ask_<name>`). The default system prompt tells it to plan sections first when the document covers several parts, to ask an expert where its description fits and otherwise start a subagent with a complete task and only that part's resources, to write small single-part documents itself, and to combine the answers into one consistent document, resolving or marking conflicts. Subagents are asked to return finished markdown sections with their evidence cited. Sessions created before this version keep their configuration (no experts, no subagents).
 
 The agent gets exactly what you choose: its code projects, collections and servers are the ones ticked (environments and
 services also bring their code projects and the servers they are deployed on; servers without SSH are skipped). Its tools
@@ -721,7 +738,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
-| `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 per turn) |
+| `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
 | `RAG_BACKOFFICE_KEY` | Internal key between APIs and RAG |
@@ -793,7 +810,8 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
-| `run_subagent` | **May start subagents** on (native agents, sessions only) | Starts a helper with a subset of the agent's tools and resources and no conversation; at most 16 per turn, `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
+| `run_subagent` | **May start subagents** on (native agents, sessions only) | Starts a helper with a subset of the agent's tools and resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
+| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and not switched off for this agent (native agents, sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (or the resources you pass, for a per-run expert); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
 
 For a per-run agent every tool works on the run's resources only; a kind with nothing given is refused with `No … was given for this run`.
 

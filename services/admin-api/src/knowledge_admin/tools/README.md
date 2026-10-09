@@ -29,6 +29,13 @@ the run context (`context['subagents']`, native sessions only) and the call id i
 `context['mcp_tools']` (the MCP tools as the model sees them, built by `agents.mcp_tool_names`) and `subagent_allowed`,
 and narrows the resources to the parent's current lists.
 
+Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog, have no `ka.agent_tools` usage text
+and cannot be edited on the Tools tab. A session pins the experts it may call (`config['experts']`); the runtime builds
+one function tool per entry with `tools/sdk.py` (name, description and parameters from the entry; per-run experts also
+take `resources`), and `knowledge_agents/experts.py` runs the call. The caller's choices are `expert:<agent id>` rows
+(`off` only) in `ka.agent_tools`. Subagents never get them, and an expert's own run has an empty `experts` list. Calls
+share the turn's limit of 16 helpers with subagents.
+
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked
   after resolving symlinks; searches use the installed `rg` executable.

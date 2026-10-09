@@ -121,3 +121,13 @@ and `cost_usd` with their checks, makes `agent_config` required, and renames the
 constraints and indexes (`agent_sessions_cc_*` becomes `agent_sessions_*`); the 0083 notice triggers stay on the renamed table. Old audit rows keep their
 `claude_code.session.*` actions. The down migration restores the columns and the old table name (every agent and session
 comes back native); the deleted Claude Code sessions and the original agent types do not come back.
+
+## 0085_agent_experts
+
+Agent experts. Adds `ka.agents.expert` (default false: **Offer as an expert**). A caller's choice for one expert is a
+`ka.agent_tools` row `expert:<agent id>`; only `mode = 'off'` is stored (no row = on) and `subagent_allowed` is always
+false, so the check `subagents_do_not_spawn` now covers `tool LIKE 'expert:%'` (replacing the unused `ask_agent:%`).
+Deleting an agent deletes the `expert:<its id>` rows of every caller. A partial index `agent_run_events_expert_calls`
+serves the expert-calls listing of Agent runs. The down migration drops the column and the index, deletes every
+`expert:%` row (callers lose their choices of experts to switch off, and the expert switch is gone) and restores the
+old check.

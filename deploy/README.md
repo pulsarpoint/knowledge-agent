@@ -33,7 +33,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
 - `agent-session-worker` runs native agents' **Generate documents** sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
-  Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds. A turn runs at most `AGENT_MAX_SUBAGENTS` (default 4) subagents at once.
+  Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds. A turn runs at most `AGENT_MAX_SUBAGENTS` (default 4) subagents or expert calls at once, and at most 16 in all; an expert's own subagents run in slots of their own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once.
 - Phoenix has its own authenticated UI and volume. The admin API exports
   OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
 - Each service receives an explicit subset of environment variables. The complete
@@ -373,3 +373,13 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
 - Restarting `admin-api` closes open streams after at most 5 s; browsers reconnect on their own.
 - Rolling back 0083 drops the triggers, and then session pages hear of nothing. The polling code is gone from this
   version, so rolling back requires the previous app version as well.
+
+## Upgrading to agent experts
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0085
+adds `ka.agents.expert` and an index; it changes no existing data, and no agent is an expert until you turn on **Offer
+as an expert**. Generate documents sessions created after the upgrade get `run_subagent` and every expert; earlier
+sessions keep their configuration. The per-turn limit is now 16 helpers (subagents and expert calls together).
+
+- Rolling back 0085 deletes callers' `expert:<id>` rows (their choices of experts to switch off) and the expert switch.
+  No other data is lost.
