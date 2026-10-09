@@ -23,7 +23,7 @@ def enable(client) -> dict:
 
 def test_auto_pull_needs_jira_settings(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    assert client.get('/api/jira/auto-pull', headers=HEADERS).json() == {'schedule': None, 'jql': None, 'limit': None}
+    assert client.get('/api/jira/auto-pull', headers=HEADERS).json() == {'schedule': None, 'jql': None, 'limit': None, 'connected': False}
     refused = client.put('/api/jira/auto-pull', headers=HEADERS, json=ON)
     assert refused.status_code == 400 and error(refused) == 'Save Jira settings first.'
 
@@ -108,3 +108,73 @@ def test_run_now_is_refused_while_running(store, tmp_path):
     assert client.get('/api/schedules', headers=HEADERS).json()['schedules'][0]['running'] is True
     busy = client.post(f"/api/schedules/{schedule['id']}/run", headers=HEADERS)
     assert busy.status_code == 409 and error(busy) == 'This schedule is already running.'
+
+
+def test_auto_pull_saves_its_own_query_and_limit(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    saved = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'jql': 'project = AUTO', 'limit': 40}).json()
+    assert saved['connected'] is True and saved['jql'] == 'project = AUTO' and saved['limit'] == 40
+    assert saved['schedule']['params'] == {'jql': 'project = AUTO', 'limit': 40}
+    assert client.get('/api/jira/auto-pull', headers=HEADERS).json()['jql'] == 'project = AUTO'
+
+
+def test_auto_pull_without_query_keeps_the_stored_one(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'jql': 'project = AUTO', 'limit': 40})
+    again = client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, 'cron': '0 * * * *'}).json()
+    assert again['schedule']['params'] == {'jql': 'project = AUTO', 'limit': 40} and again['schedule']['description'] == 'Every hour'
+
+
+def test_auto_pull_query_and_limit_are_checked(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    for bad in [{'jql': ''}, {'jql': 'x' * 4001}, {'limit': 0}, {'limit': 201}, {'limit': '10'}]:
+        assert client.put('/api/jira/auto-pull', headers=HEADERS, json={**ON, **bad}).status_code in (400, 422)
+
+
+def test_create_jira_schedule_copies_the_connection_defaults(store, tmp_path):
+    client, config = setup(store, tmp_path)
+    created = client.post('/api/schedules', headers=HEADERS, json={'target_kind': 'jira.pull', 'cron': '0 * * * *', 'timezone': 'UTC', 'enabled': True})
+    assert created.status_code == 201, created.text
+    schedule = created.json()['schedule']
+    assert schedule['name'] == 'Jira auto pull' and schedule['target_id'] == config['id'] and schedule['next_run_at'] is not None
+    assert schedule['params'] == {'jql': 'ORDER BY updated DESC, key DESC', 'limit': 25}
+    duplicate = client.post('/api/schedules', headers=HEADERS, json={'target_kind': 'jira.pull', 'cron': '0 * * * *', 'timezone': 'UTC', 'enabled': True})
+    assert duplicate.status_code == 409 and error(duplicate) == 'This target already has a schedule.'
+    with store.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='schedule.created'").fetchone()['n'] == 1
+
+
+def test_create_needs_jira_and_a_known_target(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    value = {'target_kind': 'jira.pull', 'cron': '0 * * * *', 'timezone': 'UTC', 'enabled': True}
+    refused = client.post('/api/schedules', headers=HEADERS, json=value)
+    assert refused.status_code == 400 and error(refused) == 'Save Jira settings first.'
+    assert client.post('/api/schedules', headers=HEADERS, json={**value, 'target_kind': 'agent.run'}).status_code in (400, 422)
+    assert client.post('/api/schedules', headers=HEADERS, json={**value, 'cron': '*/2 * * * *'}).status_code == 400
+
+
+def test_delete_removes_the_schedule_and_its_history(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client)
+    client.post(f"/api/schedules/{schedule['id']}/run", headers=HEADERS)
+    scheduler.run_once(store, {'jira.pull': lambda store, s: ('succeeded', 'ok')})
+    assert client.delete(f"/api/schedules/{schedule['id']}", headers=HEADERS).status_code == 204
+    assert client.get('/api/schedules', headers=HEADERS).json()['schedules'] == []
+    assert client.delete(f"/api/schedules/{schedule['id']}", headers=HEADERS).status_code == 404
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.schedule_runs').fetchone()['n'] == 0
+        assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='schedule.deleted'").fetchone()['n'] == 1
+
+
+def test_deleting_a_running_schedule(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    schedule = enable(client)
+    client.post(f"/api/schedules/{schedule['id']}/run", headers=HEADERS)
+
+    def delete_meanwhile(store, claimed):
+        assert client.delete(f"/api/schedules/{claimed['id']}", headers=HEADERS).status_code == 204
+        return 'succeeded', 'ok'
+
+    assert scheduler.run_once(store, {'jira.pull': delete_meanwhile}) is True
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.schedule_runs').fetchone()['n'] == 0
