@@ -113,8 +113,12 @@ export default function EventsView() {
     setReload(count => count + 1);
     setSelected(event);
   }
-  const duplicate = (event: EventDetail) => setForm({ key: Date.now(), prefill: {
-    source: event.source === "jira" ? "jira" : "manual", type: event.type, subject: event.subject, title: event.title, payload: event.payload } });
+  /** Closes the event's sheet first, so the two sheets do not stack. */
+  function duplicate(event: EventDetail) {
+    close();
+    setForm({ key: Date.now(), prefill: {
+      source: event.source === "jira" ? "jira" : "manual", type: event.type, subject: event.subject, title: event.title, payload: event.payload } });
+  }
 
   const filtered = Boolean(filters.source || filters.type || filters.status || filters.handler || filters.q.trim());
   const changes = selected ? describeChanges(selected.payload.changes) : [];

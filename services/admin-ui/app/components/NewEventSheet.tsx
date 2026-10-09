@@ -36,7 +36,7 @@ export default function NewEventSheet({ prefill, types, onClose, onCreated }: { 
     event.preventDefault();
     if ("problem" in parsed) return;
     setSaving(true); setError(null);
-    try { onCreated((await createEvent({ source, type: type.trim(), subject: subject.trim(), title, payload: parsed.value })).event); }
+    try { onCreated((await createEvent({ source, type: type.trim(), subject: subject.trim(), title: title.trim(), payload: parsed.value })).event); }
     catch (reason) { setError(reason instanceof ApiError ? reason.message : "Could not create the event."); setSaving(false); }
   }
 

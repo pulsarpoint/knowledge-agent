@@ -84,16 +84,34 @@ test("a server error is shown in the form", async () => {
 
 test("Duplicate pre-fills the form from the open event, keeping a Jira source", async () => {
   const user = userEvent.setup();
-  api({ ...BASE, "GET /api/events/1": json({ event: detail(1) }) });
+  const calls = api({ ...BASE, "GET /api/events/1": json({ event: detail(1) }),
+    "POST /api/events": json({ event: detail(8, { source: "jira", created_manually: true, status: "pending" }) }, 201),
+    "GET /api/events/8": json({ event: detail(8, { source: "jira", created_manually: true, status: "pending" }) }) });
   view();
   await user.click(await screen.findByText("DEMO-1"));
   await user.click(await screen.findByRole("button", { name: "Duplicate" }));
   const form = await screen.findByRole("dialog", { name: "New event" });
+  await waitFor(() => expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(1));  // the detail sheet closed
   expect(within(form).getByLabelText("Type")).toHaveValue("jira.ticket.created");
   expect(within(form).getByLabelText("Subject")).toHaveValue("DEMO-1");
   expect(within(form).getByLabelText("Title")).toHaveValue("Ticket 1");
   expect(within(form).getByLabelText("Payload")).toHaveValue(JSON.stringify({ labels: ["agent"] }, null, 2));
   expect(within(form).getByRole("combobox", { name: "Source" })).toHaveTextContent("Jira (simulated)");
+  await user.click(within(form).getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(calls.find(call => call.method === "POST")?.body).toEqual({
+    source: "jira", type: "jira.ticket.created", subject: "DEMO-1", title: "Ticket 1", payload: { labels: ["agent"] } }));
+});
+
+test("the title is trimmed before it is sent", async () => {
+  const user = userEvent.setup();
+  const calls = api({ ...BASE, "POST /api/events": json({ error: { message: "stop" } }, 400) });
+  view();
+  const form = await openForm(user);
+  await user.type(within(form).getByLabelText("Type"), "a.b");
+  await user.type(within(form).getByLabelText("Subject"), "X");
+  await user.type(within(form).getByLabelText("Title"), "  Hi  ");
+  await user.click(within(form).getByRole("button", { name: "Create" }));
+  await waitFor(() => expect((calls.find(call => call.method === "POST")?.body as { title: string }).title).toBe("Hi"));
 });
 
 test("the form starts with source Manual", async () => {
