@@ -1,7 +1,8 @@
 """The event processor: every pending event goes once through the enabled handlers of its project. A thread in
 repository-worker claims one event at a time (FOR UPDATE SKIP LOCKED, so several workers never take the same event),
 runs each matching handler's action in a savepoint, records one run per handler and marks the event processed — or
-failed when a handler failed. Emitted events enter as pending and are processed on a later pass. Nothing is retried."""
+failed when a handler failed. Emitted events enter as pending and are processed on a later pass. Nothing is retried:
+an event that cannot be processed at all is logged and marked failed, so it never blocks the queue."""
 import logging
 import threading
 
@@ -23,6 +24,11 @@ UNEXPECTED = 'The handler failed unexpectedly. See the repository-worker log.'
 
 CLAIM = "SELECT * FROM ka.events WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"
 HANDLERS = 'SELECT * FROM ka.event_handlers WHERE project_id=%s AND enabled ORDER BY name,id'
+
+
+def run_message(text: str) -> str:
+    """A run's message as the database takes it: no NUL characters (a template can render one), at most 2000 characters."""
+    return text.replace('\x00', '')[:2000]
 
 
 class HandlerFailed(Exception):
@@ -81,7 +87,7 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
         failed = failed or status == 'failed'
         conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id,
             agent_session_id) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (event['id'], handler['id'], handler['name'], status, message[:2000],
+            (event['id'], handler['id'], handler['name'], status, run_message(message),
              links.get('emitted_event_id'), links.get('agent_session_id')))
     status = 'failed' if failed else 'processed'
     conn.execute('UPDATE ka.events SET status=%s,processed_at=now() WHERE id=%s', (status, event['id']))
@@ -93,16 +99,24 @@ def run_once(store: RepositoryStore) -> bool:
         event = conn.execute(CLAIM).fetchone()
         if event is None:
             return False
-        status = process(conn, store, event)
+        try:
+            with conn.transaction():  # a savepoint: the claim's lock outlives a failure inside it
+                status = process(conn, store, event)
+        except Exception:
+            if conn.broken or conn.closed:
+                raise  # the connection is gone: the event stays pending and is retried after reconnect
+            logger.exception('Event %s could not be processed; marking it failed', event['id'])
+            conn.execute("UPDATE ka.events SET status='failed',processed_at=now() WHERE id=%s", (event['id'],))
+            status = 'failed'
     if status == 'failed':
         print(f"Event {event['id']} ({event['type']}): failed", flush=True)
     return True
 
 
-def tick(store: RepositoryStore) -> int:
-    """Process up to BATCH pending events, oldest first; returns how many."""
+def tick(store: RepositoryStore, stopped: threading.Event | None = None) -> int:
+    """Process up to BATCH pending events, oldest first, until stopped; returns how many."""
     done = 0
-    while done < BATCH and run_once(store):
+    while done < BATCH and not (stopped and stopped.is_set()) and run_once(store):
         done += 1
     return done
 
@@ -110,7 +124,7 @@ def tick(store: RepositoryStore) -> int:
 def loop(store: RepositoryStore, stopped: threading.Event) -> None:
     while not stopped.is_set():
         try:
-            tick(store)
+            tick(store, stopped)
         except psycopg.Error:
             print('Event processor database unavailable; retrying', flush=True)
         except Exception:

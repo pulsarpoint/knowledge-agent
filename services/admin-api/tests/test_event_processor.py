@@ -3,6 +3,8 @@ the chain and are processed on a later pass; failures are recorded and nothing i
 import threading
 from uuid import uuid4
 
+import psycopg
+import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin import event_processor
@@ -149,7 +151,7 @@ def test_a_missing_agent_fails_the_run(store):
 def test_the_loop_survives_errors_and_stops(store, monkeypatch):
     calls = []
 
-    def flaky(_store):
+    def flaky(_store, _stopped=None):
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError('boom')
@@ -189,3 +191,53 @@ def test_a_database_error_in_an_action_fails_only_that_run(store, monkeypatch):
     assert (broken_run['status'], broken_run['message']) == ('failed', event_processor.UNEXPECTED)
     assert fine_run['status'] == 'succeeded' and fine_run['emitted_event_id'] is not None
     assert event(store, first['id'])['status'] == 'failed'
+
+
+def test_a_nul_in_a_rendered_type_fails_the_event_and_the_queue_continues(store):
+    a_handler(store, emit=Jsonb({'type': '{{ "bad\\x00" }}'}))  # the stored text has a backslash; Jinja decodes it
+    first, second = an_event(store), an_event(store, type='other.thing')
+    assert event_processor.tick(store) == 2
+    [run] = runs(store, first['id'])
+    assert run['status'] == 'failed' and '\x00' not in run['message'] and 'bad' in run['message']
+    assert (event(store, first['id'])['status'], event(store, second['id'])['status']) == ('failed', 'processed')
+
+
+def test_run_messages_lose_nul_characters_and_are_capped():
+    assert event_processor.run_message('a\x00b' + 'x' * 3000) == 'ab' + 'x' * 1998
+
+
+def test_an_event_that_cannot_be_processed_is_failed_and_the_queue_continues(store, monkeypatch):
+    real = event_processor.process
+
+    def poison(conn, _store, claimed):
+        if claimed['id'] == first['id']:
+            conn.execute('SELECT 1/0')  # aborts the transaction, as a failing run insert would
+        return real(conn, _store, claimed)
+
+    monkeypatch.setattr(event_processor, 'process', poison)
+    a_handler(store)
+    first, second = an_event(store), an_event(store)
+    assert event_processor.tick(store) == 3  # first (failed), second, second's emitted child
+    assert (event(store, first['id'])['status'], runs(store, first['id'])) == ('failed', [])
+    assert event(store, first['id'])['processed_at'] is not None
+    assert event(store, second['id'])['status'] == 'processed'
+
+
+def test_a_broken_connection_leaves_the_event_pending(store, monkeypatch):
+    def lost(conn, _store, _event):
+        conn.close()
+        raise psycopg.OperationalError('connection lost')
+
+    monkeypatch.setattr(event_processor, 'process', lost)
+    first = an_event(store)
+    with pytest.raises(psycopg.OperationalError):
+        event_processor.run_once(store)
+    assert (event(store, first['id'])['status'], event(store, first['id'])['processed_at']) == ('pending', None)
+
+
+def test_tick_stops_between_events_when_asked(store):
+    stopped = threading.Event()
+    an_event(store), an_event(store)
+    stopped.set()
+    assert event_processor.tick(store, stopped) == 0
+    assert event_processor.tick(store) == 2
