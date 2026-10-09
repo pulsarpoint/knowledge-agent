@@ -26,12 +26,13 @@ export default function JiraAutoPullCard({ refreshKey }: { refreshKey: string | 
 
   if (state === null || typeof state.limit !== "number") return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null;
   const schedule = state.schedule ?? null;
+  const { jql, limit } = { jql: state.jql ?? "", limit: state.limit };
   const cron = schedule?.cron ?? DEFAULT_CRON;
   const custom = !PRESETS.some(preset => preset.cron === cron);
 
   async function save(enabled: boolean, nextCron: string) {
     setSaving(true); setError(null);
-    try { setState(await saveAutoPull({ enabled, cron: nextCron, timezone: schedule?.timezone ?? browserTimeZone() })); }
+    try { setState(await saveAutoPull({ enabled, cron: nextCron, timezone: schedule?.timezone ?? browserTimeZone(), jql, limit })); }
     catch (reason) { setError(reason instanceof ApiError ? reason.message : "Could not save the auto pull settings."); }
     finally { setSaving(false); }
   }

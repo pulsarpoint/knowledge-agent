@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, History, Pencil, Play } from "lucide-react";
+import { CalendarClock, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { ApiError } from "../lib/api";
-import { STATUS_LABELS, TARGETS, getScheduleRuns, getSchedules, runSchedule, saveSchedule, type Schedule, type ScheduleRun } from "../lib/schedules";
+import { STATUS_LABELS, TARGETS, deleteSchedule, getScheduleRuns, getSchedules, runSchedule, saveSchedule, type Schedule, type ScheduleRun } from "../lib/schedules";
+import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -27,6 +29,8 @@ export default function SchedulesView() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Schedule | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [history, setHistory] = useState<{ id: string; runs: ScheduleRun[] | null } | null>(null);
 
   const changes = useRef(0);
@@ -50,6 +54,17 @@ export default function SchedulesView() {
     setBusy(schedule.id); setError(null);
     try { replace((await action()).schedule); } catch (reason) { setError(text(reason, "Could not change the schedule.")); } finally { setBusy(null); }
   }
+  async function remove() {
+    const doomed = deleting;
+    if (!doomed) return;
+    try {
+      await deleteSchedule(doomed.id);
+      changes.current += 1;
+      setSchedules(current => current?.filter(item => item.id !== doomed.id) ?? null);
+      setHistory(current => current?.id === doomed.id ? null : current);
+    } catch (reason) { setError(text(reason, "Could not delete the schedule.")); }
+    finally { setDeleting(null); }
+  }
   async function toggleHistory(schedule: Schedule) {
     if (history?.id === schedule.id) { setHistory(null); return; }
     setHistory({ id: schedule.id, runs: null });
@@ -60,10 +75,11 @@ export default function SchedulesView() {
   }
 
   return <div className="flex flex-col gap-4">
+    <div className="flex justify-end"><Button onClick={() => setCreating(true)}><Plus data-icon="inline-start" />New schedule</Button></div>
     {error && <Alert variant="destructive"><AlertTitle>Schedules</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
     {schedules === null && !error && <Skeleton className="h-32 w-full" />}
     {schedules?.length === 0 && <Empty className="border"><EmptyHeader><EmptyMedia variant="icon"><CalendarClock /></EmptyMedia><EmptyTitle>Schedules</EmptyTitle>
-      <EmptyDescription>No schedules yet. Turn on Auto pull on Jira → Tickets.</EmptyDescription></EmptyHeader></Empty>}
+      <EmptyDescription>No schedules yet. Create one with New schedule, or set up Jira → Auto pull.</EmptyDescription></EmptyHeader></Empty>}
     {schedules && schedules.length > 0 && <Table>
       <TableHeader><TableRow><TableHead>On</TableHead><TableHead>Name</TableHead><TableHead>Runs</TableHead><TableHead>When</TableHead>
         <TableHead>Next run</TableHead><TableHead>Last run</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
@@ -81,6 +97,7 @@ export default function SchedulesView() {
             <Button size="sm" variant="outline" disabled={busy === schedule.id || schedule.running} onClick={() => change(schedule, () => runSchedule(schedule.id))}><Play data-icon="inline-start" />Run now</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(schedule)}><Pencil data-icon="inline-start" />Edit</Button>
             <Button size="sm" variant="ghost" aria-expanded={history?.id === schedule.id} onClick={() => toggleHistory(schedule)}><History data-icon="inline-start" />History</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDeleting(schedule)}><Trash2 data-icon="inline-start" />Delete</Button>
           </div></TableCell>
         </TableRow>
         {history?.id === schedule.id && <TableRow><TableCell colSpan={7}>
@@ -90,6 +107,15 @@ export default function SchedulesView() {
         </TableCell></TableRow>}
       </Fragment>)}</TableBody>
     </Table>}
+    {creating && <NewScheduleSheet open taken={(schedules ?? []).map(item => item.target_kind)} onClose={() => setCreating(false)}
+      onCreated={created => { changes.current += 1; setSchedules(current => [...(current ?? []), created].sort((a, b) => a.name.localeCompare(b.name))); setCreating(false); }} />}
+    <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) setDeleting(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>Delete schedule {deleting?.name}?</AlertDialogTitle><AlertDialogDescription>Its history is deleted too.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={event => { event.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <ScheduleEditor schedule={editing} onClose={() => setEditing(null)} onSaved={saved => { replace(saved); setEditing(null); }} />
   </div>;
 }

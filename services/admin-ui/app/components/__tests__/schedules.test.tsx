@@ -6,7 +6,7 @@ import type { Schedule } from "../../lib/schedules";
 
 const schedule: Schedule = { id: "s-1", name: "Jira auto pull", target_kind: "jira.pull", target_id: "jira-1", cron: "*/15 * * * *",
   description: "Every 15 minutes", timezone: "Europe/Belgrade", enabled: true, next_run_at: "2026-10-09T10:15:00Z", running: false,
-  last_run_at: "2026-10-09T10:00:00Z", last_finished_at: "2026-10-09T10:00:02Z", last_status: "succeeded", last_message: "Pulled 25 of 140 tickets.", revision: 3 };
+  last_run_at: "2026-10-09T10:00:00Z", last_finished_at: "2026-10-09T10:00:02Z", last_status: "succeeded", last_message: "Pulled 25 of 140 tickets.", revision: 3, params: {} };
 
 function api(routes: Record<string, (init?: RequestInit) => [number, unknown]>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -14,7 +14,7 @@ function api(routes: Record<string, (init?: RequestInit) => [number, unknown]>) 
     const handler = routes[key];
     if (!handler) throw new Error(`unexpected ${key}`);
     const [status, body] = handler(init);
-    return new Response(JSON.stringify(body), { status });
+    return new Response(status === 204 ? null : JSON.stringify(body), { status });
   });
   vi.stubGlobal("fetch", fetch);
   return fetch;
@@ -38,7 +38,41 @@ test("lists schedules with their timetable and last result", async () => {
 test("shows the empty state", async () => {
   api({ "GET /api/schedules": () => [200, { schedules: [] }] });
   view();
-  expect(await screen.findByText("No schedules yet. Turn on Auto pull on Jira → Tickets.")).toBeInTheDocument();
+  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+});
+
+test("new schedule creates a Jira pull", async () => {
+  const user = userEvent.setup();
+  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [] }],
+    "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
+    "POST /api/schedules": () => [201, { schedule }] });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  expect(screen.getByRole("combobox", { name: "What to run" })).toHaveTextContent("Jira tickets");
+  await screen.findByText("Next runs");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+  expect(await screen.findByText("Jira auto pull")).toBeInTheDocument();
+  expect(body(fetch, "POST /api/schedules")).toEqual({ target_kind: "jira.pull", cron: "*/15 * * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", enabled: true });
+});
+
+test("new schedule says when every target is taken", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/schedules": () => [200, { schedules: [schedule] }] });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New schedule" }));
+  expect(screen.getByText("Every target already has a schedule.")).toBeInTheDocument();
+});
+
+test("delete asks first and removes the row", async () => {
+  const user = userEvent.setup();
+  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [schedule] }], "DELETE /api/schedules/s-1": () => [204, null] });
+  view();
+  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  expect(screen.getByText("Delete schedule Jira auto pull?")).toBeInTheDocument();
+  expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+  expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
 
 test("pausing sends the revision and shows the paused row", async () => {
