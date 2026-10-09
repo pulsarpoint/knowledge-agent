@@ -696,8 +696,8 @@ Each event is **Pending** until the event handlers have looked at it (within a f
 Processed. Filter by source, type, status and **Emitted by** (the handler that emitted the event), search by ticket
 key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
-indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send to agent, the agent task's status and its
-notification).
+indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
+to agent, the agent task's status and its notification).
 
 ### 4.18 Event handlers
 
@@ -727,11 +727,11 @@ A handler does one thing:
   edited; choosing a new agent or turning it back on checks the agent again. Processing the same event again never
   queues a second call. Calls appear in Agent runs as **Event task**.
 
-**Careful with Send to agent on broad patterns.** Every matching event runs the agent once. The first
-scheduled Jira pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once
-per ticket; `*` and other broad patterns also match the events other handlers emit, multiplying calls down
-a chain. Start narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when
-Send to agent uses `*` or a pattern ending in `.*`.
+**Careful with Send to agent on broad patterns.** Every matching event runs the agent once. The first scheduled Jira
+pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once per
+ticket; `*` and other broad patterns also match the events other handlers emit, multiplying calls down a chain. Start
+narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when Send to agent
+uses `*` or a pattern ending in `.*`.
 
 Templates render in a separate process with a 2 second time limit (and, on Linux, a 512 MiB memory limit); a template
 that overruns fails with `Template took too long to render.` or `Template used too much memory.`
@@ -743,17 +743,17 @@ event still run. Deleting a handler keeps its run history on the events.
 
 ### 4.19 Notifications
 
-Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first:
-Time, Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the
-answer. Everyone sees the same list. Filter by status or search the title; **Load more** and **Refresh** work as on
-Events. Open a notification to read the whole answer (or why the call failed, after its last attempt), the agent, the
-number of attempts and **Open event**, which opens the event that triggered it. On the event, the handler run shows
-the call's status (Queued, Running, Succeeded or Failed) and **Open notification**.
+Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first: Time,
+Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
+(taken from its first 200 characters, cut off when long). Everyone sees the same list. Filter by status or search the
+title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the call
+failed, after its last attempt), the agent, the number of attempts and **Open event**, which opens the event that
+triggered it. On the event, the handler run shows the call's status (Queued, Running, Succeeded or Failed) and **Open
+notification**.
 
 ---
 
 ## 5. End-to-end workflows
-
 
 ### A. Make internal documentation searchable
 

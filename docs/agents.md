@@ -11,27 +11,28 @@ limit, no per-turn time limit, no 300-second limit).
   the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
-- `GET /api/agents/{id}/sessions` lists the agent's Test and event sessions (with `purpose`), newest first.
+- `GET /api/agents/{id}/sessions` lists the agent's Test sessions and the event sessions handlers started before 0090 (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
-  `reasoning_tokens` and, for Test and event sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
+  `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
   `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
   0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
-  `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts or subagents, a
-  10-minute limit — and writes the answer or the failure to `ka.notifications` (Administration → Notifications).
-  `AGENT_TASK_MAX` (a whole number of at least 1, default 2) tasks run at once, beside the session slots; an invalid
-  value is logged and the task runner does not start, while sessions keep working. The worker runs the session loop
-  and the task loop under supervisors: a loop that crashes is logged and restarted after 5 s, and the other keeps
-  running. A task is tried up to 3 times (30 s, then 2 min apart); a worker that stops hands a running task back
-  without counting the attempt. Each pickup of a task is recorded as run key `task:<task id>:<claim number>`, kind
-  `event_task` (**Event task** in Agent runs), so a pickup after a worker restart has its own record. Sessions with
-  `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
+  `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts and no
+  `run_subagent` (agent() offers them only to a session turn), a 10-minute limit — and writes the answer or the
+  failure to `ka.notifications` (Administration → Notifications). `AGENT_TASK_MAX` (a whole number of at least 1,
+  default 2) tasks run at once, beside the session slots; an invalid value is logged every 5 seconds (by the
+  supervisor) and the task runner stays down until the value is fixed, while sessions keep working. The worker runs
+  the session loop and the task loop under supervisors: a loop that crashes is logged and restarted after 5 s, and the
+  other keeps running. A task is tried up to 3 times (30 s, then 2 min apart); a worker that stops hands a running
+  task back without counting the attempt. Each pickup of a task is recorded as run key `task:<task id>:<claim
+  number>`, kind `event_task` (**Event task** in Agent runs), so a pickup after a worker restart has its own record.
+  Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for event sessions); **Full record** links to it. The `end`
+  `event_session` for the pre-0090 event sessions); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
-- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and event sessions; refused
+- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions; refused
   while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored
