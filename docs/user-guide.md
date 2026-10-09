@@ -741,11 +741,6 @@ check failed) and shows the new event or prompt. A handler that fails — a temp
 a chain that is too deep — marks the event **Failed** and records why under **Handler runs**; other handlers on that
 event still run. Deleting a handler keeps its run history on the events.
 
----
-
-## 5. End-to-end workflows
-
-
 ### 4.19 Notifications
 
 Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first:
@@ -754,6 +749,11 @@ answer. Everyone sees the same list. Filter by status or search the title; **Loa
 Events. Open a notification to read the whole answer (or why the call failed, after its last attempt), the agent, the
 number of attempts and **Open event**, which opens the event that triggered it. On the event, the handler run shows
 the call's status (Queued, Running, Succeeded or Failed) and **Open notification**.
+
+---
+
+## 5. End-to-end workflows
+
 
 ### A. Make internal documentation searchable
 
