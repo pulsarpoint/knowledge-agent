@@ -163,6 +163,36 @@ test('a failed expert call is failed with its error; a plain subagent has no exp
   expect(plain.subagents[0].expert).toBeNull();
 });
 
+test('an expert result names only its own expert; a subagent result is never an expert failure', () => {
+  const [other] = groupTurns(expertCall('Expert Billing failed: not mine'));
+  expect(other.subagents[0].status).toBe('done');
+  const [plain] = groupTurns([
+    event(2, 'tool_call', { name: 'run_subagent', call_id: 's1', arguments: { task: 'Read' } }),
+    event(2, 'tool_result', { name: 'run_subagent', call_id: 's1', preview: 'Expert Payments failed: quoted text', is_error: false })]);
+  expect(plain.subagents[0].status).toBe('done');
+});
+
+test("an expert's own run_subagent settles the nested helper too", () => {
+  const events = (nestedResult: string) => [
+    event(4, 'input', { task: 'Ask' }),
+    event(4, 'tool_call', { name: 'ask_payments', call_id: 'e1', summary: 'Map', arguments: { task: 'Map' } }),
+    event(4, 'input', { task: 'Map', expert: { id: 'p', name: 'Payments' }, parent_call_id: 'e1' }),
+    event(4, 'tool_call', { name: 'run_subagent', call_id: 'n1', summary: 'Read', arguments: { task: 'Read' }, parent_call_id: 'e1' }),
+    event(4, 'input', { task: 'Read', subagent: { task: 'Read' }, parent_call_id: 'n1' }),
+    event(4, 'message', { text: 'nested answer', parent_call_id: 'n1' }),
+    event(4, 'tool_result', { name: 'run_subagent', call_id: 'n1', preview: nestedResult, is_error: nestedResult.startsWith('Subagent'), parent_call_id: 'e1' }),
+    event(4, 'message', { text: 'expert answer', parent_call_id: 'e1' }),
+    event(4, 'tool_result', { name: 'ask_payments', call_id: 'e1', preview: 'expert answer', is_error: false }),
+  ];
+  const [turn] = groupTurns([...events('nested answer'), event(4, 'end', { status: 'completed' })]);
+  expect(turn.subagents.map(sub => [sub.callId, sub.status, sub.task, sub.answer])).toEqual([
+    ['e1', 'done', 'Map', 'expert answer'], ['n1', 'done', 'Read', 'nested answer']]);
+  const [live] = groupTurns(events('nested answer').slice(0, 6));
+  expect(live.subagents.map(sub => sub.status)).toEqual(['working', 'working']);
+  const [failed] = groupTurns([...events('Subagent failed: boom'), event(4, 'end', { status: 'completed' })]);
+  expect(failed.subagents[1]).toMatchObject({ callId: 'n1', status: 'failed', error: 'Subagent failed: boom' });
+});
+
 test('a tool named ask_* with no expert input is an ordinary tool, not a helper', () => {
   const [turn] = groupTurns([
     event(3, 'input', { task: 'Hi' }),

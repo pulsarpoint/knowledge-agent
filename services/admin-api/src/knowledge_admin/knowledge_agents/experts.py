@@ -33,6 +33,8 @@ def description(name: str, when_to_use: str, resources: str, accepts: list[str])
     text = f'Ask {name}, an expert agent. {when_to_use.strip()}'
     if resources == 'per_run':
         kinds = ', '.join(kind.plural for kind in KINDS if kind.key in accepts)
+        if not kinds:
+            return f'{text} It works only on the resources you pass.'
         return f'{text} It works only on the resources you pass (it accepts: {kinds}).'
     return f'{text} It uses its own resources.'
 

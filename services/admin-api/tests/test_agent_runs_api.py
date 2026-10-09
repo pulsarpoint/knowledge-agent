@@ -80,21 +80,45 @@ def seed_expert_calls(store):
         add(12, 'input', {'task': 'Helper', 'parent_call_id': 's1'}, agent='payments')
 
 
+def seed_ended_and_renamed_calls(store):
+    """Expert call e4 in a run that ended before it answered; e5 whose result only looks like another expert's failure."""
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        alice = store.actor(conn, 'alice', 'alice@example.test')
+        def add(seq, kind, payload, agent='lead', run_key='cc:s2:1'):
+            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (project, run_key, seq, kind, agent, alice, Jsonb(payload)))
+        expert = {'id': 'payments', 'name': 'Payments'}
+        # a second run that ended (Stop) before its expert call answered
+        add(1, 'start', {'kind': 'claude_code', 'title': 'Stopped', 'agent': 'Lead'}, run_key='cc:s2:2')
+        add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'e4'}, run_key='cc:s2:2')
+        add(3, 'input', {'task': 'Cut short', 'expert': expert, 'parent_call_id': 'e4'}, agent='payments', run_key='cc:s2:2')
+        add(4, 'end', {'status': 'stopped'}, run_key='cc:s2:2')
+        # a result naming another expert is not this expert's failure
+        add(13, 'tool_call', {'name': 'ask_payments', 'call_id': 'e5'})
+        add(14, 'input', {'task': 'Name differs', 'expert': expert, 'parent_call_id': 'e5'}, agent='payments')
+        add(15, 'tool_result', {'call_id': 'e5', 'preview': 'Expert Billing failed: not mine'})
+
+
+
 def test_expert_calls_are_listed_for_the_expert(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     seed(store)
     seed_expert_calls(store)
+    seed_ended_and_renamed_calls(store)
     listing = client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()
     rows = listing['runs']
-    assert [r['call_id'] for r in rows] == ['e3', 'e2', 'e1'] and listing['next'] is None
-    done = rows[2]
+    assert [r['call_id'] for r in rows] == ['e5', 'e4', 'e3', 'e2', 'e1'] and listing['next'] is None
+    done = rows[4]
     assert done | {'started_at': None, 'id': None} == {'run_key': 'cc:s2:1', 'agent_id': 'payments', 'agent': 'Payments',
         'kind': 'expert_call', 'title': 'Map payments', 'user': 'alice@example.test', 'status': 'completed',
         'total_tokens': 120, 'started_at': None, 'tool_counts': [{'name': 'read_file', 'calls': 1}],
         'call_id': 'e1', 'caller': 'Lead', 'id': None}
-    assert rows[1]['status'] == 'failed' and rows[1]['title'] == 'x' * 200
-    assert rows[0]['status'] == 'working'
-    assert rows[0]['total_tokens'] == 0 and rows[0]['tool_counts'] == []
+    assert rows[3]['status'] == 'failed' and rows[3]['title'] == 'x' * 200
+    assert rows[2]['status'] == 'working'  # the run has not ended
+    assert rows[2]['total_tokens'] == 0 and rows[2]['tool_counts'] == []
+    assert rows[1]['status'] == 'stopped'  # no result, and the run ended
+    assert rows[0]['status'] == 'completed'  # only Expert <its own name> failed: counts as a failure
 
 
 def test_expert_calls_page_with_the_expert_runs(store, tmp_path):

@@ -132,3 +132,23 @@ def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(stor
     update(client, client.get(f"/api/agents/{other['id']}", headers=HEADERS).json(), expert=False)
     kept = put(client, me['id'], client.get(f"/api/agents/{me['id']}/tools", headers=HEADERS).json()['revision'], [])
     assert kept.status_code == 200 and stored() == {'mode': 'off', 'usage': None, 'subagent_allowed': False}
+    # A tab that was open while the owner switched the expert off still saves: on is skipped, off is kept.
+    rev = lambda: client.get(f"/api/agents/{me['id']}/tools", headers=HEADERS).json()['revision']
+    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'on'}]).status_code == 200 and stored() is None
+    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'off'}]).status_code == 200
+    assert stored() == {'mode': 'off', 'usage': None, 'subagent_allowed': False}
+    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'off'}]).status_code == 200  # already stored
+    plain_name = f"expert:{plain['id']}"
+    assert put(client, me['id'], rev(), [{'tool': plain_name, 'mode': 'on'}]).status_code == 200
+    assert put(client, me['id'], rev(), [{'tool': plain_name, 'mode': 'off'}]).status_code == 200
+    with store.connect() as conn:
+        assert conn.execute("SELECT mode FROM ka.agent_tools WHERE agent_id=%s AND tool=%s",
+                            (me['id'], plain_name)).fetchone() == {'mode': 'off'}
+    for bad in ('expert:nope', f"expert:{me['id']}"):
+        refused = put(client, me['id'], rev(), [{'tool': bad, 'mode': 'on'}])
+        assert refused.status_code == 400 and refused.json()['error']['message'] == f'Unknown expert: {bad}.'
+
+
+def test_a_per_run_expert_that_accepts_no_resource_kind_has_no_empty_list():
+    from knowledge_admin.knowledge_agents.experts import description
+    assert description('Solo', 'Thinks.', 'per_run', []) == 'Ask Solo, an expert agent. Thinks. It works only on the resources you pass.'

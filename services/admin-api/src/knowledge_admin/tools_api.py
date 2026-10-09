@@ -179,12 +179,13 @@ def build_api(app_name, store):
             if agent['revision'] != value.expected_revision:
                 raise HTTPException(409, STALE)
             servers = {row['id']: {found['name'] for found in row['tools']} for row in conn.execute(SELECTED_MCP, (store.project(conn, app_name), agent_id))}
-            experts = {row['id'] for row in conn.execute('SELECT id FROM ka.agents WHERE expert AND id<>%s', (agent_id,))}
+            agents = {row['id']: row['expert'] for row in conn.execute('SELECT id,expert FROM ka.agents WHERE id<>%s', (agent_id,))}
+            experts = {id for id, expert in agents.items() if expert}
             for choice in value.tools:
                 if choice.tool in CATALOG:
                     continue
                 if choice.tool.startswith(ROW_PREFIX):
-                    if choice.tool.removeprefix(ROW_PREFIX) not in experts:
+                    if choice.tool.removeprefix(ROW_PREFIX) not in agents:  # not an agent, or the agent itself
                         raise HTTPException(400, UNKNOWN_EXPERT.format(tool=choice.tool))
                     continue
                 kind, _, rest = choice.tool.partition(':')
@@ -204,13 +205,14 @@ def build_api(app_name, store):
             # Choices about agents that are not experts now survive the replace (they apply again if one returns).
             kept = [row['tool'] for row in conn.execute(
                 "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND tool LIKE 'expert:%%'", (agent_id,))
-                if row['tool'].removeprefix(ROW_PREFIX) not in experts]
+                if row['tool'].removeprefix(ROW_PREFIX) not in experts
+                and not (row['tool'] in chosen and chosen[row['tool']].mode == 'on')]  # on again: nothing to keep
             conn.execute('DELETE FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))
             for tool in kept:
                 conn.execute(INSERT_TOOL, (agent_id, tool, 'off', None, False))
             for choice in value.tools:
                 if choice.tool.startswith(ROW_PREFIX):  # on: no row
-                    if choice.mode == 'off':
+                    if choice.mode == 'off' and choice.tool not in kept:
                         conn.execute(INSERT_TOOL, (agent_id, choice.tool, 'off', None, False))
                     continue
                 usage = _usage(choice.usage)

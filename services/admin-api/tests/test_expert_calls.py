@@ -376,6 +376,9 @@ def test_experts_are_offered_only_to_a_run_with_the_turns_host_and_never_inside_
     assert set(tools['ask_payments']['parameters']['$defs']['ExpertResources']['properties']) == set(NO_RESOURCES)
     assert tools['ask_ledger']['description'] == FIXED['description']
     assert set(tools['ask_ledger']['parameters']['properties']) == {'task'}
+    config['experts'] = [{**ENTRY, 'tool': 'read_file'}, FIXED]  # a name another tool of the run already has
+    tools = offered_tools(subagents=object())
+    assert tools['read_file']['description'] != ENTRY['description'] and 'ask_ledger' in tools
     lead = parent(experts=[ENTRY])
     sub = subagent_config(lead, ['read_file'], None, offered=OFFERED | {'ask_payments'}, mcp_tools=MCP)
     assert sub['experts'] == []

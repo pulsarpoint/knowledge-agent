@@ -25,8 +25,9 @@ RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload-
 
 EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS agent, 'expert_call' AS kind,
     left(i.payload->>'task', 200) AS title, p.email AS "user", i.created_at AS started_at,
-    CASE WHEN r.id IS NULL THEN 'working'
-         WHEN r.payload->>'preview' ~ '^Expert .+ failed: ' OR r.payload->>'is_error' = 'true' THEN 'failed'
+    CASE WHEN r.id IS NULL THEN CASE WHEN EXISTS (SELECT 1 FROM ka.agent_run_events z
+                                                   WHERE z.run_key=i.run_key AND z.kind='end') THEN 'stopped' ELSE 'working' END
+         WHEN starts_with(r.payload->>'preview', 'Expert ' || (i.payload->'expert'->>'name') || ' failed: ') OR r.payload->>'is_error' = 'true' THEN 'failed'
          ELSE 'completed' END AS status,
     (SELECT coalesce(sum((e.payload->>'total_tokens')::bigint),0) FROM ka.agent_run_events e
         WHERE e.run_key=i.run_key AND e.kind='usage' AND e.payload->>'parent_call_id'=ANY(c.ids)) AS total_tokens,

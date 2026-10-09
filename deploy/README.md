@@ -377,7 +377,8 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
 ## Upgrading to agent experts
 
 After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0085
-adds `ka.agents.expert` and an index; it changes no existing data, and no agent is an expert until you turn on **Offer
+adds `ka.agents.expert` and an index (built inside the migration transaction, so on a large installation it blocks writes
+to agent run events for the few seconds the build takes); it changes no existing data, and no agent is an expert until you turn on **Offer
 as an expert**. Generate documents sessions created after the upgrade get `run_subagent` and every expert; earlier
 sessions keep their configuration. The per-turn limit is now 16 helpers (subagents and expert calls together).
 

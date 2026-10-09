@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator, Collection, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
@@ -27,6 +28,8 @@ from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
+
+logger = logging.getLogger(__name__)
 
 
 async def agent(config: dict[str, Any], task: str, *, credentials: Mapping[str, str],
@@ -158,8 +161,7 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
                if subagents or spec.name != SUBAGENT]
     prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
     tools = [function_tool(spec, usage) for spec, usage in offered]
-    if subagents:  # experts run like subagents: only in a session turn, never inside an expert or a subagent
-        tools += [expert_tool(entry) for entry in config.get('experts', [])]
+    experts = config.get('experts', []) if subagents else []  # only in a session turn, never inside an expert or a subagent
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -176,10 +178,18 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
             mcp_servers.append(await connections.enter_async_context(MCPServerStreamableHttp(
                 name=server['id'], params={'url': server['url'], 'headers': mcp.auth_headers(server, credentials)},
                 cache_tools_list=True, client_session_timeout_seconds=timeout_seconds, tool_filter=tool_filter)))
-        yield Agent(name=config['name'], instructions=prompt, model=sdk_model,
+        assistant = Agent(name=config['name'], instructions=prompt, model=sdk_model,
             model_settings=model_settings, tools=tools, mcp_servers=mcp_servers,
             mcp_config={'include_server_in_tool_names': True},
             output_type=AgentOutputSchema(output_type, strict_json_schema=False) if output_type is not None else None)
+        if experts:  # an expert named like another tool of the run (an MCP tool as the model sees it) is not offered
+            taken = {tool.name for tool in tools} | {tool.name for tool in await assistant.get_mcp_tools(RunContextWrapper({}))}
+            for entry in experts:
+                if entry['tool'] in taken:
+                    logger.warning('Expert tool %s is skipped: another tool of the run has the same name.', entry['tool'])
+                    continue
+                assistant.tools.append(expert_tool(entry))
+        yield assistant
 
 
 async def mcp_tool_names(assistant: Agent, context: dict[str, Any]) -> dict[str, str]:

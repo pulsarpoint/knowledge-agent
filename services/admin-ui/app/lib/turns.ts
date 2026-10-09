@@ -31,7 +31,10 @@ const text = (payload: Record<string, unknown>, key: string) => typeof payload[k
 const amount = (payload: Record<string, unknown>, key: string) => Number(payload[key] ?? 0) || 0;
 /** A run_subagent result that is a failure: the subagent failed, or the call was refused (the SDK's tool error text).
  * Not every is_error: a subagent's successful answer may be JSON with an error key. */
-const SUBAGENT_FAILED = [/^Subagent failed: /, /^Expert .+ failed: /, /^An error occurred while running the tool/];
+const SUBAGENT_FAILED = [/^Subagent failed: /, /^An error occurred while running the tool/];
+/** A helper's result is a failure: the patterns above, or for an expert exactly "Expert <its name> failed: ". */
+const helperFailed = (sub: Subagent, preview: string) => SUBAGENT_FAILED.some(pattern => pattern.test(preview))
+  || (sub.expert !== null && preview.startsWith(`Expert ${sub.expert.name} failed: `));
 const noUsage = (): TurnUsage => ({ input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 });
 
 type Pending = { pending: { id: number; text: string } | null };
@@ -89,6 +92,21 @@ function helper(turn: BuildingTurn, callId: string, event: SessionEvent): Buildi
   return found;
 }
 
+function startSubagent(turn: BuildingTurn, callId: string, event: SessionEvent) {
+  const sub = helper(turn, callId, event);
+  const args = event.payload.arguments as Record<string, unknown> | undefined;
+  if (!sub.task && args && typeof args.task === 'string') sub.task = args.task;
+}
+
+/** The result of a call that names an existing helper settles it: done, or failed with the result as its error. */
+function settleHelper(turn: BuildingTurn, callId: string, preview: string) {
+  const sub = turn.helpers.get(callId);
+  if (!sub) return;
+  sub.status = helperFailed(sub, preview) ? 'failed' : 'done';
+  // A refused call records no subagent events: its reason is the result.
+  if (sub.status === 'failed' && !sub.error) sub.error = preview || null;
+}
+
 function answered<T extends Pending>({ pending, ...rest }: T) {
   return { ...rest, answer: pending ? pending.text : null };
 }
@@ -117,6 +135,11 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
         if (expert && typeof expert.id === 'string' && typeof expert.name === 'string') sub.expert = { id: expert.id, name: expert.name };
       }
       else addWork(sub, event);
+      // An expert's own run_subagent is an expert event too (parent = the expert call): it starts the nested helper and
+      // its result settles it.
+      const callId = text(p, 'call_id');
+      if (callId && event.kind === 'tool_call' && text(p, 'name') === SUBAGENT_TOOL) startSubagent(turn, callId, event);
+      else if (callId && event.kind === 'tool_result') settleHelper(turn, callId, text(p, 'preview'));
       continue;
     }
     switch (event.kind) {
@@ -135,16 +158,8 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
         const callId = text(p, 'call_id');
         if (!callId) break;
         // Only run_subagent starts a helper on its own call; an expert's helper starts with its input event.
-        if (event.kind === 'tool_call' && text(p, 'name') === SUBAGENT_TOOL) {
-          const sub = helper(turn, callId, event);
-          const args = p.arguments as Record<string, unknown> | undefined;
-          if (!sub.task && args && typeof args.task === 'string') sub.task = args.task;
-        } else if (event.kind === 'tool_result') {
-          const sub = turn.helpers.get(callId);
-          if (sub) sub.status = SUBAGENT_FAILED.some(pattern => pattern.test(text(p, 'preview'))) ? 'failed' : 'done';
-          // A refused call records no subagent events: its reason is the result.
-          if (sub?.status === 'failed' && !sub.error) sub.error = text(p, 'preview') || null;
-        }
+        if (event.kind === 'tool_call' && text(p, 'name') === SUBAGENT_TOOL) startSubagent(turn, callId, event);
+        else if (event.kind === 'tool_result') settleHelper(turn, callId, text(p, 'preview'));
       }
     }
   }
