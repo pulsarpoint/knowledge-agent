@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Inbox, RefreshCw } from "lucide-react";
+import { Link } from "react-router";
+import { ArrowDown, ArrowUp, ArrowUpDown, Inbox, RefreshCw } from "lucide-react";
 import { ApiError } from "../lib/api";
-import { SOURCE_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents, type EventDetail, type EventFilters, type EventRow } from "../lib/events";
+import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
+  type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "../lib/events";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Field, FieldLabel } from "~/components/ui/field";
@@ -18,13 +21,31 @@ const when = (value: string) => new Date(value).toLocaleString();
 const text = (reason: unknown, fallback: string) => reason instanceof ApiError ? reason.message : fallback;
 const typeLabel = (type: string) => TYPE_LABELS[type] ?? type;
 const sourceLabel = (source: string) => SOURCE_LABELS[source] ?? source;
+const COLUMNS: { key: SortKey | null; label: string }[] = [
+  { key: "time", label: "Time" }, { key: "source", label: "Source" }, { key: "type", label: "Type" },
+  { key: "subject", label: "Subject" }, { key: null, label: "Title" }, { key: "status", label: "Status" }];
+
+export function StatusBadge({ status }: { status: EventStatus }) {
+  return <Badge variant={status === "failed" ? "destructive" : status === "pending" ? "outline" : "secondary"}>{STATUS_LABELS[status] ?? status}</Badge>;
+}
+
+function FilterSelect({ id, label, value, all, options, onChange, className }: { id: string; label: string; value: string; all: string;
+  options: { value: string; label: string }[]; onChange: (value: string) => void; className: string }) {
+  return <Field className={className}><FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <Select value={value || ALL} onValueChange={next => onChange(next === ALL ? "" : next)}>
+      <SelectTrigger id={id} aria-label={label} className="w-full"><SelectValue /></SelectTrigger>
+      <SelectContent><SelectGroup><SelectItem value={ALL}>{all}</SelectItem>
+        {options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
+    </Select></Field>;
+}
 
 export default function EventsView() {
-  const [filters, setFilters] = useState<EventFilters>({ source: "", type: "", q: "" });
+  const [filters, setFilters] = useState<EventFilters>(NO_FILTERS);
+  const [sort, setSort] = useState<EventSort>(DEFAULT_SORT);
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<EventRow[] | null>(null);
-  const [nextBefore, setNextBefore] = useState<number | null>(null);
-  const [facets, setFacets] = useState<{ sources: string[]; types: string[] }>({ sources: [], types: [] });
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [facets, setFacets] = useState<EventFacets>({ sources: [], types: [], statuses: [], handlers: [] });
   const [selected, setSelected] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -37,7 +58,7 @@ export default function EventsView() {
     return () => clearTimeout(timer);
   }, [filters.q]);
 
-  const active: EventFilters = { source: filters.source, type: filters.type, q: query };
+  const active: EventFilters = { ...filters, q: query };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,50 +69,51 @@ export default function EventsView() {
   useEffect(() => {
     const controller = new AbortController();
     generation.current += 1;
-    setEvents(null); setNextBefore(null); setLoadingMore(false);
-    getEvents({ source: filters.source, type: filters.type, q: query }, undefined, controller.signal)
-      .then(result => { setEvents(result.events); setNextBefore(result.next_before); setError(null); })
-      .catch(reason => { if (!controller.signal.aborted) { setEvents([]); setNextBefore(null); setError(text(reason, "Could not load events.")); } });
+    setEvents(null); setNextOffset(null); setLoadingMore(false);
+    getEvents(active, sort, 0, controller.signal)
+      .then(result => { setEvents(result.events); setNextOffset(result.next_offset); setError(null); })
+      .catch(reason => { if (!controller.signal.aborted) { setEvents([]); setNextOffset(null); setError(text(reason, "Could not load events.")); } });
     return () => controller.abort();
-  }, [filters.source, filters.type, query, reload]);
+  }, [filters.source, filters.type, filters.status, filters.handler, query, sort.key, sort.order, reload]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadMore() {
-    if (nextBefore === null) return;
+    if (nextOffset === null) return;
     const started = generation.current;
     setLoadingMore(true);
     try {
-      const result = await getEvents(active, nextBefore);
+      const result = await getEvents(active, sort, nextOffset);
       if (generation.current !== started) return;
-      setEvents(current => current ? [...current, ...result.events] : current);
-      setNextBefore(result.next_before);
+      setEvents(current => current ? [...current, ...result.events.filter(row => !current.some(existing => existing.id === row.id))] : current);
+      setNextOffset(result.next_offset);
     } catch (reason) { if (generation.current === started) setError(text(reason, "Could not load more events.")); }
     finally { if (generation.current === started) setLoadingMore(false); }
   }
-  async function open(row: EventRow) {
-    try { setSelected((await getEvent(row.id)).event); }
+  async function open(id: number) {
+    try { setSelected((await getEvent(id)).event); }
     catch (reason) { setError(text(reason, "Could not load the event.")); }
   }
+  /** A new column sorts newest/last first; the same column again flips the order. */
+  const sortBy = (key: SortKey) => setSort(current => current.key === key ? { key, order: current.order === "desc" ? "asc" : "desc" } : { key, order: "desc" });
+  const set = (field: keyof EventFilters) => (value: string) => setFilters(current => ({ ...current, [field]: value }));
 
-  const filtered = Boolean(filters.source || filters.type || filters.q.trim());
+  const filtered = Boolean(filters.source || filters.type || filters.status || filters.handler || filters.q.trim());
   const changes = selected ? describeChanges(selected.payload.changes) : [];
+  /** The API caps the chain, so the open event may be missing from it. */
+  const chain = selected ? (selected.chain.some(node => node.id === selected.id) ? selected.chain : [selected, ...selected.chain]) : [];
   const url = selected && typeof selected.payload.url === "string" && /^https?:\/\//i.test(selected.payload.url) ? selected.payload.url : null;
 
   return <div className="flex flex-col gap-4">
     <div className="flex flex-wrap items-end gap-3">
-      <Field className="w-full sm:w-44"><FieldLabel htmlFor="events-source">Source</FieldLabel>
-        <Select value={filters.source || ALL} onValueChange={value => setFilters(current => ({ ...current, source: value === ALL ? "" : value }))}>
-          <SelectTrigger id="events-source" aria-label="Source" className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup><SelectItem value={ALL}>All sources</SelectItem>
-            {facets.sources.map(source => <SelectItem key={source} value={source}>{sourceLabel(source)}</SelectItem>)}</SelectGroup></SelectContent>
-        </Select></Field>
-      <Field className="w-full sm:w-52"><FieldLabel htmlFor="events-type">Type</FieldLabel>
-        <Select value={filters.type || ALL} onValueChange={value => setFilters(current => ({ ...current, type: value === ALL ? "" : value }))}>
-          <SelectTrigger id="events-type" aria-label="Type" className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup><SelectItem value={ALL}>All types</SelectItem>
-            {facets.types.map(type => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}</SelectGroup></SelectContent>
-        </Select></Field>
-      <Field className="w-full sm:w-64"><FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>
-        <Input id="events-search" value={filters.q} onChange={event => { const q = event.target.value; setFilters(current => ({ ...current, q })); }} /></Field>
+      <FilterSelect id="events-source" label="Source" all="All sources" className="w-full sm:w-40" value={filters.source} onChange={set("source")}
+        options={facets.sources.map(source => ({ value: source, label: sourceLabel(source) }))} />
+      <FilterSelect id="events-type" label="Type" all="All types" className="w-full sm:w-52" value={filters.type} onChange={set("type")}
+        options={facets.types.map(type => ({ value: type, label: typeLabel(type) }))} />
+      <FilterSelect id="events-status" label="Status" all="All statuses" className="w-full sm:w-40" value={filters.status} onChange={set("status")}
+        options={facets.statuses.map(status => ({ value: status, label: STATUS_LABELS[status] ?? status }))} />
+      <FilterSelect id="events-handler" label="Handler" all="All handlers" className="w-full sm:w-44" value={filters.handler} onChange={set("handler")}
+        options={facets.handlers.map(handler => ({ value: handler.id, label: handler.name }))} />
+      <Field className="w-full sm:w-56"><FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>
+        <Input id="events-search" value={filters.q} onChange={event => set("q")(event.target.value)} /></Field>
       <Button variant="outline" onClick={() => setReload(count => count + 1)}><RefreshCw data-icon="inline-start" />Refresh</Button>
     </div>
     {error && <Alert variant="destructive"><AlertTitle>Events</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
@@ -100,17 +122,26 @@ export default function EventsView() {
       <EmptyDescription>{filtered ? "No events match these filters." : "No events yet. Turn on Jira → Auto pull to record ticket changes."}</EmptyDescription></EmptyHeader></Empty>}
     {events && events.length > 0 && <div className="overflow-x-auto rounded-md border">
       <Table>
-        <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Type</TableHead><TableHead>Subject</TableHead><TableHead>Title</TableHead></TableRow></TableHeader>
-        <TableBody>{events.map(row => <TableRow key={row.id} tabIndex={0} className="cursor-pointer" onClick={() => void open(row)}
-          onKeyDown={event => { if (event.key === "Enter") void open(row); }}>
+        <TableHeader><TableRow>{COLUMNS.map(column => {
+          const sorted = column.key !== null && sort.key === column.key;
+          const Arrow = !sorted ? ArrowUpDown : sort.order === "asc" ? ArrowUp : ArrowDown;
+          return <TableHead key={column.label} aria-sort={sorted ? (sort.order === "asc" ? "ascending" : "descending") : undefined}>
+            {column.key === null ? column.label
+              : <Button variant="ghost" size="sm" className="-ml-2" onClick={() => sortBy(column.key as SortKey)}>{column.label}<Arrow data-icon="inline-end" aria-hidden="true" /></Button>}
+          </TableHead>;
+        })}</TableRow></TableHeader>
+        <TableBody>{events.map(row => <TableRow key={row.id} tabIndex={0} className="cursor-pointer" onClick={() => void open(row.id)}
+          onKeyDown={event => { if (event.key === "Enter") void open(row.id); }}>
           <TableCell className="whitespace-nowrap">{when(row.occurred_at)}</TableCell>
+          <TableCell className="whitespace-nowrap">{sourceLabel(row.source)}</TableCell>
           <TableCell className="whitespace-nowrap">{typeLabel(row.type)}</TableCell>
           <TableCell className="font-medium">{row.subject}</TableCell>
           <TableCell>{row.title}</TableCell>
+          <TableCell><StatusBadge status={row.status} /></TableCell>
         </TableRow>)}</TableBody>
       </Table>
     </div>}
-    {nextBefore !== null && <div className="flex justify-center"><Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>Load more</Button></div>}
+    {nextOffset !== null && <div className="flex justify-center"><Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>Load more</Button></div>}
     <Sheet open={selected !== null} onOpenChange={next => { if (!next) setSelected(null); }}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         {selected && <>
@@ -120,8 +151,26 @@ export default function EventsView() {
               <dt className="text-muted-foreground">Happened</dt><dd>{when(selected.occurred_at)}</dd>
               <dt className="text-muted-foreground">Recorded</dt><dd>{when(selected.created_at)}</dd>
               <dt className="text-muted-foreground">Source</dt><dd>{sourceLabel(selected.source)}</dd>
+              <dt className="text-muted-foreground">Status</dt><dd><StatusBadge status={selected.status} /></dd>
+              {selected.parent && <><dt className="text-muted-foreground">Parent</dt>
+                <dd><Button variant="link" className="h-auto p-0" onClick={() => void open(selected.parent!.id)}>{selected.parent.subject} · {typeLabel(selected.parent.type)}</Button></dd></>}
             </dl>
             {url && <a href={url} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">Open in Jira</a>}
+            {chain.length > 1 && <div><h3 className="mb-1 font-medium">Chain</h3>
+              <ul aria-label="Chain" className="flex flex-col gap-1">{chain.map(node => <li key={node.id} style={{ paddingLeft: `${node.depth}rem` }}>
+                {node.id === selected.id
+                  ? <span aria-current="true" className="font-medium">{node.subject} · {typeLabel(node.type)}</span>
+                  : <Button variant="link" className="h-auto p-0" onClick={() => void open(node.id)}>{node.subject} · {typeLabel(node.type)}</Button>}
+                {" "}<StatusBadge status={node.status} /></li>)}</ul></div>}
+            {selected.runs.length > 0 && <div><h3 className="mb-1 font-medium">Handler runs</h3>
+              <ul className="flex flex-col gap-2">{selected.runs.map((run, index) => <li key={index} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2"><span className="font-medium">{run.handler_name}</span>
+                  <Badge variant={run.status === "failed" ? "destructive" : "secondary"}>{run.status === "failed" ? "Failed" : "Succeeded"}</Badge></div>
+                {run.message && <span className="text-muted-foreground">{run.message}</span>}
+                {run.emitted_event_id !== null && <Button variant="link" className="h-auto self-start p-0" onClick={() => void open(run.emitted_event_id!)}>Open event #{run.emitted_event_id}</Button>}
+                {run.agent_session_id && run.agent_id && <Link className="text-primary underline underline-offset-4"
+                  to={`/agents/${encodeURIComponent(run.agent_id)}?view=test&session_id=${encodeURIComponent(run.agent_session_id)}`}>Open agent session</Link>}
+              </li>)}</ul></div>}
             {changes.length > 0 && <div><h3 className="mb-1 font-medium">Changes</h3><ul className="flex flex-col gap-1">{changes.map(line => <li key={line}>{line}</li>)}</ul></div>}
             <details><summary className="cursor-pointer">Raw payload</summary>
               <pre className="mt-2 max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(selected.payload, null, 2)}</pre></details>
