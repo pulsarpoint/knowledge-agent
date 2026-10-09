@@ -1,6 +1,6 @@
 import AdminLayout from "../components/AdminLayout";
-import EventsView from "../components/EventsView";
+import EventsPage from "../components/EventsPage";
 
-export default function EventsPage() {
-  return <AdminLayout><EventsView /></AdminLayout>;
+export default function EventsRoute() {
+  return <AdminLayout><EventsPage tab="events" /></AdminLayout>;
 }

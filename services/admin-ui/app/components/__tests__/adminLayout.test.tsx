@@ -48,3 +48,12 @@ test("denied admin discovery does not mount administrative content", async () =>
   await waitFor(() => expect(screen.getByText("admin access required")).toBeInTheDocument());
   expect(screen.queryByText("Admin content")).toBeNull();
 });
+
+test("the Events link stays active on the Handlers tab", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
+  render(<MemoryRouter initialEntries={["/events/handlers"]}><AdminLayout><div>Handlers content</div></AdminLayout></MemoryRouter>);
+  expect(await screen.findByText("Handlers content")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Events" })).toHaveAttribute("data-active", "true");
+  expect(screen.getByRole("heading", { level: 1, name: "Events" })).toBeInTheDocument();
+  vi.unstubAllGlobals();
+});
