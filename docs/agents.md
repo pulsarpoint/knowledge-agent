@@ -11,10 +11,11 @@ limit, no per-turn time limit, no 300-second limit).
   the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
-- `GET /api/agents/{id}/sessions` lists the agent's Test sessions and the event sessions handlers started before 0090 (with `purpose`), newest first.
+- `GET /api/agents/{id}/sessions` lists the agent's Test sessions and the event sessions handlers started before 0090
+  (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
-  `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
-  (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
+  `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
+  `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
   `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
@@ -32,8 +33,8 @@ limit, no per-turn time limit, no 300-second limit).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
   `event_session` for the pre-0090 event sessions); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
-- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions; refused
-  while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
+- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions;
+  refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored
   in `ka.agent_session_reviews` with `response_turn`; **Review and apply** reads it.
