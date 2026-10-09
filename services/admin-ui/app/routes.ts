@@ -40,4 +40,5 @@ export default [
   route("activity/runs", "./routes/runs.tsx"),
   route("activity/runs/:runKey", "./routes/runRecord.tsx"),
   route("schedules", "./routes/schedules.tsx"),
+  route("events", "./routes/events.tsx"),
 ] satisfies RouteConfig;
