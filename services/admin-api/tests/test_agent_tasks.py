@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
+import psycopg
 import pytest
 
 from knowledge_admin import agent_tasks
@@ -228,3 +229,77 @@ def test_a_released_attempt_runs_again_under_a_new_run_key(tester):
     assert fake.calls[0][0]['record']['run_key'] == f"task:{queued['id']}:2" != agent_tasks.record_key(first)
     assert [(n['status'], n['body']) for n in notifications(t.store)] == [('succeeded', 'Good answer.')]
     assert task(t.store, queued['id'])['status'] == 'succeeded'
+
+
+def serve_until(t, fake, *, ready, limit=2):
+    """Run the loop until `ready()` holds (checked every 50 ms, at most 10 s), then stop it."""
+    async def scenario():
+        stopped = asyncio.Event()
+        runner = asyncio.create_task(agent_tasks.serve(t.store, fake, stopped=stopped, worker_id='w1', limit=limit, poll=0.05))
+        for _ in range(200):
+            if await asyncio.to_thread(ready):
+                break
+            await asyncio.sleep(0.05)
+        stopped.set()
+        await asyncio.wait_for(runner, 10)
+    asyncio.run(scenario())
+
+
+class Slow:
+    """A stand-in agent that never answers; counts how many calls are running."""
+
+    def __init__(self):
+        self.running = 0
+
+    async def __call__(self, config, task, **options):
+        self.running += 1
+        await asyncio.Event().wait()
+
+
+def test_the_loop_runs_due_tasks(tester):
+    t = tester
+    queued = queue(t)
+    serve_until(t, Agent('Done.'), ready=lambda: task(t.store, queued['id'])['status'] == 'succeeded')
+    assert task(t.store, queued['id'])['status'] == 'succeeded'
+
+
+def test_the_loop_runs_at_most_limit_tasks_and_gives_them_back_when_stopped(tester):
+    t = tester
+    ids = [queue(t)['id'] for _ in range(3)]
+    slow = Slow()
+    serve_until(t, slow, limit=2, ready=lambda: slow.running == 2)
+    assert slow.running == 2
+    rows = [task(t.store, task_id) for task_id in ids]
+    assert sorted((row['status'], row['attempts']) for row in rows) == [('queued', 0)] * 3  # released on stop
+
+
+def test_the_loop_survives_database_errors(tester, monkeypatch):
+    t = tester
+    queued = queue(t)
+    real, calls = agent_tasks.claim, []
+
+    def flaky(*args):
+        calls.append(1)
+        if len(calls) == 1:
+            raise psycopg.OperationalError('database down')
+        return real(*args)
+    monkeypatch.setattr(agent_tasks, 'claim', flaky)
+    serve_until(t, Agent('Done.'), ready=lambda: task(t.store, queued['id'])['status'] == 'succeeded')
+    assert len(calls) >= 2 and task(t.store, queued['id'])['status'] == 'succeeded'
+
+
+def test_the_limit_comes_from_the_environment(tester, monkeypatch):
+    t = tester
+    monkeypatch.setenv('AGENT_TASK_MAX', '1')
+    ids = [queue(t)['id'] for _ in range(2)]
+    slow = Slow()
+
+    async def scenario():
+        stopped = asyncio.Event()
+        runner = asyncio.create_task(agent_tasks.serve(t.store, slow, stopped=stopped, worker_id='w1', poll=0.05))
+        await asyncio.sleep(0.5)
+        stopped.set()
+        await asyncio.wait_for(runner, 10)
+    asyncio.run(scenario())
+    assert slow.running == 1
+    assert all(task(t.store, task_id)['status'] == 'queued' for task_id in ids)

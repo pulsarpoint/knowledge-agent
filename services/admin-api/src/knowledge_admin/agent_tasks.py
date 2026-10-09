@@ -7,7 +7,11 @@ lease may finish it, so a worker that lost the lease records nothing. The turn l
 lease, so a running call never outlives it."""
 import asyncio
 import logging
+import os
+import socket
 from typing import Any
+
+import psycopg
 
 from knowledge_admin.agent_sessions import NO_MODEL
 from knowledge_admin.agents import agent, load_credentials
@@ -136,3 +140,41 @@ async def run_task(store: RepositoryStore, task: dict[str, Any], run_agent=agent
         logger.warning('Agent task %s attempt %s failed (%s)', task['id'], task['attempts'], type(exc).__name__)
     if not await asyncio.to_thread(finish, store, task, outcome, text):
         logger.info('Agent task %s claim %s lost its lease; nothing recorded', task['id'], task['claims'])
+
+
+async def guarded(store: RepositoryStore, task: dict[str, Any], run_agent) -> None:
+    """run_task that never takes the loop down: a task that cannot be finished keeps its lease and is claimed again
+    when the lease runs out."""
+    try:
+        await run_task(store, task, run_agent)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception('Agent task %s could not be finished', task['id'])
+
+
+async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,
+                limit: int | None = None, poll: float = POLL_SECONDS) -> None:
+    """Run due tasks, AGENT_TASK_MAX of them at once (default 2), until stopped; running ones are then given back."""
+    worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}:tasks'
+    limit = limit or int(os.environ.get('AGENT_TASK_MAX', '2'))
+    running: set[asyncio.Task] = set()
+    while not stopped.is_set():
+        try:
+            if len(running) < limit:
+                for task in await asyncio.to_thread(claim, store, worker_id, limit - len(running)):
+                    job = asyncio.create_task(guarded(store, task, run_agent))
+                    running.add(job)
+                    job.add_done_callback(running.discard)
+        except psycopg.Error:
+            print('Agent task runner database unavailable; retrying', flush=True)
+        except Exception:
+            logger.exception('Agent task runner loop failed; retrying')
+        try:
+            await asyncio.wait_for(stopped.wait(), poll)
+        except asyncio.TimeoutError:
+            pass
+    await asyncio.sleep(0)  # let tasks claimed just now start, so cancelling them releases them
+    for job in list(running):
+        job.cancel()
+    await asyncio.gather(*running, return_exceptions=True)

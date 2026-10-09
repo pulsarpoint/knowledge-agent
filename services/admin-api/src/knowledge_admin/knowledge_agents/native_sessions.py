@@ -418,17 +418,18 @@ async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Eve
 
 def main() -> None:
     """agent-session-worker: PostgreSQL from the PG* environment, run records like admin-api, and Agents SDK tracing to
-    Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api."""
+    Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api. It also runs event handlers' agent tasks (agent_tasks.serve)."""
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
     store = RepositoryStore('', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL'])
     run_record.configure(store, None)
     agent_tracing.setup()
 
     async def run() -> None:
+        from knowledge_admin import agent_tasks  # it builds on this module (failure)
         stopped = asyncio.Event()
         loop = asyncio.get_running_loop()
         for signum in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(signum, stopped.set)
-        await serve(store, stopped=stopped)
+        await asyncio.gather(serve(store, stopped=stopped), agent_tasks.serve(store, stopped=stopped))
 
     asyncio.run(run())
