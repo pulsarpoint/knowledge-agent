@@ -111,45 +111,15 @@ SSH/log collection, health checks, and monitoring remain separate work. Consumer
 must use a trusted authenticated boundary and treat descriptive text as untrusted
 data, never as executable commands or grants of access.
 
-## Claude Code worker
-
-Generate documents sessions run in `claude-code-worker`, one Claude Agent SDK
-client per session (`knowledge_admin.claude_code_worker`), claimed from PostgreSQL with a
-lease. Isolation:
-
-- Network: only the `claude-code` network, shared with `postgres`; internet egress
-  remains for the model provider. Bash cannot reach `admin-api` (which trusts the
-  proxy's user headers) or any other service.
-- Files: `DATA_ROOT` read-only; the only writable mount is `claude-code-home` at
-  `/home/claude` (root-owned, 0711). Files under `DATA_ROOT` must be readable by the
-  claude users (world-readable, or group-readable by gid 1001).
-- Users: the worker runs as root and keeps the database password and encryption key
-  out of the CLI environment. Each running session holds a worker slot (at most 8,
-  `CLAUDE_CODE_MAX_SESSIONS`), and `knowledge-claude-cli` runs the CLI as that slot's
-  user (`claude1`..`claude8`), so one session cannot read another's process environment
-  or files. HOME is per session (`/home/claude/sessions/<id>`, 0700); before dropping
-  privileges the wrapper kills every process of the slot user, then hands the HOME to
-  it (CAP_CHOWN only), so a resumed session finds its transcript in any slot. When a
-  session leaves its slot (idle release, close, failure) the worker kills the slot
-  user's processes, removes its `/dev/shm` entries and takes the HOME back for root
-  before the slot is reused; at start it does the same for every slot and session HOME.
-  A HOME too large or deep to take back whole keeps only its top folder root's (that
-  session cannot start again); a slot whose processes cannot be killed stays unused.
-  SysV IPC objects (shared memory segments, semaphores, message queues) a session
-  creates are not removed: an accepted residual.
-- Secrets: the session's key reaches only the CLI environment; every enabled Claude
-  connection's key is redacted from run events, drafts and error messages, and NUL
-  characters are removed before storing.
-
 ## Agent session worker
 
-Native Generate documents sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
-claimed with the same lease code as `claude-code-worker` (`knowledge_agents/session_worker.py`: claims per agent type,
+Generate documents and Test sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
+claimed with a lease (`knowledge_agents/session_worker.py`:
 queued messages delivered once per turn, Stop, idle release after 5 minutes, interrupted turns failed on reclaim). Native
 turns have no time or model-call limit (each model request and MCP connection keeps a 300 s timeout); Stop always ends a
-turn within about 30 seconds. Networks `default` and `agent-shell` (no access to the `claude-code` network); `DATA_ROOT` read-only;
+turn within about 30 seconds. Networks `default` and `agent-shell`; `DATA_ROOT` read-only;
 `agent-workspaces` for tool scratch space shared with `shell-worker`; Agents SDK traces go to Phoenix as for native runs in
-`admin-api`. History uses an Agents SDK `Session` (`knowledge_agents/history.py`) backed by `agent_sessions_cc.history`.
+`admin-api`. History uses an Agents SDK `Session` (`knowledge_agents/history.py`) backed by `agent_sessions.history`.
 
 ## Code projects and Git synchronization
 

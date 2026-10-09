@@ -83,7 +83,7 @@ the version column on sessions (`agent_sessions.agent_version_id`) and its const
 
 ## 0081_test_sessions
 
-Test chats become sessions run by agent-session-worker. `ka.agent_sessions_cc` gets `purpose` (`documents` for Generate
+Test chats become sessions run by agent-session-worker. `ka.agent_sessions_cc` (renamed `ka.agent_sessions` by 0083) gets `purpose` (`documents` for Generate
 documents sessions, `test` for the agent Test tab), `model_calls` and `reasoning_tokens` (native sessions add them per
 model call); `document_name` and `folder` become nullable, with checks that a documentation session has both and a Test
 session has neither (and no draft, draft turn or document), and that a Test session is native. `ka.agent_session_reviews`

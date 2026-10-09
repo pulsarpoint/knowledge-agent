@@ -57,4 +57,4 @@ The app defines `list_files`, `search_files`, `read_file`, `code_search`, `ast_g
 
 The Codex benchmark used shell commands: `rg`, `sqlite3 -readonly`, `nl`/`sed`, and small Python reads. These are different interfaces to the same basic inspection capabilities, not identical tool APIs.
 
-The one-shot generation that ran endpoint agents with this kind of prompt was removed (migration 0073). **Docs → Generate documents** now starts a Claude Code agent session that works in the chosen folders with its own prompt, instructions and skills. To use this workflow there, put its text in a Claude Code agent's instructions or a skill. Prefer the `code_graph` SDK operations to manual graph SQL.
+The one-shot generation that ran endpoint agents with this kind of prompt was removed (migration 0073). **Docs → Generate documents** now starts an agent session that works on the chosen code projects, documents and servers. To use this workflow there, paste its text into the form's **Prompt text**. Prefer the `code_graph` SDK operations to manual graph SQL.

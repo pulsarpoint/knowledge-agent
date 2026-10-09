@@ -275,7 +275,7 @@ Back up the database first: rolling 0073 back restores only the empty tables, no
 Generate documents now also runs native agents. After pulling this version on an existing installation:
 
 1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0074 adds three columns to
-   `agent_sessions_cc` (`runtime`, `agent_config`, `history`); existing sessions are kept.
+   `agent_sessions_cc` (`runtime`, `agent_config`, `history`; renamed `agent_sessions` by 0083); existing sessions are kept.
 2. Start the new service:
    `docker compose --env-file .env -f deploy/compose.yaml up -d agent-session-worker`
 

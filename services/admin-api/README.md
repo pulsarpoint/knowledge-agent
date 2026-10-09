@@ -125,7 +125,7 @@ It is **not** a dictionary to unpack directly into the native Agents SDK:
 the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
 `POST /api/agents/{id}/sessions` with `{ "message": "...", "run_resources": {...}? }`, which pins this saved
-configuration (credential references only) in a Test session (`ka.agent_sessions_cc`, `purpose = 'test'`) that
+configuration (credential references only) in a Test session (`ka.agent_sessions`, `purpose = 'test'`) that
 `agent-session-worker` runs; the Test tab then uses the session routes under `/api/generations/sessions`. Runs and safe
 activity are retained in PostgreSQL; full SDK traces go to Phoenix.
 
@@ -199,7 +199,7 @@ region and model ID. Credentials are specific to each invocation, and native
 providers require a saved key instead of using environment credentials.
 
 Test sessions and Generate documents sessions of native agents are run by `agent-session-worker` through
-`HistorySession` (below); the SDK items of successful turns are saved in `ka.agent_sessions_cc.history`, `purpose`
+`HistorySession` (below); the SDK items of successful turns are saved in `ka.agent_sessions.history`, `purpose`
 distinguishes the two, and sessions close after 24 hours without activity. Tool workspaces are temporary; the runner
 does not read or write session-history files. See [session APIs and migration](../../docs/agents.md).
 

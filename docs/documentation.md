@@ -2,7 +2,7 @@
 
 Docs is a separate admin section with Documents, Prompts, Generate documents and Folders.
 It supports Markdown CRUD, version history, resource links, versioned prompts and
-document generation by Claude Code agents. RAG publication remains a separate next stage.
+document generation by agent sessions. RAG publication remains a separate next stage.
 
 ## Storage and versions
 
@@ -92,9 +92,9 @@ confirmation and navigation with unsaved edits.
 **Docs → Generate documents** starts a session with an ad-hoc native agent: no `agents` row, no saved agent. The form picks the
 model and system prompt, shows the context generated from what to document (editable), and takes a saved or own prompt.
 
-`POST /api/claude-code/context` takes the five id lists and returns `{text}`: the context the form shows and the agent reads.
+`POST /api/generations/context` takes the five id lists and returns `{text}`: the context the form shows and the agent reads.
 
-`POST /api/claude-code/sessions` takes `model_id`, `code_project_ids`, `collection_ids`, `environment_ids`, `service_ids`,
+`POST /api/generations/sessions` takes `model_id`, `code_project_ids`, `collection_ids`, `environment_ids`, `service_ids`,
 `server_ids`, `system_prompt` (up to 20,000 characters), `context` (up to 100,000), `prompt` (up to 100,000), `prompt_id`
 (the saved prompt it came from, or null), `document_name` and `folder`. At least one code project, collection, environment,
 service or server is required. Refusals (400): `NOTHING_CHOSEN`, `NO_MODEL` ("Choose an enabled model.": unknown, disabled or
@@ -102,10 +102,10 @@ not a Responses or Claude connection), unknown or unavailable ids ("Select avail
 `<label> <name> is not available: it was removed, archived or disabled.` Servers brought by environments or services that have no
 usable connection are left out of the agent's tools.
 
-The session stores two snapshots and `runtime = 'openai'`. `prompt_snapshot` holds `system_prompt`, `context` and `prompt_id`;
+The session stores two snapshots. `prompt_snapshot` holds `system_prompt`, `context` and `prompt_id`;
 the pinned agent's system prompt is the system prompt followed by the context. `agent_config` is the ad-hoc configuration
 narrowed to the form's sources (`run_resources.resolve`; credential references only), and `history` holds the Agents SDK items
-of successful turns, redacted; listing and detail return `runtime`, never `agent_config` or `history`. Migration 0082 lets these
+of successful turns, redacted; listing and detail never return `agent_config` or `history`. Migration 0082 lets these
 sessions have `agent_id` NULL, and their run records carry the agent `ad-hoc`.
 `context_snapshot` holds the chosen `code_projects`, `collections`, `environments`, `services`, `servers`, plus
 `folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
@@ -120,10 +120,9 @@ When you finish, reply with the complete document in Markdown as your final answ
 later message, reply again with the complete updated document.
 ```
 
-**Native turns.** `agent-session-worker` claims native sessions (`session_worker.claim(…, 'openai')`), decrypts the pinned
+**Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned
 config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,
-max_turns=None, turn_timeout_seconds=None, call_model_input_filter=Comments)` and writes the same events as Claude Code
-turns under `cc:<session>:<turn>` (`start.kind = native_session`). There is no turn time or model-call limit; each model request and MCP connection keeps its
+max_turns=None, turn_timeout_seconds=None, call_model_input_filter=Comments)` and writes events under `cc:<session>:<turn>` (the `cc:` prefix is historic) (`start.kind = native_session`). There is no turn time or model-call limit; each model request and MCP connection keeps its
 300 s timeout. Comments queued during a turn are delivered inside it before the next model call (an `input` event). Stop
 ends the turn as stopped within about 30 seconds after it is pressed; after that the turn starts no new model request or tool
 call (a request or command already running cannot be recalled), and comments delivered to a stopped turn are discarded;
@@ -131,7 +130,7 @@ a message sent after Stop is not delivered to the stopped turn and starts the ne
 After a failure or a lost worker they go to the next turn. The turn's history is committed in the transaction that records
 the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used (every turn sees the whole conversation).
 
-`GET /api/claude-code/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
+`GET /api/generations/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a
 tool result keeps its preview and the full output stays in the run record.
 

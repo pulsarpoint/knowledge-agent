@@ -62,14 +62,12 @@ bring the file tools only without code projects and without **Answer only from d
 agent gets all tools of every enabled capability when it is created, switched to per run or gets a capability switched
 on; agents saved before keep their tool rows. The wizard's explicit tool choice wins over these defaults (a per-run
 agent created with a hand-picked list gets just that list). Tools of a server that is not selected, or unknown tools,
-are refused. Claude Code agents keep their four tools
-(Read, Grep, Glob, Bash) on the General tab; the Tools tab shows "Claude Code agents use Claude Code's own tools on
-their working folders. Switch them on the General tab." and the API refuses tool changes for them. The agent wizard
+are refused. The agent wizard
 has a **Tools** page that follows the chosen capabilities, and **All agents** has a **Tools** column
-(for example `7 tools · Code 6 · Servers 1`, `No tools`, or `Read, Grep, Glob, Bash` for Claude Code). Tools are part
+(for example `7 tools · Code 6 · Servers 1` or `No tools`). Tools are part
 of the configuration; conversations saved before 0078 use the tools their capabilities gave.
 
-**Subagents.** **May start subagents** (General, native agents only, off by default; the wizard asks the same on its
+**Subagents.** **May start subagents** (General, off by default; the wizard asks the same on its
 Tools page) lets the agent hand separate parts of its work to helpers that run in parallel. The switch is the
 `run_subagent` row in `ka.agent_tools` (`mode = 'on'`, `subagent_allowed = false`; `GET/PUT /api/agents/{id}`
 `subagents`); turning it off deletes the row. While it is on, the Tools tab's **Agents** group lists **Start subagents**
@@ -77,9 +75,7 @@ Tools page) lets the agent hand separate parts of its work to helpers that run i
 subagents) and **A subagent may use**: one checkbox per tool of the agent that is on (catalog and MCP tools), checked by
 default (`subagent_allowed`). While it is off, the group says "Turn on May start subagents in General to let this
 agent start helpers." and the Tools API refuses `run_subagent` ("Turn on May start subagents in General first.").
-Clone and Apply copy the row and `subagent_allowed` with the other tool rows. Switching an agent to Claude Code
-deletes the row (server side, whatever the save sends), so after switching back to native the switch is off and must be
-turned on again.
+Clone and Apply copy the row and `subagent_allowed` with the other tool rows.
 
 ## New agent
 
@@ -91,7 +87,7 @@ credential references, skills, MCP servers, services, model connections, and
 existing agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard asks for **Agent type** and **Resources** first (page 1) and shows them as one line on the review. `POST /api/agents/wizard/generate` accepts `runtime`: the designer's catalog then lists only models that fit that type, and a proposed model that does not fit is returned as `model_id: null`. The proposal schema itself does not include the type. `POST /api/agents/wizard` accepts `runtime`, `resources` (default `fixed`) and `claude_code_tools`.
+The wizard asks for **Agent model** (default: the first model in the catalog) and **Resources** first (page 1) and shows them as one `<model> · <resources>` line on the review. `POST /api/agents/wizard` accepts `resources` (default `fixed`). The Tools page is always shown.
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
@@ -147,12 +143,12 @@ Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode
 - `GET /api/agents` lists profiles with model summaries and `cloned_from`.
 - `GET /api/agents/{id}` and `/options` return configuration and available resources.
 - `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
-- `PUT /api/agents/{id}` also accepts `runtime` and `claude_code_tools` and `resources`.
+- `PUT /api/agents/{id}` also accepts `resources`.
 - `GET /api/agents` returns `resources` and `accepts` (from the agent).
 - `GET /api/agents/{id}/run-resources` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
 - `POST /api/agents/{id}/sessions` accepts `run_resources` with the first message; the session keeps them (`run_resources` on the session).
-- `PUT /api/agents/{id}/model` assigns an enabled compatible model and applies the type's model rule.
-- `GET /api/agents/{id}/config` returns `runtime` and `claude_code_tools` for both types (`knowledge_admin.knowledge_agents.config.get_agent_config`).
+- `PUT /api/agents/{id}/model` assigns an enabled compatible model.
+- `GET /api/agents/{id}/config` returns the agent's configuration (`knowledge_admin.knowledge_agents.config.get_agent_config`).
 - `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, `GET|POST /api/agents/{id}/apply` and `GET|POST /api/agents/{id}/reviews/{review_id}[/apply]` are described in [Agent execution](agents.md#clones).
 - `/api/agents/{id}/sessions` and `/{session_id}` list and restore conversations;
   `/{session_id}/close` ends one and `/{session_id}/review` saves tuning suggestions.
@@ -171,11 +167,11 @@ history, or disable it to keep the history.") unless the body also has
 `"with_history": true`.
 
 `GET /api/agents/{id}/history` returns what that would delete:
-`{"test_chats", "chats", "claude_code_sessions", "runs"}`. With
+`{"test_chats", "documentation_sessions", "run_records"}`. With
 `with_history` the same transaction first deletes the agent's run records
 (`agent_run_events` with keys `run:<run id>` and `cc:<session id>:<turn>` of those rows only), its runs and their SSH
-commands, its chats and their reviews, and its Generate documents sessions (native and Claude Code) and queued inputs. Saved documents are
-independent rows and stay. While the agent is working — a documentation session (native or Claude Code) that is
+commands, its sessions (Test and Generate documents) with their queued inputs and reviews. Saved documents are
+independent rows and stay. While the agent is working — a session that is
 `starting` or `working`, or a `running` operations run — the delete (with or without history) returns HTTP 409
 ("This agent is working right now. Stop its documentation sessions and runs, or wait for them to finish, then
 delete it.") and deletes nothing. The revision is still checked; the `agent.deleted` audit event records the
@@ -190,3 +186,5 @@ Migration `0079_agent_system_prompt` adds `agents.system_prompt` (text, required
 Migration `0080_clone_agents` makes each agent's active configuration version its configuration (tools, overrides and connections included), then drops `agent_versions`, the prompt tables, the view and guard function, the version column on sessions (`agent_sessions.agent_version_id`) and its constraints; it adds `agents.cloned_from` (nullable, `ON DELETE SET NULL`). Its down migration restores the empty schema only. See `deploy/README.md` for the upgrade notes.
 
 Migration `0081_test_sessions` turns Test chats into sessions of `agent_sessions_cc` (`purpose`), adds `model_calls` and `reasoning_tokens`, moves suggestions onto it and drops the old Test chat tables (their run records stay). See `deploy/README.md`.
+
+Migration `0083_remove_claude_code` converted Claude Code agents to native agents (the tools of their enabled capabilities are switched on; model, prompt and resources are kept), drops `agents.runtime` and `agents.claude_code_tools`, renames `agent_sessions_cc` to `agent_sessions` and drops its `runtime`, `claude_session_id` and `cost_usd` columns (`agent_config` is required). It deleted Claude Code sessions with their inputs and reviews; their run records (`cc:` keys) stay. Older audit rows keep the `claude_code.session.*` actions.
