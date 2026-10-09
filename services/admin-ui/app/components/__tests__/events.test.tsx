@@ -99,9 +99,9 @@ test("the sheet shows the chain and the handler runs with their links", async ()
   const child = row(8, { source: "handler", type: "triage.requested", subject: "T-8", depth: 1, parent_id: 7, root_id: 7, handler_id: "h-1" });
   api({ "/api/events/facets": FACETS, "/api/events": { events: [row(7)], next_offset: null },
     "/api/events/7": { event: detail(7, { chain: [row(7), child], runs: [
-      { handler_id: "h-1", handler_name: "Triage", status: "succeeded", message: "Emitted triage.requested.", emitted_event_id: 8, agent_session_id: null, agent_id: null, created_at: "2026-10-09T10:00:06Z" },
-      { handler_id: "h-2", handler_name: "Ask agent", status: "succeeded", message: "Started a session with Tester.", emitted_event_id: null, agent_session_id: "s-1", agent_id: "tester", created_at: "2026-10-09T10:00:06Z" },
-      { handler_id: "h-3", handler_name: "Broken", status: "failed", message: "Template error: x", emitted_event_id: null, agent_session_id: null, agent_id: null, created_at: "2026-10-09T10:00:06Z" }] }) },
+      { handler_id: "h-1", handler_name: "Triage", status: "succeeded", message: "Emitted triage.requested.", emitted_event_id: 8, agent_session_id: null, agent_id: null, created_at: "2026-10-09T10:00:06Z", agent_task: null },
+      { handler_id: "h-2", handler_name: "Ask agent", status: "succeeded", message: "Started a session with Tester.", emitted_event_id: null, agent_session_id: "s-1", agent_id: "tester", created_at: "2026-10-09T10:00:06Z", agent_task: null },
+      { handler_id: "h-3", handler_name: "Broken", status: "failed", message: "Template error: x", emitted_event_id: null, agent_session_id: null, agent_id: null, created_at: "2026-10-09T10:00:06Z", agent_task: null }] }) },
     "/api/events/8": { event: detail(8, { ...child, chain: [row(7), child], parent: row(7) }) } });
   view();
   await user.click(await screen.findByText("DEMO-7"));
@@ -182,4 +182,30 @@ test("the chain renders when the open event is missing from a capped chain", asy
   const chain = within(await screen.findByRole("dialog")).getByRole("list", { name: "Chain" });
   expect(within(chain).getByText(/DEMO-7/).closest("[aria-current]")).toHaveAttribute("aria-current", "true");
   expect(within(chain).getByText(/DEMO-6/)).toBeInTheDocument();
+});
+
+test("a Send to agent run shows its task status and opens its notification", async () => {
+  const user = userEvent.setup();
+  const run = { handler_id: "h-1", handler_name: "Ask Triage", status: "succeeded", message: "Queued for Triage.", emitted_event_id: null,
+    agent_session_id: null, agent_id: "triage", created_at: "2026-10-09T10:00:06Z",
+    agent_task: { id: "agent-task:7:h-1", status: "succeeded", attempts: 2, notification_id: 9 } };
+  const queued = { ...run, handler_name: "Ask Ops", message: "Queued for Ops.", agent_task: { id: "agent-task:7:h-2", status: "queued", attempts: 0, notification_id: null } };
+  api({ "/api/events/facets": FACETS, "/api/events": { events: [row(7)], next_offset: null },
+    "/api/events/7": { event: detail(7, { runs: [run, queued] }) } });
+  view();
+  await user.click(await screen.findByText("DEMO-7"));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Queued for Triage.")).toBeInTheDocument();
+  expect(within(sheet).getByText("Succeeded · 2 attempts")).toBeInTheDocument();
+  expect(within(sheet).getByText("Queued")).toBeInTheDocument();
+  const links = within(sheet).getAllByRole("link", { name: "Open notification" });
+  expect(links).toHaveLength(1);
+  expect(links[0]).toHaveAttribute("href", "/notifications?id=9");
+});
+
+test("an address with ?event= opens that event", async () => {
+  api({ "/api/events/facets": FACETS, "/api/events": { events: [], next_offset: null }, "/api/events/4": { event: detail(4) } });
+  render(<MemoryRouter initialEntries={["/events?event=4"]}><EventsView /></MemoryRouter>);
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText(/DEMO-4/)).toBeInTheDocument();
 });

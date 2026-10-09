@@ -134,15 +134,16 @@ test("the form keeps a stored agent that is no longer offered", async () => {
   await waitFor(() => expect(saved.agent_id).toBe("gone"));
 });
 
-test("a broad Send to agent pattern warns that each matching event starts a session", async () => {
+test("a broad Send to agent pattern warns that each matching event runs the agent", async () => {
   const user = userEvent.setup();
   api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
   view();
   await user.click(await screen.findByRole("button", { name: "New handler" }));
   const sheet = await screen.findByRole("dialog");
-  const warning = "Starts one agent session for every matching event.";
+  const warning = "Runs the agent once for every matching event.";
   await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
   await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  expect(within(sheet).getByText("Enabled agents with fixed resources. The agent answers once, without a conversation. The answer goes to Notifications.")).toBeInTheDocument();
   expect(within(sheet).getByText(warning)).toBeInTheDocument();  // jira.ticket.*
   await user.clear(within(sheet).getByLabelText("Event type"));
   await user.type(within(sheet).getByLabelText("Event type"), "jira.ticket.updated");

@@ -3,8 +3,11 @@ import { request } from "./api";
 export type EventStatus = "pending" | "processed" | "failed";
 export interface EventRow { id: number; source: string; type: string; subject: string; title: string; occurred_at: string; created_at: string;
   status: EventStatus; depth: number; parent_id: number | null; root_id: number; handler_id: string | null }
+export type TaskStatus = "queued" | "running" | "succeeded" | "failed";
+export interface AgentTaskRef { id: string; status: TaskStatus; attempts: number; notification_id: number | null }
 export interface HandlerRun { handler_id: string; handler_name: string; status: "succeeded" | "failed"; message: string;
-  emitted_event_id: number | null; agent_session_id: string | null; agent_id: string | null; created_at: string }
+  emitted_event_id: number | null; agent_session_id: string | null; agent_id: string | null; created_at: string;
+  agent_task: AgentTaskRef | null }
 export interface EventDetail extends EventRow { source_id: string | null; dedupe_key: string; payload: Record<string, unknown>;
   parent: EventRow | null; chain: EventRow[]; runs: HandlerRun[] }
 export interface EventFilters { source: string; type: string; status: string; handler: string; q: string }
@@ -17,6 +20,7 @@ export const DEFAULT_SORT: EventSort = { key: "time", order: "desc" };
 export const NO_FILTERS: EventFilters = { source: "", type: "", status: "", handler: "", q: "" };
 export const TYPE_LABELS: Record<string, string> = { "jira.ticket.created": "Ticket created", "jira.ticket.updated": "Ticket updated" };
 export const SOURCE_LABELS: Record<string, string> = { jira: "Jira", handler: "Handler" };
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = { queued: "Queued", running: "Running", succeeded: "Succeeded", failed: "Failed" };
 export const STATUS_LABELS: Record<EventStatus, string> = { pending: "Pending", processed: "Processed", failed: "Failed" };
 const FIELD_LABELS: Record<string, string> = { summary: "Summary", status: "Status", issue_type: "Type", priority: "Priority", assignee: "Assignee", labels: "Labels", description: "Description" };
 

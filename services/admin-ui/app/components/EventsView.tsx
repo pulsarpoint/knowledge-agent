@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { ArrowDown, ArrowUp, ArrowUpDown, Inbox, RefreshCw } from "lucide-react";
 import { ApiError } from "../lib/api";
-import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
+import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TASK_STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
   type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "../lib/events";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -40,6 +40,8 @@ function FilterSelect({ id, label, value, all, options, onChange, className }: {
 }
 
 export default function EventsView() {
+  const [params, setParams] = useSearchParams();
+  const linked = params.get("event");
   const [filters, setFilters] = useState<EventFilters>(NO_FILTERS);
   const [sort, setSort] = useState<EventSort>(DEFAULT_SORT);
   const [query, setQuery] = useState("");
@@ -92,6 +94,13 @@ export default function EventsView() {
     try { setSelected((await getEvent(id)).event); }
     catch (reason) { setError(text(reason, "Could not load the event.")); }
   }
+  useEffect(() => {
+    if (linked && /^[1-9]\d*$/.test(linked)) void open(Number(linked));
+  }, [linked]);  // eslint-disable-line react-hooks/exhaustive-deps
+  function close() {
+    setSelected(null);
+    if (params.has("event")) setParams(current => { current.delete("event"); return current; }, { replace: true });
+  }
   /** A new column sorts newest/last first; the same column again flips the order. */
   const sortBy = (key: SortKey) => setSort(current => current.key === key ? { key, order: current.order === "desc" ? "asc" : "desc" } : { key, order: "desc" });
   const set = (field: keyof EventFilters) => (value: string) => setFilters(current => ({ ...current, [field]: value }));
@@ -142,7 +151,7 @@ export default function EventsView() {
       </Table>
     </div>}
     {nextOffset !== null && <div className="flex justify-center"><Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>Load more</Button></div>}
-    <Sheet open={selected !== null} onOpenChange={next => { if (!next) setSelected(null); }}>
+    <Sheet open={selected !== null} onOpenChange={next => { if (!next) close(); }}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         {selected && <>
           <SheetHeader><SheetTitle>{selected.subject} · {typeLabel(selected.type)}</SheetTitle><SheetDescription>{selected.title}</SheetDescription></SheetHeader>
@@ -170,6 +179,11 @@ export default function EventsView() {
                 {run.emitted_event_id !== null && <Button variant="link" className="h-auto self-start p-0" onClick={() => void open(run.emitted_event_id!)}>Open event #{run.emitted_event_id}</Button>}
                 {run.agent_session_id && run.agent_id && <Link className="text-primary underline underline-offset-4"
                   to={`/agents/${encodeURIComponent(run.agent_id)}?view=test&session_id=${encodeURIComponent(run.agent_session_id)}`}>Open agent session</Link>}
+                {run.agent_task && <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={run.agent_task.status === "failed" ? "destructive" : run.agent_task.status === "succeeded" ? "secondary" : "outline"}>
+                    {TASK_STATUS_LABELS[run.agent_task.status]}{run.agent_task.attempts > 1 ? ` · ${run.agent_task.attempts} attempts` : ""}</Badge>
+                  {run.agent_task.notification_id !== null && <Link className="text-primary underline underline-offset-4"
+                    to={`/notifications?id=${run.agent_task.notification_id}`}>Open notification</Link>}</div>}
               </li>)}</ul></div>}
             {changes.length > 0 && <div><h3 className="mb-1 font-medium">Changes</h3><ul className="flex flex-col gap-1">{changes.map(line => <li key={line}>{line}</li>)}</ul></div>}
             <details><summary className="cursor-pointer">Raw payload</summary>
