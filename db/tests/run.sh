@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+experts_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'expert')")
+[ "$experts_removed" = t ] || { echo 'FAIL: 0085 down left agents.expert' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
 [ "$rolled_back_version" = 83 ]
@@ -110,6 +115,13 @@ session_notices=$(docker exec "$test_container" psql -X -U postgres -Atc \
              ('agent_sessions', 'notify_session_removal'), ('agent_session_inputs', 'notify_session_input'))")
 [ "$session_notices" = t ] || { echo 'FAIL: the session notice triggers are missing' >&2; exit 1; }
 printf '%s\n' 'PASS: session changes are announced on ka_sessions.'
+# 0085 offers agents as experts; a caller's expert:<id> rows are never given to subagents.
+experts=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'expert')
+        AND pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'subagents_do_not_spawn')) LIKE '%expert:%'")
+[ "$experts" = t ] || { echo 'FAIL: 0085 expert column or check missing' >&2; exit 1; }
+printf '%s\n' 'PASS: agents can be experts; expert rows are never given to subagents.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

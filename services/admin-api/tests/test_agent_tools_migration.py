@@ -59,7 +59,7 @@ def test_checks_and_cascade(store):
                 ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','')", psycopg.errors.CheckViolation),
                 ("INSERT INTO ka.agent_tools(agent_id,tool,usage) VALUES ('code','x', repeat('a', 8001))", psycopg.errors.CheckViolation),
                 ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','run_subagent')", psycopg.errors.CheckViolation),
-                ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','ask_agent:search')", psycopg.errors.CheckViolation),
+                ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','expert:search')", psycopg.errors.CheckViolation),
                 ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('missing','read_file')", psycopg.errors.ForeignKeyViolation),
                 ("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','read_file')", psycopg.errors.UniqueViolation)):
             with pytest.raises(error), conn.transaction():
