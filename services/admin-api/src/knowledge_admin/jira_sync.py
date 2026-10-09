@@ -70,8 +70,12 @@ def pull_tickets(store: RepositoryStore, project_id: UUID, jql: str, limit: int,
                  (fields.get("assignee") or {}).get("displayName"), (fields.get("reporter") or {}).get("key"),
                  fields.get("labels", []), Jsonb(issue), fields.get("created"), fields["updated"]))
         new_events = jira_events.record(conn, config["project_id"], config["id"], config["base_url"], issues) if events else 0
-        conn.execute("""UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_limit=%s,
-            last_fetch_total=%s,jql=%s,fetch_revision=fetch_revision+1 WHERE id=%s""", (limit, total, jql, config["id"]))
+        if events:  # the scheduled pull keeps the manual Fetch query and limit shown on Jira → Tickets
+            conn.execute("""UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_total=%s,
+                fetch_revision=fetch_revision+1 WHERE id=%s""", (total, config["id"]))
+        else:
+            conn.execute("""UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_limit=%s,
+                last_fetch_total=%s,jql=%s,fetch_revision=fetch_revision+1 WHERE id=%s""", (limit, total, jql, config["id"]))
         conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
             VALUES (%s,%s,%s,'jira_connection',%s,%s)""",
             (config["project_id"], actor_id, action, config["id"], Jsonb({"requested": limit, "fetched": len(issues), "total": total, **({"events": new_events} if events else {})})))

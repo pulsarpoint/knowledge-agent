@@ -31,6 +31,8 @@ export default function SchedulesView() {
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const deletingName = useRef("");
   const [history, setHistory] = useState<{ id: string; runs: ScheduleRun[] | null } | null>(null);
 
   const changes = useRef(0);
@@ -56,14 +58,15 @@ export default function SchedulesView() {
   }
   async function remove() {
     const doomed = deleting;
-    if (!doomed) return;
+    if (!doomed || removing) return;
+    setRemoving(true); setError(null);
     try {
       await deleteSchedule(doomed.id);
       changes.current += 1;
       setSchedules(current => current?.filter(item => item.id !== doomed.id) ?? null);
       setHistory(current => current?.id === doomed.id ? null : current);
     } catch (reason) { setError(text(reason, "Could not delete the schedule.")); }
-    finally { setDeleting(null); }
+    finally { setRemoving(false); setDeleting(null); }
   }
   async function toggleHistory(schedule: Schedule) {
     if (history?.id === schedule.id) { setHistory(null); return; }
@@ -97,7 +100,7 @@ export default function SchedulesView() {
             <Button size="sm" variant="outline" disabled={busy === schedule.id || schedule.running} onClick={() => change(schedule, () => runSchedule(schedule.id))}><Play data-icon="inline-start" />Run now</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(schedule)}><Pencil data-icon="inline-start" />Edit</Button>
             <Button size="sm" variant="ghost" aria-expanded={history?.id === schedule.id} onClick={() => toggleHistory(schedule)}><History data-icon="inline-start" />History</Button>
-            <Button size="sm" variant="ghost" onClick={() => setDeleting(schedule)}><Trash2 data-icon="inline-start" />Delete</Button>
+            <Button size="sm" variant="ghost" onClick={() => { deletingName.current = schedule.name; setDeleting(schedule); }}><Trash2 data-icon="inline-start" />Delete</Button>
           </div></TableCell>
         </TableRow>
         {history?.id === schedule.id && <TableRow><TableCell colSpan={7}>
@@ -109,11 +112,11 @@ export default function SchedulesView() {
     </Table>}
     {creating && <NewScheduleSheet open taken={(schedules ?? []).map(item => item.target_kind)} onClose={() => setCreating(false)}
       onCreated={created => { changes.current += 1; setSchedules(current => [...(current ?? []), created].sort((a, b) => a.name.localeCompare(b.name))); setCreating(false); }} />}
-    <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) setDeleting(null); }}>
+    <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open && !removing) setDeleting(null); }}>
       <AlertDialogContent>
-        <AlertDialogHeader><AlertDialogTitle>Delete schedule {deleting?.name}?</AlertDialogTitle><AlertDialogDescription>Its history is deleted too.</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={event => { event.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter>
+        <AlertDialogHeader><AlertDialogTitle>Delete schedule {deletingName.current}?</AlertDialogTitle><AlertDialogDescription>Its history is deleted too.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={removing} onClick={event => { event.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
     <ScheduleEditor schedule={editing} onClose={() => setEditing(null)} onSaved={saved => { replace(saved); setEditing(null); }} />

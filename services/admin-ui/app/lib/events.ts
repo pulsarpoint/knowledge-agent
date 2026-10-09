@@ -25,10 +25,17 @@ export const getEvent = (id: number, signal?: AbortSignal) => request<{ event: E
 export function describeChanges(changes: unknown): string[] {
   if (!changes || typeof changes !== "object") return [];
   const show = (value: unknown) => value === null || value === undefined || value === "" ? "—" : String(value);
-  return Object.entries(changes as Record<string, FieldChange>).map(([field, change]) => {
+  return Object.entries(changes as Record<string, unknown>).flatMap(([field, value]) => {
+    if (!value || typeof value !== "object") return [];
+    const change = value as Record<string, unknown>;
     const label = FIELD_LABELS[field] ?? field;
-    if ("added" in change) return `${label}: ${[...change.added.map(item => `+${item}`), ...change.removed.map(item => `−${item}`)].join(" ")}`;
-    if ("changed" in change) return `${label} changed`;
-    return `${label}: ${show(change.from)} → ${show(change.to)}`;
+    if ("added" in change || "removed" in change) {
+      const added = Array.isArray(change.added) ? (change.added as unknown[]) : [];
+      const removed = Array.isArray(change.removed) ? (change.removed as unknown[]) : [];
+      if (added.length === 0 && removed.length === 0) return [];
+      return [`${label}: ${[...added.map(item => `+${item}`), ...removed.map(item => `−${item}`)].join(" ")}`];
+    }
+    if ("changed" in change) return [`${label} changed`];
+    return [`${label}: ${show(change.from)} → ${show(change.to)}`];
   });
 }

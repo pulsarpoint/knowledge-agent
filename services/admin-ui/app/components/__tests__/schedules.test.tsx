@@ -75,6 +75,26 @@ test("delete asks first and removes the row", async () => {
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
 
+test("a double click on Delete sends one request and keeps the title", async () => {
+  const user = userEvent.setup();
+  let release: () => void = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "DELETE") { await gate; return new Response(null, { status: 204 }); }
+    return new Response(JSON.stringify({ schedules: [schedule] }), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetch);
+  view();
+  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" });
+  await user.dblClick(confirm);
+  expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  release();
+  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+  expect(screen.queryByText("Delete schedule ?")).not.toBeInTheDocument();
+});
+
 test("pausing sends the revision and shows the paused row", async () => {
   const user = userEvent.setup();
   const fetch = api({ "GET /api/schedules": () => [200, { schedules: [schedule] }],

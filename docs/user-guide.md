@@ -407,8 +407,8 @@ For testing without a real Jira: `make jira-mock-up`, then URL
 **Auto pull.** Jira → Auto pull fetches tickets on a timetable with its own query and ticket limit (separate from the
 query on Jira → Tickets). Switch on **Pull tickets automatically**, enter the JQL and number of tickets, pick how often
 (a preset or a custom cron expression) and the time zone, check the preview of the next runs, and **Save**. The page
-shows the last pull and the next one; **Run now** pulls at once. Jira → Tickets shows a one-line summary. A failed pull
-is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
+shows the last pull and the next one; **Run now** pulls at once. Jira → Tickets shows a one-line summary. Jira → Tickets always shows the tickets from the
+most recent pull, manual or automatic; its query box keeps your manual query. A failed pull is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
 records an event for every ticket that is new or changed since its last pull (see Administration → Events); the manual
 Fetch tickets does not.
 
@@ -673,7 +673,9 @@ Records are kept until deleted; only administrators can see them.
 
 ### 4.16 Schedules
 
-Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull). **New schedule** creates one: choose what to run (today: Jira tickets, which uses the query from Jira → Auto pull) and when. **Delete** removes a schedule and its history. Each row shows what
+Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull). **New schedule**
+creates one: choose what to run (today: Jira tickets, which uses the query from Jira → Auto pull) and when. **Delete**
+removes a schedule and its history. Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;
 **Run now** runs it once (a paused schedule stays paused); **Edit** changes the timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.

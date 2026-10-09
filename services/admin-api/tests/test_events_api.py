@@ -34,10 +34,12 @@ def test_filters_and_search(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     seed(store, 2)
     seed(store, 1, type='jira.ticket.updated', subject='OPS-7', title='Disk 100% full_')
+    seed(store, 1, subject='XYZ-1', title='xyz')
     assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'type': 'jira.ticket.updated'}).json()['events']] == ['OPS-7']
     assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': 'ops-'}).json()['events']] == ['OPS-7']
     assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '100%'}).json()['events']] == ['OPS-7']
-    assert client.get('/api/events', headers=HEADERS, params={'q': '_'}).json()['events'][0]['subject'] == 'OPS-7'
+    assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '%'}).json()['events']] == ['OPS-7']
+    assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '_'}).json()['events']] == ['OPS-7']
     assert client.get('/api/events', headers=HEADERS, params={'source': 'jira'}).json()['events'] != []
     assert client.get('/api/events/facets', headers=HEADERS).json() == {'sources': ['jira'], 'types': ['jira.ticket.created', 'jira.ticket.updated']}
     assert client.get('/api/events', headers=HEADERS, params={'limit': 201}).status_code == 400

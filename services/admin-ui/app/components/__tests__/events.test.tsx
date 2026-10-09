@@ -71,6 +71,8 @@ test("describeChanges", () => {
   expect(describeChanges({ assignee: { from: null, to: "Ana" }, description: { changed: true }, labels: { added: ["a"], removed: ["b"] } }))
     .toEqual(["Assignee: — → Ana", "Description changed", "Labels: +a −b"]);
   expect(describeChanges(undefined)).toEqual([]);
+  expect(() => describeChanges({ a: null, b: "x", labels: { added: "z" } })).not.toThrow();
+  expect(describeChanges({ a: null, b: "x", labels: { added: "z" } })).toEqual([]);
 });
 
 test("a Load more answered after a filter change is ignored", async () => {

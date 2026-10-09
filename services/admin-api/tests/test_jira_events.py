@@ -66,6 +66,21 @@ def test_a_changed_ticket_records_what_changed_even_after_a_manual_fetch(store, 
                                             'labels': {'added': ['agent'], 'removed': [l for l in before['labels'] if l not in ('demo', 'agent')]}}
 
 
+def test_the_scheduled_pull_keeps_the_manual_query_and_limit(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    manual = _client(tmp_path, repository_store=store, jira_transport=jira(copy.deepcopy(ISSUES)))
+    assert manual.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5, 'jql': 'project = MANUAL'}).status_code == 200
+    before = manual.get('/api/jira/tickets', headers=HEADERS).json()['connection']
+    with store.connect() as conn:
+        revision = conn.execute('SELECT fetch_revision FROM ka.jira_connections').fetchone()['fetch_revision']
+    assert auto_pull(store, a_schedule(store, jql='project = AUTO', limit=7), transport=jira(copy.deepcopy(ISSUES)))[0] == 'succeeded'
+    after = manual.get('/api/jira/tickets', headers=HEADERS).json()['connection']
+    assert after['jql'] == 'project = MANUAL' and after['last_fetch_limit'] == 5
+    assert after['last_fetch_total'] == len(ISSUES) and after['last_successful_sync_at'] >= before['last_successful_sync_at']
+    with store.connect() as conn:
+        assert conn.execute('SELECT fetch_revision FROM ka.jira_connections').fetchone()['fetch_revision'] == revision + 1
+
+
 def test_a_clashing_pull_records_no_events(store, tmp_path):
     setup(store, tmp_path)
     inner = jira(ISSUES[:2])
