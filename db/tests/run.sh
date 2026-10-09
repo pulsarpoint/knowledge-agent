@@ -56,6 +56,12 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+handlers_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.event_handlers') IS NULL AND to_regclass('ka.event_handler_runs') IS NULL
+        AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'ka' AND table_name = 'events' AND column_name = 'status')")
+[ "$handlers_removed" = t ] || { echo 'FAIL: 0089 down left handler tables or event status' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 events_removed=$(docker exec "$test_container" psql -X -U postgres -Atc "SELECT to_regclass('ka.events') IS NULL")
 [ "$events_removed" = t ] || { echo 'FAIL: 0088 down left ka.events' >&2; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
@@ -153,6 +159,11 @@ events=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.events') IS NOT NULL AND to_regclass('ka.events_jira_issues') IS NOT NULL")
 [ "$events" = t ] || { echo 'FAIL: 0088 events table missing' >&2; exit 1; }
 printf '%s\n' 'PASS: events are recorded in ka.events.'
+handlers=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.event_handlers') IS NOT NULL AND to_regclass('ka.event_handler_runs') IS NOT NULL
+        AND to_regclass('ka.events_pending') IS NOT NULL")
+[ "$handlers" = t ] || { echo 'FAIL: 0089 event handlers missing' >&2; exit 1; }
+printf '%s\n' 'PASS: events have a status and a chain; handlers and their runs exist.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
