@@ -11,7 +11,7 @@ limit, no per-turn time limit, no 300-second limit).
   the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
-- `GET /api/agents/{id}/sessions` lists the agent's Test sessions, newest first.
+- `GET /api/agents/{id}/sessions` lists the agent's Test and event sessions (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
@@ -22,9 +22,10 @@ limit, no per-turn time limit, no 300-second limit).
   `…/review`) but never produce a document draft. They are listed by `GET /api/agents/{id}/sessions` with their
   `purpose`, and the agent's Test tab shows them in History with an **Event** badge and opens them. The actor is the
   handler's creator, and each turn's run record has kind `event_session` (**Event session** in Agent runs).
-- Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`); **Full record** links to it. The `end`
+- Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
+  `event_session` for event sessions); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
-- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test sessions only; refused
+- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and event sessions; refused
   while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored
