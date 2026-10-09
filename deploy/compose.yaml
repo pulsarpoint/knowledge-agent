@@ -164,6 +164,7 @@ services:
     restart: unless-stopped
     entrypoint: [uv, run, --frozen, --no-dev, knowledge-repo-worker]
     command: []
+    networks: [default, jira-test]
     volumes:
       - *data-root
       - *code-rw

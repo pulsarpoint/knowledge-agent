@@ -57,8 +57,8 @@ make jira-mock-down
 ```
 
 The optional `jira-mock` Compose profile has no published host port, no external
-network connection, and no forwarding code. Only the admin API shares its internal
-`jira-test` network. Ordinary `make up` does not start the mock on a clean stack.
+network connection, and no forwarding code. Only the admin API (manual fetch) and the
+repository worker (scheduled auto pull) share its internal `jira-test` network. Ordinary `make up` does not start the mock on a clean stack.
 The mock runs with a read-only filesystem as a non-root user. Native API tests use
 an HTTP mock transport and a disposable PostgreSQL database, separate from the
 running application database.

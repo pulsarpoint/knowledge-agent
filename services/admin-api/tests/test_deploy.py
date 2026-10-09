@@ -68,6 +68,12 @@ def test_repository_worker_has_its_write_mounts_and_credentials():
     assert "CREDENTIAL_ENCRYPTION_KEY" not in services["admin-web"].get("environment", {})
 
 
+def test_jira_mock_is_reachable_only_by_the_services_that_call_jira():
+    """The manual fetch runs in admin-api, the scheduled auto pull in repository-worker; both must reach jira-mock."""
+    services = yaml.safe_load((DEPLOY / "compose.yaml").read_text())["services"]
+    assert {name for name, service in services.items() if "jira-test" in service.get("networks", [])} == {"admin-api", "repository-worker", "jira-mock"}
+
+
 def test_oidc_keeps_issuer_validation_with_internal_token_urls():
     services = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))["services"]
     env = services["admin-oauth2-proxy"]["environment"]
