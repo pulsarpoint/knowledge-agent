@@ -13,7 +13,7 @@ limit, no per-turn time limit, no 300-second limit).
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
 - `GET /api/agents/{id}/sessions` lists the agent's Test and event sessions (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
-  `reasoning_tokens` and, for Test sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
+  `reasoning_tokens` and, for Test and event sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
   `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.

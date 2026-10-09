@@ -693,7 +693,8 @@ summary, description). The very first pull records every ticket it fetches. Even
 
 Each event is **Pending** until the event handlers have looked at it (within a few seconds), then **Processed** — or
 **Failed** when one of its handlers failed; failed events are not retried. Events recorded before handlers existed are
-Processed. Filter by source, type, status and handler, search by ticket key or title, and open an event to see its
+Processed. Filter by source, type, status and **Emitted by** (the handler that emitted the event), search by ticket
+key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted or the agent
 session it started).
@@ -703,8 +704,12 @@ session it started).
 Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
 runs every enabled handler whose **Event type** pattern matches (`*` for any part: `jira.ticket.*`, `jira.*.created`,
 or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source`, `type`, `subject`,
-`title` or `payload.<field>` such as `payload.status` or `payload.changes.status` — with **equals**, **does not
-equal**, **contains** (text or list item), **is one of** (comma-separated), **matches regex** or **exists**.
+`title` or `payload.<field>` such as `payload.status` — with **equals**, **does not equal**, **contains** (text or
+list item), **is one of** (comma-separated values), **matches regex** or **exists**. What changed in a Jira ticket is
+under `payload.changes`: a changed status, assignee, priority, type or summary is `{from, to}`, so compare
+`payload.changes.status.to` (or `.from`) — `payload.changes.status` with **exists** means "the status changed";
+labels are `payload.changes.labels.added` and `.removed` (lists, use **contains**); a changed description is
+`payload.changes.description` (use **exists**).
 
 A handler does one thing:
 
@@ -714,8 +719,16 @@ A handler does one thing:
   `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
 - **Send to agent** starts a new session of the chosen agent for every matching event; the **Prompt** template is its
-  first message, and you (the handler's creator) are its user. Only enabled agents with fixed resources can be
-  chosen. The session appears in the agent's Test tab, marked **Event**.
+  first message, and the handler's creator is its user — editing the handler later does not change that. Only
+  enabled agents with fixed resources can be chosen. The session appears in the agent's Test tab, marked **Event**.
+  A handler whose agent was deleted or no longer qualifies can still be turned off or edited; choosing a new agent
+  or turning it back on checks the agent again.
+
+**Careful with Send to agent on broad patterns.** Every matching event starts its own agent session. The first
+scheduled Jira pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler starts one
+session per ticket; `*` and other broad patterns also match the events other handlers emit, multiplying sessions down
+a chain. Start narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when
+Send to agent uses `*` or a pattern ending in `.*`.
 
 Templates render in a separate process with a 2 second time limit (and, on Linux, a 512 MiB memory limit); a template
 that overruns fails with `Template took too long to render.` or `Template used too much memory.`
