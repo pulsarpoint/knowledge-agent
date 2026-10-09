@@ -203,7 +203,7 @@ class SessionRunner:
     def finish_turn(self, number: int, status: str, message: str, *, draft: str, usage: dict[str, Any] | None,
                     commit: Callable[[Any], None] | None = None) -> None:
         """Record the turn's outcome. The draft (already cleaned) replaces the previous one only after a successful turn
-        with text; a Test session (purpose 'test') never gets a draft. `commit(conn)` runs in the same transaction,
+        with text; a Test or event session never gets a draft. `commit(conn)` runs in the same transaction,
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again."""
@@ -213,8 +213,8 @@ class SessionRunner:
             updated = conn.execute("""UPDATE ka.agent_sessions SET
                 status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
                 status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
-                draft=CASE WHEN purpose='test' THEN draft ELSE coalesce(%(draft)s::text, draft) END,
-                draft_turn=CASE WHEN purpose='test' OR %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
+                draft=CASE WHEN purpose<>'documents' THEN draft ELSE coalesce(%(draft)s::text, draft) END,
+                draft_turn=CASE WHEN purpose<>'documents' OR %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
                 stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id""",

@@ -127,3 +127,30 @@ def test_a_session_pinned_before_claude_code_was_removed_still_runs(tested):
     assert asyncio.run(scenario())['status_message'] == ''
     assert fake.calls[0]['config']['claude_code_tools'] == ['Read', 'Grep']
     assert [e['payload'] for e in events(store, sid) if e['kind'] == 'end'] == [{'status': 'completed'}]
+
+
+def test_an_event_session_turn_leaves_no_draft(sessions, monkeypatch):
+    monkeypatch.setattr(run_record, '_store', sessions.store)
+    agent_id = native_agent(sessions.client, 'Event agent', model_id=sessions.claude)
+    config = jsonable_encoder(get_agent_config(agent_id, conninfo=sessions.store.conninfo))
+    with sessions.store.connect() as conn:
+        project = sessions.store.project(conn, 'shop')
+        actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
+        sid = add_test_session(conn, project, actor, agent_id, sessions.claude, config=config, message='Triage DEMO-1',
+                               purpose='event')
+    store = sessions.store
+    fake = FakeAgent([{'steps': [llm(message('Triaged.'))], 'answer': 'Triaged.'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
+        await asyncio.wait_for(runner, 5)
+        return done
+
+    done = asyncio.run(scenario())
+    assert (done['purpose'], done['draft'], done['draft_turn']) == ('event', None, None)
+    with store.connect() as conn:
+        start = conn.execute("SELECT payload FROM ka.agent_run_events WHERE run_key=%s AND kind='start'",
+                             (shared.run_key(sid, 1),)).fetchone()['payload']
+    assert start['kind'] == 'event_session'

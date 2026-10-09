@@ -1,5 +1,6 @@
 """Test sessions: the agent Test tab's conversations, run by agent-session-worker like native Generate documents
-sessions (ka.agent_sessions with purpose 'test'). Here: creating one (the first message becomes input 1), listing
+sessions (ka.agent_sessions with purpose 'test'; an event handler's Send to agent starts the same kind of session
+with purpose 'event'). Here: creating one (the first message becomes input 1), listing
 an agent's, and Suggest improvements (a tuning review of the conversation). Everything else — detail, messages, Stop,
 Close, the event history and stream — is the session API in generations_api."""
 import asyncio
@@ -32,7 +33,54 @@ NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 SESSION_NOT_FOUND = 'Session not found for this agent.'
 NO_SUBJECTS = {'folders': [], 'code_project_ids': []}  # a Test session documents nothing and opens no folder
 
-NOT_A_TEST = 'Suggestions are for Test sessions only.'
+NOT_A_TEST = 'Suggestions are for Test and event sessions only.'
+CONVERSATIONS = ('test', 'event')  # sessions shown and reviewed in the agent's Test tab
+
+
+class SessionRefused(ValueError):
+    """Why an agent session cannot start; `status` is the HTTP status the Test tab answers with."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def start_session(conn, project: UUID, agent_id: str, actor: UUID, message: str, *, purpose: str = 'test',
+                  run_resources: RunResources | None = None, title: str | None = None, conninfo: str = '') -> UUID:
+    """Start an agent session with the agent's current configuration pinned (a per-run agent's narrowed to
+    `run_resources`); `message` becomes input 1 and agent-session-worker runs it. Used by the Test tab and by event
+    handlers (purpose 'event', with the handler's creator as actor)."""
+    try:
+        config = get_agent_config(agent_id, conninfo=conninfo)
+    except LookupError as exc:
+        raise SessionRefused(404, str(exc)) from None
+    except ValueError as exc:
+        raise SessionRefused(409, str(exc)) from None
+    try:
+        pinned = resolve(conn, project, config, run_resources)
+        require_run_resources(pinned)
+        if not pinned['enabled']:
+            raise ValueError('Agent is disabled.')
+        model = pinned['model']
+        if model is None or not model['enabled'] or not model_fits(model):
+            raise ValueError(NO_MODEL)
+    except RunResourceError as exc:  # a ValueError: caught first
+        raise SessionRefused(400, str(exc)) from None
+    except ValueError as exc:
+        raise SessionRefused(409, str(exc)) from None
+    pinned = pin(conn, pinned, agent_id)
+    session_id = uuid4()
+    # The worker decrypts per turn: the pinned config holds credential references only.
+    conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,purpose,agent_config,run_resources)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (session_id, project, agent_id, actor, model['id'], (title or message)[:200],
+         Jsonb({'system_prompt': agent_system_prompt(pinned)}), Jsonb(NO_SUBJECTS), purpose,
+         Jsonb(jsonable_encoder(pinned)), Jsonb(pinned['run_resources']) if per_run(config) else None))
+    conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                 (session_id, actor, message))
+    return session_id
+
 REVIEW_BUSY = 'Wait for the agent to finish before asking for suggestions.'
 NO_TURNS = 'Run at least one message before requesting tuning suggestions.'
 NO_RESPONSE = 'Response not found in this session.'
@@ -120,38 +168,14 @@ def build_api(app_name, store):
     @router.post('/{agent_id}/sessions', status_code=201)
     def create(agent_id: str, value: TestSessionInput, request: Request) -> dict:
         db = database()
-        try:
-            config = get_agent_config(agent_id, conninfo=db.conninfo)
-        except LookupError as exc:
-            raise HTTPException(404, str(exc)) from None
-        except ValueError as exc:
-            raise HTTPException(409, str(exc)) from None
         with db.connect() as conn:
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
             try:
-                pinned = resolve(conn, project, config, value.run_resources)
-                require_run_resources(pinned)
-                if not pinned['enabled']:
-                    raise ValueError('Agent is disabled.')
-                model = pinned['model']
-                if model is None or not model['enabled'] or not model_fits(model):
-                    raise ValueError(NO_MODEL)
-            except RunResourceError as exc:  # a ValueError: caught first
-                raise HTTPException(400, str(exc)) from None
-            except ValueError as exc:
-                raise HTTPException(409, str(exc)) from None
-            pinned = pin(conn, pinned, agent_id)
-            session_id = uuid4()
-            # The worker decrypts per turn: the pinned config holds credential references only.
-            conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-                context_snapshot,purpose,agent_config,run_resources)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'test',%s,%s)""",
-                (session_id, project, agent_id, actor, model['id'], value.message[:200],
-                 Jsonb({'system_prompt': agent_system_prompt(pinned)}), Jsonb(NO_SUBJECTS),
-                 Jsonb(jsonable_encoder(pinned)), Jsonb(pinned['run_resources']) if per_run(config) else None))
-            conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
-                         (session_id, actor, value.message))
+                session_id = start_session(conn, project, agent_id, actor, value.message,
+                                           run_resources=value.run_resources, conninfo=db.conninfo)
+            except SessionRefused as exc:
+                raise HTTPException(exc.status, str(exc)) from None
             conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'agent.test_session.created','agent_session',%s,%s)''',
                 (project, actor, session_id, Jsonb({'agent_id': agent_id})))
@@ -159,14 +183,14 @@ def build_api(app_name, store):
 
     @router.get('/{agent_id}/sessions')
     def sessions(agent_id: str, response: Response) -> dict:
-        """This agent's Test sessions, newest first."""
+        """This agent's Test and event sessions, newest first."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
             close_idle(conn)
-            return {'sessions': conn.execute('''SELECT s.id,s.title,s.status,s.created_at,s.last_activity_at,
+            return {'sessions': conn.execute('''SELECT s.id,s.title,s.status,s.purpose,s.created_at,s.last_activity_at,
                 p.email AS actor_email FROM ka.agent_sessions s JOIN ka.principals p ON p.id=s.actor_id
-                WHERE s.agent_id=%s AND s.project_id=%s AND s.purpose='test'
+                WHERE s.agent_id=%s AND s.project_id=%s AND s.purpose IN ('test','event')
                 ORDER BY s.created_at DESC,s.id LIMIT 100''', (agent_id, db.project(conn, app_name))).fetchall()}
 
     @router.post('/{agent_id}/sessions/{session_id}/review')
@@ -186,7 +210,7 @@ def build_api(app_name, store):
                     (session_id, agent_id, db.project(conn, app_name))).fetchone()
                 if session is None:
                     raise HTTPException(404, SESSION_NOT_FOUND)
-                if session['purpose'] != 'test':
+                if session['purpose'] not in CONVERSATIONS:
                     raise HTTPException(400, NOT_A_TEST)
                 if session['status'] in ('starting', 'working'):
                     raise HTTPException(409, REVIEW_BUSY)

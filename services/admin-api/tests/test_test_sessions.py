@@ -72,7 +72,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
     rows = listed.json()['sessions']
     assert [(row['id'], row['actor_email']) for row in rows] == [(later['id'], 'admin@example.test'),
                                                                  (session['id'], 'admin@example.test')]
-    assert set(rows[0]) == {'id', 'title', 'status', 'created_at', 'last_activity_at', 'actor_email'}
+    assert set(rows[0]) == {'id', 'title', 'status', 'created_at', 'last_activity_at', 'actor_email', 'purpose'}
     assert t.client.get('/api/agents/code/sessions', headers=HEADERS).json() == {'sessions': []}
     assert t.client.get('/api/generations/sessions', headers=HEADERS).json() == {'sessions': []}  # documents only
 

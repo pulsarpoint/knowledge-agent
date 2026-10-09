@@ -307,7 +307,7 @@ class NativeRunner(shared.SessionRunner):
         self.stop_deadline = None
         recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
                                agent_id=self.session['agent_id'] or AD_HOC_AGENT, actor_id=str(self.session['actor_id']), secrets=secrets)
-        kind = 'test_session' if self.session.get('purpose') == 'test' else 'native_session'
+        kind = {'test': 'test_session', 'event': 'event_session'}.get(self.session.get('purpose'), 'native_session')
         recorder.add('start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'],
                                'turn': number})
         recorder.add('input', {'task': text})

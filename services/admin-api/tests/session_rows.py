@@ -17,14 +17,15 @@ def a_model(conn, actor) -> UUID:
 
 
 def add_test_session(conn, project, actor, agent_id: str, model_id, *, config: dict[str, Any] | None = None,
-                     message: str | None = None, status: str = 'starting', turns: int = 0) -> UUID:
-    """A Test session of the agent as POST /api/agents/{id}/sessions inserts it; `message` queues input 1."""
+                     message: str | None = None, status: str = 'starting', turns: int = 0, purpose: str = 'test') -> UUID:
+    """A Test session of the agent as POST /api/agents/{id}/sessions inserts it (or, with purpose 'event', as an event
+    handler starts one); `message` queues input 1."""
     session = uuid4()
     conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
         context_snapshot,purpose,agent_config,status,turns,closed_at)
-        VALUES (%s,%s,%s,%s,%s,%s,'{}',%s,'test',%s,%s,%s,CASE WHEN %s='closed' THEN now() END)''',
+        VALUES (%s,%s,%s,%s,%s,%s,'{}',%s,%s,%s,%s,%s,CASE WHEN %s='closed' THEN now() END)''',
         (session, project, agent_id, actor, model_id, (message or 'Test chat')[:200],
-         Jsonb({'folders': [], 'code_project_ids': []}), Jsonb(config or {'id': agent_id}), status, turns, status))
+         Jsonb({'folders': [], 'code_project_ids': []}), purpose, Jsonb(config or {'id': agent_id}), status, turns, status))
     if message is not None:
         conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                      (session, actor, message))
