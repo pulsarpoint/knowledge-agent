@@ -42,8 +42,9 @@ Generate documents session; built-in agents; extra tools per run.
   On an agent that is itself an expert: "When this agent runs as an expert it cannot call experts."
   `PUT /agents/{id}/tools` accepts `expert:<id>` entries for existing experts other than the agent (400 naming an
   unknown one) with mode `on` or `off`; usage is not editable (the description is the expert's When to use).
-- **Clone** copies the caller's `expert:` rows; the clone starts with `expert=false`. **Apply to original** treats
-  `expert` like the other General fields.
+- **Clone** copies the caller's `expert:` rows; the clone starts with `expert=false`. `expert` belongs to the agent
+  itself (like its name and Enabled): **Apply to original** leaves the original's switch as it is, and never copies a
+  row naming the original itself.
 
 ## Pinning
 
@@ -71,8 +72,9 @@ Generate documents session; built-in agents; extra tools per run.
   - the expert's configuration with the resolved resources (per run) or its own (fixed), its prompt, instructions,
     skills, tools and model; no history; its `experts` list emptied (no expert tools inside an expert); it keeps
     `run_subagent` if it has it, and its subagents run under the same turn limits;
-  - credentials: a fixed expert's are loaded for the call (`load_credentials`) and added to the turn's redaction
-    secrets; a per-run expert uses the caller's already decrypted credentials for the passed resources only;
+  - credentials: decrypted for the call from the expert's resolved configuration (`load_credentials`, which also
+    refuses a disabled model, server or MCP server), so the expert gets exactly its model key and the keys of the
+    resources it runs with; they are added to the turn's redaction secrets and cleared when the call ends;
   - runs under the turn's subagent semaphore (`AGENT_MAX_SUBAGENTS`, default 4) and is cancelled by Stop like a
     subagent;
   - returns the final output, redacted; a failure returns "Expert <name> failed: <redacted message>".
