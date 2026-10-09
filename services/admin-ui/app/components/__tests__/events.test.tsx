@@ -72,3 +72,39 @@ test("describeChanges", () => {
     .toEqual(["Assignee: — → Ana", "Description changed", "Labels: +a −b"]);
   expect(describeChanges(undefined)).toEqual([]);
 });
+
+test("a Load more answered after a filter change is ignored", async () => {
+  const user = userEvent.setup();
+  let release: (response: Response) => void = () => {};
+  const late = new Promise<Response>(resolve => { release = resolve; });
+  const pages: Record<string, unknown> = {
+    "/api/events/facets": { sources: ["jira"], types: ["jira.ticket.created", "jira.ticket.updated"] },
+    "/api/events": { events: [row(3)], next_before: 3 },
+    "/api/events?type=jira.ticket.updated": { events: [row(9, { type: "jira.ticket.updated" })], next_before: null } };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/events?before=3") return late;
+    if (pages[url] === undefined) throw new Error(`unexpected ${url}`);
+    return new Response(JSON.stringify(pages[url]));
+  }));
+  view();
+  await screen.findByText("DEMO-3");
+  await user.click(screen.getByRole("button", { name: "Load more" }));
+  await user.click(screen.getByRole("combobox", { name: "Type" }));
+  await user.click(screen.getByRole("option", { name: "Ticket updated" }));
+  expect(await screen.findByText("DEMO-9")).toBeInTheDocument();
+  release(new Response(JSON.stringify({ events: [row(1)], next_before: 1 })));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(screen.queryByText("DEMO-1")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+});
+
+test("a non-http payload url gets no Jira link", async () => {
+  const user = userEvent.setup();
+  api({ "/api/events/facets": { sources: ["jira"], types: ["jira.ticket.created"] },
+    "/api/events": { events: [row(7)], next_before: null },
+    "/api/events/7": { event: { ...row(7), source_id: null, dedupe_key: "k", payload: { url: "javascript:alert(1)" } } } });
+  view();
+  await user.click(await screen.findByText("DEMO-7"));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).queryByRole("link", { name: "Open in Jira" })).toBeNull();
+});

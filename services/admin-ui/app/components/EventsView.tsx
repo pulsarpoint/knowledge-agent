@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Inbox, RefreshCw } from "lucide-react";
 import { ApiError } from "../lib/api";
 import { SOURCE_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents, type EventDetail, type EventFilters, type EventRow } from "../lib/events";
@@ -29,6 +29,8 @@ export default function EventsView() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reload, setReload] = useState(0);
+  /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
+  const generation = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(filters.q), DEBOUNCE_MS);
@@ -45,7 +47,8 @@ export default function EventsView() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setEvents(null);
+    generation.current += 1;
+    setEvents(null); setNextBefore(null); setLoadingMore(false);
     getEvents({ source: filters.source, type: filters.type, q: query }, undefined, controller.signal)
       .then(result => { setEvents(result.events); setNextBefore(result.next_before); setError(null); })
       .catch(reason => { if (!controller.signal.aborted) { setEvents([]); setNextBefore(null); setError(text(reason, "Could not load events.")); } });
@@ -54,14 +57,15 @@ export default function EventsView() {
 
   async function loadMore() {
     if (nextBefore === null) return;
-    const sent = active;
+    const started = generation.current;
     setLoadingMore(true);
     try {
-      const result = await getEvents(sent, nextBefore);
-      setEvents(current => current && sent.source === filters.source && sent.type === filters.type && sent.q === query ? [...current, ...result.events] : current);
+      const result = await getEvents(active, nextBefore);
+      if (generation.current !== started) return;
+      setEvents(current => current ? [...current, ...result.events] : current);
       setNextBefore(result.next_before);
-    } catch (reason) { setError(text(reason, "Could not load more events.")); }
-    finally { setLoadingMore(false); }
+    } catch (reason) { if (generation.current === started) setError(text(reason, "Could not load more events.")); }
+    finally { if (generation.current === started) setLoadingMore(false); }
   }
   async function open(row: EventRow) {
     try { setSelected((await getEvent(row.id)).event); }
@@ -70,7 +74,7 @@ export default function EventsView() {
 
   const filtered = Boolean(filters.source || filters.type || filters.q.trim());
   const changes = selected ? describeChanges(selected.payload.changes) : [];
-  const url = selected && typeof selected.payload.url === "string" ? selected.payload.url : null;
+  const url = selected && typeof selected.payload.url === "string" && /^https?:\/\//i.test(selected.payload.url) ? selected.payload.url : null;
 
   return <div className="flex flex-col gap-4">
     <div className="flex flex-wrap items-end gap-3">
