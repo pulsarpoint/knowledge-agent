@@ -1,12 +1,12 @@
-# Jira Auto pull page, New schedule, live Jira mock — Implementation Plan
+# Jira Auto pull page, New schedule, Jira events — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Auto pull becomes its own Jira page with its own query and timetable; Administration → Schedules can create and delete schedules; the Jira mock can change tickets.
+**Goal:** Auto pull becomes its own Jira page with its own query and timetable; Administration → Schedules can create and delete schedules; every scheduled pull records ticket events, shown on Administration → Events.
 
-**Architecture:** `ka.schedules.params` (0087) holds target settings (the pull's `jql`/`limit`); `jira_sync.auto_pull` reads them. `schedules_api.py` gains create/delete and the extended auto-pull endpoints. A shared `TimetableFields` component serves Edit, New schedule and the new `JiraAutoPullView`. The mock gets in-memory write endpoints and an optional activity thread.
+**Architecture:** `ka.schedules.params` (0087) holds target settings (the pull's `jql`/`limit`); `jira_sync.auto_pull` reads them. `schedules_api.py` gains create/delete and the extended auto-pull endpoints. `ka.events` (0088) is a queue of things that happened; `jira_events.record` adds one per new or changed ticket inside the scheduled pull's transaction, judged against that ticket's latest event. `events_api.py` and `EventsView` show them. A shared `TimetableFields` component serves Edit, New schedule and the new `JiraAutoPullView`.
 
-**Tech Stack:** PostgreSQL (golang-migrate), FastAPI + psycopg3, React Router 7 + shadcn + Vitest, Python stdlib HTTP server (mock).
+**Tech Stack:** PostgreSQL (golang-migrate), FastAPI + psycopg3, React Router 7 + shadcn + Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-10-09-schedules-ui-design.md`
 
@@ -25,7 +25,8 @@
   - Tickets status line: `Auto pull: {description} · next {time}` / `Auto pull is off`, link `Auto pull settings`.
   - Labels: `Pull tickets automatically`, `Jira query (JQL)`, `Number of tickets`, `How often`, `Cron expression`, `Time zone`, `What to run`, `Enabled`; buttons `Save`, `Run now`, `New schedule`, `Create`, `Delete`.
 - Auto pull `jql` 1–4000 chars, `limit` 1–200 (strict int); default limit 25. Audit actions `schedule.created`, `schedule.deleted` (plus the existing `schedule.saved`, `schedule.run_requested`).
-- Mock: JSON body ≤ 65536 bytes; max 1000 issues; statuses Open(1) → In Progress(2) → Done(3); env `JIRA_MOCK_ACTIVITY_SECONDS` (0 = off).
+- Events: types `jira.ticket.created`, `jira.ticket.updated`; run message `Pulled {fetched} of {total} tickets · {n} new events.` (`1 new event`); `Event not found.`; events page empty text `No events yet. Turn on Jira → Auto pull to record ticket changes.`, filtered empty `No events match these filters.`; labels `Ticket created`, `Ticket updated`, `Source`, `Type`, `Ticket or title`, buttons `Load more`, `Refresh`, link `Open in Jira`; events page size 50 (max 200).
+- Only the scheduled pull (incl. Run now) records events; the manual Fetch tickets never does. The first scheduled pull records a `created` event for every ticket it pulls.
 
 ## Review Focus
 
@@ -33,7 +34,9 @@
 2. A manual Fetch tickets with a different query after Auto pull was saved → the auto pull keeps its own query. Test in Task 1 (`test_auto_pull_uses_its_own_query_after_a_manual_fetch`).
 3. Deleting a schedule while it runs → the run finishes without error and records nothing; the row and its history are gone. Test in Task 2 (`test_deleting_a_running_schedule`).
 4. Old clients sending `PUT /api/jira/auto-pull` without `jql`/`limit` → keep the stored values. Test in Task 2 (`test_auto_pull_without_query_keeps_the_stored_one`).
-5. Mock under concurrent writes and the activity thread → no lost or duplicate keys; search stays sorted. Test in Task 5 (`test_concurrent_creates_get_unique_keys`).
+5. A ticket changed in Jira and first picked up by a manual Fetch tickets → the next scheduled pull still records `jira.ticket.updated` with the change. Test in Task 3 (`test_a_changed_ticket_records_what_changed_even_after_a_manual_fetch`).
+6. A scheduled pull that clashes with a manual fetch (skipped) → records no events. Test in Task 3 (`test_a_clashing_pull_records_no_events`).
+7. Search text with `%` or `_` → matched literally. Test in Task 4 (`test_filters_and_search`).
 
 ---
 
@@ -341,7 +344,432 @@ class NewSchedule(Timetable):
 
 ---
 
-### Task 3: Schedules page — shared timetable fields, New schedule, Delete
+### Task 3: Events table (0088) and the scheduled pull recording events
+
+**Files:**
+- Create: `db/migrations/0088_events.up.sql`, `db/migrations/0088_events.down.sql`, `services/admin-api/src/knowledge_admin/jira_events.py`
+- Modify: `db/tests/run.sh`, `services/admin-api/src/knowledge_admin/jira_sync.py` (`pull_tickets(..., events=False)`, `auto_pull`)
+- Test: `services/admin-api/tests/test_events_migration.py`, `services/admin-api/tests/test_jira_events.py`; update message assertions in `services/admin-api/tests/test_jira_sync.py`
+
+**Interfaces:**
+- Consumes: `jira_sync.pull_tickets`, `auto_pull` (Task 1 version reading params).
+- Produces: table `ka.events`; `jira_events.CREATED = 'jira.ticket.created'`, `UPDATED = 'jira.ticket.updated'`; `jira_events.ticket(base_url, issue) -> dict`, `changes(before, after) -> dict`, `record(conn, project_id, connection_id, base_url, issues) -> int`; `pull_tickets` returns `{'fetched', 'total', 'events'}`; `auto_pull` message `Pulled {fetched} of {total} tickets · {n} new events.` (`· 1 new event.`).
+
+- [ ] **Step 1: Migrations**
+
+`0088_events.up.sql`:
+```sql
+BEGIN;
+SET search_path = ka, public;
+
+-- Things that happened at a source, kept as a queue for later handling (no status yet). The scheduled Jira pull
+-- records jira.ticket.created / jira.ticket.updated; dedupe_key makes a repeated pull record nothing new.
+CREATE TABLE events (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id uuid NOT NULL REFERENCES projects(id),
+    source text NOT NULL CHECK (source IN ('jira')),
+    source_id uuid,
+    type text NOT NULL CHECK (type ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'),
+    subject nonblank NOT NULL,
+    title text NOT NULL DEFAULT '',
+    payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+    dedupe_key nonblank NOT NULL,
+    occurred_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project_id, dedupe_key)
+);
+COMMENT ON COLUMN events.source_id IS 'The source''s row, e.g. jira_connections.id (no foreign key: sources live in different tables).';
+CREATE INDEX events_newest ON events(project_id, id DESC);
+CREATE INDEX events_by_type ON events(project_id, type, id DESC);
+-- The Jira pull compares each ticket with its latest event from the same connection.
+CREATE INDEX events_jira_issues ON events(project_id, source_id, (payload->>'issue_id'), id DESC) WHERE source = 'jira';
+
+COMMIT;
+```
+`0088_events.down.sql`:
+```sql
+BEGIN;
+SET search_path = ka, public;
+
+DROP TABLE events;
+
+COMMIT;
+```
+
+- [ ] **Step 2: `db/tests/run.sh`** — add a `down 1` for 0088 (before the 0087 one added in Task 1) with
+```bash
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+events_removed=$(docker exec "$test_container" psql -X -U postgres -Atc "SELECT to_regclass('ka.events') IS NULL")
+[ "$events_removed" = t ] || { echo 'FAIL: 0088 down left ka.events' >&2; exit 1; }
+```
+and after the 0087 PASS line:
+```bash
+events=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.events') IS NOT NULL AND to_regclass('ka.events_jira_issues') IS NOT NULL")
+[ "$events" = t ] || { echo 'FAIL: 0088 events table missing' >&2; exit 1; }
+printf '%s\n' 'PASS: events are recorded in ka.events.'
+```
+Run it: the rollback chain must still reach `rolled_back_version = 83`.
+
+- [ ] **Step 3: Migration test** (`tests/test_events_migration.py`)
+```python
+"""0088: ka.events — one row per thing that happened at a source; dedupe_key is unique per project."""
+from pathlib import Path
+from uuid import uuid4
+
+import psycopg
+import pytest
+from psycopg.types.json import Jsonb
+
+MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
+
+
+def an_event(conn, project=None, **values) -> dict:
+    project = project or conn.execute("INSERT INTO ka.projects(slug,name) VALUES (%s,'Shop') RETURNING id", (f'shop-{uuid4().hex[:8]}',)).fetchone()['id']
+    row = {'project_id': project, 'source': 'jira', 'source_id': uuid4(), 'type': 'jira.ticket.created', 'subject': 'DEMO-1',
+           'title': 'Check latency', 'payload': Jsonb({'issue_id': '10001'}), 'dedupe_key': f'jira:x:10001:{uuid4()}',
+           'occurred_at': '2026-10-09T10:00:00Z', **values}
+    return conn.execute(f"INSERT INTO ka.events({','.join(row)}) VALUES ({','.join(['%s'] * len(row))}) RETURNING *", tuple(row.values())).fetchone()
+
+
+def test_checks(store):
+    with store.connect() as conn:
+        assert an_event(conn)['created_at'] is not None
+    for bad in [{'source': 'mail'}, {'type': 'Created'}, {'type': 'jira'}, {'subject': ' '}, {'payload': Jsonb([1])}]:
+        with pytest.raises(psycopg.errors.CheckViolation), store.connect() as conn:
+            an_event(conn, **bad)
+
+
+def test_dedupe_key_is_unique_per_project(store):
+    with store.connect() as conn:
+        first = an_event(conn, dedupe_key='same')
+        an_event(conn, dedupe_key='same')  # another project
+    with pytest.raises(psycopg.errors.UniqueViolation), store.connect() as conn:
+        an_event(conn, project=first['project_id'], dedupe_key='same')
+
+
+def test_down_and_up(store):
+    with store.connect() as conn:
+        an_event(conn)
+        conn.execute((MIGRATIONS / '0088_events.down.sql').read_text(), prepare=False)
+        assert conn.execute("SELECT to_regclass('ka.events') IS NULL AS gone").fetchone()['gone']
+        conn.execute((MIGRATIONS / '0088_events.up.sql').read_text(), prepare=False)
+        assert conn.execute("SELECT to_regclass('ka.events_jira_issues') IS NOT NULL AS found").fetchone()['found']
+```
+
+- [ ] **Step 4: Failing tests** (`tests/test_jira_events.py`)
+```python
+"""The scheduled Jira pull records an event per new or changed ticket; repeats and manual fetches record none."""
+import copy
+from uuid import uuid4
+
+import httpx
+
+from knowledge_admin.jira_events import changes
+from knowledge_admin.jira_sync import auto_pull
+from test_api import _client
+from test_jira import ISSUES, setup
+from test_repositories import HEADERS
+
+
+def a_schedule(store, **params) -> dict:
+    with store.connect() as conn:
+        connection = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
+    return {'id': uuid4(), 'project_id': connection['project_id'], 'target_kind': 'jira.pull',
+            'target_id': connection['id'], 'params': {'jql': 'project = DEMO', 'limit': 3, **params}}
+
+
+def jira(issues):
+    def handler(request):
+        if request.url.path.endswith('/myself'):
+            return httpx.Response(200, json={'name': 'mock-admin', 'displayName': 'Mock', 'active': True})
+        start, size = int(request.url.params['startAt']), int(request.url.params['maxResults'])
+        return httpx.Response(200, json={'startAt': start, 'total': len(issues), 'issues': copy.deepcopy(issues[start:start + size])})
+    return httpx.MockTransport(handler)
+
+
+def events(store) -> list[dict]:
+    with store.connect() as conn:
+        return conn.execute('SELECT type,subject,title,payload,occurred_at FROM ka.events ORDER BY id').fetchall()
+
+
+def test_first_pull_records_every_ticket_and_a_repeat_records_nothing(store, tmp_path):
+    setup(store, tmp_path)
+    issues = ISSUES[:3]
+    assert auto_pull(store, a_schedule(store), transport=jira(issues)) == ('succeeded', 'Pulled 3 of 3 tickets · 3 new events.')
+    recorded = events(store)
+    assert [e['type'] for e in recorded] == ['jira.ticket.created'] * 3
+    first = recorded[0]
+    assert first['subject'] == issues[0]['key'] and first['title'] == issues[0]['fields']['summary']
+    assert first['payload']['url'] == f"https://jira.internal/jira/browse/{issues[0]['key']}" and first['payload']['changes'] == {}
+    assert first['payload']['status'] == issues[0]['fields']['status']['name']
+    assert auto_pull(store, a_schedule(store), transport=jira(issues)) == ('succeeded', 'Pulled 3 of 3 tickets · 0 new events.')
+    assert len(events(store)) == 3
+
+
+def test_a_changed_ticket_records_what_changed_even_after_a_manual_fetch(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    changed = issues[0]['fields']
+    changed['status'] = {'id': '3', 'name': 'Done'}
+    changed['labels'] = ['demo', 'agent']
+    changed['updated'] = '2026-10-09T10:00:00.000+0000'
+    # The manual fetch updates the tickets table first; the scheduled pull must still notice the change.
+    manual = _client(tmp_path, repository_store=store, jira_transport=jira(issues))
+    assert manual.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 2, 'jql': 'project = DEMO'}).status_code == 200
+    assert len(events(store)) == 2  # the manual fetch records nothing
+    assert auto_pull(store, a_schedule(store), transport=jira(issues)) == ('succeeded', 'Pulled 2 of 2 tickets · 1 new event.')
+    update = events(store)[-1]
+    assert update['type'] == 'jira.ticket.updated' and update['subject'] == issues[0]['key']
+    before = ISSUES[0]['fields']
+    assert update['payload']['changes'] == {'status': {'from': before['status']['name'], 'to': 'Done'},
+                                            'labels': {'added': ['agent'], 'removed': [l for l in before['labels'] if l not in ('demo', 'agent')]}}
+
+
+def test_a_clashing_pull_records_no_events(store, tmp_path):
+    setup(store, tmp_path)
+    inner = jira(ISSUES[:2])
+
+    def clashing(request):
+        if request.url.path.endswith('/search'):
+            with store.connect() as conn:
+                conn.execute('UPDATE ka.jira_connections SET fetch_revision=fetch_revision+1')
+        return inner.handle_request(request)
+
+    assert auto_pull(store, a_schedule(store), transport=httpx.MockTransport(clashing))[0] == 'skipped'
+    assert events(store) == []
+
+
+def test_changes():
+    before = {'summary': 'A', 'status': 'Open', 'issue_type': 'Task', 'priority': 'High', 'assignee': None, 'labels': ['x', 'y'], 'description': 'd'}
+    after = {**before, 'summary': 'B', 'assignee': 'Ana', 'labels': ['y', 'z'], 'description': 'e'}
+    assert changes(before, after) == {'summary': {'from': 'A', 'to': 'B'}, 'assignee': {'from': None, 'to': 'Ana'},
+                                      'labels': {'added': ['z'], 'removed': ['x']}, 'description': {'changed': True}}
+    assert changes(before, dict(before)) == {}
+```
+(`setup` cannot be called twice: it saves Jira settings without a revision.) If `ISSUES[0]` has labels `['local-mock', 'demo']`, the expected `removed` is `['local-mock']` — compute it as written, don't hard-code.
+
+Update `tests/test_jira_sync.py` message assertions: auto pulls now end with ` · N new events.` (e.g. `'Pulled 5 of 7 tickets · 5 new events.'`, `'Pulled 7 of 7 tickets · 7 new events.'`, `'Pulled 0 of 0 tickets · 0 new events.'`).
+
+- [ ] **Step 5: `jira_events.py`**
+```python
+"""Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
+judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
+updates."""
+from uuid import UUID
+
+from psycopg.types.json import Jsonb
+
+CREATED, UPDATED = 'jira.ticket.created', 'jira.ticket.updated'
+COMPARED = ('summary', 'status', 'issue_type', 'priority', 'assignee')
+
+
+def ticket(base_url: str, issue: dict) -> dict:
+    fields = issue['fields']
+    named = lambda value: (value or {}).get('name')
+    person = lambda value: (value or {}).get('displayName') or (value or {}).get('key')
+    description = fields.get('description')
+    return {'issue_id': issue['id'], 'key': issue['key'], 'url': f"{base_url}/browse/{issue['key']}",
+            'summary': fields['summary'], 'description': description if isinstance(description, str) else '',
+            'status': named(fields.get('status')), 'issue_type': named(fields.get('issuetype')),
+            'priority': named(fields.get('priority')), 'assignee': person(fields.get('assignee')),
+            'reporter': person(fields.get('reporter')), 'labels': list(fields.get('labels') or []),
+            'created': fields.get('created'), 'updated': fields['updated']}
+
+
+def changes(before: dict, after: dict) -> dict:
+    result = {field: {'from': before.get(field), 'to': after.get(field)} for field in COMPARED if before.get(field) != after.get(field)}
+    old, new = before.get('labels') or [], after.get('labels') or []
+    added, removed = [label for label in new if label not in old], [label for label in old if label not in new]
+    if added or removed:
+        result['labels'] = {'added': added, 'removed': removed}
+    if before.get('description') != after.get('description'):
+        result['description'] = {'changed': True}
+    return result
+
+
+def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: list[dict]) -> int:
+    """Record events for the pulled issues inside the caller's transaction; returns how many were new."""
+    latest = {row['issue_id']: row['payload'] for row in conn.execute("""SELECT DISTINCT ON (payload->>'issue_id')
+            payload->>'issue_id' AS issue_id, payload FROM ka.events
+        WHERE project_id=%s AND source='jira' AND source_id=%s AND payload->>'issue_id' = ANY(%s)
+        ORDER BY payload->>'issue_id', id DESC""", (project_id, connection_id, [issue['id'] for issue in issues]))}
+    recorded = 0
+    for issue in issues:
+        after, before = ticket(base_url, issue), latest.get(issue['id'])
+        if before is not None and before.get('updated') == after['updated']:
+            continue
+        payload = {**after, 'changes': {} if before is None else changes(before, after)}
+        row = conn.execute("""INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
+            VALUES (%s,'jira',%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,dedupe_key) DO NOTHING RETURNING id""",
+            (project_id, connection_id, CREATED if before is None else UPDATED, after['key'], after['summary'], Jsonb(payload),
+             f"jira:{connection_id}:{issue['id']}:{after['updated']}", after['updated'])).fetchone()
+        recorded += row is not None
+    return recorded
+```
+
+- [ ] **Step 6: `jira_sync.py`**
+- `pull_tickets(..., action='jira.tickets_fetched', events: bool = False)`: inside the write transaction, after the ticket upserts and before the connection UPDATE: `new_events = jira_events.record(conn, config['project_id'], config['id'], config['base_url'], issues) if events else 0`. Audit details: add `'events': new_events` only when `events` is true. Return `{'fetched': len(issues), 'total': total, 'events': new_events}`.
+- `auto_pull` passes `events=True` and returns `'succeeded', f"Pulled {fetched} of {total} tickets · {plural(events)}."` with `plural(n) = '1 new event' if n == 1 else f'{n} new events'`.
+
+- [ ] **Step 7: Run** `uv run pytest tests/test_events_migration.py tests/test_jira_events.py tests/test_jira_sync.py tests/test_jira.py -q` and `bash db/tests/run.sh` → pass.
+
+- [ ] **Step 8: Commit** `feat: events table (0088); the scheduled Jira pull records ticket events`.
+
+---
+
+### Task 4: Events API
+
+**Files:**
+- Create: `services/admin-api/src/knowledge_admin/events_api.py`
+- Modify: `services/admin-api/src/knowledge_admin/api.py` (include the router next to `schedules_api`)
+- Test: `services/admin-api/tests/test_events_api.py`
+
+**Interfaces:**
+- Produces (under `/api`): `GET /events` (`source`, `type`, `q`, `before`, `limit`) → `{events: [{id, source, type, subject, title, occurred_at, created_at}], next_before: int | null}`; `GET /events/facets` → `{sources: [str], types: [str]}`; `GET /events/{id}` → `{event: {...list fields, source_id, dedupe_key, payload}}`; 404 `Event not found.`
+
+- [ ] **Step 1: Failing tests** (`tests/test_events_api.py`)
+```python
+"""Administration → Events: newest first, filters, cursor paging, one event with its payload."""
+from uuid import uuid4
+
+from psycopg.types.json import Jsonb
+
+from test_api import _client
+from test_repositories import HEADERS
+
+
+def seed(store, count=5, **values) -> list[int]:
+    ids = []
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        for number in range(1, count + 1):
+            row = {'project_id': project, 'source': 'jira', 'source_id': uuid4(), 'type': 'jira.ticket.created',
+                   'subject': f'DEMO-{number}', 'title': f'Ticket {number}', 'payload': Jsonb({'issue_id': str(number), 'changes': {}}),
+                   'dedupe_key': f'k{uuid4()}', 'occurred_at': '2026-10-09T10:00:00Z', **values}
+            ids.append(conn.execute(f"INSERT INTO ka.events({','.join(row)}) VALUES ({','.join(['%s'] * len(row))}) RETURNING id",
+                                    tuple(row.values())).fetchone()['id'])
+    return ids
+
+
+def test_newest_first_with_cursor(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    ids = seed(store, 5)
+    page = client.get('/api/events', headers=HEADERS, params={'limit': 2}).json()
+    assert [e['id'] for e in page['events']] == ids[::-1][:2] and page['next_before'] == ids[3]
+    rest = client.get('/api/events', headers=HEADERS, params={'limit': 10, 'before': page['next_before']}).json()
+    assert [e['id'] for e in rest['events']] == ids[::-1][2:] and rest['next_before'] is None
+    assert 'payload' not in page['events'][0]
+
+
+def test_filters_and_search(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store, 2)
+    seed(store, 1, type='jira.ticket.updated', subject='OPS-7', title='Disk 100% full_')
+    assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'type': 'jira.ticket.updated'}).json()['events']] == ['OPS-7']
+    assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': 'ops-'}).json()['events']] == ['OPS-7']
+    assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '100%'}).json()['events']] == ['OPS-7']
+    assert client.get('/api/events', headers=HEADERS, params={'q': '_'}).json()['events'][0]['subject'] == 'OPS-7'
+    assert client.get('/api/events', headers=HEADERS, params={'source': 'jira'}).json()['events'] != []
+    assert client.get('/api/events/facets', headers=HEADERS).json() == {'sources': ['jira'], 'types': ['jira.ticket.created', 'jira.ticket.updated']}
+    assert client.get('/api/events', headers=HEADERS, params={'limit': 201}).status_code == 422
+
+
+def test_one_event_and_missing(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    [event_id] = seed(store, 1)
+    event = client.get(f'/api/events/{event_id}', headers=HEADERS).json()['event']
+    assert event['payload'] == {'issue_id': '1', 'changes': {}} and event['dedupe_key'].startswith('k')
+    missing = client.get('/api/events/999999', headers=HEADERS)
+    assert missing.status_code == 404 and missing.json()['error']['message'] == 'Event not found.'
+
+
+def test_other_projects_events_are_not_listed(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    with store.connect() as conn:
+        other = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('other-x','Other') RETURNING id").fetchone()['id']
+    [foreign] = seed(store, 1, project_id=other)
+    assert client.get('/api/events', headers=HEADERS).json()['events'] == []
+    assert client.get(f'/api/events/{foreign}', headers=HEADERS).status_code == 404
+```
+
+- [ ] **Step 2: Implement `events_api.py`**
+```python
+"""Administration → Events: things that happened at a source (today the scheduled Jira pull). Read-only; handling
+comes later."""
+from fastapi import APIRouter, HTTPException, Query
+
+from knowledge_admin.repositories import RepositoryStore
+
+LISTED = 'id,source,type,subject,title,occurred_at,created_at'
+PAGE, MAX_PAGE = 50, 200
+NOT_FOUND = 'Event not found.'
+
+
+def like(text: str) -> str:
+    """A case-insensitive substring pattern with LIKE wildcards escaped."""
+    return '%' + text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
+    router = APIRouter()
+
+    def database() -> RepositoryStore:
+        if store is None:
+            raise HTTPException(503, 'Event storage is not configured')
+        return store
+
+    @router.get('/events')
+    def list_events(source: str | None = Query(None, max_length=50), type: str | None = Query(None, max_length=100),
+                    q: str | None = Query(None, max_length=200), before: int | None = Query(None, ge=1),
+                    limit: int = Query(PAGE, ge=1, le=MAX_PAGE)) -> dict:
+        db = database()
+        with db.connect() as conn:
+            where, values = ['project_id=%s'], [db.project(conn, app)]
+            if source:
+                where.append('source=%s'); values.append(source)
+            if type:
+                where.append('type=%s'); values.append(type)
+            if q and q.strip():
+                where.append("(subject ILIKE %s ESCAPE '\\' OR title ILIKE %s ESCAPE '\\')"); values += [like(q.strip())] * 2
+            if before:
+                where.append('id<%s'); values.append(before)
+            rows = conn.execute(f"SELECT {LISTED} FROM ka.events WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT %s",
+                                (*values, limit + 1)).fetchall()
+        more = len(rows) > limit
+        return {'events': rows[:limit], 'next_before': rows[limit - 1]['id'] if more else None}
+
+    @router.get('/events/facets')
+    def facets() -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            sources = [row['source'] for row in conn.execute('SELECT DISTINCT source FROM ka.events WHERE project_id=%s ORDER BY 1', (project,))]
+            types = [row['type'] for row in conn.execute('SELECT DISTINCT type FROM ka.events WHERE project_id=%s ORDER BY 1', (project,))]
+        return {'sources': sources, 'types': types}
+
+    @router.get('/events/{event_id}')
+    def one(event_id: int) -> dict:
+        db = database()
+        with db.connect() as conn:
+            row = conn.execute(f'SELECT {LISTED},source_id,dedupe_key,payload FROM ka.events WHERE id=%s AND project_id=%s',
+                               (event_id, db.project(conn, app))).fetchone()
+        if row is None:
+            raise HTTPException(404, NOT_FOUND)
+        return {'event': row}
+
+    return router
+```
+Wire it in `api.py` (`events_api` in the import list; `router.include_router(events_api.build_api(app_name, repository_store))`). Declare `/events/facets` before `/events/{event_id}` (it is `int`, so `facets` would 422 otherwise).
+
+- [ ] **Step 3: Run** `uv run pytest tests/test_events_api.py tests/test_api.py -q` → pass.
+
+- [ ] **Step 4: Commit** `feat(admin-api): events API`.
+
+---
+
+### Task 5: Schedules page — shared timetable fields, New schedule, Delete
 
 **Files:**
 - Create: `services/admin-ui/app/components/TimetableFields.tsx`, `services/admin-ui/app/components/NewScheduleSheet.tsx`
@@ -522,7 +950,7 @@ The test helper `api()` builds `new Response(JSON.stringify(body), { status })` 
 
 ---
 
-### Task 4: Jira → Auto pull page and the Tickets status line
+### Task 6: Jira → Auto pull page and the Tickets status line
 
 **Files:**
 - Create: `services/admin-ui/app/components/JiraAutoPullView.tsx`, `services/admin-ui/app/routes/jiraAutoPull.tsx`, `services/admin-ui/app/components/JiraAutoPullStatus.tsx`
@@ -752,141 +1180,173 @@ test("auto pull status stays hidden on an unexpected response", async () => {
 
 ---
 
-### Task 5: Live Jira mock
+### Task 7: Administration → Events page
 
 **Files:**
-- Modify: `deploy/jira-mock/server.py`, `deploy/compose.yaml` (jira-mock `environment`), `Makefile` (`jira-mock-reset`)
-- Test: `services/admin-api/tests/test_jira_mock.py` (new)
+- Create: `services/admin-ui/app/lib/events.ts`, `services/admin-ui/app/components/EventsView.tsx`, `services/admin-ui/app/routes/events.tsx`
+- Modify: `services/admin-ui/app/routes.ts`, `services/admin-ui/app/components/AdminLayout.tsx`, `services/admin-ui/app/components/__tests__/adminLayout.test.tsx`
+- Test: `services/admin-ui/app/components/__tests__/events.test.tsx`
 
 **Interfaces:**
-- Produces: mock endpoints listed in the spec; `tick()` function (one activity step) and module-level `ISSUES`, `COMMENTS`, `LOCK`.
+- Consumes: Task 4 API.
 
-- [ ] **Step 1: Failing tests** (`tests/test_jira_mock.py`)
-```python
-"""The local Jira mock accepts writes: create, edit, transition, comment; search is newest-updated first."""
-import json
-import runpy
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from http.server import ThreadingHTTPServer
-from pathlib import Path
+- [ ] **Step 1: `lib/events.ts`**
+```ts
+import { request } from "./api";
 
-import httpx
-import pytest
+export interface EventRow { id: number; source: string; type: string; subject: string; title: string; occurred_at: string; created_at: string }
+export interface EventDetail extends EventRow { source_id: string | null; dedupe_key: string; payload: Record<string, unknown> }
+export interface EventFilters { source: string; type: string; q: string }
+export type FieldChange = { from: unknown; to: unknown } | { added: string[]; removed: string[] } | { changed: true };
 
-SERVER = Path(__file__).resolve().parents[3] / 'deploy/jira-mock/server.py'
-AUTH = {'Authorization': 'Bearer jira-mock-token'}
+export const TYPE_LABELS: Record<string, string> = { "jira.ticket.created": "Ticket created", "jira.ticket.updated": "Ticket updated" };
+export const SOURCE_LABELS: Record<string, string> = { jira: "Jira" };
+const FIELD_LABELS: Record<string, string> = { summary: "Summary", status: "Status", issue_type: "Type", priority: "Priority", assignee: "Assignee", labels: "Labels", description: "Description" };
 
+export function getEvents(filters: EventFilters, before?: number, signal?: AbortSignal) {
+  const query = new URLSearchParams();
+  if (filters.source) query.set("source", filters.source);
+  if (filters.type) query.set("type", filters.type);
+  if (filters.q.trim()) query.set("q", filters.q.trim());
+  if (before) query.set("before", String(before));
+  const suffix = query.toString();
+  return request<{ events: EventRow[]; next_before: number | null }>(`/api/events${suffix ? `?${suffix}` : ""}`, { signal });
+}
+export const getEventFacets = (signal?: AbortSignal) => request<{ sources: string[]; types: string[] }>("/api/events/facets", { signal });
+export const getEvent = (id: number, signal?: AbortSignal) => request<{ event: EventDetail }>(`/api/events/${id}`, { signal });
 
-@pytest.fixture
-def mock():
-    module = runpy.run_path(str(SERVER))  # fresh in-memory state per test
-    server = ThreadingHTTPServer(('127.0.0.1', 0), module['Handler'])
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base = f'http://127.0.0.1:{server.server_address[1]}/jira/rest/api/2'
-    with httpx.Client(base_url=base, headers=AUTH, timeout=5) as client:
-        yield client, module
-    server.shutdown()
-
-
-def search(client, jql='project = DEMO'):
-    return client.get('/search', params={'jql': jql, 'startAt': 0, 'maxResults': 10}).json()
-
-
-def test_create_puts_the_new_issue_first(mock):
-    client, _ = mock
-    created = client.post('/issue', json={'fields': {'summary': 'Agent needed', 'labels': ['needs-agent']}})
-    assert created.status_code == 201 and created.json()['key'] == 'DEMO-76'
-    first = search(client)['issues'][0]
-    assert first['key'] == 'DEMO-76' and first['fields']['status']['name'] == 'Open' and first['fields']['labels'] == ['needs-agent']
-    assert search(client, 'labels = needs-agent')['total'] == 1
-
-
-def test_edit_transition_and_comment_bump_updated(mock):
-    client, _ = mock
-    before = client.get('/issue/DEMO-50').json()['fields']['updated']
-    assert client.put('/issue/DEMO-50', json={'fields': {'summary': 'Renamed'}}).status_code == 204
-    transitions = client.get('/issue/DEMO-50/transitions').json()['transitions']
-    assert [t['to']['name'] for t in transitions] == ['Open', 'In Progress', 'Done']
-    assert client.post('/issue/DEMO-50/transitions', json={'transition': {'id': '3'}}).status_code == 204
-    assert client.post('/issue/DEMO-50/comment', json={'body': 'Looked at it'}).status_code == 201
-    issue = client.get('/issue/DEMO-50').json()
-    assert issue['fields']['summary'] == 'Renamed' and issue['fields']['status']['name'] == 'Done' and issue['fields']['updated'] > before
-    assert search(client)['issues'][0]['key'] == 'DEMO-50'
-    comments = client.get('/issue/DEMO-50/comment', params={'startAt': 0, 'maxResults': 100}).json()
-    assert comments['total'] == 6  # 5 seeded + the new one, appended last
-
-
-def test_bad_writes_are_refused(mock):
-    client, _ = mock
-    assert client.post('/issue', content=b'not json', headers={'Content-Type': 'application/json'}).status_code == 400
-    assert client.post('/issue', json={'fields': {}}).status_code == 400
-    assert client.post('/issue', content=b'{"fields": {"summary": "' + b'x' * 70000 + b'"}}').status_code == 400
-    assert client.post('/issue/DEMO-1/transitions', json={'transition': {'id': '9'}}).status_code == 400
-    assert client.put('/issue/DEMO-999', json={'fields': {'summary': 'x'}}).status_code == 404
-    assert httpx.post(str(client.base_url) + '/issue', json={'fields': {'summary': 'x'}}).status_code == 401
-
-
-def test_concurrent_creates_get_unique_keys(mock):
-    client, _ = mock
-    with ThreadPoolExecutor(8) as pool:
-        keys = list(pool.map(lambda n: client.post('/issue', json={'fields': {'summary': f'n{n}'}}).json()['key'], range(40)))
-    assert len(set(keys)) == 40
-    updated = [issue['fields']['updated'] for issue in search(client)['issues']]
-    assert updated == sorted(updated, reverse=True)
-
-
-def test_activity_creates_and_moves_tickets(mock):
-    client, module = mock
-    module['tick']()  # creates
-    module['tick']()  # moves the oldest-updated ticket that is not Done
-    issues = search(client)['issues']
-    assert issues[0]['fields']['summary'].startswith('Simulated ticket') or issues[1]['fields']['summary'].startswith('Simulated ticket')
-    assert search(client)['total'] == 76
-```
-(`runpy.run_path` gives each test fresh state, because the module's globals are rebuilt. The handler must read `ISSUES`/`COMMENTS` from its own module globals — which it does when defined in the same file.)
-
-The seed has 5 comments per issue; new comments are appended last, with `created`/`updated` in the seed's `+0000` format.
-
-- [ ] **Step 2: Implement in `server.py`**
-- `LOCK = threading.Lock()`; `MAX_BODY = 65536`; `MAX_ISSUES = 1000`; `STATUSES = {'1': 'Open', '2': 'In Progress', '3': 'Done'}`.
-- `now()` returns `datetime.now(UTC).isoformat(timespec='milliseconds')` in the same format family the seed uses (both parse with `datetime.fromisoformat`; ensure string comparison sorts correctly — use the same format for seeds by normalising seed `updated` with the same function).
-- `ordered(issues)`: sort by `(updated, number)` descending, number = int of the key suffix. `filter_issues` returns `ordered(result)`; reads happen under `LOCK` (copy the list).
-- `read_json(handler) -> dict`: rejects missing/oversized `Content-Length` (> MAX_BODY) and invalid JSON or non-object with 400 `{"errorMessages": ["Invalid JSON body"]}`.
-- `check_auth()`: the same token rules as `do_GET`; share one helper used by GET/POST/PUT.
-- Field validation for create/edit: `summary` non-empty str ≤ 255; `description` str; `labels` list of str; `issuetype.name`, `priority.name` str. Unknown keys ignored. Create requires `summary`.
-- `do_POST`: `/issue` (create; 400 when `len(ISSUES) >= MAX_ISSUES`: "Mock issue limit reached"), `/issue/{k}/transitions`, `/issue/{k}/comment`. `do_PUT`: `/issue/{k}`. Respond 204 with no body via a `respond_empty()` helper.
-- `GET /issue/{k}/transitions`.
-- `tick()`: under `LOCK`, alternate (module counter) between creating `Simulated ticket <n>` and advancing the oldest-updated non-Done issue to the next status.
-- `__main__`: if `int(os.environ.get('JIRA_MOCK_ACTIVITY_SECONDS', '0')) > 0`, start a daemon thread looping `time.sleep(seconds); tick()`.
-- Keep `log_message` silent.
-
-- [ ] **Step 3: Compose and Makefile**
-- `deploy/compose.yaml` jira-mock: `environment: {JIRA_MOCK_ACTIVITY_SECONDS: "${JIRA_MOCK_ACTIVITY_SECONDS:-0}"}`.
-- `Makefile`: add `jira-mock-reset` to the `.PHONY` line and
-```make
-jira-mock-reset:
-	$(COMPOSE) --profile jira-mock restart jira-mock
+/** One readable line per change, e.g. "Status: Open → In Progress", "Labels: +agent −old", "Description changed". */
+export function describeChanges(changes: unknown): string[] {
+  if (!changes || typeof changes !== "object") return [];
+  const show = (value: unknown) => value === null || value === undefined || value === "" ? "—" : String(value);
+  return Object.entries(changes as Record<string, FieldChange>).map(([field, change]) => {
+    const label = FIELD_LABELS[field] ?? field;
+    if ("added" in change) return `${label}: ${[...change.added.map(item => `+${item}`), ...change.removed.map(item => `−${item}`)].join(" ")}`;
+    if ("changed" in change) return `${label} changed`;
+    return `${label}: ${show(change.from)} → ${show(change.to)}`;
+  });
+}
 ```
 
-- [ ] **Step 4: Run** `uv run pytest tests/test_jira_mock.py tests/test_jira.py tests/test_jira_sync.py -q` → pass (test_jira loads `ISSUES` from server.py; keep `ISSUES[:7]` compatible).
+- [ ] **Step 2: Failing tests** (`events.test.tsx`)
+```tsx
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import EventsView from "../EventsView";
+import { describeChanges } from "../../lib/events";
 
-- [ ] **Step 5: Commit** `feat(jira-mock): writes, transitions, comments, simulated activity and reset`.
+const row = (id: number, extra = {}) => ({ id, source: "jira", type: "jira.ticket.created", subject: `DEMO-${id}`, title: `Ticket ${id}`,
+  occurred_at: "2026-10-09T10:00:00Z", created_at: "2026-10-09T10:00:05Z", ...extra });
+
+function api(pages: Record<string, unknown>) {
+  const fetch = vi.fn(async (url: string) => {
+    const body = pages[url];
+    if (body === undefined) throw new Error(`unexpected ${url}`);
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+const view = () => render(<MemoryRouter><EventsView /></MemoryRouter>);
+afterEach(() => vi.unstubAllGlobals());
+
+test("lists events newest first and loads more", async () => {
+  const user = userEvent.setup();
+  api({ "/api/events/facets": { sources: ["jira"], types: ["jira.ticket.created"] },
+    "/api/events": { events: [row(3), row(2)], next_before: 2 },
+    "/api/events?before=2": { events: [row(1)], next_before: null } });
+  view();
+  expect(await screen.findByText("DEMO-3")).toBeInTheDocument();
+  expect(screen.getAllByText("Ticket created")).toHaveLength(2);
+  await user.click(screen.getByRole("button", { name: "Load more" }));
+  expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+});
+
+test("filters by type and search", async () => {
+  const user = userEvent.setup();
+  const fetch = api({ "/api/events/facets": { sources: ["jira"], types: ["jira.ticket.created", "jira.ticket.updated"] },
+    "/api/events": { events: [row(2)], next_before: null },
+    "/api/events?type=jira.ticket.updated": { events: [row(9, { type: "jira.ticket.updated" })], next_before: null },
+    "/api/events?type=jira.ticket.updated&q=DEMO-9": { events: [row(9, { type: "jira.ticket.updated" })], next_before: null } });
+  view();
+  await screen.findByText("DEMO-2");
+  await user.click(screen.getByRole("combobox", { name: "Type" }));
+  await user.click(screen.getByRole("option", { name: "Ticket updated" }));
+  expect(await screen.findByText("DEMO-9")).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Ticket or title"), "DEMO-9");
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === "/api/events?type=jira.ticket.updated&q=DEMO-9")).toBe(true));
+});
+
+test("an event opens with its changes and a Jira link", async () => {
+  const user = userEvent.setup();
+  api({ "/api/events/facets": { sources: ["jira"], types: ["jira.ticket.updated"] },
+    "/api/events": { events: [row(7, { type: "jira.ticket.updated" })], next_before: null },
+    "/api/events/7": { event: { ...row(7, { type: "jira.ticket.updated" }), source_id: "c-1", dedupe_key: "jira:c-1:7:x",
+      payload: { url: "https://jira.internal/jira/browse/DEMO-7", changes: { status: { from: "Open", to: "Done" }, labels: { added: ["agent"], removed: [] } } } } } });
+  view();
+  await user.click(await screen.findByText("DEMO-7"));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Status: Open → Done")).toBeInTheDocument();
+  expect(within(sheet).getByText("Labels: +agent")).toBeInTheDocument();
+  expect(within(sheet).getByRole("link", { name: "Open in Jira" })).toHaveAttribute("href", "https://jira.internal/jira/browse/DEMO-7");
+});
+
+test("empty state", async () => {
+  api({ "/api/events/facets": { sources: [], types: [] }, "/api/events": { events: [], next_before: null } });
+  view();
+  expect(await screen.findByText("No events yet. Turn on Jira → Auto pull to record ticket changes.")).toBeInTheDocument();
+});
+
+test("describeChanges", () => {
+  expect(describeChanges({ assignee: { from: null, to: "Ana" }, description: { changed: true }, labels: { added: ["a"], removed: ["b"] } }))
+    .toEqual(["Assignee: — → Ana", "Description changed", "Labels: +a −b"]);
+  expect(describeChanges(undefined)).toEqual([]);
+});
+```
+
+- [ ] **Step 3: `EventsView.tsx`** — behavior to implement (follow `SchedulesView.tsx` style and shadcn components):
+  - State: `filters {source:"", type:"", q:""}`, `events: EventRow[] | null`, `nextBefore`, `facets`, `selected: EventDetail | null`, `error`.
+  - Load facets once. Load the first page whenever `source`/`type` change, and 300 ms after `q` stops changing (debounce); abort the previous request; a response from an older filter set is ignored.
+  - Filters row: `Select` **Source** (`aria-label="Source"`, options "All sources" + facets mapped through `SOURCE_LABELS`), `Select` **Type** (`aria-label="Type"`, "All types" + facets through `TYPE_LABELS`), `Input` with label **Ticket or title**, and a **Refresh** button (reloads page 1 and facets). Radix Select cannot use `""` as an item value — use `"all"` for the "All …" item and map it to `""`.
+  - Table: Time (`occurred_at` local time), Type (label or raw type), Subject (font-medium), Title. The whole row is clickable (`role="button"`-free: put the click on a `<button>` inside the Subject cell styled as a link, or on the row with `onClick` and `tabIndex={0}` + Enter key) and opens the sheet.
+  - **Load more** appends `getEvents(filters, nextBefore)`; hidden when `nextBefore` is null.
+  - Empty (no events and no filters): `Empty` with `No events yet. Turn on Jira → Auto pull to record ticket changes.`; with filters: `No events match these filters.`
+  - Sheet (`Sheet`, `SheetTitle` = `{subject} · {type label}`, `SheetDescription` = title): rows Happened (`occurred_at`), Recorded (`created_at`), Source; **Open in Jira** link when `payload.url` is a string (`target="_blank" rel="noreferrer"`); **Changes** list from `describeChanges(payload.changes)` (hidden when empty); a `<details><summary>Raw payload</summary><pre>` with `JSON.stringify(payload, null, 2)`.
+  - Errors: an `Alert` with the API message.
+
+- [ ] **Step 4: Route and sidebar**
+  - `routes.ts`: `route("events", "./routes/events.tsx"),` after `schedules`.
+  - `routes/events.tsx`: `<AdminLayout><EventsView /></AdminLayout>`.
+  - `AdminLayout.tsx`: `const eventsPage = pathname === "/events";` title `"Events"`, description `"Things that happened at your sources, such as Jira ticket changes found by Auto pull."`; sidebar item after Schedules: `<Link to="/events"><Inbox /><span>Events</span></Link>` (`Inbox` from lucide-react).
+  - `adminLayout.test.tsx`: assert the `Events` link → `/events`.
+
+- [ ] **Step 5: Run** `npx vitest run app/components/__tests__/events.test.tsx app/components/__tests__/adminLayout.test.tsx` and `npx react-router typegen && npx tsc --noEmit` → pass.
+
+- [ ] **Step 6: Commit** `feat(admin-ui): Administration → Events`.
 
 ---
 
-### Task 6: Docs and full verification
+### Task 8: Docs and full verification
 
 **Files:** `docs/migrations.md`, `docs/user-guide.md`, `deploy/README.md`
 
-- [ ] **Step 1: `docs/migrations.md`** — after `0086_schedules`:
+- [ ] **Step 1: `docs/migrations.md`** — after `0086_schedules` add the 0087 section below and a 0088 section:
 ```markdown
 ## 0087_schedule_params
 
 `ka.schedules.params` (jsonb object, default `{}`) holds target settings. For `jira.pull` it is `{jql, limit}`: the
 automatic pull's own query, separate from the manual Fetch tickets query; without it the pull uses the connection's last
 fetch query and limit. The down migration drops the column (pulls fall back to the last fetch query).
+
+## 0088_events
+
+`ka.events` records things that happened at a source, as a queue for later handling (no status yet). The scheduled
+Jira pull records `jira.ticket.created` for a ticket it has not recorded before and `jira.ticket.updated` (with
+`changes`) when Jira's `updated` moved; `dedupe_key` (`jira:<connection>:<issue>:<updated>`, unique per project) keeps
+repeated pulls from recording twice. The partial index `events_jira_issues` serves the pull's lookup of each ticket's
+latest event. The down migration drops the table and every recorded event.
 ```
 - [ ] **Step 2: `docs/user-guide.md`**
   - 4.1 Navigation: Jira group lists Tickets, Auto pull, Settings.
@@ -896,17 +1356,23 @@ fetch query and limit. The down migration drops the column (pulls fall back to t
 query on Jira → Tickets). Switch on **Pull tickets automatically**, enter the JQL and number of tickets, pick how often
 (a preset or a custom cron expression) and the time zone, check the preview of the next runs, and **Save**. The page
 shows the last pull and the next one; **Run now** pulls at once. Jira → Tickets shows a one-line summary. A failed pull
-is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped.
-```
-  - Replace the jira-mock lines (around "For testing without a real Jira") with:
-```markdown
-For testing without a real Jira: `make jira-mock-up`, then URL `http://jira-mock:8080/jira`, user `mock-admin`, token
-`jira-mock-token` (75 demo tickets). The mock accepts the Jira REST writes (create issue, edit, transition, comment), so
-you can change tickets and watch the auto pull pick them up. Set `JIRA_MOCK_ACTIVITY_SECONDS=60` in `.env` before
-`make jira-mock-up` to have it create or move a ticket every minute. `make jira-mock-reset` restores the 75 tickets;
-`make jira-mock-down` stops it.
+is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
+records an event for every ticket that is new or changed since its last pull (see Administration → Events); the manual
+Fetch tickets does not.
 ```
   - 4.16 Schedules: add after the first sentence: "**New schedule** creates one: choose what to run (today: Jira tickets, which uses the query from Jira → Auto pull) and when. **Delete** removes a schedule and its history."
-- [ ] **Step 3: `deploy/README.md`** — in the `jira-mock` bullet add: "It accepts Jira REST writes; `JIRA_MOCK_ACTIVITY_SECONDS` (default 0) makes it change a ticket every N seconds; `make jira-mock-reset` restarts it with the original tickets."
+  - Add `### 4.17 Events` after 4.16:
+```markdown
+### 4.17 Events
+
+Administration → Events lists what happened at your sources, newest first. Today the source is Jira: every scheduled
+pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time and **Ticket
+updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type, summary,
+description). Filter by source and type, search by ticket key or title, and open an event to see its changes, a link to
+the ticket and the raw data. The very first pull records every ticket it fetches. Events are kept for handling by
+agents in a later version; nothing acts on them yet.
+```
+  - 4.1 Navigation: the Administration group also lists Events after Schedules.
+- [ ] **Step 3:** (no `deploy/README.md` change in this plan.)
 - [ ] **Step 4: Full verification** — `bash db/tests/run.sh` (exit 0); `cd services/admin-api && uv run pytest -q` (only the two known failures: `test_deploy.py::test_docs_commands_serve_the_docs_folder_inside_the_data_root`, `test_environments.py::test_migration_reapply_and_populated_rollback_protection`; ~5 min); `cd services/admin-ui && npx vitest run && npx react-router typegen && npx tsc --noEmit`. Report each suite's summary line.
-- [ ] **Step 5: Commit** `docs: Jira Auto pull page, New schedule, live Jira mock`.
+- [ ] **Step 5: Commit** `docs: Jira Auto pull page, New schedule and events`.
