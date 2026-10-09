@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '../lib/api';
 import { toast } from 'sonner';
-import { SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
+import { EXPERT_SELF_NOTE, NO_EXPERTS_NOTE, SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -24,14 +24,15 @@ function ToolRow({ tool, editing, disabled, locked, onEdit, onChange }: { tool: 
       <Switch id={id} aria-label={tool.label} disabled={disabled || locked} checked={tool.mode === 'on'} onCheckedChange={on => onChange({ mode: on ? 'on' : 'off' })} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2"><label htmlFor={id} className="text-sm font-medium">{tool.label}</label>
-          {tool.group !== 'mcp' && <code className="text-xs text-muted-foreground">{tool.tool}</code>}
+          {tool.group !== 'mcp' && tool.group !== 'experts' && <code className="text-xs text-muted-foreground">{tool.tool}</code>}
+          {tool.group === 'experts' && <Badge variant="outline">{tool.resources === 'per_run' ? 'Per run' : 'Fixed'}</Badge>}
           {tool.usage !== null && <Badge variant="outline">Edited</Badge>}</div>
         {tool.summary && <p className="text-sm text-muted-foreground">{tool.summary}</p>}
         {locked && <p className="text-sm text-muted-foreground">Switched with May start subagents on the General tab.</p>}
         {!tool.available && tool.reason && <p className="text-sm text-muted-foreground">{tool.reason}{tool.tab && <> · <Link className="underline underline-offset-4" to={`?view=${tool.tab}`}>Open {TAB_LABELS[tool.tab] ?? tool.tab}</Link></>}</p>}
       </div>
-      <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={onEdit} aria-expanded={editing} aria-controls={`${id}-panel`}
-        aria-label={`${editing ? 'Close usage' : 'Edit usage'} for ${tool.label}`}>{editing ? 'Close' : 'Edit usage'}</Button>
+      {tool.group !== 'experts' && <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={onEdit} aria-expanded={editing} aria-controls={`${id}-panel`}
+        aria-label={`${editing ? 'Close usage' : 'Edit usage'} for ${tool.label}`}>{editing ? 'Close' : 'Edit usage'}</Button>}
     </div>
     <div id={`${id}-panel`} hidden={!editing}>{editing && <Field>
       <FieldLabel htmlFor={`${id}-usage`}>Usage for {tool.label}</FieldLabel>
@@ -46,7 +47,7 @@ function ToolRow({ tool, editing, disabled, locked, onEdit, onChange }: { tool: 
 /** "A subagent may use": the agent's tools that are on (catalog and MCP), checked when run_subagent may give them. */
 function SubagentTools({ tools, disabled, onChange }: { tools: AgentTool[]; disabled: boolean; onChange: (tool: string, allowed: boolean) => void }) {
   const id = useId();
-  const offered = tools.filter(item => item.tool !== SUBAGENT_TOOL && item.mode === 'on');
+  const offered = tools.filter(item => item.tool !== SUBAGENT_TOOL && item.group !== 'experts' && item.mode === 'on');
   return <FieldSet className="px-3 pb-3"><FieldLegend variant="label">A subagent may use</FieldLegend>
     {offered.length ? offered.map(item => <Field key={item.tool} orientation="horizontal">
       <Checkbox id={`${id}-${item.tool}`} disabled={disabled} checked={item.subagent_allowed} onCheckedChange={checked => onChange(item.tool, checked === true)} />
@@ -127,6 +128,9 @@ export default function AgentToolsView({ agentId, revision, onSaved, onDirtyChan
           ? <div className="flex flex-col divide-y rounded-md border">{items.map(item => <div key={item.tool}>{row(item)}
               {item.tool === SUBAGENT_TOOL && <SubagentTools tools={draft} disabled={busy} onChange={(name, allowed) => change(name, { subagent_allowed: allowed })} />}</div>)}</div>
           : <FieldDescription>{SUBAGENTS_OFF_NOTE}</FieldDescription>}</FieldSet>;
+        if (group === 'experts') return <FieldSet key={group}><FieldLegend>{label}</FieldLegend>
+          {saved.expert && <FieldDescription>{EXPERT_SELF_NOTE}</FieldDescription>}
+          {items.length ? <div className="flex flex-col divide-y rounded-md border">{items.map(row)}</div> : <FieldDescription>{NO_EXPERTS_NOTE}</FieldDescription>}</FieldSet>;
         return items.length ? <FieldSet key={group}><FieldLegend>{label}</FieldLegend><div className="flex flex-col divide-y rounded-md border">
           {items.map(row)}
         </div></FieldSet> : null;

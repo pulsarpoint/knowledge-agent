@@ -30,7 +30,7 @@ export const RUN_RESOURCE_KINDS: [RunResourceKind, keyof RunResourcesInput, stri
   ['servers', 'server_ids', 'Servers'], ['services', 'service_ids', 'Services']];
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean;
-  resources?: AgentResources; subagents?: boolean;
+  resources?: AgentResources; subagents?: boolean; expert?: boolean;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   revision: number; model_id: string | null; all_collections: boolean; all_repositories: boolean;
   collection_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
@@ -51,10 +51,10 @@ export const getAgentConfig = (id: string) => request<Record<string, unknown>>(p
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
 export const getRunResourceOptions = (id: string) => request<RunResourceOptions>(path(id) + '/run-resources');
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
-  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, resources, subagents, model_id } = value;
+  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, resources, subagents, expert, model_id } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,
     ...(resources ? { resources } : {}),
-    ...(subagents !== undefined ? { subagents } : {}), ...(model_id !== undefined ? { model_id } : {}) }));
+    ...(subagents !== undefined ? { subagents } : {}), ...(expert !== undefined ? { expert } : {}), ...(model_id !== undefined ? { model_id } : {}) }));
 };
 export const saveAgentPrompt = (id: string, revision: number, system_prompt: string) =>
   request<AgentProfile>(path(id) + '/prompt', json('PUT', { revision, system_prompt }));

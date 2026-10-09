@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
 import { RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources } from '../lib/profiles';
-import { SUBAGENTS_HELP } from '../lib/tools';
+import { EXPERT_HELP, SUBAGENTS_HELP } from '../lib/tools';
 import { codeCompatible, getLlmSettings, type ModelProfile } from '../lib/llm';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
@@ -48,6 +48,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
     catch (e) { setError(e instanceof Error ? e.message : 'Could not save this agent.'); }
     finally { setBusy(false); }
   }
+  const needsWhen = Boolean(draft.expert) && !draft.when_to_use.trim();
   const capability = ({ documents: ['documents_enabled','Document search'], git: ['repositories_enabled','Code project access'], ssh: ['ssh_enabled','SSH access'], skills: ['skills_enabled','Skills'], mcp: ['mcp_enabled','MCP tools'], services: ['services_enabled','Service context'] } as const)[view as 'documents' | 'git' | 'ssh' | 'skills' | 'mcp' | 'services'];
   return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.</CardDescription></CardHeader>
     <form onSubmit={event => void save(event)}><CardContent className="pb-6"><FieldGroup>
@@ -69,6 +70,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
           <SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
         <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>
       <Field orientation="horizontal"><Switch id="agent-subagents" disabled={busy} checked={Boolean(draft.subagents)} onCheckedChange={subagents => change({ subagents })} /><div><FieldLabel htmlFor="agent-subagents">May start subagents</FieldLabel><FieldDescription>{SUBAGENTS_HELP}</FieldDescription></div></Field>
+      <Field orientation="horizontal" data-invalid={needsWhen || undefined}><Switch id="agent-expert" disabled={busy} checked={Boolean(draft.expert)} onCheckedChange={expert => change({ expert })} /><div><FieldLabel htmlFor="agent-expert">Offer as an expert</FieldLabel><FieldDescription>{EXPERT_HELP}</FieldDescription>{needsWhen && <p role="alert" className="text-sm text-destructive">Experts need When to use.</p>}</div></Field>
       <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>
       </FieldGroup></div>
       {capability && <Field orientation="horizontal"><Switch id={`capability-${capability[0]}`} checked={draft[capability[0]]} disabled={busy} onCheckedChange={enabled => { change({ [capability[0]]: enabled }); if (view === 'skills') setSkillsDirty(true); }} /><div><FieldLabel htmlFor={`capability-${capability[0]}`}>Enable {capability[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</FieldLabel><FieldDescription>{draft[capability[0]] ? 'Enabled for this agent after saving.' : 'Disabled. Its saved settings are retained.'}</FieldDescription></div></Field>}
@@ -90,6 +92,6 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <ResourceSelection label="Services" options={options?.services ?? []} selected={draft.service_ids} onChange={service_ids => change({ service_ids })} disabled={busy || !options || !draft.services_enabled} />
       <FieldDescription>Selected service descriptions are included as context. Server and repository access are configured separately.</FieldDescription>
       </FieldGroup></div>
-    </FieldGroup></CardContent><CardFooter className="flex-wrap gap-2"><Button disabled={busy || !dirty || !draft.name.trim() || skillsDirty && configurationDirty}>Save {view === 'general' ? 'details' : capability?.[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</Button><Button type="button" variant="outline" disabled={busy} onClick={() => { setDraft(profile); setDirty(false); setSkillsDirty(false); setError(''); setNotice(''); setReload(n => n + 1); }}>{dirty ? 'Discard changes' : 'Refresh resources'}</Button></CardFooter></form>
+    </FieldGroup></CardContent><CardFooter className="flex-wrap gap-2"><Button disabled={busy || !dirty || !draft.name.trim() || needsWhen || skillsDirty && configurationDirty}>Save {view === 'general' ? 'details' : capability?.[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</Button><Button type="button" variant="outline" disabled={busy} onClick={() => { setDraft(profile); setDirty(false); setSkillsDirty(false); setError(''); setNotice(''); setReload(n => n + 1); }}>{dirty ? 'Discard changes' : 'Refresh resources'}</Button></CardFooter></form>
   </Card>;
 }
