@@ -64,18 +64,18 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
     """Run every matching enabled handler on the claimed event inside the caller's transaction; returns its status."""
     failed = False
     for handler in conn.execute(HANDLERS, (event['project_id'],)).fetchall():
-        if not event_matching.matches(handler, event):
-            continue
         links: dict = {}
         try:
+            if not event_matching.matches(handler, event):
+                continue
             with conn.transaction():  # a savepoint: a failing action leaves nothing behind
                 message, links = ACTIONS[handler['action']](conn, store, handler, event)
             status = 'succeeded'
         except (HandlerFailed, event_templates.TemplateProblem) as exc:
             status, message = 'failed', str(exc)
-        except psycopg.OperationalError:
-            raise  # the connection is gone: the event stays pending
         except Exception:
+            if conn.broken or conn.closed:
+                raise  # the connection is gone: the event stays pending and is retried after reconnect
             logger.exception('Handler %s failed on event %s', handler['id'], event['id'])
             status, message = 'failed', UNEXPECTED
         failed = failed or status == 'failed'

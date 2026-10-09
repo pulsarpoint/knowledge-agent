@@ -161,3 +161,31 @@ def test_the_loop_survives_errors_and_stops(store, monkeypatch):
     monkeypatch.setattr(event_processor, 'tick', flaky)
     event_processor.loop(store, stopped)
     assert len(calls) == 2
+
+
+def test_a_handler_whose_matching_raises_fails_its_run_but_not_the_queue(store):
+    bad = a_handler(store, name='A bad', conditions=Jsonb([{'field': 'subject', 'op': 'matches', 'value': '('}]))
+    good = a_handler(store, name='B good')
+    events = [an_event(store), an_event(store)]
+    event_processor.tick(store)
+    for each in events:
+        assert event(store, each['id'])['status'] == 'failed'
+        bad_run, good_run = runs(store, each['id'])
+        assert (bad_run['handler_id'], bad_run['status'], bad_run['message']) == (bad['id'], 'failed', event_processor.UNEXPECTED)
+        assert (good_run['handler_id'], good_run['status']) == (good['id'], 'succeeded')
+
+
+def test_a_database_error_in_an_action_fails_only_that_run(store, monkeypatch):
+    def broken(conn, _store, _handler, _event):
+        conn.execute('SELECT 1/0')
+
+    monkeypatch.setitem(event_processor.ACTIONS, 'emit', lambda conn, s, h, e: (
+        broken(conn, s, h, e) if h['name'] == 'A broken' else event_processor.emit(conn, s, h, e)))
+    a_handler(store, name='A broken')
+    a_handler(store, name='B fine')
+    first = an_event(store)
+    event_processor.run_once(store)
+    broken_run, fine_run = runs(store, first['id'])
+    assert (broken_run['status'], broken_run['message']) == ('failed', event_processor.UNEXPECTED)
+    assert fine_run['status'] == 'succeeded' and fine_run['emitted_event_id'] is not None
+    assert event(store, first['id'])['status'] == 'failed'
