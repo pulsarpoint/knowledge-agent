@@ -28,6 +28,7 @@ test("lists notifications newest first with status and the answer's first line, 
     "/api/notifications?offset=2": { notifications: [row(2), row(1)], next_offset: null } });
   view();
   const table = await screen.findByRole("table");
+  expect(within(table).getByRole("columnheader", { name: "Preview" })).toBeInTheDocument();
   expect(within(table).getByText("Failed")).toBeInTheDocument();
   expect(within(table).getByText("Answer 2")).toBeInTheDocument();
   expect(within(table).queryByText(/more/)).toBeNull();  // only the first line

@@ -99,7 +99,7 @@ export default function NotificationsView() {
       <EmptyDescription>{filtered ? "No notifications match these filters." : "No notifications yet. A handler that sends events to an agent puts the agent's answers here."}</EmptyDescription></EmptyHeader></Empty>}
     {rows && rows.length > 0 && <div className="overflow-x-auto rounded-md border">
       <Table>
-        <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Status</TableHead><TableHead>Title</TableHead><TableHead>Answer</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Status</TableHead><TableHead>Title</TableHead><TableHead>Preview</TableHead></TableRow></TableHeader>
         <TableBody>{rows.map(item => <TableRow key={item.id} tabIndex={0} className="cursor-pointer" onClick={() => void open(item.id)}
           onKeyDown={event => { if (event.key === "Enter") void open(item.id); }}>
           <TableCell className="whitespace-nowrap">{when(item.created_at)}</TableCell>
