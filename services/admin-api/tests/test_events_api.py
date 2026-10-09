@@ -1,4 +1,4 @@
-"""Administration → Events: newest first, filters, cursor paging, one event with its payload."""
+"""Administration → Events: newest first, filters, offset paging, one event with its payload."""
 from uuid import uuid4
 
 from psycopg.types.json import Jsonb
@@ -20,14 +20,78 @@ def seed(store, count=5, **values) -> list[int]:
     return ids
 
 
-def test_newest_first_with_cursor(store, tmp_path):
+def test_newest_first_with_offsets(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     ids = seed(store, 5)
     page = client.get('/api/events', headers=HEADERS, params={'limit': 2}).json()
-    assert [e['id'] for e in page['events']] == ids[::-1][:2] and page['next_before'] == ids[3]
-    rest = client.get('/api/events', headers=HEADERS, params={'limit': 10, 'before': page['next_before']}).json()
-    assert [e['id'] for e in rest['events']] == ids[::-1][2:] and rest['next_before'] is None
+    assert [e['id'] for e in page['events']] == ids[::-1][:2] and page['next_offset'] == 2
+    rest = client.get('/api/events', headers=HEADERS, params={'limit': 10, 'offset': 2}).json()
+    assert [e['id'] for e in rest['events']] == ids[::-1][2:] and rest['next_offset'] is None
     assert 'payload' not in page['events'][0]
+    assert {'source', 'status', 'depth', 'parent_id', 'root_id', 'handler_id'} <= set(page['events'][0])
+
+
+def test_sorting_ties_page_by_id_without_repeats(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    ids = seed(store, 5, subject='SAME-1')
+    seen = []
+    for offset in (0, 2, 4):
+        page = client.get('/api/events', headers=HEADERS, params={'sort': 'subject', 'order': 'asc', 'limit': 2, 'offset': offset}).json()
+        seen += [e['id'] for e in page['events']]
+    assert seen == ids  # ties ordered by id in the same direction, no repeats, no gaps
+    newest = client.get('/api/events', headers=HEADERS, params={'sort': 'subject', 'order': 'desc'}).json()['events']
+    assert [e['id'] for e in newest] == ids[::-1]
+    assert client.get('/api/events', headers=HEADERS, params={'sort': 'payload'}).status_code == 400
+    assert client.get('/api/events', headers=HEADERS, params={'offset': -1}).status_code == 400
+
+
+def test_sort_by_source_and_status_and_filters(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    [root] = seed(store, 1, subject='A-1')
+    handler = uuid4()
+    [child] = seed(store, 1, subject='B-1', source='handler', handler_id=handler, parent_id=root, root_id=root, depth=1)
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.events SET status='failed',processed_at=now() WHERE id=%s", (root,))
+    by_source = client.get('/api/events', headers=HEADERS, params={'sort': 'source', 'order': 'asc'}).json()['events']
+    assert [e['source'] for e in by_source] == ['handler', 'jira']
+    by_status = client.get('/api/events', headers=HEADERS, params={'sort': 'status', 'order': 'asc'}).json()['events']
+    assert [e['status'] for e in by_status] == ['failed', 'pending']
+    assert [e['id'] for e in client.get('/api/events', headers=HEADERS, params={'status': 'failed'}).json()['events']] == [root]
+    assert [e['id'] for e in client.get('/api/events', headers=HEADERS, params={'handler_id': str(handler)}).json()['events']] == [child]
+    assert [e['id'] for e in client.get('/api/events', headers=HEADERS, params={'root_id': root}).json()['events']] == [child, root]
+    assert client.get('/api/events', headers=HEADERS, params={'status': 'done'}).status_code == 400
+
+
+def test_facets(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store, 1)
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        actor = store.actor(conn, 'admin-id', 'admin@example.test')
+        handler = conn.execute("""INSERT INTO ka.event_handlers(project_id,name,type_pattern,action,emit,created_by)
+            VALUES (%s,'Triage','*','emit',%s,%s) RETURNING id""", (project, Jsonb({'type': 'a.b'}), actor)).fetchone()['id']
+    assert client.get('/api/events/facets', headers=HEADERS).json() == {
+        'sources': ['jira'], 'types': ['jira.ticket.created'], 'statuses': ['pending'],
+        'handlers': [{'id': str(handler), 'name': 'Triage'}]}
+
+
+def test_one_event_has_its_parent_chain_and_runs(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    [root] = seed(store, 1)
+    handler = uuid4()
+    [child] = seed(store, 1, subject='T-1', type='triage.requested', source='handler', handler_id=handler,
+                   parent_id=root, root_id=root, depth=1)
+    [grandchild] = seed(store, 1, subject='T-2', type='triage.done', source='handler', handler_id=handler,
+                        parent_id=child, root_id=root, depth=2)
+    with store.connect() as conn:
+        conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id)
+            VALUES (%s,%s,'Triage','succeeded','Emitted triage.done.',%s)""", (child, handler, grandchild))
+    event = client.get(f'/api/events/{child}', headers=HEADERS).json()['event']
+    assert event['parent']['id'] == root and 'payload' not in event['parent']
+    assert [(e['id'], e['depth']) for e in event['chain']] == [(root, 0), (child, 1), (grandchild, 2)]
+    assert [(r['handler_name'], r['status'], r['emitted_event_id'], r['agent_session_id'], r['agent_id']) for r in event['runs']] == [
+        ('Triage', 'succeeded', grandchild, None, None)]
+    assert client.get(f'/api/events/{root}', headers=HEADERS).json()['event']['parent'] is None
 
 
 def test_filters_and_search(store, tmp_path):
@@ -41,7 +105,8 @@ def test_filters_and_search(store, tmp_path):
     assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '%'}).json()['events']] == ['OPS-7']
     assert [e['subject'] for e in client.get('/api/events', headers=HEADERS, params={'q': '_'}).json()['events']] == ['OPS-7']
     assert client.get('/api/events', headers=HEADERS, params={'source': 'jira'}).json()['events'] != []
-    assert client.get('/api/events/facets', headers=HEADERS).json() == {'sources': ['jira'], 'types': ['jira.ticket.created', 'jira.ticket.updated']}
+    assert client.get('/api/events/facets', headers=HEADERS).json() == {
+        'sources': ['jira'], 'types': ['jira.ticket.created', 'jira.ticket.updated'], 'statuses': ['pending'], 'handlers': []}
     assert client.get('/api/events', headers=HEADERS, params={'limit': 201}).status_code == 400
 
 
