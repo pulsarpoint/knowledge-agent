@@ -38,4 +38,5 @@ export default [
   route("rag/search", "./routes/ragSearch.tsx"),
   route("activity/runs", "./routes/runs.tsx"),
   route("activity/runs/:runKey", "./routes/runRecord.tsx"),
+  route("schedules", "./routes/schedules.tsx"),
 ] satisfies RouteConfig;
