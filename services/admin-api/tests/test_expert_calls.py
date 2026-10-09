@@ -1,14 +1,16 @@
 """Calling an expert: checks, the expert's own configuration and credentials, the shared limits, Stop, recording."""
 import asyncio
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
 from agents.tool_context import ToolContext
 from psycopg.types.json import Jsonb
 
-from native_fakes import FakeAgent, FakeSubagent, Recorder, call, llm, message, tool
+from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, llm, message, tool
 from knowledge_admin import run_record
+from knowledge_admin.agent_activity import tool_failed
 from knowledge_admin.agents import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
@@ -184,8 +186,6 @@ def test_subagents_and_experts_share_the_16_per_turn_limit_and_the_slots():
 
     asyncio.run(scenario())
     assert len(fake.calls) == MAX_PER_TURN and subagents.started == MAX_PER_TURN
-    shared = host({}, limit=3)[0]
-    assert shared.slots is shared.slots and shared.limit == 3  # one semaphore for both kinds of call
 
 
 def test_an_expert_waits_for_a_slot_held_by_a_subagent():
@@ -259,6 +259,103 @@ def test_a_failed_expert_returns_a_redacted_failure():
                                              'agent resources.')]
     errors = [payload for kind, payload in recorder.events if kind == 'error']
     assert [error['parent_call_id'] for error in errors] == ['e1', 'e2'] and EXPERT_SECRET not in json.dumps(errors)
+    assert tool_failed(FAILED.format(name='Ledger', message='boom')) and tool_failed('Expert A · B failed: x')
+    assert not tool_failed('Expert advice: nothing failed.') and not tool_failed('The Expert Ledger failed: x')
+
+
+def test_a_load_error_other_than_a_refusal_fails_the_call_like_a_failed_run():
+    subagents, fake, _, _ = host({}, Loader(error=RuntimeError(f'cannot decrypt {SECRET}')))
+    assert asyncio.run(ask(subagents, 'e1', 'Map payments')) == FAILED.format(
+        name='Payments', message='Agent execution failed (RuntimeError). Check the model connection and agent resources.')
+    assert fake.calls == [] and subagents.started == 1  # it started, as a failed run does
+
+
+def test_a_load_that_ends_after_stop_empties_the_credentials_it_returns():
+    release, loading = threading.Event(), threading.Event()
+    loader = Loader({'ssh': EXPERT_SECRET})
+
+    def slow(entry, given):
+        loading.set()
+        release.wait(5)
+        return loader(entry, given)
+    subagents, fake, _, _ = host({}, loader)
+    subagents.load_expert = slow
+
+    async def scenario():
+        running = asyncio.create_task(ask(subagents, 'e1', 'Map payments', entry=FIXED))
+        await asyncio.to_thread(loading.wait, 2)
+        running.cancel()  # Stop while the expert loads
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        release.set()
+        while not loader.issued or loader.issued[0]:
+            await asyncio.sleep(0.01)
+
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert loader.issued == [{}] and fake.calls == [] and subagents.started == 0
+
+
+def expert_with_a_subagent(inner: list, inner_steps: list) -> dict:
+    """Scripts for an expert whose configuration has run_subagent: it starts one subagent (Inner) and answers."""
+    return {'Ask': {'offered': ['read_file', 'run_subagent'],
+                    'steps': [delegate('n1', 'Inner', ['read_file'], results=inner)], 'answer': 'expert ok'},
+            'Inner': {'steps': inner_steps, 'answer': 'inner ok'}}
+
+
+def test_an_experts_subagent_gets_slots_of_its_own_and_is_recorded_under_the_expert():
+    """With one slot per host, the expert holds the turn's only slot while its subagent runs in the expert's own."""
+    inner: list[str] = []
+    subagents, fake, recorder, _ = host(expert_with_a_subagent(inner, [llm(message('Inner read it.'))]), limit=1)
+    assert asyncio.run(asyncio.wait_for(ask(subagents, 'e1', 'Ask'), 5)) == 'expert ok'
+    assert inner == ['inner ok'] and [run['task'] for run in fake.calls] == ['Ask', 'Inner']
+    assert fake.calls[0]['subagents'] is not subagents and fake.calls[1]['subagents'] is None
+    by_call = [(payload['parent_call_id'], agent_id) for (_, payload), agent_id in zip(recorder.events,
+                                                                                     recorder.agent_ids)]
+    assert {agent_id for call_id, agent_id in by_call if call_id == 'n1'} == {'payments'}
+    assert [kind for (kind, payload) in recorder.events if payload['parent_call_id'] == 'n1'] == [
+        'input', 'instructions', 'message', 'usage']
+    assert subagents.started == 2  # the expert and its subagent, both of this turn
+
+
+def test_a_subagent_started_by_an_expert_counts_towards_the_turns_16():
+    inner: list[str] = []
+    turns = {**expert_with_a_subagent(inner, []), **{f'Task {n}': {'steps': [], 'answer': 'ok'} for n in range(15)}}
+    subagents, fake, _, _ = host(turns, limit=32)
+
+    async def scenario():
+        await asyncio.gather(*(start(subagents, f'c{n}', f'Task {n}') for n in range(MAX_PER_TURN - 1)))
+        return await ask(subagents, 'e1', 'Ask')
+
+    assert asyncio.run(scenario()) == 'expert ok'
+    assert inner == [f'An error occurred while running the tool. Please try again. Error: {LIMIT}']
+    assert subagents.started == MAX_PER_TURN and 'Inner' not in [run['task'] for run in fake.calls]
+
+
+def test_stop_cancels_an_experts_running_subagent(monkeypatch):
+    monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.5)
+    started, cancelled, inner = asyncio.Event(), [], []
+
+    async def hang(turn):
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.append('inner')
+            raise
+    subagents, _, recorder, _ = host(expert_with_a_subagent(inner, [hang, llm(message('late'))]))
+
+    async def scenario():
+        running = asyncio.create_task(ask(subagents, 'e1', 'Ask'))
+        await asyncio.wait_for(started.wait(), 2)
+        [nested] = subagents.nested
+        assert nested.running
+        await asyncio.wait_for(subagents.close(), 2)
+        assert cancelled == ['inner'] and nested.closed and not nested.running
+        return await asyncio.gather(running, return_exceptions=True)
+
+    [outcome] = asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert isinstance(outcome, asyncio.CancelledError) and inner == []
+    assert 'late' not in json.dumps([payload for _, payload in recorder.events])
 
 
 def test_experts_are_offered_only_to_a_run_with_the_turns_host_and_never_inside_an_expert_or_subagent(

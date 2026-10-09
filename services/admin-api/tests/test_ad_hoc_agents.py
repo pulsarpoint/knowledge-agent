@@ -37,7 +37,8 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
     assert config['run_resources'] == {'code_project_ids': [s.repo], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
     offered = [spec.name for spec, _ in effective_tools(config, [])]
     assert 'read_file' in offered and 'ssh_run' not in offered and 'search_documents' not in offered
-    assert 'report_not_covered' not in offered and 'run_subagent' not in offered
+    assert 'report_not_covered' not in offered
+    assert 'run_subagent' in offered  # on for Generate documents (never given to its subagents)
 
 
 def test_an_environment_brings_its_services_code_and_servers(sessions):

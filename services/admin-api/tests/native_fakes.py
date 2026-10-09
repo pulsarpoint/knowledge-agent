@@ -172,23 +172,26 @@ def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event)
 
 
 class FakeSubagent:
-    """Stands in for knowledge_admin.agents.agent when Subagents runs a subagent: the script named by the task plays
-    with the subagent's hooks and model filter like a FakeAgent turn, without a session, then raises the script's error
-    or returns its answer."""
+    """Stands in for knowledge_admin.agents.agent when Subagents runs a subagent or an expert: the script named by the
+    task plays with its hooks and model filter like a FakeAgent turn, without a session, then raises the script's
+    error or returns its answer."""
 
     def __init__(self, turns: dict[str, dict]):
         self.turns = turns
         self.calls: list[dict] = []
 
     async def __call__(self, config, task, *, credentials, workspace, hooks, max_turns, turn_timeout_seconds,
-                       call_model_input_filter, stream):
+                       call_model_input_filter, stream, subagents=None):
         record = {'config': config, 'task': task, 'credentials': dict(credentials), 'workspace': workspace,
                   'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream,
-                  'filter': call_model_input_filter, 'inputs': [], 'tools': []}
+                  'filter': call_model_input_filter, 'subagents': subagents, 'inputs': [], 'tools': []}
         self.calls.append(record)
         script = self.turns[task]
         writer = SimpleNamespace(name=config['name'], instructions=config['system_prompt']['content'])
-        turn = Turn(record, hooks, writer, call_model_input_filter, [{'role': 'user', 'content': task}])
+        # The run context its tools see (an expert's run_subagent finds its own host here).
+        context = {'config': config, 'credentials': credentials, 'workspace': workspace, 'shell_enabled': False,
+                   'tools': frozenset(script.get('offered', ())), 'mcp_tools': {}, 'subagents': subagents}
+        turn = Turn(record, hooks, writer, call_model_input_filter, [{'role': 'user', 'content': task}], context)
         await hooks.on_agent_start(None, writer)
         for step in script.get('steps', []):
             await step(turn)

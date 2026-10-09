@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from time import monotonic
@@ -16,6 +17,7 @@ from opentelemetry import trace
 ActivityCallback = Callable[[dict[str, Any]], Awaitable[None]]
 UsageCallback = Callable[[Usage], Awaitable[None]]
 logger = logging.getLogger(__name__)
+EXPERT_FAILED = re.compile(r'Expert [^\n]+? failed: ')  # experts.FAILED: Expert {name} failed: {message}
 
 
 def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
@@ -37,9 +39,10 @@ def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
 
 
 def tool_failed(detail: str) -> bool:
-    """A tool result reported as failed: the SDK's error text, a failed subagent (run_subagent), or JSON with error,
-    isError, timed_out or a non-zero exit_code."""
+    """A tool result reported as failed: the SDK's error text, a failed subagent (run_subagent) or expert
+    (Expert <name> failed: ), or JSON with error, isError, timed_out or a non-zero exit_code."""
     failed = detail.startswith(('An error occurred while running the tool', 'Subagent failed: '))
+    failed = failed or EXPERT_FAILED.match(detail) is not None
     try:
         output = json.loads(detail)
     except (ValueError, TypeError):

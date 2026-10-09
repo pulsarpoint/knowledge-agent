@@ -195,6 +195,13 @@ def _abandon(task: asyncio.Task) -> None:
     native_sessions._leave(task)
 
 
+def _discard_loaded(load: asyncio.Future) -> None:
+    """An expert's load that finished after its call was cancelled: the credentials it decrypted are emptied (and its
+    error, if any, retrieved, so it is never logged)."""
+    if not load.cancelled() and load.exception() is None:
+        load.result()[1].clear()
+
+
 class SubagentEvents(SessionEvents):
     """A subagent's or an expert's SDK lifecycle as events of its parent's turn record: the kinds SessionEvents writes,
     each with parent_call_id (the run_subagent or ask_<name> call) and, for an expert, the expert's agent_id. It is
@@ -228,16 +235,23 @@ class Subagents:
     limit, SubagentEvents hooks and `model_filter`. A subagent gets only the parent turn's credentials its
     configuration references; an expert gets its own configuration and credentials from `load_expert(entry, given
     resources)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,
-    its answer and the tool result redact them too. Cancelling the turn (Stop) cancels the tool call and with it the
-    run; close() (the end of the turn) cancels any still running and empties their credentials."""
+    its answer and the tool result redact them too. An expert whose configuration has run_subagent gets a nested
+    Subagents of its own (`nested`): its own slots (a slot the expert holds never blocks its helpers), the turn's
+    per-turn count (`root`), its events in the turn's record under the expert's agent id, and no experts. Cancelling
+    the turn (Stop) cancels the tool call and with it the run; close() (the end of the turn) cancels any still running,
+    the experts' subagents too, and empties their credentials."""
 
     def __init__(self, parent: SessionEvents, *, secrets: list[str],
                  record_usage: Callable[[dict[str, Any]], None] | None, run_agent: Callable[..., Awaitable[Any]],
                  limit: int | None = None,
                  load_expert: Callable[[dict[str, Any], Mapping[str, list[str]] | None],
-                                       tuple[dict[str, Any], dict[str, str]]] | None = None):
+                                       tuple[dict[str, Any], dict[str, str]]] | None = None,
+                 root: 'Subagents | None' = None, agent_id: str | None = None):
         self.parent, self.secrets, self.record_usage, self.run_agent = parent, secrets, record_usage, run_agent
         self.load_expert = load_expert
+        self.root = root or self  # the turn's host: it counts every start of the turn (MAX_PER_TURN)
+        self.agent_id = agent_id  # an expert's helpers: their events belong to the expert
+        self.nested: list[Subagents] = []  # the experts' own hosts (closed with this one)
         self.limit = limit or max(1, int(os.environ.get('AGENT_MAX_SUBAGENTS', '4')))
         self.slots = asyncio.Semaphore(self.limit)
         self.started = 0
@@ -261,14 +275,14 @@ class Subagents:
                               mcp_tools=context.get('mcp_tools', {}))
         if self.closed or self.parent.closed:
             raise asyncio.CancelledError
-        if self.started >= MAX_PER_TURN:
+        if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
-        self.started += 1  # no await since the check: calls arriving together cannot pass it twice
+        self.root.started += 1  # no await since the check: calls arriving together cannot pass it twice
         credentials = referenced_credentials(sub, context['credentials'])
         self.issued.append(credentials)
         try:
             events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage,
-                                    host=self)
+                                    host=self, agent_id=self.agent_id)
             events.add('input', {'task': task, 'subagent': {'task': task}})
             return await self._drive(events, sub, task, credentials, context['workspace'],
                                      lambda message: FAILED.format(message=message))
@@ -287,15 +301,23 @@ class Subagents:
             raise ValueError(experts.UNAVAILABLE.format(name=entry['name']))
         if self.closed or self.parent.closed:
             raise asyncio.CancelledError
-        if self.started >= MAX_PER_TURN:
+        if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
-        self.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
+        self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), given))
         try:
-            config, credentials = await asyncio.to_thread(self.load_expert, dict(entry), given)
-        except BaseException:
-            self.started -= 1  # a refused call does not count
+            config, credentials = await asyncio.shield(load)
+        except asyncio.CancelledError:
+            self.root.started -= 1  # a refused call does not count
+            load.add_done_callback(_discard_loaded)  # Stop: a load still running empties what it returns
             raise
+        except ValueError:
+            self.root.started -= 1  # a refused call does not count
+            raise
+        except Exception as exc:  # the database or a key: the call fails like a failed run
+            return experts.FAILED.format(name=entry['name'], message=failure(exc, self.secrets))
         self.issued.append(credentials)
+        nested: Subagents | None = None
         try:
             if self.closed or self.parent.closed:  # the turn ended while the expert loaded
                 raise asyncio.CancelledError
@@ -304,15 +326,23 @@ class Subagents:
             self.secrets[:] = list(dict.fromkeys([*self.secrets, *(value for value in credentials.values() if value)]))
             events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage,
                                     host=self, agent_id=str(entry['id']))
+            # The expert's own host for its subagents: recorded in the turn under the expert, closed with its call.
+            nested = Subagents(events, secrets=self.secrets, record_usage=self.record_usage, run_agent=self.run_agent,
+                               limit=self.limit, root=self.root, agent_id=str(entry['id']))
+            self.nested.append(nested)
             events.add('input', {'task': task, 'expert': {'id': entry['id'], 'name': entry['name']}})
             return await self._drive(events, config, task, credentials, context['workspace'],
-                                     lambda message: experts.FAILED.format(name=entry['name'], message=message))
+                                     lambda message: experts.FAILED.format(name=entry['name'], message=message),
+                                     subagents=nested)
         finally:
+            if nested is not None:
+                nested.forget()
             credentials.clear()
 
     async def _drive(self, events: SubagentEvents, config: dict[str, Any], task: str, credentials: dict[str, str],
-                     workspace: Any, failed: Callable[[str], str]) -> str:
-        """Run one started call in a slot: its answer (redacted), or `failed(redacted reason)` when its run fails."""
+                     workspace: Any, failed: Callable[[str], str], subagents: 'Subagents | None' = None) -> str:
+        """Run one started call in a slot: its answer (redacted), or `failed(redacted reason)` when its run fails.
+        subagents: an expert's own host (a subagent starts no subagents)."""
         # The slot first, then the flush: calls take slots in the order they were made (a waiting call's input
         # event is written by the next flush of the turn).
         async with self.slots:
@@ -321,7 +351,8 @@ class Subagents:
             await asyncio.to_thread(self.parent.recorder.flush)
             running = asyncio.create_task(self.run_agent(
                 config, task, credentials=credentials, workspace=workspace, hooks=events, max_turns=None,
-                turn_timeout_seconds=None, call_model_input_filter=self.model_filter, stream=False))
+                turn_timeout_seconds=None, call_model_input_filter=self.model_filter, stream=False,
+                subagents=subagents))
             self.running.add(running)
             running.add_done_callback(self.running.discard)
             try:
@@ -350,11 +381,13 @@ class Subagents:
         its cancellation starts no tool or model call meanwhile (SubagentEvents and model_filter follow `closed`)
         and has no credentials for a new connection."""
         self.closed = True
-        running = set(self.running)
+        running = set(self.running).union(*(nested.running for nested in self.nested))
         for task in running:
             task.cancel()
         for credentials in self.issued:
             credentials.clear()
+        for nested in self.nested:
+            nested.forget()
         if running:
             grace = native_sessions.STOP_GRACE_SECONDS
             if deadline is not None:
@@ -369,9 +402,11 @@ class Subagents:
 
     def forget(self) -> None:
         """At once, without waiting: no more subagents start, running ones are cancelled and every credential map
-        handed to a subagent is emptied (also run when the turn itself is cancelled)."""
+        handed to a subagent is emptied (also run when the turn itself is cancelled), the experts' subagents too."""
         self.closed = True
         for task in list(self.running):
             task.cancel()
         for credentials in self.issued:
             credentials.clear()
+        for nested in self.nested:
+            nested.forget()
