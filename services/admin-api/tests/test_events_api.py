@@ -146,3 +146,71 @@ def test_a_send_to_agent_run_shows_its_task(store, tmp_path):
     [run] = client.get(f'/api/events/{root}', headers=HEADERS).json()['event']['runs']
     assert (run['agent_id'], run['agent_session_id'], run['agent_task']) == (
         'triage', None, {'id': key, 'status': 'succeeded', 'attempts': 2, 'notification_id': notification})
+
+
+# --- POST /api/events: events made by hand -----------------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+NEW = {'type': 'jira.ticket.created', 'subject': 'DEMO-9', 'title': 'Try me', 'payload': {'labels': ['agent']}}
+
+
+def post(client, body):
+    return client.post('/api/events', headers=HEADERS, json=body)
+
+
+def test_create_a_manual_event(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    response = post(client, NEW)
+    assert response.status_code == 201, response.text
+    event = response.json()['event']
+    assert (event['source'], event['source_id'], event['status'], event['depth'], event['parent_id'], event['handler_id']) == (
+        'manual', None, 'pending', 0, None, None)
+    assert (event['type'], event['subject'], event['title'], event['payload']) == (
+        NEW['type'], 'DEMO-9', 'Try me', {'labels': ['agent']})
+    assert event['root_id'] == event['id'] and event['dedupe_key'].startswith('manual:') and event['created_manually'] is True
+    assert event['chain'][0]['id'] == event['id'] and event['runs'] == []
+    assert client.get(f"/api/events/{event['id']}", headers=HEADERS).json()['event'] == event
+    assert 'manual' in client.get('/api/events/facets', headers=HEADERS).json()['sources']
+    with store.connect() as conn:
+        audit = conn.execute("SELECT action,resource_type,resource_id,actor_id,details FROM ka.audit_events WHERE action='event.created'").fetchall()
+    assert len(audit) == 1 and audit[0]['resource_type'] == 'event' and audit[0]['actor_id'] is not None
+    assert audit[0]['details'] == {'event_id': event['id'], 'type': NEW['type'], 'subject': 'DEMO-9', 'source': 'manual'}
+
+
+def test_defaults_and_trimmed_subject(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    event = post(client, {'type': 'a.b', 'subject': '  X  '}).json()['event']
+    assert (event['subject'], event['title'], event['payload']) == ('X', '', {})
+
+
+def test_a_hand_made_jira_event_has_no_connection(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    event = post(client, {**NEW, 'source': 'jira'}).json()['event']
+    assert (event['source'], event['source_id'], event['created_manually']) == ('jira', None, True)
+    assert event['dedupe_key'].startswith('manual:')
+    seeded = seed(store, 1)[0]
+    assert client.get(f'/api/events/{seeded}', headers=HEADERS).json()['event']['created_manually'] is False
+
+
+def message(response):
+    assert response.status_code == 400, response.text
+    return response.json()['error']['message']
+
+
+@pytest.mark.parametrize('body,expected', [
+    ({**NEW, 'type': 'Created'}, 'Type'), ({**NEW, 'type': 'jira'}, 'Type'), ({**NEW, 'type': 'a.b\u0000'}, 'Type'),
+    ({**NEW, 'subject': '   '}, 'Subject'), ({**NEW, 'subject': 'x' * 501}, 'Subject'), ({**NEW, 'subject': 'a\u0000'}, 'Subject'),
+    ({**NEW, 'title': 'x' * 501}, 'Title'), ({**NEW, 'title': 'a\u0000'}, 'Title'),
+    ({**NEW, 'payload': [1]}, 'Payload'), ({**NEW, 'payload': 'x'}, 'Payload'),
+    ({**NEW, 'payload': {'a': 'x' * 102_401}}, 'Payload'),
+    ({**NEW, 'payload': {'a': [{'b': 'x\u0000'}]}}, 'Payload'), ({**NEW, 'payload': {'a\u0000': 1}}, 'Payload'),
+    ({**NEW, 'source': 'handler'}, 'Source'), ({**NEW, 'source': 'mail'}, 'Source'),
+    ({**NEW, 'status': 'processed'}, None), ({'subject': 'x'}, None),
+])
+def test_invalid_bodies_are_400(store, tmp_path, body, expected):
+    client = _client(tmp_path, repository_store=store)
+    text = message(post(client, body))
+    if expected:
+        assert text.startswith(expected), text
+    assert client.get('/api/events', headers=HEADERS).json()['events'] == []

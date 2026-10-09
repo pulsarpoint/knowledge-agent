@@ -101,3 +101,15 @@ def test_changes():
     assert changes(before, after) == {'summary': {'from': 'A', 'to': 'B'}, 'assignee': {'from': None, 'to': 'Ana'},
                                       'labels': {'added': ['z'], 'removed': ['x']}, 'description': {'changed': True}}
     assert changes(before, dict(before)) == {}
+
+
+def test_hand_made_jira_events_never_change_what_a_pull_records(store, tmp_path):
+    client, _ = setup(store, tmp_path)
+    issues = ISSUES[:1]
+    key = issues[0]['key']
+    made = client.post('/api/events', headers=HEADERS, json={
+        'type': 'jira.ticket.updated', 'subject': key, 'source': 'jira',
+        'payload': {'issue_id': issues[0]['id'], 'summary': 'Made up', 'status': 'Done'}})
+    assert made.status_code == 201, made.text
+    assert auto_pull(store, a_schedule(store), transport=jira(issues)) == ('succeeded', 'Pulled 1 of 1 tickets · 1 new event.')
+    assert [e['type'] for e in events(store)] == ['jira.ticket.updated', 'jira.ticket.created']
