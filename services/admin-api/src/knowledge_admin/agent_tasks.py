@@ -117,6 +117,9 @@ def release(store: RepositoryStore, task: dict[str, Any]) -> None:
             (task['id'], task['worker_id'], task['lease_expires_at']))
 
 
+NO_ANSWER = '(The agent returned no answer.)'
+
+
 async def run_task(store: RepositoryStore, task: dict[str, Any], run_agent=agent) -> None:
     """Run one claimed task to the end of its attempt: a notification, or queued again for another attempt."""
     if task['attempts'] > MAX_ATTEMPTS:  # its lease ran out during the last attempt
@@ -128,7 +131,8 @@ async def run_task(store: RepositoryStore, task: dict[str, Any], run_agent=agent
         secrets[:] = [value for value in credentials.values() if value]
         result = await run_agent(config, task['prompt'], credentials=credentials, stream=False,
                                  turn_timeout_seconds=TURN_SECONDS)
-        outcome, text = 'succeeded', clean_text(str(result.final_output), secrets)
+        answer = '' if result.final_output is None else clean_text(str(result.final_output), secrets)
+        outcome, text = 'succeeded', answer if answer.strip() else NO_ANSWER
     except NoRetry as exc:
         outcome, text = 'failed', str(exc)
     except asyncio.CancelledError:

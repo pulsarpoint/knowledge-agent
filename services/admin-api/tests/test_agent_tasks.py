@@ -184,6 +184,15 @@ def test_answers_are_cleaned_capped_and_redacted(tester):
     assert len(note['body']) == agent_tasks.MAX_BODY and '\x00' not in note['body']
 
 
+@pytest.mark.parametrize('answer', [None, '', '   \n'])
+def test_a_blank_answer_is_stored_as_a_note_not_as_empty_or_none(tester, answer):
+    t = tester
+    queue(t)
+    run_due(t.store, Agent(answer))
+    [note] = notifications(t.store)
+    assert (note['status'], note['body']) == ('succeeded', '(The agent returned no answer.)')
+
+
 def test_a_deleted_event_still_gets_its_notification(tester):
     t = tester
     queued = queue(t)
