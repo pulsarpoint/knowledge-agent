@@ -6,6 +6,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
+from knowledge_admin import jira_events
 from knowledge_admin.jira import JiraClient
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.schedules import TargetMissing
@@ -35,9 +36,10 @@ def credentials(store: RepositoryStore, project_id: UUID) -> tuple[dict, str]:
 
 
 def pull_tickets(store: RepositoryStore, project_id: UUID, jql: str, limit: int, actor: tuple[str, str] | None,
-                 transport: httpx.BaseTransport | None = None, action: str = 'jira.tickets_fetched') -> dict:
+                 transport: httpx.BaseTransport | None = None, action: str = 'jira.tickets_fetched', events: bool = False) -> dict:
     """Fetch up to `limit` tickets for `jql` and replace the saved selection with them. `actor` is the signed-in
-    (subject, email), or None for the scheduler (the audit row then has no actor)."""
+    (subject, email), or None for the scheduler (the audit row then has no actor). With `events`, the pull also
+    records ticket events in the same transaction, so a clashing or failing pull records none."""
     config, token = credentials(store, project_id)
     with JiraClient(config["base_url"], token, transport) as jira:
         jira.current_user(config["username"])
@@ -67,12 +69,13 @@ def pull_tickets(store: RepositoryStore, project_id: UUID, jql: str, limit: int,
                  (fields.get("priority") or {}).get("name"), (fields.get("assignee") or {}).get("key"),
                  (fields.get("assignee") or {}).get("displayName"), (fields.get("reporter") or {}).get("key"),
                  fields.get("labels", []), Jsonb(issue), fields.get("created"), fields["updated"]))
+        new_events = jira_events.record(conn, config["project_id"], config["id"], config["base_url"], issues) if events else 0
         conn.execute("""UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_limit=%s,
             last_fetch_total=%s,jql=%s,fetch_revision=fetch_revision+1 WHERE id=%s""", (limit, total, jql, config["id"]))
         conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
             VALUES (%s,%s,%s,'jira_connection',%s,%s)""",
-            (config["project_id"], actor_id, action, config["id"], Jsonb({"requested": limit, "fetched": len(issues), "total": total})))
-    return {'fetched': len(issues), 'total': total}
+            (config["project_id"], actor_id, action, config["id"], Jsonb({"requested": limit, "fetched": len(issues), "total": total, **({"events": new_events} if events else {})})))
+    return {'fetched': len(issues), 'total': total, 'events': new_events}
 
 
 def auto_pull(store: RepositoryStore, schedule: dict, transport: httpx.BaseTransport | None = None) -> tuple[str, str]:
@@ -86,9 +89,10 @@ def auto_pull(store: RepositoryStore, schedule: dict, transport: httpx.BaseTrans
     jql = params.get('jql') or connection['jql']
     limit = params.get('limit') or connection['last_fetch_limit'] or DEFAULT_LIMIT
     try:
-        result = pull_tickets(store, schedule['project_id'], jql, limit, None, transport, action='jira.tickets_auto_pulled')
+        result = pull_tickets(store, schedule['project_id'], jql, limit, None, transport, action='jira.tickets_auto_pulled', events=True)
     except HTTPException as exc:
         if exc.status_code == 409 and exc.detail == FETCH_CLASH:
             return 'skipped', CLASH_SKIPPED
         raise
-    return 'succeeded', f"Pulled {result['fetched']} of {result['total']} tickets."
+    count = result['events']
+    return 'succeeded', f"Pulled {result['fetched']} of {result['total']} tickets · {'1 new event' if count == 1 else f'{count} new events'}."
