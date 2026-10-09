@@ -175,3 +175,12 @@ the running worker's lease. `ka.notifications` holds what they produced (kind `a
 one list for every user. `ka.event_handler_runs.agent_task_id` links a run to its task. Deleting an event keeps its
 tasks and notifications (their `event_id` becomes NULL). The down migration drops both tables, every task and
 notification, and the column.
+
+## 0091_manual_events
+
+`ka.events.source` also allows `manual`: events made by hand from Events → New event, to test handlers. A hand-made
+event has source `manual` or, when simulating Jira, `jira`; either way `source_id` is NULL and `dedupe_key` is
+`manual:<uuid>` (that prefix marks it, and no pulled ticket is ever compared with it). The other checks stay: only a
+handler's event has a parent, a handler and a depth. The down migration deletes every `manual` event (their handler
+runs go with them; agent tasks and notifications keep their rows with `event_id` NULL) and restores the old check;
+hand-made `jira` events are kept, as they look like pulled ones.

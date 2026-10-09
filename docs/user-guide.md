@@ -700,6 +700,16 @@ changes, a link to the ticket, the raw data, its **Chain** (the event it came fr
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
 to agent, the agent task's status and its notification).
 
+**New event** (next to Refresh) makes an event by hand, to try your handlers without waiting for Jira. Fill in
+**Type** (e.g. `jira.ticket.created`; known types are suggested), **Subject**, an optional **Title** and the
+**Payload**, a JSON object (the form shows what is wrong with it and keeps Create disabled until it is valid), and
+choose the **Source**: **Manual**, or **Jira (simulated)** so that handlers with a `source equals jira` condition
+match. Create saves the event, opens it, and the handlers run on it like on any other event: it is Pending, then
+Processed or Failed (press Refresh to see it change). **Duplicate**, in an open event, starts a new event from a copy
+of it (a Jira event is duplicated as Jira, simulated), handy for re-running a handler with a small change to the
+payload. Events made by hand have no Jira connection and never affect what the scheduled pull records; their detail
+shows **Created by hand**.
+
 ### 4.18 Event handlers
 
 Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
