@@ -44,14 +44,14 @@ sortable.
 - `id uuid PK`, `project_id → projects`, `name` (1–120, unique per project), `enabled bool`,
   `type_pattern text` (lowercase dotted segments, `*` allowed as a whole segment or trailing `.*`; ≤ 200),
   `conditions jsonb` (array, ≤ 20 items, each `{field, op, value}`), `action text CHECK (action IN ('emit','agent'))`,
-  `emit jsonb` (`{type, subject, title, payload}` templates; required iff `emit`), `agent_id text → agents(id)`
+  `emit jsonb` (`{type, subject, title, payload}` templates; required iff `emit`), `agent_id text` (no FK: deleting the agent keeps the handler; its runs fail with `Agent not found.`)
   (required iff `agent`), `prompt text` (≤ 20000; required iff `agent`), `created_by → principals` (the agent session's
   actor), `revision int`, `created_at`, `updated_at`.
 - `ka.event_handler_runs`: `id bigint identity`, `event_id → events ON DELETE CASCADE`, `handler_id uuid` (no FK),
   `handler_name text` (snapshot), `status CHECK (status IN ('succeeded','failed'))`, `message text` (≤ 2000),
   `emitted_event_id → events ON DELETE SET NULL`, `agent_session_id → agent_sessions ON DELETE SET NULL`,
   `created_at`. Index `(event_id)`, `(handler_id, id DESC)`.
-- `ka.agent_sessions` purpose CHECK widens to `('documents','test','event')`; the native-runtime check applies to
+- `ka.agent_sessions` purpose CHECK widens to `('documents','test','event')`; every session is native since 0084 (no runtime check);
   `event` as to `test`.
 
 Down: drops the tables and columns, restores the source and purpose checks (deleting `handler` events and `event`
