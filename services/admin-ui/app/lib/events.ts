@@ -8,7 +8,7 @@ export interface AgentTaskRef { id: string; status: TaskStatus; attempts: number
 export interface HandlerRun { handler_id: string; handler_name: string; status: "succeeded" | "failed"; message: string;
   emitted_event_id: number | null; agent_session_id: string | null; agent_id: string | null; created_at: string;
   agent_task: AgentTaskRef | null }
-export interface EventDetail extends EventRow { source_id: string | null; dedupe_key: string; payload: Record<string, unknown>;
+export interface EventDetail extends EventRow { source_id: string | null; dedupe_key: string; created_manually: boolean; payload: Record<string, unknown>;
   parent: EventRow | null; chain: EventRow[]; runs: HandlerRun[] }
 export interface EventFilters { source: string; type: string; status: string; handler: string; q: string }
 export type SortKey = "time" | "source" | "type" | "subject" | "status";
@@ -19,7 +19,7 @@ export type FieldChange = { from: unknown; to: unknown } | { added: string[]; re
 export const DEFAULT_SORT: EventSort = { key: "time", order: "desc" };
 export const NO_FILTERS: EventFilters = { source: "", type: "", status: "", handler: "", q: "" };
 export const TYPE_LABELS: Record<string, string> = { "jira.ticket.created": "Ticket created", "jira.ticket.updated": "Ticket updated" };
-export const SOURCE_LABELS: Record<string, string> = { jira: "Jira", handler: "Handler" };
+export const SOURCE_LABELS: Record<string, string> = { jira: "Jira", handler: "Handler", manual: "Manual" };
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = { queued: "Queued", running: "Running", succeeded: "Succeeded", failed: "Failed" };
 export const STATUS_LABELS: Record<EventStatus, string> = { pending: "Pending", processed: "Processed", failed: "Failed" };
 const FIELD_LABELS: Record<string, string> = { summary: "Summary", status: "Status", issue_type: "Type", priority: "Priority", assignee: "Assignee", labels: "Labels", description: "Description" };
@@ -37,6 +37,9 @@ export function getEvents(filters: EventFilters, sort: EventSort = DEFAULT_SORT,
   const suffix = query.toString();
   return request<{ events: EventRow[]; next_offset: number | null }>(`/api/events${suffix ? `?${suffix}` : ""}`, { signal });
 }
+export interface NewEventInput { source: "manual" | "jira"; type: string; subject: string; title: string; payload: Record<string, unknown> }
+export const createEvent = (input: NewEventInput) => request<{ event: EventDetail }>("/api/events",
+  { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 export const getEventFacets = (signal?: AbortSignal) => request<EventFacets>("/api/events/facets", { signal });
 export const getEvent = (id: number, signal?: AbortSignal) => request<{ event: EventDetail }>(`/api/events/${id}`, { signal });
 

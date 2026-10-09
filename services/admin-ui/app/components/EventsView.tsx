@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ArrowDown, ArrowUp, ArrowUpDown, Inbox, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "../lib/api";
 import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TASK_STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
   type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "../lib/events";
+import NewEventSheet, { type Prefill } from "./NewEventSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -52,6 +53,8 @@ export default function EventsView() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reload, setReload] = useState(0);
+  /** The New event form: null when closed, else what it starts with (a copy, or nothing). */
+  const [form, setForm] = useState<{ key: number; prefill?: Prefill } | null>(null);
   /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
   const generation = useRef(0);
 
@@ -105,6 +108,14 @@ export default function EventsView() {
   const sortBy = (key: SortKey) => setSort(current => current.key === key ? { key, order: current.order === "desc" ? "asc" : "desc" } : { key, order: "desc" });
   const set = (field: keyof EventFilters) => (value: string) => setFilters(current => ({ ...current, [field]: value }));
 
+  function created(event: EventDetail) {
+    setForm(null);
+    setReload(count => count + 1);
+    setSelected(event);
+  }
+  const duplicate = (event: EventDetail) => setForm({ key: Date.now(), prefill: {
+    source: event.source === "jira" ? "jira" : "manual", type: event.type, subject: event.subject, title: event.title, payload: event.payload } });
+
   const filtered = Boolean(filters.source || filters.type || filters.status || filters.handler || filters.q.trim());
   const changes = selected ? describeChanges(selected.payload.changes) : [];
   /** The API caps the chain, so the open event may be missing from it. */
@@ -124,6 +135,7 @@ export default function EventsView() {
       <Field className="w-full sm:w-56"><FieldLabel htmlFor="events-search">Ticket or title</FieldLabel>
         <Input id="events-search" value={filters.q} onChange={event => set("q")(event.target.value)} /></Field>
       <Button variant="outline" onClick={() => setReload(count => count + 1)}><RefreshCw data-icon="inline-start" />Refresh</Button>
+      <Button onClick={() => setForm({ key: Date.now() })}><Plus data-icon="inline-start" />New event</Button>
     </div>
     {error && <Alert variant="destructive"><AlertTitle>Events</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
     {events === null && !error && <Skeleton className="h-32 w-full" />}
@@ -151,6 +163,7 @@ export default function EventsView() {
       </Table>
     </div>}
     {nextOffset !== null && <div className="flex justify-center"><Button variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>Load more</Button></div>}
+    {form && <NewEventSheet key={form.key} prefill={form.prefill} types={facets.types} onClose={() => setForm(null)} onCreated={created} />}
     <Sheet open={selected !== null} onOpenChange={next => { if (!next) close(); }}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-lg">
         {selected && <>
@@ -161,9 +174,11 @@ export default function EventsView() {
               <dt className="text-muted-foreground">Recorded</dt><dd>{when(selected.created_at)}</dd>
               <dt className="text-muted-foreground">Source</dt><dd>{sourceLabel(selected.source)}</dd>
               <dt className="text-muted-foreground">Status</dt><dd><StatusBadge status={selected.status} /></dd>
+              {selected.created_manually && <><dt className="text-muted-foreground">Origin</dt><dd>Created by hand</dd></>}
               {selected.parent && <><dt className="text-muted-foreground">Parent</dt>
                 <dd><Button variant="link" className="h-auto p-0" onClick={() => void open(selected.parent!.id)}>{selected.parent.subject} · {typeLabel(selected.parent.type)}</Button></dd></>}
             </dl>
+            <Button variant="outline" size="sm" className="self-start" onClick={() => duplicate(selected)}><Copy data-icon="inline-start" />Duplicate</Button>
             {url && <a href={url} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">Open in Jira</a>}
             {chain.length > 1 && <div><h3 className="mb-1 font-medium">Chain</h3>
               <ul aria-label="Chain" className="flex flex-col gap-1">{chain.map(node => <li key={node.id} style={{ paddingLeft: `${node.depth}rem` }}>
