@@ -181,6 +181,6 @@ notification, and the column.
 `ka.events.source` also allows `manual`: events made by hand from Events → New event, to test handlers. A hand-made
 event has source `manual` or, when simulating Jira, `jira`; either way `source_id` is NULL and `dedupe_key` is
 `manual:<uuid>` (that prefix marks it, and no pulled ticket is ever compared with it). The other checks stay: only a
-handler's event has a parent, a handler and a depth. The down migration deletes every `manual` event (their handler
-runs go with them; agent tasks and notifications keep their rows with `event_id` NULL) and restores the old check;
+handler's event has a parent, a handler and a depth. The down migration deletes every `manual` event and the events handlers
+made from them (their handler runs go with them; agent tasks and notifications keep their rows with `event_id` NULL) and restores the old check;
 hand-made `jira` events are kept, as they look like pulled ones.

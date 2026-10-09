@@ -31,34 +31,55 @@ class NewEvent(BaseModel):
     source: Any = 'manual'
 
 
-def has_nul(value: Any) -> bool:
-    if isinstance(value, str):
-        return '\x00' in value
-    if isinstance(value, dict):
-        return any(has_nul(key) or has_nul(item) for key, item in value.items())
-    if isinstance(value, list):
-        return any(has_nul(item) for item in value)
-    return False
+MAX_DEPTH = 32
+
+
+def has_nul(value: str) -> bool:
+    return '\x00' in value
+
+
+def inspect_payload(payload: dict) -> str | None:
+    """What is wrong with the payload (too deep, or a NUL in a key or string), walking it without recursion."""
+    stack = [(payload, 1)]
+    while stack:
+        value, depth = stack.pop()
+        if isinstance(value, str):
+            if has_nul(value):
+                return 'Payload cannot contain the NUL character (\\u0000).'
+        elif isinstance(value, (dict, list)):
+            if depth > MAX_DEPTH:
+                return f'Payload is nested too deeply (at most {MAX_DEPTH} levels).'
+            if isinstance(value, dict):
+                stack.extend((key, depth + 1) for key in value)
+                stack.extend((item, depth + 1) for item in value.values())
+            else:
+                stack.extend((item, depth + 1) for item in value)
+    return None
 
 
 def check(value: NewEvent) -> dict:
     """The event's fields, or a 400 naming the first bad one."""
     def bad(message: str):
         raise HTTPException(400, message)
-    if not isinstance(value.type, str) or not TYPE_PATTERN.match(value.type) or has_nul(value.type):
+    if not isinstance(value.type, str) or not TYPE_PATTERN.fullmatch(value.type) or has_nul(value.type):
         bad('Type must look like jira.ticket.created: lowercase words separated by dots.')
     subject = value.subject.strip() if isinstance(value.subject, str) else ''
     if not subject or len(subject) > MAX_TEXT or has_nul(subject):
         bad(f'Subject is required and at most {MAX_TEXT} characters.')
-    title = value.title if value.title is not None else ''
-    if not isinstance(title, str) or len(title) > MAX_TEXT or has_nul(title):
+    title = value.title.strip() if isinstance(value.title, str) else '' if value.title is None else None
+    if title is None or len(title) > MAX_TEXT or has_nul(title):
         bad(f'Title must be text of at most {MAX_TEXT} characters.')
     payload = {} if value.payload is None else value.payload
     if not isinstance(payload, dict):
         bad('Payload must be a JSON object.')
-    if has_nul(payload):
-        bad('Payload cannot contain the NUL character (\\u0000).')
-    if len(json.dumps(payload).encode()) > MAX_PAYLOAD:
+    problem = inspect_payload(payload)
+    if problem:
+        bad(problem)
+    try:
+        size = len(json.dumps(payload, allow_nan=False, ensure_ascii=False).encode())
+    except ValueError:
+        bad('Payload must be valid JSON (no NaN or Infinity).')
+    if size > MAX_PAYLOAD:
         bad('Payload is too large (100 KB at most).')
     if value.source not in ('manual', 'jira'):
         bad('Source must be manual or jira.')

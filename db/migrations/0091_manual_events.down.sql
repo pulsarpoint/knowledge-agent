@@ -1,8 +1,9 @@
 BEGIN;
 SET search_path = ka, public;
 
--- Manual events are deleted (their handler runs go with them; agent tasks and notifications keep their rows).
-DELETE FROM events WHERE source = 'manual';
+-- Manual events are deleted with everything handlers made from them (their handler runs go too; agent tasks and
+-- notifications keep their rows).
+DELETE FROM events WHERE source = 'manual' OR root_id IN (SELECT id FROM events WHERE source = 'manual');
 ALTER TABLE events
     DROP CONSTRAINT events_source_check,
     ADD CONSTRAINT events_source_check CHECK (source IN ('jira', 'handler'));

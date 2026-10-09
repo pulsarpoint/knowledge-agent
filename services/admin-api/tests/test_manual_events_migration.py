@@ -37,6 +37,11 @@ def test_down_deletes_manual_events_and_up_again(store):
     with store.connect() as conn:
         manual = a_manual_event(conn)
         jira = an_event(conn, project=manual['project_id'])
+        made = an_event(conn, project=manual['project_id'], source='handler', handler_id=uuid4(), parent_id=manual['id'],
+                        root_id=manual['id'], depth=1)
+        grandchild = an_event(conn, project=manual['project_id'], source='handler', handler_id=uuid4(), parent_id=made['id'],
+                              root_id=manual['id'], depth=2)
+
         run(conn, '0091_manual_events.down.sql')
         assert [r['id'] for r in conn.execute('SELECT id FROM ka.events').fetchall()] == [jira['id']]
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():

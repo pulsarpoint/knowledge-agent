@@ -199,12 +199,13 @@ def message(response):
 
 
 @pytest.mark.parametrize('body,expected', [
-    ({**NEW, 'type': 'Created'}, 'Type'), ({**NEW, 'type': 'jira'}, 'Type'), ({**NEW, 'type': 'a.b\u0000'}, 'Type'),
+    ({**NEW, 'type': 'a.b\n'}, 'Type'), ({**NEW, 'type': 'a.b '}, 'Type'), ({**NEW, 'type': 'Created'}, 'Type'), ({**NEW, 'type': 'jira'}, 'Type'), ({**NEW, 'type': 'a.b\u0000'}, 'Type'),
     ({**NEW, 'subject': '   '}, 'Subject'), ({**NEW, 'subject': 'x' * 501}, 'Subject'), ({**NEW, 'subject': 'a\u0000'}, 'Subject'),
     ({**NEW, 'title': 'x' * 501}, 'Title'), ({**NEW, 'title': 'a\u0000'}, 'Title'),
     ({**NEW, 'payload': [1]}, 'Payload'), ({**NEW, 'payload': 'x'}, 'Payload'),
     ({**NEW, 'payload': {'a': 'x' * 102_401}}, 'Payload'),
     ({**NEW, 'payload': {'a': [{'b': 'x\u0000'}]}}, 'Payload'), ({**NEW, 'payload': {'a\u0000': 1}}, 'Payload'),
+    ({**NEW, 'payload': {'a': [[[{}]]]}, 'title': ' '.join(['x'] * 300)}, 'Title'),
     ({**NEW, 'source': 'handler'}, 'Source'), ({**NEW, 'source': 'mail'}, 'Source'),
     ({**NEW, 'status': 'processed'}, None), ({'subject': 'x'}, None),
 ])
@@ -214,3 +215,37 @@ def test_invalid_bodies_are_400(store, tmp_path, body, expected):
     if expected:
         assert text.startswith(expected), text
     assert client.get('/api/events', headers=HEADERS).json()['events'] == []
+
+
+@pytest.mark.parametrize('literal', ['NaN', 'Infinity', '-Infinity'])
+def test_nan_and_infinity_in_the_payload_are_400(store, tmp_path, literal):
+    client = _client(tmp_path, repository_store=store)
+    body = '{"type":"a.b","subject":"X","payload":{"n":[%s]}}' % literal
+    response = client.post('/api/events', headers={**HEADERS, 'Content-Type': 'application/json'}, content=body)
+    assert message(response) == 'Payload must be valid JSON (no NaN or Infinity).'
+
+
+def test_the_payload_limit_counts_utf8_bytes(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    assert post(client, {**NEW, 'payload': {'text': 'ж' * 30_000}}).status_code == 201  # ~60 KB
+    assert message(post(client, {**NEW, 'payload': {'text': 'ж' * 60_000}})).startswith('Payload is too large')  # ~120 KB
+
+
+def test_deep_payloads_are_400_not_500(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    def nested(levels):
+        value = {}
+        for _ in range(levels - 1):
+            value = {'a': value}
+        return value
+    assert post(client, {**NEW, 'payload': nested(32)}).status_code == 201
+    assert message(post(client, {**NEW, 'payload': nested(33)})) == 'Payload is nested too deeply (at most 32 levels).'
+    deep = '{"type":"a.b","subject":"X","payload":' + '{"a":' * 5000 + '1' + '}' * 5000 + '}'
+    response = client.post('/api/events', headers={**HEADERS, 'Content-Type': 'application/json'}, content=deep)
+    assert response.status_code == 400
+
+
+def test_title_is_trimmed(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    assert post(client, {**NEW, 'title': '  Hi  '}).json()['event']['title'] == 'Hi'
+    assert post(client, {**NEW, 'title': '   '}).json()['event']['title'] == ''
