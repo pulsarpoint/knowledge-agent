@@ -41,6 +41,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const servers = pathname === `/servers`;
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
+  const jiraAutoPull = pathname === "/jira/auto-pull";
   const agentPage = pathname === '/agents' || pathname.startsWith('/agents/');
   const ragPages = [
     { path: "collections", title: "RAG Collections", label: "Collections", description: "Search units mapped to folders in the data root: sync state, settings and indexed content.", icon: Files },
@@ -56,13 +57,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
   const schedulesPage = pathname === "/schedules";
-  const title = schedulesPage ? "Schedules" : runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : "Administration";
+  const title = schedulesPage ? "Schedules" : runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : jiraAutoPull ? "Jira Auto pull" : "Administration";
   const description = schedulesPage ? "Run work on a timetable, such as pulling Jira tickets." : runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
     : servers ? "Manage hosts, descriptions, and tags for your service infrastructure."
     : jiraSettings ? "Configure access to your Jira Data Center server and test the connection."
     : jiraTickets ? "Filter Jira tickets and export their content to RAG."
+    : jiraAutoPull ? "Pull Jira tickets on a timetable with their own query."
     : "";
   return <SidebarProvider>
     <Sidebar collapsible="icon">
@@ -89,6 +91,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </SidebarMenu></SidebarGroup>
         <SidebarGroup><SidebarGroupLabel>Jira</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraTickets}><Link to={`/jira/tickets`}><Ticket /><span>Tickets</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraAutoPull}><Link to="/jira/auto-pull"><CalendarClock /><span>Auto pull</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={jiraSettings}><Link to={`/jira/settings`}><Settings /><span>Settings</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Environments"><SidebarGroupLabel>Environments</SidebarGroupLabel><SidebarMenu>

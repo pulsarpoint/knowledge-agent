@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Download, FolderOutput, Ticket } from "lucide-react";
 import { ApiError, exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "../lib/api";
-import JiraAutoPullCard from "./JiraAutoPullCard";
+import JiraAutoPullStatus from "./JiraAutoPullStatus";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -81,7 +81,7 @@ export default function JiraTicketsView() {
     setSelected(new Set(failedIds)); setExportProgress(null); setExportSummary({ results, failures });
   }
   return <div className="flex flex-col gap-6">
-    {data?.connection?.has_token && <JiraAutoPullCard refreshKey={data.connection.last_successful_sync_at} />}
+    {data?.connection?.has_token && <JiraAutoPullStatus refreshKey={data.connection.last_successful_sync_at} />}
     <form onSubmit={fetchTickets} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
         <FieldGroup className="min-w-64 flex-1"><Field><FieldLabel htmlFor="jira-jql">Jira query (JQL)</FieldLabel><Input id="jira-jql" required maxLength={4000} value={jql} disabled={busy} onChange={(event) => setJql(event.target.value)} /></Field></FieldGroup>

@@ -31,6 +31,7 @@ export default [
   route("servers", "./routes/servers.tsx"),
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
+  route("jira/auto-pull", "./routes/jiraAutoPull.tsx"),
   route("rag/collections", "./routes/ragCollections.tsx"),
   route("rag/collections/:collectionId", "./routes/ragCollection.tsx"),
   route("rag/jobs", "./routes/ragJobs.tsx"),

@@ -193,39 +193,31 @@ const pullSchedule: Schedule = { id: "s-1", name: "Jira auto pull", target_kind:
   description: "Every 15 minutes", timezone: "UTC", enabled: true, next_run_at: "2026-10-09T10:15:00Z", running: false,
   last_run_at: "2026-10-09T10:00:00Z", last_finished_at: "2026-10-09T10:00:02Z", last_status: "succeeded", last_message: "Pulled 10 of 12 tickets.", revision: 1, params: {} };
 
-function ticketsApi(autoPull: Omit<AutoPull, "connected"> | Record<string, unknown>, saved?: Omit<AutoPull, "connected">) {
-  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/jira/auto-pull") return new Response(JSON.stringify(init?.method === "PUT" ? saved : autoPull));
+function ticketsApi(autoPull: AutoPull | Record<string, unknown>) {
+  const fetch = vi.fn(async (url: string) => {
+    if (url === "/api/jira/auto-pull") return new Response(JSON.stringify(autoPull));
     return new Response(JSON.stringify(snapshot));
   });
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
 
-test("auto pull card switches the pull on with the browser time zone", async () => {
-  const user = userEvent.setup();
-  const fetch = ticketsApi({ schedule: null, jql: "project = DEMO", limit: 10 },
-    { schedule: pullSchedule, jql: "project = DEMO", limit: 10 });
+test("tickets show the auto pull status and link to its settings", async () => {
+  ticketsApi({ schedule: pullSchedule, jql: "project = DEMO", limit: 10, connected: true });
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
-  expect(await screen.findByText("project = DEMO")).toBeInTheDocument();
-  expect(screen.getByText(/up to 10 tickets/)).toBeInTheDocument();
-  await user.click(screen.getByRole("switch", { name: "Pull tickets automatically" }));
-  expect(await screen.findByText(/Pulled 10 of 12 tickets\./)).toBeInTheDocument();
-  const put = fetch.mock.calls.find(([url, init]) => url === "/api/jira/auto-pull" && init?.method === "PUT")!;
-  expect(JSON.parse(put[1]!.body as string)).toEqual({ enabled: true, cron: "*/15 * * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", jql: "project = DEMO", limit: 10 });
+  expect(await screen.findByText(/Auto pull: Every 15 minutes/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Auto pull settings" })).toHaveAttribute("href", "/jira/auto-pull");
 });
 
-test("a custom timetable links to Schedules instead of the presets", async () => {
-  ticketsApi({ schedule: { ...pullSchedule, cron: "0 7 * * 1-5", description: "0 7 * * 1-5" }, jql: "project = DEMO", limit: 10 });
+test("tickets say when auto pull is off", async () => {
+  ticketsApi({ schedule: null, jql: "project = DEMO", limit: 10, connected: true });
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
-  expect(await screen.findByRole("link", { name: "Edit in Schedules" })).toHaveAttribute("href", "/schedules");
-  expect(screen.queryByRole("combobox", { name: "How often" })).toBeNull();
+  expect(await screen.findByText(/Auto pull is off/)).toBeInTheDocument();
 });
 
-test("auto pull card stays hidden on an unexpected response", async () => {
+test("auto pull status stays hidden on an unexpected response", async () => {
   ticketsApi({ connection, tickets: [] });
   render(<MemoryRouter><JiraTicketsView /></MemoryRouter>);
   await screen.findByText("Check payment latency");
-  expect(screen.queryByText("Auto pull")).toBeNull();
-  expect(screen.queryByText(/undefined/)).toBeNull();
+  expect(screen.queryByText(/Auto pull/)).toBeNull();
 });
