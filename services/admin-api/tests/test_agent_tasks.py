@@ -201,3 +201,30 @@ def test_release_gives_a_task_back_without_counting_the_attempt(tester):
     agent_tasks.release(t.store, claimed)
     back = task(t.store, queued['id'])
     assert (back['status'], back['attempts'], back['worker_id'], back['lease_expires_at']) == ('queued', 0, None, None)
+
+
+def test_a_released_attempt_runs_again_under_a_new_run_key(tester):
+    t = tester
+    queued = queue(t)
+
+    def record(key):
+        with t.store.connect() as conn:
+            conn.execute("INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload) VALUES (%s,%s,1,'tool_call',%s,'{}')",
+                         (queued['project_id'], key, t.agent))
+
+    class Recording(Agent):
+        async def __call__(self, config, task, **options):
+            record(config['record']['run_key'])
+            return await super().__call__(config, task, **options)
+
+    [first] = agent_tasks.claim(t.store, 'w1', 10)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(agent_tasks.run_task(t.store, first, Recording(asyncio.CancelledError())))
+    assert task(t.store, queued['id'])['status'] == 'queued' and task(t.store, queued['id'])['attempts'] == 0
+    [second] = agent_tasks.claim(t.store, 'w1', 10)
+    fake = Recording('Good answer.')
+    asyncio.run(agent_tasks.run_task(t.store, second, fake))
+    assert [first['claims'], second['claims']] == [1, 2]
+    assert fake.calls[0][0]['record']['run_key'] == f"task:{queued['id']}:2" != agent_tasks.record_key(first)
+    assert [(n['status'], n['body']) for n in notifications(t.store)] == [('succeeded', 'Good answer.')]
+    assert task(t.store, queued['id'])['status'] == 'succeeded'

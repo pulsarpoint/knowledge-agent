@@ -33,6 +33,7 @@ CREATE TABLE agent_tasks (
     handler_id uuid,
     status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    claims integer NOT NULL DEFAULT 0 CHECK (claims >= 0),
     next_attempt_at timestamptz NOT NULL DEFAULT now(),
     worker_id text,
     lease_expires_at timestamptz,
@@ -46,6 +47,7 @@ CREATE TABLE agent_tasks (
 );
 COMMENT ON COLUMN agent_tasks.id IS 'agent-task:<event id>:<handler id> — processing an event again queues nothing new.';
 COMMENT ON COLUMN agent_tasks.agent_id IS 'No foreign key, like event_handlers.agent_id: a deleted agent fails the task.';
+COMMENT ON COLUMN agent_tasks.claims IS 'Times claimed, never decreased (a released attempt is given back, the claim is not); names the run record.';
 CREATE INDEX agent_tasks_due ON agent_tasks(next_attempt_at, id) WHERE status IN ('queued', 'running');
 
 ALTER TABLE event_handler_runs ADD COLUMN agent_task_id text;

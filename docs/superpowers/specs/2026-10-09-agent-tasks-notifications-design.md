@@ -28,7 +28,7 @@ one place everyone can see: a notifications list.
 - `id text PRIMARY KEY` = `agent-task:<event id>:<handler id>`, `project_id → projects`, `agent_id text` (no FK, like
   handlers), `agent_name text NOT NULL` (snapshot), `prompt text` (1–20000), `event_id → events ON DELETE SET NULL`,
   `handler_id uuid` (no FK), `status text CHECK (status IN ('queued','running','succeeded','failed'))` default
-  `queued`, `attempts int ≥ 0` default 0, `next_attempt_at timestamptz NOT NULL DEFAULT now()`, `worker_id text`,
+  `queued`, `attempts int ≥ 0` default 0, `claims int ≥ 0` default 0 (every claim, never decreased; names the run record), `next_attempt_at timestamptz NOT NULL DEFAULT now()`, `worker_id text`,
   `lease_expires_at timestamptz`, `error text` (≤ 2000), `notification_id bigint → notifications ON DELETE SET NULL`,
   `created_at`, `started_at`, `finished_at`.
 - Checks: `running` ⇔ `lease_expires_at IS NOT NULL`; `finished_at IS NOT NULL` ⇔ status in (`succeeded`,`failed`).
@@ -60,10 +60,10 @@ Down: drops the column and both tables.
 - **Claim** (one transaction): `SELECT … FROM ka.agent_tasks WHERE (status='queued' AND next_attempt_at <= now()) OR
   (status='running' AND lease_expires_at < now()) ORDER BY next_attempt_at, id LIMIT n FOR UPDATE SKIP LOCKED`, then
   `status='running'`, `worker_id`, `lease_expires_at = now() + 15 min`, `started_at = coalesce(started_at, now())`,
-  `attempts = attempts + 1`.
+  `attempts = attempts + 1`, `claims = claims + 1`.
 - **Run**: load the agent's current config (`get_agent_config`); missing/disabled/per-run/no usable model → final
   failure without retry. Load credentials (`load_credentials`), call `agent(config, prompt, credentials=…, stream=False,
-  turn_timeout_seconds=600)`, recorded as an Agent runs record of kind `event_task` (run key `task:<task id>`), the way
+  turn_timeout_seconds=600)`, recorded as an Agent runs record of kind `event_task` (run key `task:<task id>:<claim number>`, so a released attempt that runs again never reuses a key), the way
   Test sessions record theirs.
 - **Finish** only if the row still has this `worker_id` and the same `lease_expires_at` (a stale worker records
   nothing):

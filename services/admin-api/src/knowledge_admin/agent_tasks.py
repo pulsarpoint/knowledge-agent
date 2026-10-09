@@ -7,11 +7,7 @@ lease may finish it, so a worker that lost the lease records nothing. The turn l
 lease, so a running call never outlives it."""
 import asyncio
 import logging
-import os
-import socket
 from typing import Any
-
-import psycopg
 
 from knowledge_admin.agent_sessions import NO_MODEL
 from knowledge_admin.agents import agent, load_credentials
@@ -36,7 +32,7 @@ LOST = 'The worker stopped while running this task, and it has no attempts left.
 
 CLAIM = f"""UPDATE ka.agent_tasks t SET status='running', worker_id=%(worker)s,
     lease_expires_at=now() + interval '{LEASE_MINUTES} minutes', started_at=coalesce(t.started_at, now()),
-    attempts=t.attempts + 1
+    attempts=t.attempts + 1, claims=t.claims + 1
     FROM (SELECT id FROM ka.agent_tasks
           WHERE (status='queued' AND next_attempt_at <= now()) OR (status='running' AND lease_expires_at < now())
           ORDER BY next_attempt_at, id LIMIT %(limit)s FOR UPDATE SKIP LOCKED) due
@@ -58,8 +54,8 @@ def claim(store: RepositoryStore, worker_id: str, limit: int) -> list[dict[str, 
 
 
 def record_key(task: dict[str, Any]) -> str:
-    """One run record per attempt (Agent runs keys are unique per key and sequence)."""
-    return f"task:{task['id']}:{task['attempts']}"
+    """One run record per claim: a released attempt runs again under a new key (run events are unique per key and sequence)."""
+    return f"task:{task['id']}:{task['claims']}"
 
 
 def load(store: RepositoryStore, task: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
@@ -138,4 +134,5 @@ async def run_task(store: RepositoryStore, task: dict[str, Any], run_agent=agent
         text = failure(exc, secrets)
         outcome = 'retry' if task['attempts'] < MAX_ATTEMPTS else 'failed'
         logger.warning('Agent task %s attempt %s failed (%s)', task['id'], task['attempts'], type(exc).__name__)
-    await asyncio.to_thread(finish, store, task, outcome, text)
+    if not await asyncio.to_thread(finish, store, task, outcome, text):
+        logger.info('Agent task %s claim %s lost its lease; nothing recorded', task['id'], task['claims'])
