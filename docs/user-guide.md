@@ -696,8 +696,8 @@ Each event is **Pending** until the event handlers have looked at it (within a f
 Processed. Filter by source, type, status and **Emitted by** (the handler that emitted the event), search by ticket
 key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
-indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted or the agent
-session it started).
+indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send to agent, the agent task's status and its
+notification).
 
 ### 4.18 Event handlers
 
@@ -718,15 +718,18 @@ A handler does one thing:
   `event.payload.summary`, …). Empty Subject, Title or Payload copy the matched event's. Write payload values with
   `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
-- **Send to agent** starts a new session of the chosen agent for every matching event; the **Prompt** template is its
-  first message, and the handler's creator is its user — editing the handler later does not change that. Only
-  enabled agents with fixed resources can be chosen. The session appears in the agent's Test tab, marked **Event**.
-  A handler whose agent was deleted or no longer qualifies can still be turned off or edited; choosing a new agent
-  or turning it back on checks the agent again.
+- **Send to agent** queues one call of the chosen agent for every matching event; the **Prompt** template is the
+  message. agent-session-worker runs it once, with no conversation and no streaming, and puts the answer in
+  **Notifications** (4.19). A call that fails is tried again 30 seconds and then 2 minutes later (3 attempts in all);
+  an agent that was deleted, disabled, switched to per-run resources or left without a usable model fails at once.
+  A worker that stops hands a running call back without counting the attempt. Only enabled agents with fixed
+  resources can be chosen. A handler whose agent was deleted or no longer qualifies can still be turned off or
+  edited; choosing a new agent or turning it back on checks the agent again. Processing the same event again never
+  queues a second call. Calls appear in Agent runs as **Event task**.
 
-**Careful with Send to agent on broad patterns.** Every matching event starts its own agent session. The first
-scheduled Jira pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler starts one
-session per ticket; `*` and other broad patterns also match the events other handlers emit, multiplying sessions down
+**Careful with Send to agent on broad patterns.** Every matching event runs the agent once. The first
+scheduled Jira pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once
+per ticket; `*` and other broad patterns also match the events other handlers emit, multiplying calls down
 a chain. Start narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when
 Send to agent uses `*` or a pattern ending in `.*`.
 
@@ -741,6 +744,16 @@ event still run. Deleting a handler keeps its run history on the events.
 ---
 
 ## 5. End-to-end workflows
+
+
+### 4.19 Notifications
+
+Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first:
+Time, Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the
+answer. Everyone sees the same list. Filter by status or search the title; **Load more** and **Refresh** work as on
+Events. Open a notification to read the whole answer (or why the call failed, after its last attempt), the agent, the
+number of attempts and **Open event**, which opens the event that triggered it. On the event, the handler run shows
+the call's status (Queued, Running, Succeeded or Failed) and **Open notification**.
 
 ### A. Make internal documentation searchable
 

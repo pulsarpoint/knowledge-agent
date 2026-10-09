@@ -165,3 +165,13 @@ handlers (type pattern, conditions, action `emit` with Jinja templates or `agent
 `ka.event_handler_runs` what each handler did with each event. `ka.agent_sessions.purpose` allows `event` (sessions
 a handler started). The down migration deletes handler-emitted events and event sessions, then drops the tables and
 columns.
+
+## 0090_agent_tasks_notifications
+
+`ka.agent_tasks` holds the agent calls Send-to-agent handlers queue (id `agent-task:<event>:<handler>`, so processing
+an event again queues nothing new): agent, rendered prompt, status `queued`/`running`/`succeeded`/`failed`, attempts,
+`claims` (times picked up, never decreased; it names the run record `task:<id>:<claims>`), the next attempt's time and
+the running worker's lease. `ka.notifications` holds what they produced (kind `agent.response`, status, title, body),
+one list for every user. `ka.event_handler_runs.agent_task_id` links a run to its task. Deleting an event keeps its
+tasks and notifications (their `event_id` becomes NULL). The down migration drops both tables, every task and
+notification, and the column.

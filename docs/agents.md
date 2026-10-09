@@ -17,11 +17,17 @@ limit, no per-turn time limit, no 300-second limit).
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
   `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
-- Sessions started by event handlers (Administration → Events → Handlers, action Send to agent) have
-  `purpose = 'event'`. They run like Test sessions (the same worker, turns, and Suggest improvements through
-  `…/review`) but never produce a document draft. They are listed by `GET /api/agents/{id}/sessions` with their
-  `purpose`, and the agent's Test tab shows them in History with an **Event** badge and opens them. The actor is the
-  handler's creator, and each turn's run record has kind `event_session` (**Event session** in Agent runs).
+- Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
+  0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
+  `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts or subagents, a
+  10-minute limit — and writes the answer or the failure to `ka.notifications` (Administration → Notifications).
+  `AGENT_TASK_MAX` (a whole number of at least 1, default 2) tasks run at once, beside the session slots; an invalid
+  value is logged and the task runner does not start, while sessions keep working. The worker runs the session loop
+  and the task loop under supervisors: a loop that crashes is logged and restarted after 5 s, and the other keeps
+  running. A task is tried up to 3 times (30 s, then 2 min apart); a worker that stops hands a running task back
+  without counting the attempt. Each pickup of a task is recorded as run key `task:<task id>:<claim number>`, kind
+  `event_task` (**Event task** in Agent runs), so a pickup after a worker restart has its own record. Sessions with
+  `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
   `event_session` for event sessions); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
