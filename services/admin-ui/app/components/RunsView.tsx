@@ -9,7 +9,7 @@ import { Input } from '~/components/ui/input';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
-const KINDS: Record<string, string> = { test: 'Agent test', test_session: 'Test session', native_session: 'Native session' };
+const KINDS: Record<string, string> = { test: 'Agent test', test_session: 'Test session', event_session: 'Event session', native_session: 'Native session' };
 // Kinds no longer produced, kept so old run records still read well; not offered in the filter.
 const RETIRED_KINDS: Record<string, string> = { claude_code: 'Claude Code' };
 

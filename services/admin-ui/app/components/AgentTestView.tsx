@@ -13,6 +13,7 @@ import RunWorkspace from './RunWorkspace';
 import SuggestionApply from './SuggestionApply';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from './ui/field';
@@ -41,7 +42,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const sessionId = params.get('session_id');
   const run = useSessionEvents(sessionId);
   const { session, setSession } = run;
-  const foreign = session !== null && (session.agent_id !== agentId || session.purpose !== 'test');
+  const foreign = session !== null && (session.agent_id !== agentId || (session.purpose !== 'test' && session.purpose !== 'event'));
   const [message, setMessage] = useState('');
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
@@ -198,7 +199,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           {panel === 'history' && (historyError ? <Alert variant="destructive"><AlertDescription>{historyError}</AlertDescription></Alert>
             : history === null ? <p role="status"><Spinner />Loading sessions…</p>
             : history.length ? history.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">
-              <div className="min-w-0"><p className="break-words text-sm">{saved.title}</p>
+              <div className="min-w-0">{saved.purpose === 'event' && <Badge variant="outline">Event</Badge>}<p className="break-words text-sm">{saved.title}</p>
                 <p className="text-xs text-muted-foreground">{statusLabels[saved.status]} · {saved.actor_email} · {new Date(saved.created_at).toLocaleString()}</p></div>
               <Button variant="outline" size="sm" onClick={() => selectSession(saved.id)}>Open session</Button>
             </div>) : <p className="text-sm text-muted-foreground">No Test sessions yet.</p>)}

@@ -684,12 +684,46 @@ Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Sch
 
 ### 4.17 Events
 
-Administration → Events lists what happened at your sources, newest first. Today the source is Jira: every scheduled
-pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time and **Ticket
-updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type, summary,
-description). Filter by source and type, search by ticket key or title, and open an event to see its changes, a link to
-the ticket and the raw data. The very first pull records every ticket it fetches. Events are kept for handling by
-agents in a later version; nothing acts on them yet.
+Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
+Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Today the source is Jira:
+every scheduled pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time
+and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,
+summary, description). The very first pull records every ticket it fetches. Events a handler emitted have the source
+**Handler** (see 4.18).
+
+Each event is **Pending** until the event handlers have looked at it (within a few seconds), then **Processed** — or
+**Failed** when one of its handlers failed; failed events are not retried. Events recorded before handlers existed are
+Processed. Filter by source, type, status and handler, search by ticket key or title, and open an event to see its
+changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
+indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted or the agent
+session it started).
+
+### 4.18 Event handlers
+
+Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
+runs every enabled handler whose **Event type** pattern matches (`*` for any part: `jira.ticket.*`, `jira.*.created`,
+or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source`, `type`, `subject`,
+`title` or `payload.<field>` such as `payload.status` or `payload.changes.status` — with **equals**, **does not
+equal**, **contains** (text or list item), **is one of** (comma-separated), **matches regex** or **exists**.
+
+A handler does one thing:
+
+- **Emit event** creates a new event in the same chain. **New event type** (e.g. `triage.requested`), **Subject**,
+  **Title** and **Payload** are Jinja templates over the matched event, available as `event` (`event.subject`,
+  `event.payload.summary`, …). Empty Subject, Title or Payload copy the matched event's. Write payload values with
+  `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
+  event is processed like any other, so handlers can build chains — at most 5 levels deep.
+- **Send to agent** starts a new session of the chosen agent for every matching event; the **Prompt** template is its
+  first message, and you (the handler's creator) are its user. Only enabled agents with fixed resources can be
+  chosen. The session appears in the agent's Test tab, marked **Event**.
+
+Templates render in a separate process with a 2 second time limit (and, on Linux, a 512 MiB memory limit); a template
+that overruns fails with `Template took too long to render.` or `Template used too much memory.`
+
+**Preview** renders the handler against a recent event without saving: it says whether the event matches (or which
+check failed) and shows the new event or prompt. A handler that fails — a template error, a disabled or deleted agent,
+a chain that is too deep — marks the event **Failed** and records why under **Handler runs**; other handlers on that
+event still run. Deleting a handler keeps its run history on the events.
 
 ---
 

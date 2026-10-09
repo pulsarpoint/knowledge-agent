@@ -66,7 +66,7 @@ test('run types have readable names in the filter and the list', async () => {
   expect(within((await screen.findByText('Claude Code session')).closest('tr')!).getByText('Claude Code')).toBeInTheDocument();
   const options = within(screen.getByLabelText('Run type')).getAllByRole('option');
   expect(options.map(option => [option.getAttribute('value'), option.textContent])).toEqual([
-    ['', 'All'], ['test', 'Agent test'], ['test_session', 'Test session'], ['native_session', 'Native session']]);
+    ['', 'All'], ['test', 'Agent test'], ['test_session', 'Test session'], ['event_session', 'Event session'], ['native_session', 'Native session']]);
 });
 
 test('runs list passes a key prefix from the URL', async () => {

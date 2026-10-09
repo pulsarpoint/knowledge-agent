@@ -17,6 +17,11 @@ limit, no per-turn time limit, no 300-second limit).
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
   `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
+- Sessions started by event handlers (Administration → Events → Handlers, action Send to agent) have
+  `purpose = 'event'`. They run like Test sessions (the same worker, turns, and Suggest improvements through
+  `…/review`) but never produce a document draft. They are listed by `GET /api/agents/{id}/sessions` with their
+  `purpose`, and the agent's Test tab shows them in History with an **Event** badge and opens them. The actor is the
+  handler's creator, and each turn's run record has kind `event_session` (**Event session** in Agent runs).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
 - `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test sessions only; refused

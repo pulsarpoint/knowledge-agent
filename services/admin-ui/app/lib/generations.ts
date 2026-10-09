@@ -6,7 +6,7 @@ import type { SessionReview } from './testSessions';
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
-export type SessionPurpose = 'documents' | 'test';
+export type SessionPurpose = 'documents' | 'test' | 'event';
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
 export const statusLabels: Record<SessionStatus, string> = {
   starting: 'Starting', working: 'Working', waiting: 'Waiting for you', stopped: 'Stopped', failed: 'Failed', closed: 'Finished',

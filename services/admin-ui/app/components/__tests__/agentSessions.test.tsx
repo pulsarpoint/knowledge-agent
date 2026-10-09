@@ -78,7 +78,7 @@ it('the first message starts a Test session and opens it; a follow-up goes to th
 });
 
 it('History lists this agent\'s Test sessions and opens one; New session starts empty', async () => {
-  vi.mocked(tests.getTestSessions).mockResolvedValue({ sessions: [{ id: 's1', title: 'How many retries?', status: 'waiting',
+  vi.mocked(tests.getTestSessions).mockResolvedValue({ sessions: [{ id: 's1', title: 'How many retries?', status: 'waiting', purpose: 'test',
     created_at: '2026-10-08T10:00:00Z', last_activity_at: '2026-10-08T10:00:00Z', actor_email: 'admin@test' }] });
   renderPage();
   fireEvent.click(screen.getByRole('button', { name: 'History' }));
@@ -92,6 +92,19 @@ it('History lists this agent\'s Test sessions and opens one; New session starts 
   fireEvent.click(screen.getByRole('button', { name: 'New session' }));
   await waitFor(() => expect(screen.getByLabelText('URL')).not.toHaveTextContent('session_id'));
   expect(screen.queryByText('Three retries.')).toBeNull();
+});
+
+it('an event handler\'s session opens in the Test tab and is marked Event in History', async () => {
+  detail = { ...structuredClone(session), purpose: 'event', title: 'jira.ticket.created DEMO-1' } as SessionDetail;
+  vi.mocked(tests.getTestSessions).mockResolvedValue({ sessions: [{ id: 's1', title: 'jira.ticket.created DEMO-1', status: 'waiting',
+    purpose: 'event', created_at: '2026-10-09T10:00:00Z', last_activity_at: '2026-10-09T10:00:00Z', actor_email: 'admin@test' }] });
+  renderPage('?view=test&session_id=s1');
+  expect(await screen.findByText('Three retries.')).toBeVisible();
+  expect(screen.queryByText('Session not found for this agent.')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'History' }));
+  const sheet = within(await screen.findByRole('dialog'));
+  expect(await sheet.findByText('jira.ticket.created DEMO-1')).toBeVisible();
+  expect(sheet.getByText('Event')).toBeVisible();
 });
 
 it('Show config shows the current configuration before the first message and the pinned one in a session', async () => {

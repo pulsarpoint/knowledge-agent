@@ -154,3 +154,14 @@ Jira pull records `jira.ticket.created` for a ticket it has not recorded before 
 `changes`) when Jira's `updated` moved; `dedupe_key` (`jira:<connection>:<issue>:<updated>`, unique per project) keeps
 repeated pulls from recording twice. The partial index `events_jira_issues` serves the pull's lookup of each ticket's
 latest event. The down migration drops the table and every recorded event.
+
+## 0089_event_handlers
+
+`ka.events` gains a status (`pending`, `processed`, `failed`, with `processed_at`) and a chain: `parent_id`, `root_id`
+(a trigger sets it to the event's own id for a root), `depth` (0–5) and `handler_id`. Source `handler` marks events a
+handler emitted. Existing events are marked `processed` so new handlers do not replay them. `ka.event_handlers` holds
+handlers (type pattern, conditions, action `emit` with Jinja templates or `agent` with an agent and a prompt template;
+`agent_id` has no foreign key, so deleting an agent keeps the handler and its runs fail with `Agent not found.`) and
+`ka.event_handler_runs` what each handler did with each event. `ka.agent_sessions.purpose` allows `event` (sessions
+a handler started). The down migration deletes handler-emitted events and event sessions, then drops the tables and
+columns.
