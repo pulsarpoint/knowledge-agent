@@ -1,9 +1,9 @@
 import { request } from './api';
-import type { SessionDetail, SessionStatus } from './claudeCode';
+import type { SessionDetail, SessionStatus } from './generations';
 import type { RunResourcesInput } from './profiles';
 
 /** The agent Test tab's sessions: created with the first message, then run by the agent session worker like a
- * Generate documents session (messages, Stop, Close and the event stream are the session API in claudeCode.ts). */
+ * Generate documents session (messages, Stop, Close and the event stream are the session API in generations.ts). */
 export interface TestSessionSummary { id: string; title: string; status: SessionStatus; created_at: string; last_activity_at: string; actor_email: string }
 /** A tuning suggestion; `response_turn` is the answer the feedback was about (none: the whole session). */
 export interface SessionReview { id: string; comment: string; suggestion: string; response_turn?: number | null; created_at: string }

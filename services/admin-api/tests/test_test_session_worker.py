@@ -13,8 +13,8 @@ from knowledge_admin import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from test_claude_code_runner import events, post, wait_for
-from test_claude_code_sessions import native_agent, sessions  # noqa: F401  (fixture)
+from run_helpers import events, post, wait_for
+from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 
 KEY = 'bedrock-secret-token'  # the Claude connection's key, decrypted for each turn
 SOURCES = {'excerpts': [{'n': 1, 'path': 'retries.md', 'collection': 'payments', 'text': 'Three retries.'},
@@ -36,13 +36,13 @@ def tested(sessions, monkeypatch):
 
 
 def claimed(store) -> dict:
-    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
+    [row] = shared.claim(store, 'worker-1', [], 4)
     return row
 
 
 def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tested):
     sessions, sid = tested
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate, hung, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'search_documents', {'query': 'retries'}), input_tokens=100, output_tokens=10,
@@ -88,7 +88,7 @@ def test_a_test_session_turn_leaves_no_draft_and_records_grounding_and_usage(tes
 
 def test_grounding_in_the_end_event_is_redacted(tested):
     sessions, sid = tested
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     leaked = {**SOURCES, 'excerpts': [{'n': 1, 'path': f'keys/{KEY}.md', 'collection': 'payments', 'text': KEY}]}
     fake = FakeAgent([{'steps': [llm(message('See [1].'), input_tokens=3, output_tokens=2)], 'answer': 'See [1].',
                        'grounding': leaked},
@@ -106,3 +106,24 @@ def test_grounding_in_the_end_event_is_redacted(tested):
     first, second = [e['payload'] for e in events(store, sid) if e['kind'] == 'end']
     assert KEY not in json.dumps(first) and first['grounding']['sources'][0]['n'] == 1
     assert second == {'status': 'completed'}  # an ungrounded turn has no grounding
+
+
+def test_a_session_pinned_before_claude_code_was_removed_still_runs(tested):
+    """Configs pinned before 0084 may keep runtime and claude_code_tools keys; the worker ignores them and runs."""
+    sessions, sid = tested
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
+    with store.connect() as conn:
+        conn.execute('''UPDATE ka.agent_sessions SET agent_config=agent_config
+            || '{"runtime": "claude_code", "claude_code_tools": ["Read", "Grep"]}' WHERE id=%s''', (sid,))
+    fake = FakeAgent([{'steps': [llm(message('Three retries.'))], 'answer': 'Three retries.'}])
+
+    async def scenario():
+        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
+        done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
+        await post(sessions, url + '/close')
+        await asyncio.wait_for(runner, 5)
+        return done
+
+    assert asyncio.run(scenario())['status_message'] == ''
+    assert fake.calls[0]['config']['claude_code_tools'] == ['Read', 'Grep']
+    assert [e['payload'] for e in events(store, sid) if e['kind'] == 'end'] == [{'status': 'completed'}]

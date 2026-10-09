@@ -11,6 +11,7 @@ from session_rows import a_model, add_ad_hoc_session
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0083_session_notices.up.sql', '0083_session_notices.down.sql'
+LATER_UP, LATER_DOWN = '0084_remove_claude_code.up.sql', '0084_remove_claude_code.down.sql'
 
 
 def run(conn, name: str) -> None:
@@ -58,11 +59,11 @@ def test_session_rows_and_queued_messages_notify_their_session(store):
     _, actor, (first, second) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working' WHERE id=%s", (first,))
-        conn.execute('UPDATE ka.agent_sessions_cc SET input_tokens=5 WHERE id=%s', (first,))
+        conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (first,))
+        conn.execute('UPDATE ka.agent_sessions SET input_tokens=5 WHERE id=%s', (first,))
         conn.commit()
         assert notices(listener) == [{'s': str(first)}]  # identical notices in one transaction are folded
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting' WHERE id=%s", (second,))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (second,))
         conn.rollback()
         assert notices(listener) == []  # only committed changes are announced
         conn.execute("INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Hi')",
@@ -75,7 +76,7 @@ def test_session_rows_and_queued_messages_notify_their_session(store):
         conn.execute('DELETE FROM ka.agent_session_inputs WHERE session_id=%s', (second,))
         conn.commit()
         assert notices(listener) == [{'s': str(second)}]
-        conn.execute('DELETE FROM ka.agent_sessions_cc WHERE id=%s', (first,))
+        conn.execute('DELETE FROM ka.agent_sessions WHERE id=%s', (first,))
         conn.commit()
         assert notices(listener) == [{'s': str(first)}]
 
@@ -84,17 +85,17 @@ def test_lease_only_session_updates_are_silent(store):
     _, _, (first, _) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
-        conn.execute("UPDATE ka.agent_sessions_cc SET lease_expires_at=now()+interval '1 minute' WHERE id=%s", (first,))
+        conn.execute("UPDATE ka.agent_sessions SET lease_expires_at=now()+interval '1 minute' WHERE id=%s", (first,))
         conn.commit()
         assert notices(listener) == []  # a lease renewal (updated_at moves too) is not news
-        conn.execute('UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s', (first,))
+        conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (first,))
         conn.commit()
         assert notices(listener) == []
-        conn.execute('UPDATE ka.agent_sessions_cc SET lease_expires_at=NULL,last_activity_at=now() WHERE id=%s', (first,))
+        conn.execute('UPDATE ka.agent_sessions SET lease_expires_at=NULL,last_activity_at=now() WHERE id=%s', (first,))
         conn.commit()
         assert notices(listener) == []
         for change in ("status='working'", 'turns=1', 'output_tokens=7', "worker_id='w1'"):
-            conn.execute(f"UPDATE ka.agent_sessions_cc SET {change},lease_expires_at=now() WHERE id=%s", (first,))
+            conn.execute(f"UPDATE ka.agent_sessions SET {change},lease_expires_at=now() WHERE id=%s", (first,))
             conn.commit()
             assert notices(listener) == [{'s': str(first)}], change
 
@@ -103,6 +104,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
     project, _, (first, _) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
+        run(conn, LATER_DOWN)  # 0084 renamed the table the down migration names
         run(conn, DOWN)
         conn.commit()
         conn.execute("UPDATE ka.agent_sessions_cc SET status='working' WHERE id=%s", (first,))
@@ -110,7 +112,8 @@ def test_down_removes_the_notices_and_up_restores_them(store):
         conn.commit()
         assert notices(listener) == []
         run(conn, UP)
+        run(conn, LATER_UP)
         conn.commit()
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='waiting' WHERE id=%s", (first,))
+        conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (first,))
         conn.commit()
         assert notices(listener) == [{'s': str(first)}]

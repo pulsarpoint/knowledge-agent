@@ -339,9 +339,7 @@ def item(name: str, mode: str, usage: str | None = None, group: str | None = Non
 
 
 def implied_tools(config: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    """The tools the capabilities gave before tools were chosen (the 0078 backfill rule). Claude Code: none."""
-    if config.get('runtime', 'openai') != 'openai':
-        return {'items': []}
+    """The tools the capabilities gave before tools were chosen (the 0078 backfill rule)."""
     return {'items': [item(spec.name, 'on' if spec.default_on(config) else 'off') for spec in CATALOG.values()]}
 
 
@@ -423,9 +421,7 @@ def enabled_capability_tools(config: Mapping[str, Any]) -> list[str]:
 
 def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
     """All agents: how many tools are on with their need met (by the capability switches, as the Tools tab judges),
-    per group, MCP tools of enabled servers included; Claude Code agents: their Claude Code tools."""
-    if config.get('runtime', 'openai') != 'openai':
-        return {'claude_code_tools': list(config.get('claude_code_tools', []))}
+    per group, MCP tools of enabled servers included."""
     chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
     groups = {'code': 0, 'documents': 0, 'servers': 0, 'mcp': 0, 'agents': 0}
     for spec in CATALOG.values():

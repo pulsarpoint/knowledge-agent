@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError, getEnvironments, getServers, getServices } from '~/lib/api';
-import { createSession, DEFAULT_SYSTEM_PROMPT, getGenerationContext, type Selection } from '~/lib/claudeCode';
+import { createSession, DEFAULT_SYSTEM_PROMPT, getGenerationContext, type Selection } from '~/lib/generations';
 import { getCodeProjects } from '~/lib/codeProjects';
 import { defaultFolder, documentSlug, folderError, getDocumentationFolders, getDocumentationPrompt, getDocumentationPrompts, type DocumentationPrompt } from '~/lib/documents';
 import { codeCompatible, getLlmSettings, type ModelProfile } from '~/lib/llm';

@@ -112,14 +112,14 @@ def test_apply_is_refused_when_the_original_changed_or_is_working(store, saved_a
     value = preview(client, copy_id)
     session = uuid4()
     with store.connect() as conn:  # a documentation session of the original is working
-        conn.execute('''INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-            context_snapshot,document_name,folder,status) SELECT %s,p.id,'operations',(SELECT id FROM ka.principals LIMIT 1),
-            %s,'Payments','{}','{}','Payments','payments','working' FROM ka.projects p WHERE p.archived_at IS NULL''',
+        conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+            context_snapshot,document_name,folder,status,agent_config) SELECT %s,p.id,'operations',(SELECT id FROM ka.principals LIMIT 1),
+            %s,'Payments','{}','{}','Payments','payments','working','{"id": "operations"}' FROM ka.projects p WHERE p.archived_at IS NULL''',
             (session, model['id']))
     working = apply(client, copy_id, value)
     assert working.status_code == 409 and working.json()['error']['message'] == APPLY_WORKING
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='stopped' WHERE id=%s", (session,))
+        conn.execute("UPDATE ka.agent_sessions SET status='stopped' WHERE id=%s", (session,))
     assert apply(client, copy_id, value).status_code == 200
 
 

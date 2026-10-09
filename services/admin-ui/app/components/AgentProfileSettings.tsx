@@ -1,9 +1,8 @@
 import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
-import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources, type AgentRuntime } from '../lib/profiles';
+import { RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources } from '../lib/profiles';
 import { SUBAGENTS_HELP } from '../lib/tools';
 import { codeCompatible, getLlmSettings, type ModelProfile } from '../lib/llm';
-import { claudeModel } from '~/lib/claudeCode';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -16,9 +15,8 @@ import { Switch } from '~/components/ui/switch';
 import { toast } from 'sonner';
 
 const NO_MODEL = 'none';
-/** A model this agent type can run: Claude connections only for Claude Code. */
-const fits = (runtime: AgentRuntime | undefined, model: ModelProfile) =>
-  model.enabled && model.api_format !== 'embeddings' && (runtime === 'claude_code' ? claudeModel(model) : codeCompatible(model));
+/** A model this agent can run. */
+const fits = (model: ModelProfile) => model.enabled && model.api_format !== 'embeddings' && codeCompatible(model);
 
 function ResourceSelection({ label, options, selected, onChange, disabled }: { label: string; options: { id: string; name: string; description?: string; enabled?: boolean }[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
   return <FieldSet disabled={disabled}><FieldLegend variant="label">{label}</FieldLegend><div className="max-h-60 overflow-auto rounded-md border p-3">
@@ -58,34 +56,21 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <Field><FieldLabel htmlFor="agent-name">Name</FieldLabel><Input id="agent-name" required maxLength={100} disabled={busy} value={draft.name} onChange={e => change({ name: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. Agents are currently selected explicitly.</FieldDescription></Field>
-      <Field><FieldLabel htmlFor="agent-type">Agent type</FieldLabel>
-        <Select value={draft.runtime ?? 'openai'} disabled={busy} onValueChange={value => { const runtime = value as AgentRuntime; const current = models?.find(m => m.id === draft.model_id);
-          change({ runtime, ...(current && !fits(runtime, current) ? { model_id: null } : {}) }); }}>
-          <SelectTrigger id="agent-type"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
-        <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>
       <Field><FieldLabel htmlFor="agent-model">Model</FieldLabel>
         <Select value={draft.model_id ?? NO_MODEL} disabled={busy || !models} onValueChange={value => change({ model_id: value === NO_MODEL ? null : value })}>
           <SelectTrigger id="agent-model"><SelectValue placeholder={modelsError ? 'Models unavailable' : 'Loading models…'} /></SelectTrigger>
           <SelectContent><SelectGroup><SelectItem value={NO_MODEL}>Not configured</SelectItem>
-            {models?.filter(m => fits(draft.runtime, m) || m.id === draft.model_id).map(m => <SelectItem key={m.id} value={m.id} disabled={!fits(draft.runtime, m)}>{m.name}{!m.enabled && ' (disabled)'}</SelectItem>)}
+            {models?.filter(m => fits(m) || m.id === draft.model_id).map(m => <SelectItem key={m.id} value={m.id} disabled={!fits(m)}>{m.name}{!m.enabled && ' (disabled)'}</SelectItem>)}
           </SelectGroup></SelectContent></Select>
-        <FieldDescription>{modelsError || <>{draft.runtime === 'claude_code' ? 'Claude Code agents use Claude connections only: Bedrock inference profiles (eu.anthropic.claude-…) or the Anthropic API.' : 'An enabled Responses connection or a Claude model.'} An agent runs only after a model is selected. <Link to="/llm-settings" className="underline underline-offset-4">Manage model connections</Link></>}</FieldDescription></Field>
+        <FieldDescription>{modelsError || <>An enabled Responses connection or a Claude model. An agent runs only after a model is selected. <Link to="/llm-settings" className="underline underline-offset-4">Manage model connections</Link></>}</FieldDescription></Field>
             <Field><FieldLabel htmlFor="agent-resources">Resources</FieldLabel>
         <Select value={draft.resources ?? 'fixed'} disabled={busy} onValueChange={value => change({ resources: value as AgentResources })}>
           <SelectTrigger id="agent-resources"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
         <FieldDescription>{RESOURCES_HELP[draft.resources ?? 'fixed']}</FieldDescription></Field>
-      {draft.runtime !== 'claude_code' && <Field orientation="horizontal"><Switch id="agent-subagents" disabled={busy} checked={Boolean(draft.subagents)} onCheckedChange={subagents => change({ subagents })} /><div><FieldLabel htmlFor="agent-subagents">May start subagents</FieldLabel><FieldDescription>{SUBAGENTS_HELP}</FieldDescription></div></Field>}
+      <Field orientation="horizontal"><Switch id="agent-subagents" disabled={busy} checked={Boolean(draft.subagents)} onCheckedChange={subagents => change({ subagents })} /><div><FieldLabel htmlFor="agent-subagents">May start subagents</FieldLabel><FieldDescription>{SUBAGENTS_HELP}</FieldDescription></div></Field>
       <Field orientation="horizontal"><Switch id="agent-available" disabled={busy} checked={draft.enabled} onCheckedChange={enabled => change({ enabled })} /><div><FieldLabel htmlFor="agent-available">Enable agent</FieldLabel><FieldDescription>Disabled agents retain their settings and cannot start new tasks.</FieldDescription></div></Field>
       </FieldGroup></div>
-      {view === 'general' && draft.runtime === 'claude_code' && <FieldSet className="rounded-lg border p-4"><FieldLegend>Claude Code tools</FieldLegend>
-        <FieldDescription>Claude Code’s own tools over the agent’s working folders. With all four off, the agent has only catalog tools, which come in the next update.</FieldDescription>
-        {CLAUDE_CODE_TOOL_NAMES.map(tool => { const tools = draft.claude_code_tools ?? [...CLAUDE_CODE_TOOL_NAMES]; return <Field key={tool} orientation="horizontal">
-          <Switch id={`claude-code-tool-${tool}`} disabled={busy} checked={tools.includes(tool)}
-            onCheckedChange={on => change({ claude_code_tools: CLAUDE_CODE_TOOL_NAMES.filter(name => name === tool ? on : tools.includes(name)) })} />
-          <FieldLabel htmlFor={`claude-code-tool-${tool}`}>{tool}</FieldLabel></Field>; })}
-      </FieldSet>}
       {capability && <Field orientation="horizontal"><Switch id={`capability-${capability[0]}`} checked={draft[capability[0]]} disabled={busy} onCheckedChange={enabled => { change({ [capability[0]]: enabled }); if (view === 'skills') setSkillsDirty(true); }} /><div><FieldLabel htmlFor={`capability-${capability[0]}`}>Enable {capability[1].replace(/^[A-Z][a-z]+/, word => word.toLowerCase())}</FieldLabel><FieldDescription>{draft[capability[0]] ? 'Enabled for this agent after saving.' : 'Disabled. Its saved settings are retained.'}</FieldDescription></div></Field>}
       <div hidden={view !== 'skills'}><FieldGroup>
         {skillsDirty && configurationDirty && <Alert><AlertDescription>Save or discard changes in General, SSH, or MCP before saving skills.</AlertDescription></Alert>}

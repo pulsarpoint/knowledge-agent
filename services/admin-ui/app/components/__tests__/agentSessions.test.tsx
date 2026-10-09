@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AgentTestView from '../AgentTestView';
 import * as tests from '../../lib/testSessions';
 import * as reviews from '../../lib/reviews';
-import type { SessionDetail } from '../../lib/claudeCode';
+import type { SessionDetail } from '../../lib/generations';
 import { getAgentConfig, getRunResourceOptions, type RunResourceOptions } from '../../lib/profiles';
 vi.mock('../../lib/testSessions');
 vi.mock('../../lib/reviews');
@@ -17,9 +17,9 @@ class Stream extends EventTarget {
   constructor(public url: string) { super(); Stream.instances.push(this); }
 }
 const session = {
-  id: 's1', title: 'How many retries?', purpose: 'test', runtime: 'openai', agent_id: 'custom', agent_name: 'Custom agent',
+  id: 's1', title: 'How many retries?', purpose: 'test', agent_id: 'custom', agent_name: 'Custom agent',
   model_name: 'GPT', model_id: 'gpt', status: 'waiting', status_message: '', turns: 1, input_tokens: 120, output_tokens: 30,
-  cached_tokens: 0, cost_usd: 0, model_calls: 1, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null,
+  cached_tokens: 0, model_calls: 1, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null,
   document_title: null, document_name: null, folder: null, worker_active: true, queued: 0, run_resources: null,
   prompt_snapshot: { system_prompt: 'Help.' }, context_snapshot: { folders: [], code_project_ids: [] }, inputs: [], tool_counts: [],
   tool_counts_through_id: 0, config: { id: 'custom', system_prompt: { content: 'Pinned prompt.' } }, reviews: [],
@@ -72,7 +72,7 @@ it('the first message starts a Test session and opens it; a follow-up goes to th
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'And timeouts?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  await waitFor(() => expect(posts).toContainEqual({ url: '/api/claude-code/sessions/s1/messages', body: { text: 'And timeouts?' } }));
+  await waitFor(() => expect(posts).toContainEqual({ url: '/api/generations/sessions/s1/messages', body: { text: 'And timeouts?' } }));
   expect(await screen.findByText('Sent. The agent starts a new turn with your message.')).toBeVisible();
   expect(tests.createTestSession).toHaveBeenCalledTimes(1);
 });
@@ -167,7 +167,7 @@ it('blocked reasons: a disabled agent, unsaved changes and a closed session; Clo
   fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
   expect(posts).toEqual([]);
   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Close session' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/api/claude-code/sessions/s1/close']));
+  await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/api/generations/sessions/s1/close']));
   expect(await screen.findByText('This session is closed. Start a new session to continue.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Close session' })).toBeNull();
 });
@@ -177,7 +177,7 @@ it('Stop asks the working agent to stop', async () => {
   renderPage('?view=test&session_id=s1');
   await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/claude-code/sessions/s1/stop'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/stop'));
   expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
 });
 

@@ -1,26 +1,24 @@
 # Agent execution status
 
-The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions_cc` with `purpose = 'test'`, run by
-`agent-session-worker` exactly like native Generate documents sessions (claim and lease, turns, comments delivered
+The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions` with `purpose = 'test'`, run by
+`agent-session-worker` exactly like Generate documents sessions (claim and lease, turns, comments delivered
 between model calls, Stop with a 30-second grace, closing after 24 hours without activity, the worker's concurrency
-limit, no per-turn time limit, no 300-second limit). Test sessions are native only: Claude Code agents are refused with
-`Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.`
+limit, no per-turn time limit, no 300-second limit).
 
 - `POST /api/agents/{id}/sessions` `{ "message": "...", "run_resources": {...}? }` creates a Test session: the agent's
   current configuration (a per-run agent's narrowed to `run_resources`; a fixed agent given resources is refused) is
   pinned in `agent_config` with credential references only, the title is the first 200 characters of the message, and
-  the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled native model
+  the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled model
   (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
 - `GET /api/agents/{id}/sessions` lists the agent's Test sessions, newest first.
-- Everything else is the session API: `GET /api/claude-code/sessions/{id}` (with `purpose`, `model_calls`,
+- Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test sessions, `config` — the pinned configuration — and `reviews`), `POST …/messages`
   (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
   `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
-  `GET /api/claude-code/sessions` (Generate documents) lists documentation sessions only.
+  `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`); **Full record** links to it. The `end`
-  event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). The header's and each
-  turn's model calls are not shown for Claude Code sessions (only native sessions count them).
+  event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
 - `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test sessions only; refused
   while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
@@ -41,8 +39,8 @@ loads. The header and the main agent's sidebar entry show the session totals inc
 Worked line counts only its own work.
 
 Test chats from before migration 0081 were deleted with their tables; their run records (`run:<id>`) stay in Agent runs.
-`scripts/migrate_agent_session_history.py` (the one-off importer of pre-0036 session history files) reads the dropped
-`ka.agent_sessions` table and applies only to databases before 0081.
+`scripts/migrate_agent_session_history.py` (the one-off importer of pre-0036 session history files) reads the old,
+dropped `ka.agent_sessions` table (the name now belongs to the renamed sessions table) and applies only to databases before 0081.
 
 ### Grounded answers
 
@@ -121,7 +119,7 @@ are not copied. The clone records `cloned_from` and shows *Clone of <original>* 
 - `POST /api/agents/{id}/clone`: creates the clone and returns it (409 `An agent with this name already exists.`
   if a concurrent clone took the name).
 - `GET /api/agents/{id}/apply`: for a clone, the sections that differ from its original (`Prompt`, `Instructions`,
-  `When to use`, `Model`, `Agent type`, `Resources`, `Tools`, `Skills`, `Documents`, `Code projects`, `SSH`, `MCP`,
+  `When to use`, `Model`, `Resources`, `Tools`, `Skills`, `Documents`, `Code projects`, `SSH`, `MCP`,
   `Services`), the original's revision and a fingerprint of its configuration. 404 `This agent is not a clone.` when
   the agent is not a clone or the original was deleted.
 - `POST /api/agents/{id}/apply`: **Apply to <original>** replaces the original's configuration with the clone's in

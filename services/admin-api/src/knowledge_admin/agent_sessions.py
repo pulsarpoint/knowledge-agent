@@ -1,7 +1,7 @@
 """Test sessions: the agent Test tab's conversations, run by agent-session-worker like native Generate documents
-sessions (ka.agent_sessions_cc with purpose 'test'). Here: creating one (the first message becomes input 1), listing
+sessions (ka.agent_sessions with purpose 'test'). Here: creating one (the first message becomes input 1), listing
 an agent's, and Suggest improvements (a tuning review of the conversation). Everything else — detail, messages, Stop,
-Close, the event history and stream — is the session API in claude_code_api."""
+Close, the event history and stream — is the session API in generations_api."""
 import asyncio
 import copy
 import json
@@ -20,9 +20,9 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agents import agent, load_credentials
-from knowledge_admin.claude_code import agent_system_prompt, close_idle
-from knowledge_admin.claude_code_api import session_detail
-from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run, require_native,
+from knowledge_admin.session_text import agent_system_prompt, close_idle
+from knowledge_admin.generations_api import session_detail
+from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run,
                                                      require_run_resources)
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.knowledge_agents.session_worker import run_key
@@ -129,13 +129,12 @@ def build_api(app_name, store):
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
             try:
-                require_native(config)
                 pinned = resolve(conn, project, config, value.run_resources)
                 require_run_resources(pinned)
                 if not pinned['enabled']:
                     raise ValueError('Agent is disabled.')
                 model = pinned['model']
-                if model is None or not model['enabled'] or not model_fits('openai', model):
+                if model is None or not model['enabled'] or not model_fits(model):
                     raise ValueError(NO_MODEL)
             except RunResourceError as exc:  # a ValueError: caught first
                 raise HTTPException(400, str(exc)) from None
@@ -143,9 +142,9 @@ def build_api(app_name, store):
                 raise HTTPException(409, str(exc)) from None
             session_id = uuid4()
             # The worker decrypts per turn: the pinned config holds credential references only.
-            conn.execute("""INSERT INTO ka.agent_sessions_cc(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-                context_snapshot,purpose,runtime,agent_config,run_resources)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'test','openai',%s,%s)""",
+            conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+                context_snapshot,purpose,agent_config,run_resources)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'test',%s,%s)""",
                 (session_id, project, agent_id, actor, model['id'], value.message[:200],
                  Jsonb({'system_prompt': agent_system_prompt(pinned)}), Jsonb(NO_SUBJECTS),
                  Jsonb(jsonable_encoder(pinned)), Jsonb(pinned['run_resources']) if per_run(config) else None))
@@ -164,7 +163,7 @@ def build_api(app_name, store):
         with db.connect() as conn:
             close_idle(conn)
             return {'sessions': conn.execute('''SELECT s.id,s.title,s.status,s.created_at,s.last_activity_at,
-                p.email AS actor_email FROM ka.agent_sessions_cc s JOIN ka.principals p ON p.id=s.actor_id
+                p.email AS actor_email FROM ka.agent_sessions s JOIN ka.principals p ON p.id=s.actor_id
                 WHERE s.agent_id=%s AND s.project_id=%s AND s.purpose='test'
                 ORDER BY s.created_at DESC,s.id LIMIT 100''', (agent_id, db.project(conn, app_name))).fetchall()}
 
@@ -180,7 +179,7 @@ def build_api(app_name, store):
             if not locked['locked']:  # one review per session at a time
                 raise HTTPException(409, REVIEW_BUSY)
             with db.connect() as conn:
-                session = conn.execute('''SELECT purpose,status,turns,agent_config FROM ka.agent_sessions_cc
+                session = conn.execute('''SELECT purpose,status,turns,agent_config FROM ka.agent_sessions
                     WHERE id=%s AND agent_id=%s AND project_id=%s''',
                     (session_id, agent_id, db.project(conn, app_name))).fetchone()
                 if session is None:
@@ -240,7 +239,7 @@ def build_api(app_name, store):
                     RETURNING id,comment,suggestion,response_turn,created_at,context->'changes' AS changes''',
                     (session_id, db.actor(conn, *actor), context['comment'], Jsonb(context), proposal.suggestion,
                      value.turn)).fetchone()
-                conn.execute("UPDATE ka.agent_sessions_cc SET last_activity_at=now() WHERE id=%s AND status<>'closed'",
+                conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s AND status<>'closed'",
                              (session_id,))
                 return row
 

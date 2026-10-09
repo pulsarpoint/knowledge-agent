@@ -51,7 +51,7 @@ def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) 
 
     return jsonable_encoder({
         'id': AD_HOC_AGENT, 'name': AD_HOC_NAME, 'description': '', 'when_to_use': '', 'enabled': True, 'revision': 0,
-        'runtime': 'openai', 'claude_code_tools': [], 'resources': 'per_run', 'model': model,
+        'resources': 'per_run', 'model': model,
         'system_prompt': {'content': system_prompt}, 'instructions': '', 'settings_revision': None,
         'documents': {'enabled': True, 'grounded': False, 'all_collections': True, 'collections': []},
         'code': {'enabled': True, 'all_projects': True, 'projects': [], 'graphs': []},

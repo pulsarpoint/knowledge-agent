@@ -1,5 +1,5 @@
 """agent-session-worker with a fake native runtime: turns, events, the draft, tokens, history, Stop at any point,
-comments delivered inside a running turn, failures, credentials, and both workers side by side."""
+comments delivered inside a running turn, failures and credentials."""
 import asyncio
 import json
 import tomllib
@@ -11,15 +11,14 @@ from agents import RunHooks
 from agents.run_config import ModelInputData
 from psycopg.types.json import Jsonb
 
-from claude_code_fakes import FakeClient
 from native_fakes import FakeAgent, call, hang, llm, message, stubborn, tool
-from knowledge_admin import claude_code_worker, run_record
+from knowledge_admin import run_record
 from knowledge_admin.agents import agent
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession
-from test_claude_code_runner import done, events, post, session_row, wait_for
-from test_claude_code_sessions import claude_code_session, sessions, start  # noqa: F401  (fixture)
+from run_helpers import events, post, session_row, wait_for
+from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -31,13 +30,12 @@ FAILED = 'Agent execution failed (RuntimeError). Check the model connection and 
 def native(sessions, monkeypatch):
     """An ad-hoc session with the Claude model that documents the Payments API code project and runs with it."""
     monkeypatch.setattr(run_record, '_store', sessions.store)
-    monkeypatch.setattr(claude_code_worker, 'reclaim_slot', lambda session_id, slot: None)
     session = start(sessions, model_id=sessions.claude, environment_ids=[], service_ids=[])
     return sessions, UUID(session['id'])
 
 
 def claimed(store) -> dict:
-    [row] = shared.claim(store, 'worker-1', [], 4, 'openai')
+    [row] = shared.claim(store, 'worker-1', [], 4)
     return row
 
 
@@ -57,9 +55,9 @@ def leftover_tasks() -> list[asyncio.Task]:
 
 def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     sessions, sid = native
-    store, url, data = sessions.store, f'/api/claude-code/sessions/{sid}', sessions.data
+    store, url, data = sessions.store, f'/api/generations/sessions/{sid}', sessions.data
     with store.connect() as conn:  # a run record setting never reaches a session turn (agent() would record it)
-        conn.execute('UPDATE ka.agent_sessions_cc SET agent_config=agent_config || %s WHERE id=%s',
+        conn.execute('UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
                      (Jsonb({'record': {'run_key': 'run:x'}}), sid))
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'read_file', {'path': f'{data}/code/app/main.py'}), input_tokens=100, output_tokens=10,
@@ -95,8 +93,8 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     code = first['config']['code']
     assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
     row = session_row(store, sid)
-    assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'], row['cached_tokens'],
-            row['cost_usd']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40, 0)
+    assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'],
+            row['cached_tokens']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40)
     assert row['history'] == [*second['history'], {'role': 'user', 'content': 'Shorten it.'},
                               {'role': 'assistant', 'content': '# Payments API\n\nShort.'}]
     recorded = events(store, sid)
@@ -109,8 +107,8 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
     assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
     assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
-        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110, 'cost_usd': 0.0},
-        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150, 'cost_usd': 0.0}]
+        {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110},
+        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150}]
     assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == ['start', 'input', 'message', 'usage', 'end']
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']
@@ -123,7 +121,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
 
 def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     fake = FakeAgent([
         {'steps': [llm(message('# Draft one'), input_tokens=10, output_tokens=5)], 'answer': '# Draft one'},
         {'steps': [llm(message('Reading more'), input_tokens=7, output_tokens=1)], 'error': RuntimeError('boom')},
@@ -169,7 +167,7 @@ def test_a_grounding_failure_still_finishes_the_turn_as_waiting_with_its_answer(
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
         done = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
         return done
 
@@ -184,7 +182,7 @@ def test_session_tokens_rise_after_every_model_call_and_count_once(native):
     """The session page's In/Out/Cached follow the turn live; the end of the turn adds nothing more, and a stopped turn
     keeps the tokens of its finished model calls."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     reached, go = [asyncio.Event() for _ in range(4)], [asyncio.Event() for _ in range(4)]
 
     def pause(n: int):
@@ -236,7 +234,7 @@ def test_session_tokens_rise_after_every_model_call_and_count_once(native):
 def test_stop_ends_the_turn_wherever_it_is_and_leaves_nothing_running(native, where):
     """Before the first model call (MCP connections), during a model request, during a slow tool call."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, cancelled = asyncio.Event(), []
     steps = [hang(where, started, cancelled)]
     if where == 'tool':
@@ -271,7 +269,7 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     """After Stop and the grace, the turn left running starts no tool call and no model request, and records
     nothing."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 0.2)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
     after = [tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]
@@ -354,7 +352,7 @@ def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_star
     """While a turn that ignores cancellation is in its Stop grace, a model call it still makes gets no message sent
     after Stop: the message stays queued and becomes the next turn's task."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
     fake = FakeAgent([{'steps': [stubborn(started, ignored, release), llm(message('Late'))], 'answer': 'Late'},
@@ -384,7 +382,7 @@ def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_star
 
 def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -423,7 +421,7 @@ def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
 
 def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_turn(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -451,7 +449,7 @@ def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_tur
 
 def test_a_comment_delivered_to_a_turn_the_user_stopped_is_discarded_like_queued_messages(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, gate, waiting, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
@@ -481,14 +479,14 @@ def test_returned_comments_are_queued_again_only_into_an_open_session_without_st
     store = sessions.store
     runner = native_sessions.NativeRunner(store, claimed(store), FakeAgent([]))
     assert runner.next_turn()[0] == 1
-    url = f'/api/claude-code/sessions/{sid}'
+    url = f'/api/generations/sessions/{sid}'
     for text in ('One', 'Two'):
         sessions.client.post(url + '/messages', headers=HEADERS, json={'text': text})
     ids = []
     runner.queued_comments(1, on_delivered=lambda conn, rows: ids.extend(r['id'] for r in rows))
     runner.return_comments(1, ids[:1])  # failed turn, open session: queued again
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (sid,))
     runner.return_comments(1, ids[1:])  # closed session: discarded
     assert inputs(store, sid)[1:] == [('One', 'queued', None), ('Two', 'discarded', None)]
 
@@ -499,7 +497,7 @@ def test_comments_are_marked_delivered_only_with_their_input_event(native):
     store = sessions.store
     runner = native_sessions.NativeRunner(store, claimed(store), FakeAgent([]))
     assert runner.next_turn()[0] == 1  # turn 1 is running
-    sessions.client.post(f'/api/claude-code/sessions/{sid}/messages', headers=HEADERS, json={'text': 'Also cover retries.'})
+    sessions.client.post(f'/api/generations/sessions/{sid}/messages', headers=HEADERS, json={'text': 'Also cover retries.'})
 
     def broken(conn, delivered):
         raise RuntimeError('recording failed')
@@ -516,7 +514,7 @@ def test_comments_are_marked_delivered_only_with_their_input_event(native):
 def test_no_credential_reaches_events_history_the_draft_or_the_status(native, caplog):
     caplog.set_level('DEBUG')
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     fake = FakeAgent([
         {'steps': [llm(call('c1', 'shell_run', {'command': f'echo {KEY}'})),
                    tool('c1', 'shell_run', f'{KEY}\x00 printed'), llm(message(f'Key {KEY}'))],
@@ -568,36 +566,12 @@ def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
         failed = await wait_for(store, sid, lambda s: s['status'] == 'failed')
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
         return failed
 
     failed = asyncio.run(scenario())
     assert failed['status_message'] == 'The configured model is unavailable or disabled.' and fake.calls == []
-
-
-def test_both_workers_run_only_their_own_sessions(native):
-    sessions, native_id = native
-    store = sessions.store
-    claude_id = UUID(claude_code_session(sessions)['id'])
-    client = FakeClient([[done('# Claude draft')]])
-    fake = FakeAgent([{'steps': [llm(message('# Native draft'))], 'answer': '# Native draft'}])
-
-    async def scenario():
-        stopped = asyncio.Event()
-        workers = [
-            asyncio.create_task(claude_code_worker.serve(store, client, stopped=stopped, worker_id='cc-1', limit=2, poll=0.02)),
-            asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=2, poll=0.02))]
-        await wait_for(store, claude_id, lambda s: s['status'] == 'waiting')
-        await wait_for(store, native_id, lambda s: s['status'] == 'waiting')
-        stopped.set()
-        await asyncio.wait_for(asyncio.gather(*workers), 5)
-
-    asyncio.run(scenario())
-    assert (session_row(store, claude_id)['draft'], session_row(store, native_id)['draft']) == ('# Claude draft', '# Native draft')
-    assert (len(client.queries), len(fake.calls)) == (1, 1)
-    assert [e['payload']['kind'] for e in events(store, claude_id) if e['kind'] == 'start'] == ['claude_code']
-    assert [e['payload']['kind'] for e in events(store, native_id) if e['kind'] == 'start'] == ['native_session']
 
 
 def test_a_turn_without_a_turn_limit_outlasts_the_request_timeout(config, responses_api):
@@ -664,7 +638,7 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
     row = claimed(store)
     assert (row['id'], row['agent_id'], row['agent_name']) == (sid, None, 'Ad-hoc agent')
     with store.connect() as conn:  # hand the claimed session back so serve() claims it itself
-        conn.execute('UPDATE ka.agent_sessions_cc SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
+        conn.execute('UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s', (sid,))
     fake = FakeAgent([{'steps': [llm(message('# Draft'))], 'answer': '# Draft'}])
 
     async def scenario():
@@ -672,7 +646,7 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
         serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
                                                             poll=0.02))
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await wait_for(store, sid, lambda s: s['worker_id'] is None)
         stopped.set()
         await asyncio.wait_for(serving, 5)

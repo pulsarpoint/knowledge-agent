@@ -7,7 +7,7 @@ import ServerSSHForm from '../ServerSSHForm';
 import * as api from '../../lib/operations';
 import { getAgentConfig, getRunResourceOptions, type AgentProfile } from '../../lib/profiles';
 import { createTestSession } from '../../lib/testSessions';
-import type { SessionDetail } from '../../lib/claudeCode';
+import type { SessionDetail } from '../../lib/generations';
 vi.mock('../../lib/operations');
 vi.mock('../../lib/profiles');
 vi.mock('../../lib/testSessions');

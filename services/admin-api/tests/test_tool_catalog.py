@@ -20,7 +20,7 @@ SERVER = {'id': 'host', 'name': 'Host', 'hostname': 'host.test', 'port': 22, 'us
 
 def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), tools=None):
     value = {'id': 'agent', 'name': 'Agent', 'description': '', 'instructions': '', 'enabled': True,
-             'runtime': 'openai', 'resources': 'fixed', 'system_prompt': {'content': 'Answer.'},
+             'resources': 'fixed', 'system_prompt': {'content': 'Answer.'},
              'code': {'enabled': code, 'projects': [], 'graphs': list(graphs)},
              'documents': {'enabled': documents, 'grounded': grounded, 'all_collections': False, 'collections': []},
              'ssh': {'enabled': ssh, 'servers': [SERVER] if ssh else []},

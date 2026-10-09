@@ -54,6 +54,12 @@ The migration file format and CLI behavior follow the
 [CLI documentation](https://github.com/golang-migrate/migrate/blob/master/cmd/migrate/README.md),
 and [PostgreSQL driver options](https://github.com/golang-migrate/migrate/blob/master/database/postgres/README.md).
 
+## 0082_ad_hoc_sessions
+
+`ka.agent_sessions_cc.agent_id` becomes nullable: a Generate documents session runs an ad-hoc native agent pinned in
+`agent_config` and has no `ka.agents` row. A check allows a null `agent_id` only for a `documents` native session with a
+pinned config. The down migration deletes such sessions (their inputs cascade; run records stay) and makes `agent_id` required again.
+
 ## 0078_agent_tools
 
 Creates `ka.agent_tools` (one row per agent and tool: `mode` on/off/per_run, optional edited `usage`,
@@ -83,7 +89,7 @@ the version column on sessions (`agent_sessions.agent_version_id`) and its const
 
 ## 0081_test_sessions
 
-Test chats become sessions run by agent-session-worker. `ka.agent_sessions_cc` gets `purpose` (`documents` for Generate
+Test chats become sessions run by agent-session-worker. `ka.agent_sessions_cc` (renamed `ka.agent_sessions` by 0084) gets `purpose` (`documents` for Generate
 documents sessions, `test` for the agent Test tab), `model_calls` and `reasoning_tokens` (native sessions add them per
 model call); `document_name` and `folder` become nullable, with checks that a documentation session has both and a Test
 session has neither (and no draft, draft turn or document), and that a Test session is native. `ka.agent_session_reviews`
@@ -104,3 +110,14 @@ rows, `{"s": "<session uuid>", "e": <newest id>}` (other run keys send nothing);
 uuid>"}` per row (identical notices in one transaction are folded). The down migration drops the triggers and their
 functions; without them no session page hears of changes. The polling code is gone from this version, so rolling back
 0083 requires the previous app version too.
+
+## 0084_remove_claude_code
+
+Claude Code agents are gone. Each Claude Code agent becomes a native agent with the tools its enabled capabilities give
+(`ka.agent_tools` rows, as a switch to native did). Claude Code sessions are deleted with their inputs and reviews;
+saved documents stay, and their run records (`cc:<session>:<turn>` in `ka.agent_run_events`) stay readable in Agent
+runs. It drops `ka.agents.runtime` and `claude_code_tools`, drops `ka.agent_sessions_cc.runtime`, `claude_session_id`
+and `cost_usd` with their checks, makes `agent_config` required, and renames the table to `ka.agent_sessions` with its
+constraints and indexes (`agent_sessions_cc_*` becomes `agent_sessions_*`); the 0083 notice triggers stay on the renamed table. Old audit rows keep their
+`claude_code.session.*` actions. The down migration restores the columns and the old table name (every agent and session
+comes back native); the deleted Claude Code sessions and the original agent types do not come back.

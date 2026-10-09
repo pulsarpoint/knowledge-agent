@@ -30,22 +30,6 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- `claude-code-worker` runs **Generate documents** sessions with the Claude Agent SDK.
-  It is on its own `claude-code` network, shared only with `postgres` (not internal, so
-  it keeps internet egress to Bedrock or Anthropic); Bash in a session cannot reach
-  `admin-api`, `admin-web`, `rag`, `litellm`, Keycloak, the proxies or Phoenix. It sees
-  `DATA_ROOT` read-only; its only writable mount is the `claude-code-home` volume at
-  `/home/claude`. The worker runs as root (`cap_add: SETUID, SETGID, CHOWN`) to keep the
-  database password and encryption key to itself. Each running session holds one worker
-  slot and its Claude Code process runs as that slot's user, `claude1`..`claude8`
-  (uids 1001-1008, group `claude`, gid 1001), with the session's own HOME,
-  `/home/claude/sessions/<session id>` (0700). A later turn may run in another slot: the
-  CLI wrapper hands the session's HOME (and its transcript, for resume) to the new
-  slot's user. When a session leaves its slot, the worker kills the slot user's
-  processes, removes its `/dev/shm` entries and takes the HOME back for root before
-  the slot is reused (SysV IPC objects are not removed: an accepted residual). At most 8 sessions run at once (`CLAUDE_CODE_MAX_SESSIONS`, default 4).
-  Files under `DATA_ROOT` must be readable by the claude users: world-readable, or
-  group-readable by gid 1001.
 - `agent-session-worker` runs native agents' **Generate documents** sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
@@ -275,7 +259,7 @@ The recorded migration version stays 71.
 
 ## Upgrading to Generate documents
 
-Docs → Generate documents now runs a Claude Code agent; the one-shot generation and its worker are gone. After pulling this version on an existing installation:
+Docs → Generate documents now runs an agent session; the one-shot generation and its worker are gone. After pulling this version on an existing installation:
 
 1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0073
    deletes the one-shot generation's workflows, jobs, job events and run records;
@@ -294,7 +278,7 @@ Back up the database first: rolling 0073 back restores only the empty tables, no
 Generate documents now also runs native agents. After pulling this version on an existing installation:
 
 1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0074 adds three columns to
-   `agent_sessions_cc` (`runtime`, `agent_config`, `history`); existing sessions are Claude Code sessions.
+   `agent_sessions_cc` (`runtime`, `agent_config`, `history`; renamed `agent_sessions` by 0084); existing sessions are kept.
 2. Start the new service:
    `docker compose --env-file .env -f deploy/compose.yaml up -d agent-session-worker`
 
@@ -315,6 +299,23 @@ existing installation, run the database migration (`make up` runs it, or `make d
 - OpenAI Chat Completions models can no longer be assigned to any agent, because only the coordinator could use them.
   They remain usable as the Search model in LLM Settings.
 - `PHOENIX_PUBLIC_URL` is no longer read; remove it from `.env`.
+
+## Upgrading to the removal of Claude Code agents
+
+Claude Code agents and the `claude-code-worker` are gone; every agent is a native agent and Generate documents runs
+native agents through `agent-session-worker`. After pulling this version on an existing installation:
+
+1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0084 converts Claude Code agents
+   to native agents with the tools of their enabled capabilities, deletes Claude Code sessions with their inputs and
+   reviews, and renames `ka.agent_sessions_cc` to `ka.agent_sessions`. Saved documents stay, and the run records of
+   the deleted sessions stay readable in Agent runs.
+2. Remove the orphaned `claude-code-worker` container and its network:
+   `docker compose --env-file .env -f deploy/compose.yaml up -d --build --remove-orphans`
+   (`make up` does not remove orphans, so the old worker would keep running with database secrets).
+3. `CLAUDE_CODE_MAX_SESSIONS` and `CLAUDE_CODE_CLI` in `.env` are no longer used; delete them.
+4. Verify: `docker ps` lists no `claude-code-worker`, and `docker network ls` lists no `*_claude-code` network.
+
+Back up the database first: rolling 0084 back does not restore the deleted Claude Code sessions.
 
 ## Upgrading to clones instead of versions
 
@@ -351,12 +352,12 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
   turn limit.
 - A saved credential that cannot be decrypted no longer refuses the start: the first turn fails with the worker's
   message.
-- Header and per-turn model calls are not shown for Claude Code sessions.
+- Header and per-turn model calls are not shown for sessions started before native sessions.
 - `scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table: run it only on databases before
   0081 (before the upgrade), never after.
 - `POST /api/agents/{id}/runs` and the other `/api/agents/{id}/runs*` routes are gone, as are
   `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
-  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/claude-code/sessions`.
+  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/generations/sessions`.
 - Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
   the Test chats deleted by the upgrade do not come back.
 

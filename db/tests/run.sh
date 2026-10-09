@@ -58,7 +58,11 @@ run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
-[ "$rolled_back_version" = 82 ]
+[ "$rolled_back_version" = 83 ]
+renamed_back=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_sessions_cc') IS NOT NULL AND to_regclass('ka.agent_sessions') IS NULL")
+[ "$renamed_back" = t ] || { echo 'FAIL: 0084 down did not restore agent_sessions_cc' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 notices_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN
             ('notify_session_events', 'notify_session_change', 'notify_session_removal', 'notify_session_input'))
@@ -88,12 +92,13 @@ prompt_default=$(docker exec "$test_container" psql -X -U postgres -Atc \
         WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'system_prompt'")
 [ "$prompt_default" = t ] || { echo 'FAIL: agents.system_prompt still has a default' >&2; exit 1; }
 printf '%s\n' 'PASS: agents.system_prompt is required and has no default.'
-# 0081 runs Test chats as sessions: the old Test chat tables are gone and agent_sessions_cc has a purpose.
+# 0081 runs Test chats as sessions and 0084 renames agent_sessions_cc to agent_sessions: the old Test chat tables are
+# gone and agent_sessions has a purpose.
 test_sessions=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT to_regclass('ka.agent_sessions') IS NULL AND to_regclass('ka.operations_runs') IS NULL
+    "SELECT to_regclass('ka.agent_sessions_cc') IS NULL AND to_regclass('ka.operations_runs') IS NULL
         AND to_regclass('ka.operations_commands') IS NULL
         AND EXISTS (SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'ka' AND table_name = 'agent_sessions_cc' AND column_name = 'purpose')")
+            WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'purpose')")
 [ "$test_sessions" = t ] || { echo 'FAIL: the old Test chat tables are still there' >&2; exit 1; }
 printf '%s\n' 'PASS: Test chats are sessions; the old Test chat tables are gone.'
 # 0083 announces session changes on ka_sessions: run events, session rows (not lease-only updates) and queued messages.
@@ -101,8 +106,8 @@ session_notices=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT count(*) = 4 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'ka' AND NOT t.tgisinternal AND (c.relname, t.tgname) IN
-            (('agent_run_events', 'notify_session_events'), ('agent_sessions_cc', 'notify_session_change'),
-             ('agent_sessions_cc', 'notify_session_removal'), ('agent_session_inputs', 'notify_session_input'))")
+            (('agent_run_events', 'notify_session_events'), ('agent_sessions', 'notify_session_change'),
+             ('agent_sessions', 'notify_session_removal'), ('agent_session_inputs', 'notify_session_input'))")
 [ "$session_notices" = t ] || { echo 'FAIL: the session notice triggers are missing' >&2; exit 1; }
 printf '%s\n' 'PASS: session changes are announced on ka_sessions.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \

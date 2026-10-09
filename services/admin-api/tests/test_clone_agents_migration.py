@@ -7,17 +7,17 @@ from uuid import uuid4
 import asyncssh
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.knowledge_agents.config import CLAUDE_CODE_TOOLS, get_agent_config, sections
+from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from knowledge_admin.tools.catalog import implied_tools
 from test_agent_ssh import save
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_api import _client
-from test_claude_code_agents import claude_code_agent
 from test_profiles import create
 from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0080_clone_agents.up.sql', '0080_clone_agents.down.sql'
+REMOVED = '0084_remove_claude_code.down.sql'  # renames ka.agent_sessions back to agent_sessions_cc
 LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (('agents', 'active_config_version_id'), ('agents', 'next_config_version'),
@@ -28,8 +28,10 @@ BEFORE = {'tables': list(TABLES), 'function': 1, 'columns': [
 
 
 def run(conn, name: str):
+    if name == DOWN and conn.execute("SELECT to_regclass('ka.agent_sessions_cc') AS r").fetchone()['r'] is None:
+        conn.execute((MIGRATIONS / REMOVED).read_text(), prepare=False)  # newest first, as golang-migrate does
     if name == DOWN and conn.execute("SELECT to_regclass('ka.operations_runs') AS r").fetchone()['r'] is None:
-        conn.execute((MIGRATIONS / LATER).read_text(), prepare=False)  # newest first, as golang-migrate does
+        conn.execute((MIGRATIONS / LATER).read_text(), prepare=False)
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
@@ -57,10 +59,9 @@ def as_saved(config: dict) -> dict:
 def ran_before(saved: dict, agent: dict) -> dict:
     """What get_agent_config returned before 0080 for an agent whose active version this was."""
     config = copy.deepcopy(saved)
-    config['enabled'], config['runtime'] = agent['enabled'], agent['runtime']
-    config.setdefault('claude_code_tools', list(CLAUDE_CODE_TOOLS))  # versions saved before 0072
+    config['enabled'] = agent['enabled']
     config.setdefault('resources', 'fixed')  # versions saved before 0075
-    config['tools'] = {'items': []} if agent['runtime'] != 'openai' else config.get('tools', implied_tools(config))
+    config['tools'] = config.get('tools', implied_tools(config))
     return config
 
 
@@ -68,7 +69,7 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     version = conn.execute('''INSERT INTO ka.agent_versions(agent,version,label,config,created_by,published_at)
         VALUES (%s,1,'Active',%s,%s,now()) RETURNING id''', (agent_id, Jsonb(saved), actor)).fetchone()['id']
     conn.execute('UPDATE ka.agents SET active_config_version_id=%s,next_config_version=2 WHERE id=%s', (version, agent_id))
-    return conn.execute('SELECT enabled,runtime FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
+    return conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
 
 
 def test_every_agent_runs_what_it_ran_before(store, saved_agent):
@@ -89,7 +90,7 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
     with store.connect() as conn:
         taken = conn.execute("SELECT name FROM ka.agents WHERE id='search'").fetchone()['name']
     own, saved['name'] = saved['name'], taken  # another agent has this name now: the agent keeps its own
-    for key_name in ('tools', 'resources', 'claude_code_tools'):  # saved before 0072, 0075 and 0078
+    for key_name in ('tools', 'resources'):  # saved before 0075 and 0078
         saved.pop(key_name)
     with store.connect() as conn:  # the working copy moved on after the version was activated
         conn.execute("UPDATE ka.agent_configs SET instructions='Working copy edits' WHERE agent='operations' AND server_id IS NULL")
@@ -131,7 +132,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         unselected = str(conn.execute('SELECT id FROM ka.repositories WHERE id<>%s', (repo['id'],)).fetchone()['id'])
     saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
     saved.update(name='Payments operator', description='Investigates payment failures.', when_to_use='Payments fail.',
-                 instructions='Gather evidence first.', claude_code_tools=['Read'], resources='fixed')
+                 instructions='Gather evidence first.', resources='fixed')
     saved['system_prompt']['content'] = 'Answer from evidence only.'
     saved['documents']['collections'].append({'id': runbooks, 'name': 'runbooks'})  # deleted before 0080
     saved['code']['projects'].append({'id': unselected, 'name': 'unselected'})  # archived before 0080
@@ -157,7 +158,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         conn.execute("DELETE FROM ka.agent_config_mcp_servers")
         conn.execute("DELETE FROM ka.operations_servers WHERE agent='operations'")
         conn.execute("""UPDATE ka.agents SET model_id=NULL,system_prompt='Working prompt',when_to_use='Later',
-            claude_code_tools='{Grep}',documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
+            documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
             skills_enabled=false,mcp_enabled=false,services_enabled=false,resources='per_run' WHERE id='operations'""")
     drifted = sections(get_agent_config('operations', conninfo=store.conninfo))
     with store.connect() as conn:
@@ -185,28 +186,6 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     assert unselected not in [p['id'] for p in after['code']['projects']]
     assert [(d['agent_id'], d['label'], d['config']['name']) for d in (row['details'] for row in audit)] == [
         ('operations', 'Active', 'Payments operator')]
-
-
-def test_a_claude_code_agent_keeps_its_versions_claude_code_tools(store, tmp_path, monkeypatch):
-    for variable in ('CODE_ROOT', 'DATA_ROOT_DIR'):
-        monkeypatch.setenv(variable, str(tmp_path.resolve()))
-    client = _client(tmp_path, repository_store=store)
-    writer = claude_code_agent(client)
-    saved = as_saved(get_agent_config(writer, conninfo=store.conninfo))
-    saved['claude_code_tools'] = ['Read']
-    saved['system_prompt']['content'] = 'Write runbooks.'
-    with store.connect() as conn:
-        run(conn, DOWN)
-        conn.commit()
-        agent = activate(conn, writer, saved, store.actor(conn, 'migration-admin', 'migration@test'))
-        conn.commit()
-        run(conn, UP)
-        conn.commit()
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_tools WHERE agent_id=%s', (writer,)).fetchone()['n'] == 0
-    after = get_agent_config(writer, conninfo=store.conninfo)
-    assert sections(after) == sections(ran_before(saved, agent))
-    assert (after['claude_code_tools'], after['tools'], after['system_prompt']) == (
-        ['Read'], {'items': []}, {'content': 'Write runbooks.'})
 
 
 def test_pinned_conversations_keep_their_configuration(store, saved_agent):

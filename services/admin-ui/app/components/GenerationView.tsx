@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { closeSession, saveSessionDocument, sendMessage, sessionTypeLabel, stopSession, type SavedDocument } from '~/lib/claudeCode';
+import { closeSession, saveSessionDocument, sendMessage, stopSession, type SavedDocument } from '~/lib/generations';
 import { SAME_DOCUMENT_NAME } from '~/lib/documents';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
@@ -17,7 +17,7 @@ import { Skeleton } from '~/components/ui/skeleton';
 
 /** One Generate documents session on the run workspace: its turns, messages, Stop and Close, and in the sidebar the
  * draft (opened in a wide side panel) with Save document. The page fits the screen; the main pane scrolls on its own. */
-export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string }) {
+export default function GenerationView({ sessionId }: { sessionId: string }) {
   const run = useSessionEvents(sessionId);
   const { session, setSession } = run;
   const [message, setMessage] = useState('');
@@ -35,7 +35,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const send = () => act(async () => {
     const result = await sendMessage(sessionId, message.trim());
     setMessage('');
-    sent(result.working, session?.runtime);
+    sent(result.working);
   });
   const stop = () => act(async () => { await stopSession(sessionId); stopping(); });
   const close = () => act(async () => { await closeSession(sessionId); setSession(current => current && { ...current, status: 'closed' }); });
@@ -59,7 +59,7 @@ export default function ClaudeCodeSessionView({ sessionId }: { sessionId: string
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
   return <div ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col">
-    <RunWorkspace run={run} agentName={session.agent_name} agentType={sessionTypeLabel(session.runtime)}
+    <RunWorkspace run={run} agentName={session.agent_name}
       resources={session.run_resources ? 'Per run' : 'Fixed'} notice={notice}
       heading={<>
         <Link className="self-start underline" to="/documentation/generations">Generate documents</Link>

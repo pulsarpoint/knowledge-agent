@@ -55,7 +55,7 @@ What you can actually do today:
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
   deployments and service-to-service dependencies.
-- **Generate documents with a native or Claude Code agent**: pick an agent and what to document
+- **Generate documents with an agent**: pick a model and what to document
   (code projects, environments, services, servers), follow the session and save the draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
   and MCP tools, and run them interactively (agent **Test** chat).
@@ -71,15 +71,10 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
-               claude-code-worker (Claude Code sessions) · agent-session-worker (native sessions)
+               agent-session-worker (Generate documents and Test sessions)
 ```
 
-`claude-code-worker` runs the Claude Agent SDK with its bundled Claude Code CLI. It reads
-`DATA_ROOT` read-only, needs network access to Bedrock or the Anthropic API, and its home
-volume `claude-code-home` is its only writable mount. It runs as user `claude` (uid 1001),
-so the files under `DATA_ROOT` that sessions should read must be readable by uid 1001.
-
-`agent-session-worker` runs native agents' Generate documents sessions with the native runtime. Like `admin-api` it reaches
+`agent-session-worker` runs Generate documents and Test sessions. Like `admin-api` it reaches
 RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
@@ -133,7 +128,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
    documentation should inspect them.
 6. **Environments** → group servers and services (e.g. `production`, `staging`).
 7. **Services** → describe applications, link code projects, add deployments and dependencies.
-8. **Docs → Generate documents** → **New**: choose a native or Claude Code agent and what to document → **Generate**.
+8. **Docs → Generate documents** → **New**: choose what to document → **Generate**.
 9. **Agents** → create agents, assign a model, enable capabilities, test them.
 
 ---
@@ -193,8 +188,8 @@ and RAG embeddings.
 Changing provider, URL or region requires re-entering or removing the key. There is
 no delete — disable a model instead.
 
-> **Compatibility rule.** Native agents and documentation generation require a "code-compatible" model: OpenAI
-> **Responses** API, Anthropic, or Bedrock `anthropic.claude*`; Claude Code agents require a Claude model. OpenAI
+> **Compatibility rule.** Agents and documentation generation require a "code-compatible" model: OpenAI
+> **Responses** API, Anthropic, or Bedrock `anthropic.claude*`. OpenAI
 > **Chat Completions** models can be assigned only as the Search model in LLM Settings.
 
 ### 4.3 RAG: collections, processing, settings, search
@@ -429,9 +424,9 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 ### 4.11 Agents
 
-`/agents` lists agents with **Agent type**, **Resources**, capabilities, model, active system prompt and status. **Resources** shows `Fixed`, or what a per-run agent accepts, for example `Per run · code (any) · servers (2)`.
+`/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** shows `Fixed`, or what a per-run agent accepts, for example `Per run · code (any) · servers (2)`.
 
-**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first fields are **Agent type** (Native or Claude Code), **Agent model** (the model the agent runs on; it defaults to the first model that fits the type, and switching to Claude Code clears a model that is not a Claude connection) and **Resources** (Fixed or Per run). Both a generated proposal and **Start blank** use that model. The review shows the three as one line (for example `Native · Claude Opus · Per run`); to change them go back with **Edit role**:
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first fields are **Agent model** (the model the agent runs on; it defaults to the first model in the catalog) and **Resources** (Fixed or Per run). Both a generated proposal and **Start blank** use that model. The review shows the two as one line (for example `Claude Opus · Per run`); to change them go back with **Edit role**:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
   proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
@@ -446,15 +441,15 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Agent type** (Native or Claude Code; switching keeps every setting except **May start subagents**, which switching to Claude Code turns off), **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (filtered by the agent type; required to run; switching to Claude Code clears a model that is not a Claude connection; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (native agents: the agent can hand separate parts of its work to helpers that run in parallel; it stays off after a switch to Claude Code and back); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone; and the **Claude Code tools** card (Read, Grep, Glob, Bash switches) for Claude Code agents |
+| **General** | **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
 | **Skills** | Enable and pick skills (max 30) |
 | **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
 | **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
 | **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP. For a per-run agent: what callers may pass (the tab says so) |
 | **MCP** | Pick tested MCP servers (and their tools) |
-| **Tools** | Native agents: switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. |
+| **Tools** | Switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. |
 | **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
-| **Test** | Native: chat with the agent (a per-run agent first picks **Resources for this run**). Claude Code: **Start a session** opens **Docs → Generate documents → New** with this agent |
+| **Test** | Chat with the agent (a per-run agent first picks **Resources for this run**) |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
 
@@ -473,7 +468,7 @@ editing, then **Apply to this agent** or **Apply to a new clone**.
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
-**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; switching a capability on switches all of its tools on, and a per-run agent gets all tools of the capabilities it uses when it becomes per run or gets one switched on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used. Claude Code agents choose their Read, Grep, Glob and Bash tools on the General tab.
+**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; switching a capability on switches all of its tools on, and a per-run agent gets all tools of the capabilities it uses when it becomes per run or gets one switched on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used.
 
 **Subagents.** With **May start subagents** on (General, or the wizard's Tools page) a native agent can start helpers
 with `run_subagent`: each gets a complete task, the tools you allow under **A subagent may use** that the agent passes
@@ -483,7 +478,7 @@ session page each helper appears in the Worked block (**Open**) and under **Agen
 history; earlier ones appear when you scroll up to older history); selecting one shows its task, its work and its
 answer (**Main agent** goes back). The header and the main agent's entry count the whole run including helpers, while
 the main turn's Worked line counts only the agent's own work. **Stop** stops the agent and all of its helpers.
-Switching an agent to Claude Code and back removes the switch; turn it on again. In the wizard, a hand-picked tool
+In the wizard, a hand-picked tool
 list wins over the "all tools" default.
 
 **Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, the line **Resources: …** (with **Choose resources**) appears before the first message only and opens **Resources for this run**, one list per kind the agent uses; the choice is kept for the session and shown in the header and in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
@@ -497,7 +492,6 @@ changes.
 (repositories) off for the Search agent; its down migration does not turn Code back
 on. Saving the agent's settings changes what runs next.
 
-**Claude Code agents.** Claude Code agents are configured exactly like native agents (same tabs, one prompt, clones). They need a Claude model (`Choose a Claude model for Claude Code agents`). Their sessions use the agent's prompt, instructions and enabled skills as the system prompt, the code projects as extra read-only working folders and the Claude Code tools switches. Documents, code search and code graph, SSH, MCP and services are saved but not given to Claude Code yet (the tabs say so). Claude Code agents are tested in Generate documents sessions, not in Test sessions.
 
 Removing an agent that has history (test chats, documentation sessions or run records of earlier test chats) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
@@ -508,35 +502,33 @@ See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent rece
 
 ### 4.12 Generate documents
 
-**Docs → Generate documents** (`/documentation/generations`) lists sessions of native and Claude Code agents in which an agent writes one
-document: status, agent, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
+**Docs → Generate documents** (`/documentation/generations`) lists sessions in which an agent writes one
+document: status, model, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
 and close after 24 idle hours (a session idle for 5 minutes is paused and resumes on your next message).
 
 **Prerequisites**
 
-- An enabled agent of either type with a model that fits its type (Claude Code: a Claude connection; Native: a Responses or
-  Claude connection).
-- Claude Code agents need at least one working folder: code projects with folders, or environments or services linked to code
-  projects, or an agent with code projects of its own (native agents do not).
+- An enabled model that is a Responses or Claude connection. The session runs an agent made for it; there is no saved agent.
 
 **The form**
 
-- **Agent**: an enabled agent with a model, shown with its type, for example `Technical writer (Claude Code)` or
-  `API writer (Native)`; an agent without a model is not offered (from its Test tab the form says so).
+- **Agent context** (closed by default; one line shows the model and the system prompt): **Model**, **System prompt**
+  and **Context**. The context is generated from what you choose below and can be edited; **Regenerate from selection**
+  replaces your edits.
 - **What to document**: tick **Code**, **Documents**, **Environment**, **Services** and/or **Servers**; each shows its picker. Pick at
   least one item.
-- **Instructions** (optional): extra instructions for this run.
+- **Prompt**: **Write my own**, or a saved prompt from Docs → Prompts. **Prompt text** is the first message; editing a saved
+  prompt changes only this run.
 - **Document name** and **folder**: the folder defaults to `<first code project>-docs`, or `docs`. Folder names are
   lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
   characters. The name needs ASCII letters or digits (the file name is made from them).
 
-There is no model or prompt field: the agent runs with its own model, prompt, instructions, skills and tools (Claude Code tools for Claude Code agents).
-Put a documentation prompt in the agent (Docs → Prompts holds the earlier prompts to copy from).
+The agent gets exactly what you choose: its code projects, collections and servers are the ones ticked (environments and
+services also bring their code projects and the servers they are deployed on; servers without SSH are skipped). Its tools
+(`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and `ssh_run` when servers are chosen) work as in an agent's Test tab. The agent can connect over SSH to the servers you tick and to the SSH-allowed servers that environments and services bring; servers without a usable connection are left out, and a ticked server that cannot be used is refused.
 
-**Fixed and per-run agents.** A fixed agent works with its own resources: what you choose is described in its first message, and for Claude Code agents the chosen code projects (and those of the chosen environments and services) also become read-only working folders. A per-run agent receives exactly what you choose as its run resources: the form offers only what it accepts (a kind it does not take is disabled), environments and services also bring their code projects and the servers they are deployed on (servers without SSH are skipped), and a resource it may not be given refuses the session with its name. A per-run Claude Code agent opens the chosen code projects as working folders; collections, servers and services are described in the first message.
-
-**What the agent receives.** Its system prompt (its own prompt, instructions and skills), then one first message listing
+**What the agent receives.** The system prompt and context from the form, then one first message listing
 what to document, as a user could have typed it:
 
 ```
@@ -563,28 +555,21 @@ later message, reply again with the complete updated document.
 
 Environments and services are described as text (servers, services, deployments, linked code projects).
 
-**Working folders** (read-only, Claude Code): fixed agents: the chosen code projects, then the code projects linked to the chosen environments and
-services, then the agent's own; per-run agents: the run's code projects. The first is the working directory.
-
-**Native agents.** A fixed native agent reads its own code projects (its Code projects tab), and the form's sources are in its first message; a per-run native agent reads exactly the run's code projects and collections and reaches exactly the run's servers. Its tools (`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, SSH, MCP) then work as in its Test tab. A native turn has no time or model-call limit: it ends when the agent
+A turn has no time or model-call limit: it ends when the agent
 finishes or you press **Stop** (each model request and MCP connection still times out after 5 minutes). A failed or stopped
 turn leaves the conversation and the draft as they were; history is saved only when a turn succeeds. Tokens are recorded,
 cost is not.
-
-**Servers.** For a fixed agent the form lists name, address and description only. A per-run native agent can reach the chosen servers over SSH.
 
 **The session page.** It uses the same workspace as the Test tab: the main pane shows each turn (your message, a
 collapsed **Worked** block with thinking, tool calls and results, and the answer) and scrolls on its own; the message box
 is always visible. The main pane follows new events at the bottom; after you scroll up it stops following and shows
 **Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning
-of the session**. The header shows tokens in/out/cached, model calls (native agents only) and the status: Starting, Working, Waiting for you,
+of the session**. The header shows tokens in/out/cached, model calls and the status: Starting, Working, Waiting for you,
 Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draft · turn n** (on a narrow screen open
 **Run details**). Each answer links to its **Full record**.
 
-- **Send message**: the message box stays enabled while the agent works, for both agent types. A native agent receives
-  the comment at its next step in the same turn ("Queued. Your comment reaches the agent at its next step."); a Claude Code
-  agent receives it after its current response ("Queued. The agent gets your message when it finishes its current
-  response."). Sent between turns, a message starts a new turn in the same conversation.
+- **Send message**: the message box stays enabled while the agent works. The agent receives
+  the comment at its next step in the same turn ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn in the same conversation.
 - **Stop**: always ends the turn: it is recorded as stopped within about 30 seconds of Stop, and after that it cannot start
   new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
   discarded when the turn is stopped (a message sent after Stop starts the next turn); after a failure or a lost worker they go to the next turn.
@@ -596,15 +581,12 @@ Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draf
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
 
-Errors: "Select an enabled agent."; "The agent has no enabled model for its agent type. Choose one on its General tab."; "Choose at least one code project, collection, environment, service or server to document."; the per-run refusals (`… is not allowed for this agent.`, `… is not available: it was removed, archived or disabled.`, `This agent does not use <kind>.`); `Claude Code needs at least one working folder: choose code projects, or environments or services with code projects, that this agent accepts.`; a provider error, such as
-a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the Claude
-Code worker…" (Claude Code) or "Waiting for the agent session worker…" (native) when the worker is not running; a folder that no longer exists is refused when starting.
+Errors: "Choose an enabled model."; "Choose at least one code project, collection, environment, service or server to document."; "Select available …" for an item that is gone; `… is not available: it was removed, archived or disabled.`; a provider error, such as
+a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the agent session worker…" when the worker is not running.
 
-Security: the model key is passed only to the session's Claude Code process. Every enabled Claude connection's key is
-redacted from stored events, drafts and error messages. Each running session's Claude Code process runs as its own user,
-so one session cannot read another session's process or files, and the agent can reach only the internet and the database
-host, not the other services. Residual risk: Bash in the session can read the session's own key from its Claude Code
-process, so use a key with limited scope and spend.
+Security: the model key stays in the worker. Every enabled model connection's key is
+redacted from stored events, drafts and error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROOT`
+read-only.
 
 **Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
 and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
@@ -659,7 +641,7 @@ sessions, earlier test chats and Generate documents sessions. Each record shows,
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade), **Claude Code** and **Native session** (Generate documents turns); you
+characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade) and **Native session** (Generate documents turns); you
 can also filter by user. **Full record** links lead here from each reply in an agent's Test tab and from each
 Generate documents session turn.
 Records are kept until deleted; only administrators can see them.
@@ -683,8 +665,8 @@ Records are kept until deleted; only administrators can see them.
 1. **LLM Settings**: add and test an Anthropic (or Bedrock Claude) model.
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
-4. **Agents**: create a Claude Code agent with a Claude model and a documentation prompt.
-5. **Docs → Generate documents → New**: choose the agent, tick **Services** and pick the service → **Generate**. With a per-run Code analyst, choose the code project in the form: the agent reads that project only.
+4. **Docs → Prompts**: save a documentation prompt (or write it in the form).
+5. **Docs → Generate documents → New**: choose the model and the prompt, tick **Services** and pick the service → **Generate**. The agent reads the code projects the service links.
 6. Follow the session, send messages such as "shorten the API section", then **Save document**.
 7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
@@ -694,7 +676,7 @@ Records are kept until deleted; only administrators can see them.
 2. **Services**: add deployments (server + environment + container/unit + port + log path).
 3. **Generate documents → New**: tick **Environment** and pick it (or tick **Servers**), add instructions about
    deployments → **Generate**.
-4. Servers are described as text until agents get SSH tools; the agent does not connect to them.
+4. The agent connects over SSH to the chosen servers (and to those the environment brings).
 
 ### D. Build and test an operations agent
 
@@ -716,14 +698,12 @@ folder) → **Refresh** it or let Auto-sync pick it up.
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
 
-### G. Write documentation interactively with Claude Code
+### G. Write documentation interactively with an agent
 
-1. **Agents → New agent**, **Agent type: Claude Code**, choose a Claude model and write the
-   system prompt → **Create agent**.
-2. **Docs → Generate documents → New** (or the agent's **Test** tab → **Start a session**) → choose what to document → **Generate**.
-3. Follow the stream and send a message such as "shorten the API section".
-4. **Save document**.
-5. **Docs → Folders** → **Index in RAG → Collections**.
+1. **Docs → Generate documents → New** → choose the model, what to document and a prompt → **Generate**.
+2. Follow the stream and send a message such as "shorten the API section".
+3. **Save document**.
+4. **Docs → Folders** → **Index in RAG → Collections**.
 
 ---
 
@@ -740,8 +720,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `CODE_INDEX_FOLDER` | Folder for code graph snapshots (default `code-index`) |
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
-| `CLAUDE_CODE_MAX_SESSIONS` | Running Claude Code processes per `claude-code-worker` (default 4) |
-| `AGENT_SESSION_MAX_SESSIONS` | Native sessions running at once per agent-session-worker (default 4) |
+| `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
 | `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 per turn) |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
@@ -796,7 +775,6 @@ before exposing it beyond localhost.
 - Code graph tools come with the tool catalog; agents do not have them yet.
 - Service inventory is operator-maintained: no live health monitoring.
 - Code projects, LLM models and skills cannot be deleted (disable/leave unused).
-- Generate documents describes servers as text (no SSH from the form). The agent **Test** tab runs native agents only; Claude Code agents are tested in Generate documents sessions.
 
 ---
 
@@ -822,11 +800,6 @@ For a per-run agent every tool works on the run's resources only; a kind with no
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and
 Services add context only — no tools.
-
-**Claude Code agents** use the Read, Grep, Glob and Bash tools switched on in their **Claude Code tools** card (all on by default; off tools are also disallowed; catalog tools come in a later release), as user `claude` (uid 1001) in
-`claude-code-worker`, with `DATA_ROOT` read-only and `setting_sources=[]` (no `.claude/`
-settings, hooks or CLAUDE.md from the folders). The model key exists only in the CLI
-environment.
 
 **Treat SSH access with care**: an agent with SSH enabled can change the server.
 Use a dedicated low-privilege user, keep **Allow sudo to root** off unless needed,

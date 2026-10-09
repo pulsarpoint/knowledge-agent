@@ -18,7 +18,7 @@ def a_session(store, *, turns: int = 1) -> UUID:
     with store.connect() as conn:
         project, actor = store.project(conn, 'shop'), store.actor(conn, 'admin-id', 'admin@example.test')
         session = add_ad_hoc_session(conn, project, actor, a_model(conn, actor))
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=%s WHERE id=%s", (turns, session))
+        conn.execute("UPDATE ka.agent_sessions SET status='working',turns=%s WHERE id=%s", (turns, session))
     return session
 
 
@@ -31,7 +31,7 @@ def write(store, *statements) -> None:
 
 def event(session_id, seq: int, turn: int = 1):
     return ('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        SELECT project_id,%s,%s,'message','ad-hoc',%s FROM ka.agent_sessions_cc WHERE id=%s''',
+        SELECT project_id,%s,%s,'message','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s''',
             (f'cc:{session_id}:{turn}', seq, Jsonb({'text': f'event {seq}'}), session_id))
 
 
@@ -125,15 +125,15 @@ def test_the_state_is_sent_only_when_it_changed(store):
             async with hub.subscribe(session, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
                 before = hub.reads
-                await db(write, store, ("UPDATE ka.agent_sessions_cc SET title='Renamed' WHERE id=%s", (session,)))
+                await db(write, store, ("UPDATE ka.agent_sessions SET title='Renamed' WHERE id=%s", (session,)))
                 await until(lambda: hub.reads > before)
                 assert await nothing_more(page)  # read, but nothing the page shows changed
-                await db(write, store, ("UPDATE ka.agent_sessions_cc SET status='waiting',draft='# Draft',draft_turn=1 "
+                await db(write, store, ("UPDATE ka.agent_sessions SET status='waiting',draft='# Draft',draft_turn=1 "
                                         'WHERE id=%s', (session,)))
                 [(kind, state)] = await take(page, 1)
                 assert kind == 'session' and state['status'] == 'waiting' and state['draft'] == '# Draft'
                 await db(write, store, ("""INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text)
-                    SELECT id,1,actor_id,'More' FROM ka.agent_sessions_cc WHERE id=%s""", (session,)))
+                    SELECT id,1,actor_id,'More' FROM ka.agent_sessions WHERE id=%s""", (session,)))
                 [(kind, state)] = await take(page, 1)
                 assert kind == 'session' and state['queued'] == 1
         finally:
@@ -151,11 +151,11 @@ def test_closed_and_deleted_sessions_end_every_subscription_and_are_forgotten(st
                 for page in (a, b, c):
                     assert summary(await take(page, 1)) == [('session', 'working')]
                 await db(write, store, event(closing, 1), (
-                    "UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (closing,)))
+                    "UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (closing,)))
                 [last] = await db(event_ids, store, closing)
                 for page in (a, b):
                     assert summary(await take(page, 3)) == [('event', last), ('session', 'closed'), ('closed', None)]
-                await db(write, store, ('DELETE FROM ka.agent_sessions_cc WHERE id=%s', (deleted,)))
+                await db(write, store, ('DELETE FROM ka.agent_sessions WHERE id=%s', (deleted,)))
                 assert summary(await take(c, 1)) == [('closed', None)]
                 assert hub.subscribers(closing) == hub.subscribers(deleted) == 0
             async with hub.subscribe(closing, 0) as late:  # a page opened on a closed session
@@ -242,7 +242,7 @@ def test_a_tool_result_reaches_the_subscriber_without_its_full_output(store):
             async with hub.subscribe(session, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
                 await db(write, store, ('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-                    SELECT project_id,%s,1,'tool_result','ad-hoc',%s FROM ka.agent_sessions_cc WHERE id=%s''',
+                    SELECT project_id,%s,1,'tool_result','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s''',
                     (f'cc:{session}:1', Jsonb({'preview': 'short', 'output': 'x' * 10000}), session)))
                 [(kind, row)] = await take(page, 1)
                 assert kind == 'event' and row['payload'] == {'preview': 'short'}

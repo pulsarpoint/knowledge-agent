@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PanelRight } from 'lucide-react';
-import { formatTokens, statusLabels } from '~/lib/claudeCode';
+import { formatTokens, statusLabels } from '~/lib/generations';
 import { toolUsageLine } from '~/lib/runs';
 import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from '~/lib/turns';
 import { SUBAGENT_TOOL } from '~/lib/tools';
@@ -27,7 +27,6 @@ export interface WorkspaceComposer {
 export interface RunWorkspaceProps {
   run: SessionRun;
   agentName: string;
-  agentType: string;          // 'Native' | 'Claude Code'
   resources: string;          // 'Fixed' | 'Per run: App, Worker'
   heading?: ReactNode;        // the page's title area, above the header line
   headerActions?: ReactNode;
@@ -61,8 +60,7 @@ function WorkLine({ item, subagents, onOpen }: { item: WorkItem; subagents?: Map
   }
 }
 
-/** `modelCalls` is false for Claude Code: it records one aggregate usage per turn, so a call count would read "1". */
-function TurnView({ turn, live, modelCalls, actions, onOpen }: { turn: Turn; live: boolean; modelCalls: boolean; actions?: ReactNode; onOpen: (callId: string) => void }) {
+function TurnView({ turn, live, actions, onOpen }: { turn: Turn; live: boolean; actions?: ReactNode; onOpen: (callId: string) => void }) {
   const worked = turn.work.length > 0 || turn.usage.total > 0;
   const subagents = new Map(turn.subagents.map(sub => [sub.callId, sub]));
   return <li data-turn={turn.turn} className="flex flex-col gap-3">
@@ -75,7 +73,7 @@ function TurnView({ turn, live, modelCalls, actions, onOpen }: { turn: Turn; liv
       <div className="mt-3 flex flex-col gap-3">
         {turn.usage.total > 0 && <p aria-label={`Turn ${turn.turn} usage`} className="text-xs text-muted-foreground">
           {`In ${formatTokens(turn.usage.input)} · Out ${formatTokens(turn.usage.output)} · Cached ${formatTokens(turn.usage.cached)}`
-            + (modelCalls ? ` · Model calls ${formatTokens(turn.usage.calls)}` : '')}</p>}
+            + ` · Model calls ${formatTokens(turn.usage.calls)}`}</p>}
         {turn.work.map(item => <WorkLine key={item.id} item={item} subagents={subagents} onOpen={onOpen} />)}</div>
     </details>}
     {turn.answer !== null && <article aria-label="Agent answer" className="flex flex-col gap-2">
@@ -120,7 +118,7 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
  * tab and the Generate documents session page pass their own parts as props. The sidebar lists the main agent and every
  * subagent of the loaded events; selecting one shows its own history in the main pane (the message box still talks to
  * the main agent). */
-export default function RunWorkspace({ run, agentName, agentType, resources, heading, headerActions, sidebar, answerActions,
+export default function RunWorkspace({ run, agentName, resources, heading, headerActions, sidebar, answerActions,
   empty, notice, composer }: RunWorkspaceProps) {
   const { session, events, older, toolCounts } = run;
   const turns = useMemo(() => groupTurns(events), [events]);
@@ -170,7 +168,6 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
 
   const working = session?.status === 'working';
   const closed = session?.status === 'closed';
-  const modelCalls = session?.runtime !== 'claude_code';
   const toolCalls = (toolCounts ?? []).reduce((sum, count) => sum + count.calls, 0);
   // A failed turn shows its error under the turn: the header repeats the session's message only when no turn carries it
   // (no turns loaded, or the last turn did not fail with that message).
@@ -203,7 +200,7 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
       {heading}
       <div data-testid="run-header" className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{agentName}</span><Badge variant="outline">{agentType}</Badge>
+          <span className="font-medium">{agentName}</span>
           <span className="text-muted-foreground">Resources: {resources}</span>
           {session && <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge>}
         </div>
@@ -212,10 +209,10 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
         </div>
       </div>
       {session && <p aria-label="Token totals" className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`
-        + (modelCalls ? ` · Model calls ${formatTokens(session.model_calls)}` : '')
+        + ` · Model calls ${formatTokens(session.model_calls)}`
         + (session.reasoning_tokens > 0 ? ` · Reasoning ${formatTokens(session.reasoning_tokens)}` : '')}</p>}
       {toolCounts && <p aria-label="Tools used" className="text-sm text-muted-foreground">{toolUsageLine(toolCounts)}</p>}
-      {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the ${session.runtime === 'openai' ? 'agent session' : 'Claude Code'} worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
+      {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the agent session worker. The session starts when the worker is running.</AlertDescription></Alert>}
       {session?.status_message && ['failed', 'stopped'].includes(session.status) && !turnCarries && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {run.error && <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert>}
       {run.reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
@@ -229,7 +226,7 @@ export default function RunWorkspace({ run, agentName, agentType, resources, hea
           {shown ? <SubagentView sub={shown} onBack={() => pick(null)} />
             : turns.length === 0 ? empty : <ol className="flex flex-col gap-6">{turns.map((turn, index) =>
               <TurnView key={turn.turn} turn={turn} live={working && index === turns.length - 1 && turn.status === 'working'}
-                modelCalls={modelCalls} actions={answerActions?.(turn)} onOpen={pick} />)}</ol>}
+                actions={answerActions?.(turn)} onOpen={pick} />)}</ol>}
           {session && session.queued > 0 && <p className="text-sm text-muted-foreground">{plural(session.queued, 'message')} queued</p>}
         </div>
         {!following && <div className="shrink-0 border-t p-2 text-center"><Button type="button" size="sm" variant="secondary" onClick={jump}>Jump to latest</Button></div>}

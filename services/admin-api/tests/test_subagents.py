@@ -26,8 +26,8 @@ from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, NOT_OFFERE
 from knowledge_admin.run_record import RunRecorder
 from knowledge_admin.tools.catalog import CATALOG, item
 from knowledge_admin.tools.sdk import function_tool
-from test_claude_code_runner import events as run_events, post, session_row, wait_for
-from test_claude_code_sessions import sessions  # noqa: F401  (fixture)
+from run_helpers import events as run_events, post, session_row, wait_for
+from test_generations import sessions  # noqa: F401  (fixture)
 from test_native_sessions import KEY, claimed, leftover_tasks, native  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
@@ -208,7 +208,7 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
                                                                   poll=0.02).run())
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/claude-code/sessions/{sid}/close')
+        await post(sessions, f'/api/generations/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
 
     asyncio.run(scenario())
@@ -225,13 +225,13 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
     assert KEY not in json.dumps(recorded, default=str)
     row = session_row(store, sid)
     assert (row['input_tokens'], row['output_tokens'], row['model_calls']) == (210, 24, 5)  # subagents included
-    detail = sessions.client.get(f'/api/claude-code/sessions/{sid}', headers=HEADERS).json()
+    detail = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
     assert {count['name']: count['calls'] for count in detail['tool_counts']} == {'run_subagent': 2, 'read_file': 1}
 
 
 def test_stop_cancels_a_running_subagent_and_leaves_nothing_running(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     started, cancelled = asyncio.Event(), []
     subagent = FakeSubagent({'Watch the queue': {'steps': [hang('tool', started, cancelled)], 'answer': 'never'}})
     fake = FakeAgent([{'offered': ['read_file'], 'steps': [
@@ -330,7 +330,7 @@ def test_a_model_calls_events_and_tokens_commit_while_no_other_flush_can_run(mon
     recorder.add('usage', {'input_tokens': 1})
     runner = SimpleNamespace(store=SimpleNamespace(connect=Connection), id='x', worker_id='w')
     native_sessions.NativeRunner.add_usage(runner, recorder, {'input_tokens': 1, 'output_tokens': 1, 'cached_tokens': 0,
-                                                              'reasoning_tokens': 0, 'cost_usd': 0.0})
+                                                              'reasoning_tokens': 0})
     assert blocked == [True] and recorder.flushed == 1
 
 
@@ -453,7 +453,7 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
     """close() gets only what is left of the grace that started at Stop, so Stop ends the turn within about
     STOP_GRACE_SECONDS, not twice that."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/claude-code/sessions/{sid}'
+    store, url = sessions.store, f'/api/generations/sessions/{sid}'
     grace = 0.8
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', grace)
     lead_started, sub_started, ignored, release = asyncio.Event(), asyncio.Event(), [], asyncio.Event()

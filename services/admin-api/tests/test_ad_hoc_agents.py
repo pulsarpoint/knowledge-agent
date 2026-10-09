@@ -11,7 +11,7 @@ from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
 from knowledge_admin.tools.catalog import effective_tools
-from test_claude_code_sessions import sessions  # noqa: F401  (fixture)
+from test_generations import sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
 
 
@@ -29,7 +29,7 @@ def build(s, selection, prompt='You document.') -> dict:
 def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
     s = sessions
     config = build(s, chosen(code_project_ids=[s.repo]))
-    assert (config['id'], config['runtime'], config['resources'], config['enabled']) == (AD_HOC_AGENT, 'openai', 'per_run', True)
+    assert (config['id'], config['resources'], config['enabled']) == (AD_HOC_AGENT, 'per_run', True)
     assert config['system_prompt'] == {'content': 'You document.'} and config['instructions'] == ''
     assert config['model']['id'] == s.gpt and config['skills']['enabled'] is False and config['mcp']['enabled'] is False
     assert [p['name'] for p in config['code']['projects']] == ['Payments API'] and config['code']['enabled'] is True

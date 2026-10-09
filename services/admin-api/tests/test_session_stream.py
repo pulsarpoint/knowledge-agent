@@ -5,10 +5,10 @@ import threading
 import time
 from uuid import UUID
 
-from knowledge_admin import claude_code_api
+from knowledge_admin import generations_api
 from knowledge_admin.live import session_hub
 from knowledge_admin.run_record import RunRecorder
-from test_claude_code_sessions import live, parse, record, sessions, start  # noqa: F401  (fixtures)
+from test_generations import live, parse, record, sessions, start  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 
 
@@ -24,7 +24,7 @@ def open_stream(client, sid: str, headers=HEADERS):
     gives the response."""
     result = {}
     thread = threading.Thread(target=lambda: result.update(
-        response=client.get(f'/api/claude-code/sessions/{sid}/events', headers=headers)))
+        response=client.get(f'/api/generations/sessions/{sid}/events', headers=headers)))
     thread.start()
 
     def finish(timeout: float = 10.0):
@@ -36,16 +36,16 @@ def open_stream(client, sid: str, headers=HEADERS):
 
 def working(store, sid: str) -> None:
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='working',turns=1 WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET status='working',turns=1 WHERE id=%s", (sid,))
 
 
 def close(store, sid: str) -> None:
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agent_sessions_cc SET status='closed',closed_at=now() WHERE id=%s", (sid,))
+        conn.execute("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (sid,))
 
 
 def test_a_quiet_stream_sends_keepalives(sessions, live, monkeypatch):
-    monkeypatch.setattr(claude_code_api, 'KEEPALIVE_SECONDS', 0.1)
+    monkeypatch.setattr(generations_api, 'KEEPALIVE_SECONDS', 0.1)
     sid = start(sessions)['id']
     finish = open_stream(sessions.client, sid)
     wait_until(lambda: live.subscribers(UUID(sid)) == 1)
@@ -64,13 +64,13 @@ def test_a_stream_that_falls_behind_ends_with_retry_and_resumes_from_its_last_id
     with store.connect() as conn:
         for seq in range(1, 6):
             record(conn, sid, 1, seq, 'message', {'text': f'part {seq}'})
-    first = client.get(f'/api/claude-code/sessions/{sid}/events', headers=HEADERS)
+    first = client.get(f'/api/generations/sessions/{sid}/events', headers=HEADERS)
     runs = [e for e in parse(first.text) if e['event'] == 'run_event']
     assert [e['data']['seq'] for e in runs] == [1, 2]
     assert first.text.endswith('retry: 1000\n\n')  # the browser reconnects with Last-Event-ID
     monkeypatch.setattr(session_hub, 'QUEUE_SIZE', 500)
     close(store, sid)
-    resumed = client.get(f'/api/claude-code/sessions/{sid}/events',
+    resumed = client.get(f'/api/generations/sessions/{sid}/events',
                          headers={**HEADERS, 'Last-Event-ID': str(runs[-1]['id'])})
     events = parse(resumed.text)
     assert [e['data']['seq'] for e in events if e['event'] == 'run_event'] == [3, 4, 5]
@@ -130,8 +130,8 @@ def test_stopping_the_app_ends_open_streams_so_the_browser_reconnects(sessions):
 
 
 def test_the_stream_answers_503_when_the_hub_is_not_running(sessions):
-    message = claude_code_api.LIVE_UNAVAILABLE
+    message = generations_api.LIVE_UNAVAILABLE
     sid = start(sessions)['id']  # the client's lifespan never ran
-    response = sessions.client.get(f'/api/claude-code/sessions/{sid}/events', headers=HEADERS)
+    response = sessions.client.get(f'/api/generations/sessions/{sid}/events', headers=HEADERS)
     assert response.status_code == 503
     assert response.json()['error']['message'] == message

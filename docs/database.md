@@ -32,7 +32,7 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
 | `agents` and agent configuration/association tables | Agent definitions, prompt/model assignments, skills, tools and resources |
-| `agent_sessions_cc`, `agent_session_inputs`, `agent_session_reviews` | Generate documents and Test sessions (`purpose`), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
+| `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | Generate documents and Test sessions (`purpose`), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
 | `audit_events` | Immutable attributed configuration events |
 
 See [documentation administration](documentation.md) for the document model,

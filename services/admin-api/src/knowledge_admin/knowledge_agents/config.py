@@ -1,5 +1,5 @@
-"""The agent config: one shape for Native and Claude Code agents, the agent type and model rules, and loading the
-resolved snapshot. Loading never decrypts credentials or starts a runtime."""
+"""The agent config: one shape for agents, the model rules, and loading the resolved snapshot. Loading never
+decrypts credentials or starts a runtime."""
 import hashlib
 import json
 import os
@@ -9,17 +9,12 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 import psycopg
 from fastapi.encoders import jsonable_encoder
-from knowledge_llm import claude_model, code_compatible
+from knowledge_llm import code_compatible
 from psycopg.rows import dict_row
 
 from knowledge_admin.data_root import data_path
 
-Runtime = Literal['openai', 'claude_code']
-ClaudeCodeTool = Literal['Read', 'Grep', 'Glob', 'Bash']
 Resources = Literal['fixed', 'per_run']
-CLAUDE_CODE_TOOLS: tuple[str, ...] = ('Read', 'Grep', 'Glob', 'Bash')
-CHOOSE_CLAUDE = 'Choose a Claude model for Claude Code agents'
-NATIVE_ONLY = 'Claude Code agents run in Claude Code sessions. Open the agent’s Test tab to start one.'
 NO_RUN_RESOURCES = 'This agent receives its resources per run, and this run was started without them.'
 AD_HOC_AGENT = 'ad-hoc'  # the config id and run-record agent of a Generate documents session (no agents row)
 AD_HOC_NAME = 'Ad-hoc agent'
@@ -46,15 +41,13 @@ def private_key_ref(credential_id, project_id, key_version) -> dict[str, Any] | 
 
 
 class AgentConfig(TypedDict):
-    """The resolved config of one agent, the same for both types. Sessions pin this shape."""
+    """The resolved config of one agent; sessions pin this shape."""
     id: str
     name: str
     description: str
     when_to_use: str
     enabled: bool
     revision: int
-    runtime: Runtime
-    claude_code_tools: list[ClaudeCodeTool]
     resources: Resources
     model: dict[str, Any] | None
     system_prompt: dict[str, Any]
@@ -88,32 +81,16 @@ def tool_items(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, An
     return {'items': items}
 
 
-def native_tools(conn, agent_id: str, runtime: str) -> dict[str, list[dict[str, Any]]]:
-    if runtime != 'openai':
-        return {'items': []}
+def native_tools(conn, agent_id: str) -> dict[str, list[dict[str, Any]]]:
     return tool_items(conn.execute('SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s',
                                    (agent_id,)))
 
 
-def normalize_tools(values: Iterable[str]) -> list[str]:
-    """Claude Code tools in their fixed order, each once."""
-    chosen = set(values)
-    return [tool for tool in CLAUDE_CODE_TOOLS if tool in chosen]
-
-
-def model_fits(runtime: str, model: Mapping[str, Any]) -> bool:
-    """Claude Code agents need a Claude connection; native agents a Responses or Claude connection."""
+def model_fits(model: Mapping[str, Any]) -> bool:
+    """Agents need a Responses or Claude connection."""
     if model['api_format'] == 'embeddings':
         return False
-    if runtime == 'claude_code':
-        return claude_model(model['provider'], model['api_format'], model['model'])
     return code_compatible(model['provider'], model['api_format'], model['model'])
-
-
-def require_native(config: Mapping[str, Any]) -> None:
-    """Refuse a Claude Code agent where the native runtime would run it (test chats, live runs)."""
-    if config.get('runtime', 'openai') != 'openai':
-        raise ValueError(NATIVE_ONLY)
 
 
 GRAPH_PROJECTS = '''SELECT r.id::text AS id,r.name,r.synced_at,
@@ -171,7 +148,7 @@ def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | No
 
 SECTIONS: dict[str, str] = {
     'prompt': 'Prompt', 'instructions': 'Instructions', 'when_to_use': 'When to use', 'model': 'Model',
-    'type': 'Agent type', 'resources': 'Resources', 'tools': 'Tools', 'skills': 'Skills', 'documents': 'Documents',
+    'resources': 'Resources', 'tools': 'Tools', 'skills': 'Skills', 'documents': 'Documents',
     'code': 'Code projects', 'ssh': 'SSH', 'mcp': 'MCP', 'services': 'Services'}
 
 
@@ -205,8 +182,6 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
-        'type': {'runtime': config['runtime'],
-                 'claude_code_tools': list(config.get('claude_code_tools', CLAUDE_CODE_TOOLS))},
         'resources': config.get('resources', 'fixed'),
         'tools': [{'tool': entry['tool'], 'mode': entry['mode'], 'usage': entry['usage'],
                    'subagent_allowed': entry.get('subagent_allowed', True)} for entry in tools_of(config)['items']],
@@ -249,7 +224,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
     """
     with psycopg.connect(conninfo, row_factory=dict_row, connect_timeout=5) as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,runtime,claude_code_tools,resources,system_prompt,
+        agent = conn.execute("""SELECT id,name,description,when_to_use,enabled,revision,model_id,resources,system_prompt,
             documents_enabled,documents_grounded,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
             all_collections,all_repositories FROM ka.agents WHERE id=%s""", (agent_id,)).fetchone()
         if agent is None:
@@ -367,7 +342,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
         return jsonable_encoder({
             'id': agent['id'], 'name': agent['name'], 'description': agent['description'],
             'when_to_use': agent['when_to_use'], 'enabled': agent['enabled'], 'revision': agent['revision'],
-            'runtime': agent['runtime'], 'claude_code_tools': list(agent['claude_code_tools']),
             'resources': agent['resources'],
             'model': model, 'system_prompt': {'content': agent['system_prompt']}, 'instructions': instructions,
             'settings_revision': agent_settings['revision'] if agent_settings is not None else None,
@@ -376,11 +350,11 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
             'code': {'enabled': agent['repositories_enabled'], 'all_projects': agent['all_repositories'],
                 'projects': code_projects,
                 'graphs': load_graphs(conn, project_id, [p['id'] for p in code_projects])
-                          if agent['runtime'] == 'openai' and agent['repositories_enabled'] else []},
+                          if agent['repositories_enabled'] else []},
             'skills': {'enabled': agent['skills_enabled'], 'items': agent_skills},
             'mcp': {'enabled': agent['mcp_enabled'], 'servers': agent_mcp},
             'ssh': {'enabled': agent['ssh_enabled'], 'servers': servers},
             'services': {'enabled': agent['services_enabled'], 'items': services},
-            'tools': native_tools(conn, agent_id, agent['runtime']),
+            'tools': native_tools(conn, agent_id),
         })
 

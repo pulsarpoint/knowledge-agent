@@ -2,9 +2,8 @@ import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from '../lib/agentWizard';
-import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, agentTypeLabel, resourcesLabel, type AgentResources, type AgentRuntime } from '../lib/profiles';
+import { RESOURCE_MODES, RESOURCES_HELP, resourcesLabel, type AgentResources } from '../lib/profiles';
 import { NEED_REASONS, SUBAGENTS_HELP, TOOL_GROUPS, impliedTools, toolNeedMet } from '../lib/tools';
-import { claudeModel } from '~/lib/claudeCode';
 import { PROMPT_LIMIT } from './AgentPromptCard';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -59,7 +58,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [error, setError] = useState('');
   const [showContext, setShowContext] = useState(false);
   const [reload, setReload] = useState(0);
-  const [runtime, setRuntime] = useState<AgentRuntime>('openai');
   const [resources, setResources] = useState<AgentResources>('fixed');
   useEffect(() => {
     let live = true;
@@ -67,7 +65,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       if (!live) return;
       setOptions(data); setError('');
       setModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models[0]?.id ?? '');
-      setAgentModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models.find(m => runtime !== 'claude_code' || claudeModel(m))?.id ?? null);
+      setAgentModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models[0]?.id ?? null);
     }).catch(reason => { if (live) setError(reason.message); });
     return () => { live = false; };
   }, [reload]);
@@ -76,13 +74,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const impliedNames = proposal ? impliedTools(catalogTools, proposal) : [];
   const chosenTools = toolChoice ?? impliedNames;
   const inCatalogOrder = (names: string[]) => catalogTools.map(tool => tool.name).filter(name => names.includes(name));
-  const agentModels = catalog?.models.filter(m => runtime !== 'claude_code' || claudeModel(m)) ?? [];
-  function chooseType(next: AgentRuntime) {
-    setRuntime(next);
-    if (next === 'claude_code' && agentModel && !catalog?.models.some(m => m.id === agentModel && claudeModel(m))) setAgentModel(null);
-  }
-  const agentType = <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>;
-  const agentModelField = <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={agentModel ?? 'none'} onValueChange={value => setAgentModel(value === 'none' ? null : value)}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{agentModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>The model this agent runs on. An agent runs only after a model is selected.</FieldDescription></Field>;
+  const agentModelField = <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={agentModel ?? 'none'} onValueChange={value => setAgentModel(value === 'none' ? null : value)}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{(catalog?.models ?? []).map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>The model this agent runs on. An agent runs only after a model is selected.</FieldDescription></Field>;
   const resourcesField = <Field><FieldLabel htmlFor="wizard-resources">Resources</FieldLabel><Select value={resources} onValueChange={value => setResources(value as AgentResources)}><SelectTrigger id="wizard-resources"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{RESOURCES_HELP[resources]}</FieldDescription></Field>;
   function edit(value: Partial<AgentProposal>) { setProposal(current => current ? { ...current, ...value } : current); }
   function editServer(id: string, value: Partial<WizardServer>) {
@@ -90,7 +82,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }
   async function generate() {
     setBusy('generate'); setError('');
-    try { const data = await generateAgent(role, model, runtime); setProposal({ ...data.proposal, model_id: agentModel }); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setStep('review'); setTab('general'); }
+    try { const data = await generateAgent(role, model); setProposal({ ...data.proposal, model_id: agentModel }); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setStep('review'); setTab('general'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not generate an agent.'); }
     finally { setBusy(null); }
   }
@@ -103,8 +95,8 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent({ ...proposal, model_id: agentModel, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES], ...(runtime === 'openai' && toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
-      ...(runtime === 'openai' ? { subagents, subagent_blocked: subagentBlocked.filter(name => chosenTools.includes(name)) } : {}) }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
+    try { const saved = await createWizardAgent({ ...proposal, model_id: agentModel, resources, ...(toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
+      subagents, subagent_blocked: subagentBlocked.filter(name => chosenTools.includes(name)) }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
   }
@@ -116,7 +108,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     {error && <Alert variant="destructive"><AlertDescription>{error}{!options && <Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button>}</AlertDescription></Alert>}
     {!options || !catalog ? <Skeleton className="h-48 w-full" /> : <fieldset disabled={busy !== null} className="min-w-0">
       {step === 'describe' ? <FieldGroup>
-        <div className="grid gap-4 sm:grid-cols-2">{agentType}{agentModelField}{resourcesField}</div>
+        <div className="grid gap-4 sm:grid-cols-2">{agentModelField}{resourcesField}</div>
         <Field><FieldLabel htmlFor="wizard-role">What should this agent do?</FieldLabel>
           <Textarea id="wizard-role" autoFocus rows={5} maxLength={20000} value={role} onChange={e => setRole(e.target.value)} placeholder="Create a payments investigator that reads the payments code and runbooks, checks staging logs over SSH, and explains failures with evidence. Do not allow sudo." />
           <FieldDescription>Describe its role, expected output, resources, and any restrictions. Do not include passwords or private keys.</FieldDescription></Field>
@@ -128,12 +120,12 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
         <FieldSet><FieldLegend>Available context</FieldLegend><FieldDescription>The model receives resource names, descriptions, folder paths, and saved credential references. Private keys and tokens are excluded. It designs the agent without accessing these resources.</FieldDescription>
           <div className="flex flex-wrap gap-2">{([['Code projects', catalog.code_projects.length], ['Collections', catalog.collections.length], ['SSH servers', catalog.servers.length], ['Skills', catalog.skills.length], ['MCP servers', catalog.mcp_servers.length], ['Services', catalog.services.length]] as const).map(([label, count]) => <Badge key={label} variant="secondary">{count} {label}</Badge>)}</div>
           <Button type="button" variant="outline" className="w-fit" onClick={() => setShowContext(!showContext)}>{showContext ? 'Hide design context' : 'Show design context'}</Button>
-          {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, agent_type: runtime, generation_model_id: model, catalog: { ...catalog, models: agentModels }, output_schema: options.schema } }, null, 2)} /></Field>}
+          {showContext && <Field><FieldLabel htmlFor="wizard-context">Generation prompt, configuration schema, and resource catalog</FieldLabel><Textarea id="wizard-context" className="font-mono text-xs" readOnly rows={14} value={JSON.stringify({ instructions: options.prompt, output_schema: options.schema, task: { role, generation_model_id: model, catalog, output_schema: options.schema } }, null, 2)} /></Field>}
         </FieldSet>
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services'],...(runtime === 'openai' ? [['tools','Tools']] : [])].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
+        <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services'],['tools','Tools']].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
-          <p className="text-sm" aria-label="Agent type, model and resources"><span className="font-medium">{agentTypeLabel(runtime)} · {catalog.models.find(m => m.id === agentModel)?.name ?? 'No model'} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
+          <p className="text-sm" aria-label="Model and resources"><span className="font-medium">{catalog.models.find(m => m.id === agentModel)?.name ?? 'No model'} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>
@@ -155,7 +147,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
         <TabsContent value="skills"><FieldGroup><Toggle label="Enable skills" checked={proposal.skills_enabled} onChange={skills_enabled => edit({ skills_enabled })} />{proposal.skills_enabled && <Selection label="Skills" options={catalog.skills} selected={proposal.skill_ids} onChange={skill_ids => edit({ skill_ids })} />}</FieldGroup></TabsContent>
         <TabsContent value="mcp"><FieldGroup><Toggle label="Enable MCP" checked={proposal.mcp_enabled} onChange={mcp_enabled => edit({ mcp_enabled })} />{proposal.mcp_enabled && <Selection label="MCP servers" options={catalog.mcp_servers} selected={proposal.mcp_server_ids} onChange={mcp_server_ids => edit({ mcp_server_ids })} />}</FieldGroup></TabsContent>
         <TabsContent value="services"><FieldGroup><Toggle label="Enable services" checked={proposal.services_enabled} onChange={services_enabled => edit({ services_enabled })} />{proposal.services_enabled && <Selection label="Services" options={catalog.services} selected={proposal.service_ids} onChange={service_ids => edit({ service_ids })} />}</FieldGroup></TabsContent>
-        {runtime === 'openai' && <TabsContent value="tools"><FieldGroup>
+        <TabsContent value="tools"><FieldGroup>
           <FieldDescription>{toolChoice ? 'Your choice of tools.' : 'Follows the capability switches until you change a tool.'} Usage instructions can be edited on the agent’s Tools tab after it is created.</FieldDescription>
           {TOOL_GROUPS.filter(([group]) => group !== 'agents').map(([group, label]) => {
             const items = catalogTools.filter(tool => tool.group === group);
@@ -179,7 +171,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                 <FieldLabel htmlFor={`wizard-subagent-${name}`}>{catalogTools.find(tool => tool.name === name)?.label ?? name}</FieldLabel></Field>)}
               {chosenTools.length === 0 && <FieldDescription>No tools are on.</FieldDescription>}</FieldSet>}
           </FieldSet>
-        </FieldGroup></TabsContent>}
+        </FieldGroup></TabsContent>
         <TabsContent value="ssh"><FieldGroup>
           <Toggle label="Enable SSH" checked={proposal.ssh_enabled} onChange={ssh_enabled => edit({ ssh_enabled })} />
           {proposal.ssh_enabled && <><Selection label="Allowed servers" options={catalog.servers.map(s => ({ ...s, description: `${s.hostname} · ${s.description ?? ''}` }))} selected={proposal.servers.map(s => s.server_id)} onChange={ids => edit({ servers: ids.map(server_id => proposal.servers.find(s => s.server_id === server_id) ?? { server_id, instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }) })} />

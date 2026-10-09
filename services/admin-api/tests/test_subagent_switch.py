@@ -10,10 +10,9 @@ from knowledge_admin.knowledge_agents.subagents import UNAVAILABLE
 from knowledge_admin.profiles_api import ProfileInput
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT
 from knowledge_admin.tools.sdk import function_tool
-from knowledge_admin.tools_api import CLAUDE_CODE, SUBAGENT_SWITCH, SUBAGENTS_OFF, UNKNOWN
+from knowledge_admin.tools_api import SUBAGENT_SWITCH, SUBAGENTS_OFF, UNKNOWN
 from test_agent_tools_api import put, view
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_claude_code_agents import claude_code_agent
 from test_profiles import create, update, wizard_payload
 from test_repositories import HEADERS
 
@@ -48,10 +47,6 @@ def test_the_general_switch_is_the_run_subagent_row(store, saved_agent):
     assert kept.status_code == 200 and kept.json()['subagents'] is True  # a client that does not send it keeps it
     off = update(client, kept.json(), subagents=False).json()
     assert off['subagents'] is False and row(store, agent['id']) is None
-    writer = claude_code_agent(client)
-    assert profile(client, writer)['subagents'] is False
-    refused = update(client, profile(client, writer), subagents=True)
-    assert refused.status_code == 400 and refused.json()['error']['message'] == CLAUDE_CODE
 
 
 def test_the_tools_tab_keeps_run_subagent_on_and_stores_subagent_allowed(store, saved_agent):
@@ -94,9 +89,7 @@ def test_the_wizard_switches_subagents_on_with_the_tools_a_subagent_may_use(stor
     assert row(store, agent_id, 'read_file')['subagent_allowed'] is True
     assert profile(client, agent_id)['subagents'] is True
     for body, message in ((wizard_payload('Odd', tools=[SUBAGENT]), SUBAGENT_SWITCH),
-                          (wizard_payload('Odder', subagent_blocked=['grep']), UNKNOWN.format(tool='grep')),
-                          (wizard_payload('Writer', description='', when_to_use='', runtime='claude_code',
-                                          subagents=True), CLAUDE_CODE)):
+                          (wizard_payload('Odder', subagent_blocked=['grep']), UNKNOWN.format(tool='grep'))):
         refused = client.post('/api/agents/wizard', headers=HEADERS, json=body)
         assert refused.status_code == 400 and refused.json()['error']['message'] == message
 
@@ -124,20 +117,3 @@ def test_run_subagent_outside_a_session_is_a_tool_error():
     result = asyncio.run(tool.on_invoke_tool(wrapped, payload))
     assert result.startswith('An error occurred while running the tool.') and UNAVAILABLE in result
 
-
-def test_switching_to_claude_code_deletes_the_switch_and_switching_back_leaves_it_off(store, saved_agent):
-    """A save that omits `subagents` keeps the switch, so the row goes when the agent becomes a Claude Code agent: a
-    later save back to native cannot bring it back."""
-    client = saved_agent[0]
-    agent = update(client, create(client, 'Lead'), subagents=True).json()
-    assert row(store, agent['id']) is not None
-
-    def save(current, **changes):
-        body = {field: current[field] for field in ProfileInput.model_fields if field != 'subagents'}
-        response = client.put(f"/api/agents/{agent['id']}", headers=HEADERS, json={**body, **changes})
-        assert response.status_code == 200, response.text
-        return response.json()
-    writer = save(agent, runtime='claude_code')
-    assert writer['subagents'] is False and row(store, agent['id']) is None
-    back = save(writer, runtime='openai')
-    assert back['subagents'] is False and row(store, agent['id']) is None

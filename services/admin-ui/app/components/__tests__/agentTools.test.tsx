@@ -15,14 +15,14 @@ vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'
 vi.mock('../OperationsView', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'payments', name: 'Payments analyst', description: '', when_to_use: '', enabled: true,
-  runtime: 'openai', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false, repositories_enabled: true,
+  documents_enabled: false, repositories_enabled: true,
   ssh_enabled: false, skills_enabled: false, mcp_enabled: true, services_enabled: false, documents_grounded: false, revision: 4,
   model_id: null, all_collections: false, all_repositories: true, collection_ids: [], repository_ids: [], service_ids: [],
   skill_ids: [], system_prompt: '' };
 const tool = (patch: Partial<tools.AgentTool>): tools.AgentTool => ({ tool: 'read_file', label: 'Read file',
   summary: 'Read a file or a line range.', group: 'code', mode: 'on', usage: null, default_usage: 'Read a source line range.',
   subagent_allowed: true, available: true, reason: null, tab: 'git', ...patch });
-const native: tools.AgentTools = { runtime: 'openai', revision: 4, tools: [
+const native: tools.AgentTools = { revision: 4, tools: [
   tool({}),
   tool({ tool: 'shell_run', label: 'Shell', summary: 'Run Bash in a sandbox.', mode: 'off', default_usage: 'Run Bash commands.' }),
   tool({ tool: 'ssh_run', label: 'SSH', summary: 'Run a command on a selected server.', group: 'servers', available: false,
@@ -34,11 +34,10 @@ const native: tools.AgentTools = { runtime: 'openai', revision: 4, tools: [
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ is_admin: true })));
-  vi.mocked(profiles.getAgent).mockImplementation(async id => ({ ...structuredClone(agent), id, runtime: id === 'writer' ? 'claude_code' : 'openai' }));
+  vi.mocked(profiles.getAgent).mockImplementation(async id => ({ ...structuredClone(agent), id }));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({ collections: [], repositories: [], services: [], skills: [] });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({ models: [], assignments: { search_model_id: null, code_model_id: null, operations_model_id: null, revision: 1 } });
-  vi.mocked(tools.getAgentTools).mockImplementation(async id => id === 'writer'
-    ? { runtime: 'claude_code', revision: 1, claude_code_tools: ['Read', 'Grep'], tools: [] } : structuredClone(native));
+  vi.mocked(tools.getAgentTools).mockImplementation(async () => structuredClone(native));
   vi.mocked(tools.saveAgentTools).mockImplementation(async (_id, revision, saved) => ({ ...native, revision: revision + 1, tools: saved }));
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -92,15 +91,6 @@ test('unmet needs are greyed out with their reason and link', async () => {
 test('capability tabs of a native agent point to the Tools tab', async () => {
   open('/agents/payments?view=git');
   expect(await screen.findByText(tools.TOOLS_TAB_NOTE)).toBeVisible();
-});
-
-test('a Claude Code agent lists its Claude Code tools', async () => {
-  open('/agents/writer?view=tools');
-  const list = await screen.findByRole('list', { name: 'Claude Code tools' });
-  expect(within(list).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Read', 'Grep']);
-  expect(screen.getByText(tools.CLAUDE_CODE_TOOLS_NOTE)).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Save tools' })).toBeNull();
-  expect(screen.queryByRole('switch', { name: 'Read file' })).toBeNull();
 });
 
 test('an emptied usage saves as the default text', async () => {

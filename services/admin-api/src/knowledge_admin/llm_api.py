@@ -8,14 +8,13 @@ from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request
-from knowledge_llm import claude_model, code_compatible, completion_model, credential_aad, decode_model
+from knowledge_llm import code_compatible, completion_model, credential_aad, decode_model
 from knowledge_llm.bedrock_embeddings import embed_bedrock
 from openai import AsyncOpenAI
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.knowledge_agents.config import CHOOSE_CLAUDE
 from knowledge_admin.repositories import RepositoryStore
 
 PUBLIC = 'id,name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,enabled,revision,created_at,updated_at,(api_key_ciphertext IS NOT NULL) AS has_api_key'
@@ -185,9 +184,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     raise HTTPException(400, 'An API key is required for this provider')
                 if conn.execute("SELECT 1 FROM ka.agents WHERE model_id=%s LIMIT 1", (model_id,)).fetchone() and not code_compatible(value.provider, value.api_format, value.model):
                     raise HTTPException(400, 'Choose a compatible code model or remove its agent assignment first.')
-                if conn.execute("SELECT 1 FROM ka.agents WHERE runtime='claude_code' AND model_id=%s LIMIT 1", (model_id,)).fetchone() \
-                        and not claude_model(value.provider, value.api_format, value.model):
-                    raise HTTPException(400, CHOOSE_CLAUDE)
                 actor = audit(conn, db, request, 'llm.created' if creating else 'llm.updated', model_id,
                               {'name': value.name, 'provider': value.provider, 'enabled': value.enabled})
                 values = (value.name, value.provider, value.model, value.api_format, value.base_url, value.aws_region,

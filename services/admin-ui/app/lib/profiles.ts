@@ -1,12 +1,5 @@
 import { request } from './api';
 import type { ToolsSummary } from './tools';
-export type AgentRuntime = 'openai' | 'claude_code';
-export const AGENT_TYPES: [AgentRuntime, string][] = [['openai', 'Native'], ['claude_code', 'Claude Code']];
-export const agentTypeLabel = (runtime?: AgentRuntime) => runtime === 'claude_code' ? 'Claude Code' : 'Native';
-export const AGENT_TYPE_HELP: Record<AgentRuntime, string> = {
-  openai: 'Runs on the OpenAI Agents SDK with the tools enabled in its tabs.',
-  claude_code: 'Runs on the Claude Agent SDK (Claude Code) in its own container. Needs a Claude model (Bedrock or Anthropic).',
-};
 export type AgentResources = 'fixed' | 'per_run';
 export const RESOURCE_MODES: [AgentResources, string][] = [['fixed', 'Fixed'], ['per_run', 'Per run']];
 export interface ResourceLimit { kind: 'code' | 'documents' | 'servers' | 'services'; limit: number | 'any' }
@@ -35,11 +28,9 @@ export const NO_RUN_RESOURCES: RunResourcesInput = { code_project_ids: [], colle
 export const RUN_RESOURCE_KINDS: [RunResourceKind, keyof RunResourcesInput, string][] = [
   ['code_projects', 'code_project_ids', 'Code projects'], ['collections', 'collection_ids', 'Collections'],
   ['servers', 'server_ids', 'Servers'], ['services', 'service_ids', 'Services']];
-export const CLAUDE_CODE_TOOL_NAMES = ['Read', 'Grep', 'Glob', 'Bash'] as const;
-export type ClaudeCodeTool = typeof CLAUDE_CODE_TOOL_NAMES[number];
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean;
-  runtime?: AgentRuntime; claude_code_tools?: ClaudeCodeTool[]; resources?: AgentResources; subagents?: boolean;
+  resources?: AgentResources; subagents?: boolean;
   documents_enabled: boolean; repositories_enabled: boolean; ssh_enabled: boolean; skills_enabled: boolean; mcp_enabled: boolean; services_enabled: boolean; documents_grounded: boolean;
   revision: number; model_id: string | null; all_collections: boolean; all_repositories: boolean;
   collection_ids: string[]; repository_ids: string[]; service_ids: string[]; skill_ids: string[];
@@ -60,10 +51,10 @@ export const getAgentConfig = (id: string) => request<Record<string, unknown>>(p
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + '/options');
 export const getRunResourceOptions = (id: string) => request<RunResourceOptions>(path(id) + '/run-resources');
 export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
-  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, runtime, claude_code_tools, resources, subagents, model_id } = value;
+  const { revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded, resources, subagents, model_id } = value;
   return request<AgentProfile>(path(value.id), json('PUT', { ...(skillIds === undefined ? {} : { skill_ids: skillIds }), revision, name, description, when_to_use, enabled, all_collections, all_repositories, collection_ids, repository_ids, service_ids, documents_enabled, repositories_enabled, ssh_enabled, skills_enabled, mcp_enabled, services_enabled, documents_grounded,
-    ...(runtime ? { runtime } : {}), ...(resources ? { resources } : {}), ...(claude_code_tools ? { claude_code_tools } : {}),
-    ...(runtime !== 'claude_code' && subagents !== undefined ? { subagents } : {}), ...(model_id !== undefined ? { model_id } : {}) }));
+    ...(resources ? { resources } : {}),
+    ...(subagents !== undefined ? { subagents } : {}), ...(model_id !== undefined ? { model_id } : {}) }));
 };
 export const saveAgentPrompt = (id: string, revision: number, system_prompt: string) =>
   request<AgentProfile>(path(id) + '/prompt', json('PUT', { revision, system_prompt }));

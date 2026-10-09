@@ -9,8 +9,6 @@ def profile(conn, agent_id: str, *, runnable: bool = False) -> dict:
     row = conn.execute('SELECT * FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
     if row is None:
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
-    if runnable and row.get('runtime', 'openai') != 'openai':
-        raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and row.get('resources', 'fixed') != 'fixed':  # per-run agents run only with their run's resources
         raise ModelUnavailable('Agent not found or not supported by this runtime.')
     if runnable and not row['enabled']:

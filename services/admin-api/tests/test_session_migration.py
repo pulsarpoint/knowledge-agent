@@ -14,6 +14,7 @@ def test_rename_preserves_history_and_import_refuses_stale_files(store,tmp_path)
     down = (repo/'db/migrations/0036_agent_sessions.down.sql').read_text()
     session_id = uuid4()
     with store.connect() as conn:
+        conn.execute((repo/'db/migrations/0084_remove_claude_code.down.sql').read_text(),prepare=False)
         conn.execute((repo/'db/migrations/0081_test_sessions.down.sql').read_text(),prepare=False)
         conn.execute((repo/'db/migrations/0080_clone_agents.down.sql').read_text(),prepare=False)  # restores agent_versions
         conn.execute(down,prepare=False)

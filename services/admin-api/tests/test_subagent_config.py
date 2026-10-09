@@ -30,7 +30,7 @@ def parent(**change) -> dict:
                   subagent_allowed=name not in ('shell_run', 'run_subagent')) for name in CATALOG]
     value = {
         'id': 'lead', 'name': 'Lead', 'description': '', 'when_to_use': '', 'enabled': True, 'revision': 3,
-        'runtime': 'openai', 'resources': 'fixed', 'model': MODEL, 'system_prompt': {'content': 'Lead the work.'},
+        'resources': 'fixed', 'model': MODEL, 'system_prompt': {'content': 'Lead the work.'},
         'instructions': 'Use the runbook.',
         'code': {'enabled': True, 'all_projects': False, 'graphs': [{'id': 'app', 'name': 'App'}, {'id': 'worker', 'name': 'Worker'}],
                  'projects': [{'id': 'app', 'name': 'App', 'folder_paths': ['/code/app']},

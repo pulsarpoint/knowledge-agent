@@ -1,1 +1,1 @@
-"""Agents of both types (Native and Claude Code): one config, two runtimes. Existing modules move here step by step."""
+"""Agents: one config, one runtime. Existing modules move here step by step."""

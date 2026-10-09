@@ -19,8 +19,8 @@ test('runs list shows each run and filters by kind', async () => {
   expect(await screen.findByText('How many retries?')).toBeInTheDocument();
   expect(screen.getByText('alice@example.test')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'How many retries?' })).toHaveAttribute('href', '/activity/runs/run%3A1');
-  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'claude_code' } });
-  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=claude_code'));
+  fireEvent.change(screen.getByLabelText('Run type'), { target: { value: 'native_session' } });
+  await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('kind=native_session'));
 });
 
 test('runs list and record show the tools each run used', async () => {
@@ -54,13 +54,19 @@ test('a run record without tool counts has no tools line; an empty list says No 
 
 test('run types have readable names in the filter and the list', async () => {
   vi.stubGlobal('fetch', vi.fn(async (_url: string) => json({ next: null, runs: [
-    { ...runs.runs[0], run_key: 'cc:s1:1', kind: 'claude_code', title: 'Payments API reference' }] })));
+    { ...runs.runs[0], run_key: 'cc:s1:1', kind: 'native_session', title: 'Payments API reference' },
+    { ...runs.runs[0], run_key: 'cc:s1:2', kind: 'retired_kind', title: 'Old session' },
+    { ...runs.runs[0], run_key: 'cc:s2:1', kind: 'claude_code', title: 'Claude Code session' }] })));
   render(<MemoryRouter><RunsView /></MemoryRouter>);
   const row = (await screen.findByText('Payments API reference')).closest('tr')!;
-  expect(within(row).getByText('Claude Code')).toBeInTheDocument();
+  expect(within(row).getByText('Native session')).toBeInTheDocument();
+  // a run kind without a name shows as is
+  expect(within((await screen.findByText('Old session')).closest('tr')!).getByText('retired_kind')).toBeInTheDocument();
+  // a retired kind keeps its label in rows but is not offered in the filter
+  expect(within((await screen.findByText('Claude Code session')).closest('tr')!).getByText('Claude Code')).toBeInTheDocument();
   const options = within(screen.getByLabelText('Run type')).getAllByRole('option');
   expect(options.map(option => [option.getAttribute('value'), option.textContent])).toEqual([
-    ['', 'All'], ['test', 'Agent test'], ['test_session', 'Test session'], ['claude_code', 'Claude Code'], ['native_session', 'Native session']]);
+    ['', 'All'], ['test', 'Agent test'], ['test_session', 'Test session'], ['native_session', 'Native session']]);
 });
 
 test('runs list passes a key prefix from the URL', async () => {

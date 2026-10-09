@@ -1,8 +1,8 @@
 import { useParams } from 'react-router';
 import AdminLayout from '../components/AdminLayout';
-import ClaudeCodeSessionView from '../components/ClaudeCodeSessionView';
+import GenerationView from '../components/GenerationView';
 
 export default function Page() {
   const { sessionId } = useParams();
-  return <AdminLayout><ClaudeCodeSessionView key={sessionId} sessionId={sessionId!} /></AdminLayout>;
+  return <AdminLayout><GenerationView key={sessionId} sessionId={sessionId!} /></AdminLayout>;
 }

@@ -1,4 +1,4 @@
-"""Native session history through the Agents SDK `Session` interface, backed by ka.agent_sessions_cc.history.
+"""Native session history through the Agents SDK `Session` interface, backed by ka.agent_sessions.history.
 
 A turn loads the saved history once (HistorySession.load). The SDK reads it with get_items() and gives the turn's items
 to add_items(), which only buffers them. The worker commits the buffer, without U+0000 and redacted with the turn's
@@ -25,7 +25,7 @@ class HistorySession:
 
     @classmethod
     def load(cls, conn, session_id) -> 'HistorySession':
-        row = conn.execute('SELECT history FROM ka.agent_sessions_cc WHERE id=%s', (session_id,)).fetchone()
+        row = conn.execute('SELECT history FROM ka.agent_sessions WHERE id=%s', (session_id,)).fetchone()
         if row is None:
             raise LookupError('Session not found.')
         return cls(session_id, row['history'])
@@ -52,7 +52,7 @@ class HistorySession:
         if not self.pending:
             return
         items = scrub(jsonable_encoder(self.pending), [secret for secret in secrets if secret])
-        conn.execute('UPDATE ka.agent_sessions_cc SET history=history || %s WHERE id=%s', (Jsonb(items), self.session_id))
+        conn.execute('UPDATE ka.agent_sessions SET history=history || %s WHERE id=%s', (Jsonb(items), self.session_id))
 
     def drop(self) -> None:
         self.pending.clear()

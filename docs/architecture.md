@@ -30,7 +30,6 @@ flowchart LR
     AdminAPI --> RAG[Local RAG]
     AdminAPI --> DB[(PostgreSQL metadata and jobs)]
     Worker[Planned admin worker] --> DB
-    Worker --> Plugin[Claude Agent SDK + app-docs]
     Worker --> Jira[Jira Data Center]
     Worker --> RAG
     AdminAPI -. traces .-> Phoenix
@@ -111,45 +110,15 @@ SSH/log collection, health checks, and monitoring remain separate work. Consumer
 must use a trusted authenticated boundary and treat descriptive text as untrusted
 data, never as executable commands or grants of access.
 
-## Claude Code worker
-
-Generate documents sessions run in `claude-code-worker`, one Claude Agent SDK
-client per session (`knowledge_admin.claude_code_worker`), claimed from PostgreSQL with a
-lease. Isolation:
-
-- Network: only the `claude-code` network, shared with `postgres`; internet egress
-  remains for the model provider. Bash cannot reach `admin-api` (which trusts the
-  proxy's user headers) or any other service.
-- Files: `DATA_ROOT` read-only; the only writable mount is `claude-code-home` at
-  `/home/claude` (root-owned, 0711). Files under `DATA_ROOT` must be readable by the
-  claude users (world-readable, or group-readable by gid 1001).
-- Users: the worker runs as root and keeps the database password and encryption key
-  out of the CLI environment. Each running session holds a worker slot (at most 8,
-  `CLAUDE_CODE_MAX_SESSIONS`), and `knowledge-claude-cli` runs the CLI as that slot's
-  user (`claude1`..`claude8`), so one session cannot read another's process environment
-  or files. HOME is per session (`/home/claude/sessions/<id>`, 0700); before dropping
-  privileges the wrapper kills every process of the slot user, then hands the HOME to
-  it (CAP_CHOWN only), so a resumed session finds its transcript in any slot. When a
-  session leaves its slot (idle release, close, failure) the worker kills the slot
-  user's processes, removes its `/dev/shm` entries and takes the HOME back for root
-  before the slot is reused; at start it does the same for every slot and session HOME.
-  A HOME too large or deep to take back whole keeps only its top folder root's (that
-  session cannot start again); a slot whose processes cannot be killed stays unused.
-  SysV IPC objects (shared memory segments, semaphores, message queues) a session
-  creates are not removed: an accepted residual.
-- Secrets: the session's key reaches only the CLI environment; every enabled Claude
-  connection's key is redacted from run events, drafts and error messages, and NUL
-  characters are removed before storing.
-
 ## Agent session worker
 
-Native Generate documents sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
-claimed with the same lease code as `claude-code-worker` (`knowledge_agents/session_worker.py`: claims per agent type,
+Generate documents and Test sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
+claimed with a lease (`knowledge_agents/session_worker.py`:
 queued messages delivered once per turn, Stop, idle release after 5 minutes, interrupted turns failed on reclaim). Native
 turns have no time or model-call limit (each model request and MCP connection keeps a 300 s timeout); Stop always ends a
-turn within about 30 seconds. Networks `default` and `agent-shell` (no access to the `claude-code` network); `DATA_ROOT` read-only;
+turn within about 30 seconds. Networks `default` and `agent-shell`; `DATA_ROOT` read-only;
 `agent-workspaces` for tool scratch space shared with `shell-worker`; Agents SDK traces go to Phoenix as for native runs in
-`admin-api`. History uses an Agents SDK `Session` (`knowledge_agents/history.py`) backed by `agent_sessions_cc.history`.
+`admin-api`. History uses an Agents SDK `Session` (`knowledge_agents/history.py`) backed by `agent_sessions.history`.
 
 ## Code projects and Git synchronization
 
@@ -172,47 +141,9 @@ mapping and sync status. Existing snapshot-style projects keep their old folders
 and IDs; editing one adopts its current checkout as the fixed clone path. Mapping
 changes never remove source files. No automatic cache/snapshot cleanup is added.
 
-## Generate documentation through Claude
+## Generate documentation
 
-The worker loads the bundled plugin directory via the SDK's local `plugins`
-option and explicitly invokes `/app-docs:docs build` or `update`, passing the
-prepared source-root and docs workspace. This is supported by the
-[Claude Agent SDK plugin documentation](https://code.claude.com/docs/en/agent-sdk/plugins).
-
-Capture the selected repository commits, plugin version/digest, starting
-documentation revision, and SDK session ID in the generation record. Prepare an
-isolated control directory, read-only sources, and a job-owned writable docs Git
-worktree seeded from the current file manifest. The API, not the agent, creates
-the repositories/worktrees. Empty bootstrap commits are local worker state.
-
-The v2 plugin's [interview workflow](../plugins/app-docs/references/interview-workflow.md)
-requires a clean Git tree, prepares drafts, asks questions, and writes after
-confirmation. It also invokes `rag index` for chunk validation. The admin adapter
-must explicitly supply this invocation contract before the feature ships:
-
-- Generate authorizes analysis and draft writes within the job workspace. Reuse
-  the plugin's Diátaxis rules, source citations, incremental update logic, and
-  chunk contract. Supply this user authorization in the run context; do not
-  simulate user approval events or claim unattended support for the unchanged
-  interactive plugin.
-- Prepare the full draft first. Persist any real questions about intent as
-  `job_questions`; set `waiting_input`, release the worker lease, and resume from
-  persisted SDK state after the admin answers. Unknown/deferred facts remain
-  visibly marked. The adapter must be tested for the plugin's confirmation turn.
-- Validate chunking only in a disposable job index with no active collection
-  pointer. Generation must never automatically publish live RAG data.
-- Persist output bytes and hashes, validate relative Markdown paths, then merge
-  the accepted output as one new document-set revision in a DB transaction.
-  Lock the document-set row and compare `base_revision`. A concurrent upload
-  causes a conflict with a reviewable draft, never silent overwrite.
-- An uploaded file is user-owned. If generated output targets it, preserve the
-  upload and surface the proposed replacement for explicit selection in the UI.
-  Omitted files are not implicitly deleted; deletions belong in the proposed
-  manifest and must preserve uploaded content unless explicitly selected.
-
-The documentation writer must have its own SDK permission policy. Scope writable mounts to job output, keep
-application code read-only, and keep unrelated Jira/SSH credentials out of the
-Claude worker subprocess environment.
+The earlier job-based design with the Claude Agent SDK plugin was superseded by Generate documents agent sessions (migrations 0073 and 0084); see [Documentation administration](documentation.md#generate-documents).
 
 ## File uploads and directory consistency
 
