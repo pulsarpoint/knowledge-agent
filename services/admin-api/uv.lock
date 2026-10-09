@@ -409,6 +409,18 @@ wheels = [
 ]
 
 [[package]]
+name = "croniter"
+version = "6.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/37/57/2e2a65aee2a70483cb28e2b7e15a072d00a523207593b44400d4717bb100/croniter-6.2.4.tar.gz", hash = "sha256:fc124f751b1b04805c2a04b061898b436b45ab2320b045e1e052ea895de65189", size = 166267, upload-time = "2026-07-10T09:52:59.955Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/ba/d678e5bd329646ca51d3c92addbc77804e86d21f4b6b6a027218e6abb010/croniter-6.2.4-py3-none-any.whl", hash = "sha256:8ef3d544107a5c05a150a2d78f8bf5a8eb9c5c4d93405a736b824109574e3f4d", size = 46677, upload-time = "2026-07-10T09:52:58.425Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "50.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -948,6 +960,7 @@ source = { editable = "." }
 dependencies = [
     { name = "arize-phoenix-otel" },
     { name = "asyncssh" },
+    { name = "croniter" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -959,6 +972,7 @@ dependencies = [
     { name = "openinference-instrumentation-openai-agents" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -971,6 +985,7 @@ dev = [
 requires-dist = [
     { name = "arize-phoenix-otel", specifier = ">=0.17.1" },
     { name = "asyncssh", specifier = ">=2.21,<3" },
+    { name = "croniter", specifier = ">=6.2.4" },
     { name = "cryptography", specifier = ">=44" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
@@ -982,6 +997,7 @@ requires-dist = [
     { name = "openinference-instrumentation-openai-agents", specifier = "==2.4.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "tzdata", specifier = ">=2026.3" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 

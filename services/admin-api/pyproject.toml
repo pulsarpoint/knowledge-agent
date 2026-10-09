@@ -18,6 +18,8 @@ dependencies = [
     "mcp>=1.26,<2",
     "litellm==1.100.0",
     "openinference-instrumentation-openai-agents==2.4.1",
+    "croniter>=6.2.4",
+    "tzdata>=2026.3",
 ]
 
 [project.scripts]

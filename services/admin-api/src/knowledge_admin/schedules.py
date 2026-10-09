@@ -1,0 +1,59 @@
+"""Schedules run one target (a named job, e.g. the Jira pull) on a cron timetable in a time zone. This module holds the
+cron rules; scheduler.py claims and runs due schedules, schedules_api.py edits them."""
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, available_timezones
+
+from croniter import croniter
+
+MIN_INTERVAL = timedelta(minutes=5)
+CHECKED_FIRES = 11  # the gaps between the next 11 fire times are checked against MIN_INTERVAL
+TOO_OFTEN = 'Schedules may run at most every 5 minutes.'
+BAD_CRON = 'Use a cron expression with five fields, for example */15 * * * *.'
+BAD_TIMEZONE = 'Choose a time zone from the list.'
+MISSING = 'Target no longer exists.'
+PRESETS = {
+    '*/15 * * * *': 'Every 15 minutes',
+    '*/30 * * * *': 'Every 30 minutes',
+    '0 * * * *': 'Every hour',
+    '0 */6 * * *': 'Every 6 hours',
+    '0 6 * * *': 'Every day at 06:00',
+}
+
+
+class ScheduleError(ValueError):
+    """A cron expression or time zone a schedule may not use; the message is shown to the user."""
+
+
+class TargetMissing(Exception):
+    """The target's row (e.g. the Jira connection) no longer exists."""
+
+
+def normal(cron: str) -> str:
+    return ' '.join(cron.split())
+
+
+def upcoming(cron: str, timezone: str, after: datetime, count: int) -> list[datetime]:
+    """The next `count` fire times after `after`, computed in the schedule's time zone and returned in UTC."""
+    times = croniter(normal(cron), after.astimezone(ZoneInfo(timezone)))
+    return [times.get_next(datetime).astimezone(UTC) for _ in range(count)]
+
+
+def next_after(cron: str, timezone: str, after: datetime) -> datetime:
+    return upcoming(cron, timezone, after, 1)[0]
+
+
+def validate(cron: str, timezone: str) -> None:
+    expression = normal(cron)
+    if len(expression.split(' ')) != 5 or not croniter.is_valid(expression):
+        raise ScheduleError(BAD_CRON)
+    if timezone not in available_timezones():
+        raise ScheduleError(BAD_TIMEZONE)
+    times = upcoming(expression, timezone, datetime.now(UTC), CHECKED_FIRES)
+    if any(later - earlier < MIN_INTERVAL for earlier, later in zip(times, times[1:])):
+        raise ScheduleError(TOO_OFTEN)
+
+
+def describe(cron: str) -> str:
+    """Plain words for a preset; any other expression is shown as written."""
+    expression = normal(cron)
+    return PRESETS.get(expression, expression)
