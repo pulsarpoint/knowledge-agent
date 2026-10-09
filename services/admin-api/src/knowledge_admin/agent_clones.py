@@ -58,7 +58,8 @@ def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
         SELECT %s,skill_id,project_id FROM ka.skills_agents WHERE agent_id=%s''', (target_id, source_id))
     conn.execute('DELETE FROM ka.agent_tools WHERE agent_id=%s', (target_id,))
     conn.execute('''INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed)
-        SELECT %s,tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s''', (target_id, source_id))
+        SELECT %s,tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s AND tool<>%s''',
+        (target_id, source_id, f'expert:{target_id}'))  # an agent never lists itself as an expert
     conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (target_id,))  # their skill and MCP rows cascade
     conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (target_id,))
     replaced = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id',

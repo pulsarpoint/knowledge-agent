@@ -16,6 +16,9 @@ from knowledge_admin.tools.catalog import tools_summary
 from knowledge_admin.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
 
 
+EXPERT_NEEDS_WHEN = 'Experts need When to use.'
+
+
 class ProfileInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     revision: int = Field(ge=1, strict=True)
@@ -38,6 +41,7 @@ class ProfileInput(BaseModel):
     services_enabled: bool = Field(strict=True)
     resources: Literal['fixed', 'per_run'] | None = None  # None keeps the setting
     subagents: bool | None = Field(default=None, strict=True)  # May start subagents; None keeps the switch
+    expert: bool | None = Field(default=None, strict=True)  # Offer as an expert; None keeps the switch
     model_id: UUID | None = None  # Left out keeps the model; null clears it
 
     @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
@@ -232,6 +236,9 @@ def build_api(app_name, store):
                 old = read(conn, agent_id)
                 if old['revision'] != value.revision:
                     raise HTTPException(409, 'Agent changed. Reload before saving.')
+                expert = old['expert'] if value.expert is None else value.expert
+                if expert and not value.when_to_use.strip():
+                    raise HTTPException(400, EXPERT_NEEDS_WHEN)
                 if value.all_collections and value.collection_ids or value.all_repositories and value.repository_ids:
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 resources = value.resources or old['resources']
@@ -243,7 +250,8 @@ def build_api(app_name, store):
                     check_model(conn, model_id)
                 project = store.project(conn, app_name)
                 switch = {**({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {}),
-                          **({'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}} if new_model else {})}
+                          **({'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}} if new_model else {}),
+                          **({'expert': expert} if expert != old['expert'] else {})}
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
                     skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
@@ -266,8 +274,8 @@ def build_api(app_name, store):
                         conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
                 conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,resources=%s,model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,resources,model_id,actor,agent_id))
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,resources=%s,model_id=%s,expert=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
+                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,resources,model_id,expert,actor,agent_id))
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
                 now = flags({'resources': resources,
@@ -322,6 +330,7 @@ def build_api(app_name, store):
             conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.operations_settings WHERE agent=%s', (agent_id,))
             conn.execute('DELETE FROM ka.agent_configs WHERE agent=%s', (agent_id,))
+            conn.execute('DELETE FROM ka.agent_tools WHERE tool=%s', (f'expert:{agent_id}',))
             conn.execute('DELETE FROM ka.agents WHERE id=%s', (agent_id,))
             for row in credentials:
                 credential = row['credential_id']
