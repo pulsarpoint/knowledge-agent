@@ -35,6 +35,10 @@ NO_SUBJECTS = {'folders': [], 'code_project_ids': []}  # a Test session document
 
 NOT_A_TEST = 'Suggestions are for Test and event sessions only.'
 CONVERSATIONS = ('test', 'event')  # sessions shown and reviewed in the agent's Test tab
+REVIEW_BUSY = 'Wait for the agent to finish before asking for suggestions.'
+NO_TURNS = 'Run at least one message before requesting tuning suggestions.'
+NO_RESPONSE = 'Response not found in this session.'
+REVIEW_SECONDS = 240
 
 
 class SessionRefused(ValueError):
@@ -80,11 +84,6 @@ def start_session(conn, project: UUID, agent_id: str, actor: UUID, message: str,
     conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                  (session_id, actor, message))
     return session_id
-
-REVIEW_BUSY = 'Wait for the agent to finish before asking for suggestions.'
-NO_TURNS = 'Run at least one message before requesting tuning suggestions.'
-NO_RESPONSE = 'Response not found in this session.'
-REVIEW_SECONDS = 240
 
 TUNING_PROMPT = """Review an agent's Test session to help its administrator tune the agent.
 You receive the agent configuration the session ran with (pinned when it started), the conversation built from the

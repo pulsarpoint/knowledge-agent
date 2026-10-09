@@ -74,6 +74,15 @@ def test_history_counts_what_a_delete_would_remove(agents):
     assert client.get('/api/agents/missing/history', headers=HEADERS).status_code == 404
 
 
+def test_event_sessions_count_as_test_chats(agents, store):
+    client, target, _, mine, _ = agents
+    with store.connect() as conn:
+        add_test_session(conn, mine['project'], mine['actor'], target, conn.execute(
+            'SELECT model_id FROM ka.agent_sessions WHERE id=%s', (mine['tests'][0],)).fetchone()['model_id'],
+            message='Triage', status='waiting', turns=1, purpose='event')
+    assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {**FULL, 'test_chats': 3}
+
+
 def test_an_agent_without_history_has_none(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     agent = create(client, 'Fresh agent')
