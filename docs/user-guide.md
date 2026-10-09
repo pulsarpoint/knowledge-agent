@@ -153,10 +153,10 @@ General conventions throughout the admin app:
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Skills · MCP servers · Agent runs · Schedules |
+| Administration | Storage · Skills · MCP servers · Agent runs · Schedules · Events |
 | Agents | All agents |
 | LLM Settings | Models |
-| Jira | Tickets · Settings |
+| Jira | Tickets · Auto pull · Settings |
 | Environments | Environments · Services · Servers |
 | Code | Projects · Code graphs |
 | Docs | Documents · Prompts · Generate documents · Folders |
@@ -404,11 +404,13 @@ For testing without a real Jira: `make jira-mock-up`, then URL
 `http://jira-mock:8080/jira`, user `mock-admin`, token `jira-mock-token`
 (75 demo tickets). Stop with `make jira-mock-down`.
 
-**Auto pull.** The Auto pull card on Jira → Tickets fetches tickets on a timetable with the query and ticket limit of
-your last Fetch tickets (change them by fetching once with the new values). Switch on **Pull tickets automatically** and
-pick how often: every 15 or 30 minutes, every hour, every 6 hours or every day at 06:00, in your browser's time zone.
-The card shows the last pull and the next one. A failed pull (Jira unreachable, token removed) is shown there and
-retried at the next scheduled time; a pull that meets a manual fetch is skipped.
+**Auto pull.** Jira → Auto pull fetches tickets on a timetable with its own query and ticket limit (separate from the
+query on Jira → Tickets). Switch on **Pull tickets automatically**, enter the JQL and number of tickets, pick how often
+(a preset or a custom cron expression) and the time zone, check the preview of the next runs, and **Save**. The page
+shows the last pull and the next one; **Run now** pulls at once. Jira → Tickets shows a one-line summary. A failed pull
+is shown and retried at the next scheduled time; a pull that meets a manual fetch is skipped. Each scheduled pull also
+records an event for every ticket that is new or changed since its last pull (see Administration → Events); the manual
+Fetch tickets does not.
 
 ### 4.9 Skills
 
@@ -671,12 +673,21 @@ Records are kept until deleted; only administrators can see them.
 
 ### 4.16 Schedules
 
-Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull). Each row shows what
+Administration → Schedules lists everything that runs on a timetable (today: the Jira auto pull). **New schedule** creates one: choose what to run (today: Jira tickets, which uses the query from Jira → Auto pull) and when. **Delete** removes a schedule and its history. Each row shows what
 it runs, when (in plain words and its time zone), the next run and the last result. Switch a schedule off to pause it;
 **Run now** runs it once (a paused schedule stays paused); **Edit** changes the timetable: a preset or a custom cron
 expression (minute, hour, day of month, month, day of week), the time zone, with a preview of the next three runs.
 Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Schedules are run by the
 `repository-worker` service; after downtime a missed schedule runs once, not once per missed time.
+
+### 4.17 Events
+
+Administration → Events lists what happened at your sources, newest first. Today the source is Jira: every scheduled
+pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time and **Ticket
+updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type, summary,
+description). Filter by source and type, search by ticket key or title, and open an event to see its changes, a link to
+the ticket and the raw data. The very first pull records every ticket it fetches. Events are kept for handling by
+agents in a later version; nothing acts on them yet.
 
 ---
 

@@ -140,3 +140,17 @@ is pending, `run_requested`), the lease of a run in progress and the last result
 target_id)`. `ka.schedule_runs` keeps each schedule's newest 100 runs (`trigger` `schedule` or `manual`) and is deleted
 with its schedule. repository-worker runs due schedules. The down migration drops both tables: auto pull settings and
 run history are lost; the Jira tickets already pulled stay.
+
+## 0087_schedule_params
+
+`ka.schedules.params` (jsonb object, default `{}`) holds target settings. For `jira.pull` it is `{jql, limit}`: the
+automatic pull's own query, separate from the manual Fetch tickets query; without it the pull uses the connection's last
+fetch query and limit. The down migration drops the column (pulls fall back to the last fetch query).
+
+## 0088_events
+
+`ka.events` records things that happened at a source, as a queue for later handling (no status yet). The scheduled
+Jira pull records `jira.ticket.created` for a ticket it has not recorded before and `jira.ticket.updated` (with
+`changes`) when Jira's `updated` moved; `dedupe_key` (`jira:<connection>:<issue>:<updated>`, unique per project) keeps
+repeated pulls from recording twice. The partial index `events_jira_issues` serves the pull's lookup of each ticket's
+latest event. The down migration drops the table and every recorded event.
