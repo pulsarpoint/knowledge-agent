@@ -68,6 +68,9 @@ def test_syntax_is_checked_on_save():
         check_prompt(' ')
     with pytest.raises(TemplateProblem, match='^Prompt: '):
         check_prompt('{% if %}')
+    deep = '{{ ' + '(' * 2000 + '1' + ')' * 2000 + ' }}'
+    with pytest.raises(TemplateProblem, match='^Payload: the template is nested too deeply.$'):
+        check_emit({'type': 'a.b', 'payload': deep})
 
 
 def test_runaway_cpu_times_out_and_the_pool_recovers(monkeypatch):

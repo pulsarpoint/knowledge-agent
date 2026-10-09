@@ -63,6 +63,8 @@ def check(source: str, label: str) -> None:
         ENV.parse(source)
     except TemplateSyntaxError as exc:
         raise TemplateProblem(f'{label}: {exc.message} (line {exc.lineno}).') from None
+    except RecursionError:
+        raise TemplateProblem(f'{label}: the template is nested too deeply.') from None
 
 
 def render_in_child(source: str, ctx: dict) -> str:
