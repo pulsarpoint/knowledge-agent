@@ -42,7 +42,8 @@ schedules that run agents, creating schedules by hand on the Schedules page, pag
 | `cron` | text NOT NULL | five-field cron expression |
 | `timezone` | text NOT NULL DEFAULT 'UTC' | IANA name |
 | `enabled` | boolean NOT NULL DEFAULT true | |
-| `next_run_at` | timestamptz | NULL while paused |
+| `next_run_at` | timestamptz | NULL while paused (unless Run now is pending) |
+| `run_requested` | boolean NOT NULL DEFAULT false | Run now is pending; the run's history row gets trigger `manual` |
 | `lease_expires_at` | timestamptz | set while a run is in progress |
 | `last_run_at`, `last_finished_at` | timestamptz | |
 | `last_status` | text | `CHECK (last_status IN ('succeeded','failed','skipped'))` |
@@ -50,7 +51,7 @@ schedules that run agents, creating schedules by hand on the Schedules page, pag
 | `revision` | integer NOT NULL DEFAULT 1 | optimistic locking for edits |
 | `created_at`, `updated_at` | timestamptz | |
 
-`UNIQUE (project_id, target_kind, target_id)` — one schedule per target. Index on `next_run_at WHERE enabled`.
+`UNIQUE (project_id, target_kind, target_id)` — one schedule per target. Index on `next_run_at WHERE next_run_at IS NOT NULL`.
 
 `ka.schedule_runs` — history: `id bigint identity`, `schedule_id → schedules ON DELETE CASCADE`, `started_at`,
 `finished_at`, `status` (`succeeded`/`failed`/`skipped`), `message`, `trigger` (`schedule`/`manual`). The worker keeps
@@ -76,13 +77,14 @@ Runs as a second thread in **repository-worker** (`knowledge-repo-worker`), whic
 and has `CREDENTIAL_ENCRYPTION_KEY`. No new container.
 
 Every 5 seconds:
-1. **Claim** one due schedule in one statement: `enabled AND next_run_at <= now() AND (lease_expires_at IS NULL OR
-   lease_expires_at < now())`, `ORDER BY next_run_at FOR UPDATE SKIP LOCKED LIMIT 1`; set
+1. **Claim** one due schedule in one statement: `next_run_at <= now() AND (lease_expires_at IS NULL OR
+   lease_expires_at < now())` (a paused schedule has no `next_run_at`, except for a pending Run now), `ORDER BY next_run_at FOR UPDATE SKIP LOCKED LIMIT 1`; set
    `lease_expires_at = now() + 15 minutes`, `last_run_at = now()`. Several workers never run the same schedule.
 2. **Run** the target outside that transaction: `TARGETS[target_kind](store, schedule) -> str` returns the message;
    an exception means failed. Unknown or missing targets fail with `Target no longer exists.`
-3. **Finish:** write `last_*`, insert a `schedule_runs` row, clear the lease, and set `next_run_at = next_after(cron,
-   timezone, now())`. Computing from now means downtime causes **one** catch-up run, not one per missed slot.
+3. **Finish:** write `last_*`, insert a `schedule_runs` row, clear the lease and `run_requested`, and set `next_run_at = next_after(cron,
+   timezone, now())`, or NULL when the schedule is paused. A worker whose lease was taken over (the lease value
+   changed) records nothing. Computing from now means downtime causes **one** catch-up run, not one per missed slot.
 4. Loop again immediately when a schedule ran, otherwise wait 5 seconds.
 
 A run that outlives its 15-minute lease (crashed worker) becomes claimable again. Database errors are logged and the
@@ -93,8 +95,8 @@ loop retries, like the repository loop. Stopping the worker (SIGTERM) lets a run
 - The fetch code in `jira_api.fetch_tickets` moves to `knowledge_admin/jira_sync.py`:
   `pull_tickets(store, project_id, jql, limit, actor_id | None, transport=None) -> dict` (credentials, Jira call,
   snapshot upsert, `fetch_revision` check, audit row). The endpoint and the target both call it; behaviour of the
-  button is unchanged. It raises a plain `JiraSyncError(message)`; the endpoint maps it to the same HTTP status and
-  text as today.
+  button is unchanged. It keeps raising the same `HTTPException`s as today (the Jira client raises them); the
+  scheduler records their `detail` as the run's message.
 - The target uses the connection's saved `jql` and `coalesce(last_fetch_limit, 25)` — what the last manual fetch used.
 - Audit action `jira.tickets_auto_pulled` with an empty actor; details `{requested, fetched, total}`.
 - Message on success: `Pulled {fetched} of {total} tickets.`
@@ -113,7 +115,7 @@ loop retries, like the repository loop. Stopping the worker (SIGTERM) lets a run
 - `PUT /api/schedules/{id}` `{cron, timezone, enabled, revision}` → validates, recomputes `next_run_at` (NULL when
   disabled), bumps `revision`; 409 `Schedule changed. Reload and try again.` on a stale revision; audit
   `schedule.saved`.
-- `POST /api/schedules/{id}/run` → sets `next_run_at = now()` (also for a paused schedule: one run, it stays paused
+- `POST /api/schedules/{id}/run` → sets `run_requested = true` and `next_run_at = now()` (also for a paused schedule: one run, it stays paused
   afterwards); 409 `This schedule is already running.` while leased; audit `schedule.run_requested`. A manual run's
   history row has trigger `manual`.
 - `GET /api/jira/auto-pull` → `{schedule | null, jql, limit}`.
