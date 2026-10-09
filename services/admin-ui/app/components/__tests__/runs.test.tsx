@@ -98,3 +98,18 @@ test('run record shows the full timeline', async () => {
   expect(screen.getByText(/LONG OUTPUT x{5000}/)).toBeInTheDocument();
   expect(screen.getByText('Three retries [1].')).toBeInTheDocument();
 });
+
+test('an expert call row says who called it and opens only that call', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json({ next: null, runs: [{ ...runs.runs[0], kind: 'expert_call', run_key: 'run:9', id: 'run:9:e1',
+    call_id: 'e1', caller: 'Lead', title: 'Map payments', status: 'completed' }] })));
+  render(<MemoryRouter><RunsView /></MemoryRouter>);
+  expect(await screen.findByText('Called as expert by Lead')).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Map payments' })).toHaveAttribute('href', '/activity/runs/run%3A9?call=e1');
+});
+
+test('the record asks the API for one expert call when the link carries call', async () => {
+  const fetchMock = vi.fn(async (_url: string) => json({ run_key: 'run:9', agent_id: 'p', user: null, events: [] }));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<MemoryRouter initialEntries={['/activity/runs/run%3A9?call=e1']}><RunRecordView runKey="run:9" /></MemoryRouter>);
+  await waitFor(() => expect(fetchMock.mock.calls[0][0]).toBe('/api/agent-runs/run%3A9?call=e1'));
+});

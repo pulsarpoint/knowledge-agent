@@ -44,10 +44,10 @@ const taskLabel = (sub: Subagent, length?: number) => short(sub.task, length) ||
 const subagentUsage = (sub: Subagent) => `${plural(sub.toolCalls, 'tool call')} · ${compactTokens(sub.usage.total)} tokens`;
 
 function WorkLine({ item, subagents, onOpen }: { item: WorkItem; subagents?: Map<string, Subagent>; onOpen?: (callId: string) => void }) {
-  const sub = item.kind === 'tool' && item.name === SUBAGENT_TOOL && item.callId ? subagents?.get(item.callId) : undefined;
+  const sub = item.kind === 'tool' && (item.name === SUBAGENT_TOOL || item.name?.startsWith('ask_')) && item.callId ? subagents?.get(item.callId) : undefined;
   if (sub) return <div className="flex flex-wrap items-center gap-2 text-sm">
-    <span className="break-words">{`Subagent · ${taskLabel(sub)} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
-    {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open subagent: ${sub.task || NO_TASK}`} onClick={() => onOpen(sub.callId)}>Open</Button>}
+    <span className="break-words">{`${sub.expert ? `Asked ${sub.expert.name}` : 'Subagent'} · ${taskLabel(sub)} · ${subagentUsage(sub)} · ${SUBAGENT_STATUS_LABELS[sub.status].toLowerCase()}`}</span>
+    {onOpen && <Button type="button" size="sm" variant="outline" aria-label={`Open ${sub.expert ? 'expert' : 'subagent'}: ${sub.task || NO_TASK}`} onClick={() => onOpen(sub.callId)}>Open</Button>}
   </div>;
   switch (item.kind) {
     case 'reasoning': return <p className="whitespace-pre-wrap text-sm italic text-muted-foreground">{item.text}</p>;
@@ -96,7 +96,7 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
     <Breadcrumb><BreadcrumbList>
       <BreadcrumbItem><Button type="button" variant="link" className="h-auto p-0" onClick={onBack}>Main agent</Button></BreadcrumbItem>
       <BreadcrumbSeparator>›</BreadcrumbSeparator>
-      <BreadcrumbItem><BreadcrumbPage>Subagent: {taskLabel(sub)}</BreadcrumbPage></BreadcrumbItem>
+      <BreadcrumbItem><BreadcrumbPage>{sub.expert?.name ?? 'Subagent'}: {taskLabel(sub)}</BreadcrumbPage></BreadcrumbItem>
     </BreadcrumbList></Breadcrumb>
     <div aria-label="Subagent task" className="self-end rounded-md bg-muted p-3 sm:max-w-[85%]">
       <p className="text-xs font-medium text-muted-foreground">Task · turn {sub.turn}</p>
@@ -186,7 +186,7 @@ export default function RunWorkspace({ run, agentName, resources, heading, heade
             : 'Not started'}</p></button></li>
         {subagents.map(sub => <li key={sub.callId}><button type="button" aria-pressed={shown?.callId === sub.callId} onClick={() => pick(sub.callId)}
           className={`w-full rounded-md border p-2 text-left text-sm${shown?.callId === sub.callId ? ' border-primary' : ''}`}>
-          <p className="break-words font-medium">{short(sub.task, 48) || 'Subagent'}</p>
+          <p className="break-words font-medium">{sub.expert ? `Expert · ${sub.expert.name} · ${short(sub.task, 48) || NO_TASK}` : short(sub.task, 48) || 'Subagent'}</p>
           <p className="text-xs text-muted-foreground">{`${SUBAGENT_STATUS_LABELS[sub.status]} · ${subagentUsage(sub)}`}</p></button></li>)}
       </ul>
     </section>

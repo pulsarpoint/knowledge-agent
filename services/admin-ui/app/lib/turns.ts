@@ -16,6 +16,8 @@ export interface TurnGrounding { sources: TurnSource[]; not_covered: boolean; re
 export interface Subagent {
   callId: string; turn: number; firstId: number; task: string; work: WorkItem[]; toolCalls: number;
   answer: string | null; status: SubagentStatus; error: string | null; usage: TurnUsage;
+  /** Set when the helper is an expert agent the caller asked (ask_<name>), not a plain subagent. */
+  expert: { id: string; name: string } | null;
 }
 export interface Turn {
   turn: number; firstId: number; input: string | null; work: WorkItem[]; toolCalls: number;
@@ -29,7 +31,8 @@ const text = (payload: Record<string, unknown>, key: string) => typeof payload[k
 const amount = (payload: Record<string, unknown>, key: string) => Number(payload[key] ?? 0) || 0;
 /** A run_subagent result that is a failure: the subagent failed, or the call was refused (the SDK's tool error text).
  * Not every is_error: a subagent's successful answer may be JSON with an error key. */
-const SUBAGENT_FAILED = ['Subagent failed: ', 'An error occurred while running the tool'];
+const SUBAGENT_FAILED = [/^Subagent failed: /, /^Expert .+ failed: /, /^An error occurred while running the tool/];
+const EXPERT_TOOL_PREFIX = 'ask_';
 const noUsage = (): TurnUsage => ({ input: 0, output: 0, cached: 0, reasoning: 0, total: 0, calls: 0 });
 
 type Pending = { pending: { id: number; text: string } | null };
@@ -81,7 +84,7 @@ function helper(turn: BuildingTurn, callId: string, event: SessionEvent): Buildi
   let found = turn.helpers.get(callId);
   if (!found) {
     found = { callId, turn: turn.turn, firstId: event.id, task: '', work: [], toolCalls: 0, answer: null, status: 'working',
-      error: null, usage: noUsage(), pending: null };
+      error: null, usage: noUsage(), expert: null, pending: null };
     turn.helpers.set(callId, found);
   }
   return found;
@@ -109,7 +112,11 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
     const parent = text(p, 'parent_call_id');
     if (parent) {
       const sub = helper(turn, parent, event);
-      if (event.kind === 'input') { if (!sub.task) sub.task = text(p, 'task'); }
+      if (event.kind === 'input') {
+        if (!sub.task) sub.task = text(p, 'task');
+        const expert = p.expert as { id?: unknown; name?: unknown } | undefined;
+        if (expert && typeof expert.id === 'string' && typeof expert.name === 'string') sub.expert = { id: expert.id, name: expert.name };
+      }
       else addWork(sub, event);
       continue;
     }
@@ -127,14 +134,15 @@ export function groupTurns(events: SessionEvent[]): Turn[] {
       default: {
         addWork(turn, event);
         const callId = text(p, 'call_id');
-        if (text(p, 'name') !== SUBAGENT_TOOL || !callId) break;
+        const name = text(p, 'name');
+        if ((name !== SUBAGENT_TOOL && !name.startsWith(EXPERT_TOOL_PREFIX)) || !callId) break;
         if (event.kind === 'tool_call') {
           const sub = helper(turn, callId, event);
           const args = p.arguments as Record<string, unknown> | undefined;
           if (!sub.task && args && typeof args.task === 'string') sub.task = args.task;
         } else if (event.kind === 'tool_result') {
           const sub = turn.helpers.get(callId);
-          if (sub) sub.status = SUBAGENT_FAILED.some(prefix => text(p, 'preview').startsWith(prefix)) ? 'failed' : 'done';
+          if (sub) sub.status = SUBAGENT_FAILED.some(pattern => pattern.test(text(p, 'preview'))) ? 'failed' : 'done';
           // A refused call records no subagent events: its reason is the result.
           if (sub?.status === 'failed' && !sub.error) sub.error = text(p, 'preview') || null;
         }

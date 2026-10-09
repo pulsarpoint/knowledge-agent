@@ -51,9 +51,9 @@ export default function RunsView() {
       : rows.length === 0 ? <Empty className="border"><EmptyDescription>No recorded runs yet.</EmptyDescription></Empty>
       : <div className="rounded-lg border"><Table>
           <TableHeader><TableRow><TableHead>Run</TableHead><TableHead>Type</TableHead><TableHead>Agent</TableHead><TableHead>User</TableHead><TableHead>Status</TableHead><TableHead>Tokens</TableHead><TableHead>Tools</TableHead><TableHead>Started</TableHead></TableRow></TableHeader>
-          <TableBody>{rows.map(row => <TableRow key={row.run_key}>
-            <TableCell className="max-w-md"><Link className="underline underline-offset-4" to={runPath(row.run_key)}>{row.title || row.run_key}</Link></TableCell>
-            <TableCell><Badge variant="secondary">{row.kind ? KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
+          <TableBody>{rows.map(row => <TableRow key={row.id ?? row.run_key}>
+            <TableCell className="max-w-md"><Link className="underline underline-offset-4" to={runPath(row.run_key, row.kind === 'expert_call' ? row.call_id : undefined)}>{row.title || row.run_key}</Link></TableCell>
+            <TableCell><Badge variant="secondary">{row.kind === 'expert_call' ? `Called as expert by ${row.caller ?? 'another agent'}` : row.kind ? KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
             <TableCell>{row.agent ?? row.agent_id}</TableCell>
             <TableCell>{row.user ?? '—'}</TableCell>
             <TableCell>{row.status ?? 'running'}</TableCell>

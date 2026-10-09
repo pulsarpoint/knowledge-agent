@@ -24,12 +24,15 @@ export function withLaterCalls(counts: ToolCount[], through: number | undefined,
 export interface RunSummary {
   run_key: string; agent_id: string; agent: string | null; kind: string | null; title: string | null;
   user: string | null; status: string | null; total_tokens: number; started_at: string; tool_counts: ToolCount[];
+  /** expert_call rows: one call of an expert from another agent's run (call_id selects its events). */
+  id?: string; call_id?: string; caller?: string | null;
 }
 export interface RunEvent { seq: number; kind: string; agent_id: string; payload: Record<string, unknown>; created_at: string }
 export interface RunRecord { run_key: string; agent_id: string; user: string | null; events: RunEvent[]; tool_counts?: ToolCount[] }
 export interface RunFilters { kind?: string; agent_id?: string; user?: string; key_prefix?: string; before?: number }
 
-export const runPath = (runKey: string) => `/activity/runs/${encodeURIComponent(runKey)}`;
+export const runPath = (runKey: string, callId?: string) =>
+  `/activity/runs/${encodeURIComponent(runKey)}${callId ? `?call=${encodeURIComponent(callId)}` : ''}`;
 
 export function getRuns(filters: RunFilters, signal?: AbortSignal) {
   const params = new URLSearchParams();
@@ -38,5 +41,5 @@ export function getRuns(filters: RunFilters, signal?: AbortSignal) {
   return request<{ runs: RunSummary[]; next: number | null }>(`/api/agent-runs${query ? `?${query}` : ''}`, { signal });
 }
 
-export const getRunRecord = (runKey: string, signal?: AbortSignal) =>
-  request<RunRecord>(`/api/agent-runs/${encodeURIComponent(runKey)}`, { signal });
+export const getRunRecord = (runKey: string, signal?: AbortSignal, callId?: string) =>
+  request<RunRecord>(`/api/agent-runs/${encodeURIComponent(runKey)}${callId ? `?call=${encodeURIComponent(callId)}` : ''}`, { signal });

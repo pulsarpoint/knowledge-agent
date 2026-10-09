@@ -43,7 +43,7 @@ export interface SessionDetail extends SessionSummary {
 export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'turns' | 'input_tokens' | 'output_tokens' | 'cached_tokens'
   | 'draft' | 'draft_turn' | 'document_id' | 'worker_active' | 'queued' | 'model_calls' | 'reasoning_tokens'>;
 export interface SessionEvent { id: number; turn: number; seq: number; kind: string; payload: Record<string, unknown>; created_at: string }
-export const DEFAULT_SYSTEM_PROMPT = 'You write technical documentation for software systems. Read the code, documents and servers you were given before you write. Cite evidence as file:line, document path or command. Say what you could not verify.';
+export const DEFAULT_SYSTEM_PROMPT = 'You write technical documentation for software systems. Read the code, documents and servers you were given before you write. Cite evidence as file:line, document path or command. Say what you could not verify.\n\nWhen the document covers several parts (services, code projects, servers), plan the sections first. For each part, ask an expert when its description fits; otherwise start a subagent with run_subagent. Give each a complete task: the section\'s purpose, what to cover, and only that part\'s resources. Write small single-part documents yourself. Combine the answers into one consistent document; check that they agree and resolve or mark conflicts.';
 /** What a generation documents. */
 export interface Selection { code_project_ids: string[]; collection_ids: string[]; environment_ids: string[]; service_ids: string[]; server_ids: string[] }
 /** Docs → Generate documents → New: an ad-hoc native agent with this model, system prompt and context; the prompt is its first message. */

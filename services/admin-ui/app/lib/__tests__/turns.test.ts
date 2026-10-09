@@ -121,10 +121,10 @@ test('a subagent cancelled while waiting for a slot has only its input event; it
 test('a refused run_subagent call is a failed subagent whose error is the result', () => {
   const [turn] = groupTurns([
     event(5, 'tool_call', { name: 'run_subagent', call_id: 'x1', summary: 'Too much', arguments: { task: 'Too much' } }),
-    event(5, 'tool_result', { name: 'run_subagent', call_id: 'x1', preview: 'An error occurred while running the tool. This turn already started 16 subagents.', is_error: true }),
+    event(5, 'tool_result', { name: 'run_subagent', call_id: 'x1', preview: 'An error occurred while running the tool. This turn already started 16 helpers.', is_error: true }),
   ]);
   expect(turn.subagents).toMatchObject([{ task: 'Too much', status: 'failed', work: [],
-    error: 'An error occurred while running the tool. This turn already started 16 subagents.' }]);
+    error: 'An error occurred while running the tool. This turn already started 16 helpers.' }]);
 });
 
 test('a run_subagent result fails the subagent only when it says so, not for a successful JSON answer with an error key', () => {
@@ -135,4 +135,30 @@ test('a run_subagent result fails the subagent only when it says so, not for a s
     event(6, 'tool_result', { name: 'run_subagent', call_id: 'j2', preview: 'Subagent failed: timeout', is_error: false }),
   ]);
   expect(turn.subagents.map(sub => [sub.callId, sub.status, sub.error])).toEqual([['j1', 'done', null], ['j2', 'failed', 'Subagent failed: timeout']]);
+});
+
+const expertCall = (resultPreview: string) => [
+  event(1, 'input', { task: 'Document payments' }),
+  event(1, 'tool_call', { name: 'ask_payments', call_id: 'e1', summary: 'Map payments', arguments: { task: 'Map payments' } }),
+  event(1, 'input', { task: 'Map payments', expert: { id: 'p', name: 'Payments' }, parent_call_id: 'e1' }),
+  event(1, 'tool_call', { name: 'read_file', call_id: 'r1', summary: 'pay.py', parent_call_id: 'e1' }),
+  event(1, 'usage', { input_tokens: 100, output_tokens: 20, total_tokens: 120, parent_call_id: 'e1' }),
+  event(1, 'tool_result', { name: 'ask_payments', call_id: 'e1', preview: resultPreview, is_error: resultPreview.startsWith('Expert') }),
+];
+
+test('an expert call is a helper marked with the expert, with its own work and usage', () => {
+  const [turn] = groupTurns(expertCall('Done'));
+  expect(turn.subagents).toHaveLength(1);
+  expect(turn.subagents[0]).toMatchObject({ callId: 'e1', task: 'Map payments', expert: { id: 'p', name: 'Payments' },
+    status: 'done', toolCalls: 1, usage: { total: 120, calls: 1 } });
+  expect(turn.subagents[0].work.map(item => item.name)).toEqual(['read_file']);
+});
+
+test('a failed expert call is failed with its error; a plain subagent has no expert', () => {
+  const [failed] = groupTurns(expertCall('Expert Payments failed: boom'));
+  expect(failed.subagents[0]).toMatchObject({ status: 'failed', error: 'Expert Payments failed: boom' });
+  const [plain] = groupTurns([
+    event(2, 'tool_call', { name: 'run_subagent', call_id: 's1', arguments: { task: 'Read' } }),
+    event(2, 'input', { task: 'Read', subagent: { task: 'Read' }, parent_call_id: 's1' })]);
+  expect(plain.subagents[0].expert).toBeNull();
 });

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
 import { NewGeneration } from '../DocumentGenerationForm';
+import { DEFAULT_SYSTEM_PROMPT } from '~/lib/generations';
 
 afterEach(() => vi.unstubAllGlobals());
 const MODELS = [
@@ -69,8 +70,8 @@ test('there is no agent picker; the context follows the selection and Generate s
   const { posts } = setup();
   await openContext();
   expect(screen.queryByLabelText('Agent')).toBeNull();
-  expect(screen.getByLabelText('System prompt')).toHaveValue(
-    'You write technical documentation for software systems. Read the code, documents and servers you were given before you write. Cite evidence as file:line, document path or command. Say what you could not verify.');
+  expect(screen.getByLabelText('System prompt')).toHaveValue(DEFAULT_SYSTEM_PROMPT);
+  expect(DEFAULT_SYSTEM_PROMPT).toContain('ask an expert when its description fits; otherwise start a subagent with run_subagent');
   fireEvent.click(screen.getByLabelText('Model'));
   expect(await screen.findByRole('option', { name: 'GPT' })).toBeVisible();
   for (const hidden of ['Chat', 'Old']) expect(screen.queryByRole('option', { name: hidden })).toBeNull();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from '../lib/runs';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -29,14 +30,15 @@ function Event({ event }: { event: RunEvent }) {
 }
 
 export default function RunRecordView({ runKey }: { runKey: string }) {
+  const call = useSearchParams()[0].get('call') ?? undefined;
   const [record, setRecord] = useState<RunRecord | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
-    getRunRecord(runKey, controller.signal).then(data => { if (!controller.signal.aborted) setRecord(data); })
+    getRunRecord(runKey, controller.signal, call).then(data => { if (!controller.signal.aborted) setRecord(data); })
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load the run record'); });
     return () => controller.abort();
-  }, [runKey]);
+  }, [runKey, call]);
   if (error) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!record) return <Skeleton className="h-64 w-full" />;
   const start = record.events.find(e => e.kind === 'start')?.payload ?? {};

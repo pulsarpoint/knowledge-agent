@@ -172,6 +172,24 @@ test('a subagent is a line in the Worked block and an entry in the sidebar; Open
   expect(screen.getByLabelText('Your message')).toBeVisible();
 });
 
+const asked = [
+  event(5, 'input', { task: 'Document payments.' }),
+  event(5, 'tool_call', { name: 'ask_payments', call_id: 'e1', summary: 'Map payments', arguments: { task: 'Map payments' } }),
+  event(5, 'input', { task: 'Map payments', expert: { id: 'p', name: 'Payments' }, parent_call_id: 'e1' }),
+  event(5, 'tool_call', { name: 'read_file', call_id: 'r1', summary: 'pay.py', parent_call_id: 'e1' }),
+  event(5, 'message', { text: 'Payments map.', parent_call_id: 'e1' }),
+  event(5, 'tool_result', { name: 'ask_payments', call_id: 'e1', preview: 'Payments map.', is_error: false }),
+];
+
+test('an expert call shows as Asked in the Worked block, Expert in the sidebar, and its name in the breadcrumb', () => {
+  show({ run: run({ session: { ...detail, status: 'working' as const }, events: asked }) });
+  expect(screen.getByText(/^Asked Payments · Map payments · 1 tool call · .* · done$/)).toBeInTheDocument();
+  const agents = within(screen.getByRole('region', { name: 'Agents in this run' }));
+  expect(agents.getByRole('button', { name: /Expert · Payments/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open expert: Map payments' }));
+  expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(/Main agent\s*›\s*Payments: Map payments/);
+});
+
 test('a subagent that was still waiting for a slot when its turn ended shows stopped', () => {
   show({ run: run({ session: { ...detail, status: 'stopped' }, events: [
     event(6, 'input', { task: 'Compare.' }),
