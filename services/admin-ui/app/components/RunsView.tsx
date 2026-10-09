@@ -10,6 +10,8 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
 const KINDS: Record<string, string> = { test: 'Agent test', test_session: 'Test session', native_session: 'Native session' };
+// Kinds no longer produced, kept so old run records still read well; not offered in the filter.
+const RETIRED_KINDS: Record<string, string> = { claude_code: 'Claude Code' };
 
 export default function RunsView() {
   const [params, setParams] = useSearchParams();
@@ -51,7 +53,7 @@ export default function RunsView() {
           <TableHeader><TableRow><TableHead>Run</TableHead><TableHead>Type</TableHead><TableHead>Agent</TableHead><TableHead>User</TableHead><TableHead>Status</TableHead><TableHead>Tokens</TableHead><TableHead>Tools</TableHead><TableHead>Started</TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={row.run_key}>
             <TableCell className="max-w-md"><Link className="underline underline-offset-4" to={runPath(row.run_key)}>{row.title || row.run_key}</Link></TableCell>
-            <TableCell><Badge variant="secondary">{row.kind ? KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
+            <TableCell><Badge variant="secondary">{row.kind ? KINDS[row.kind] ?? RETIRED_KINDS[row.kind] ?? row.kind : 'run'}</Badge></TableCell>
             <TableCell>{row.agent ?? row.agent_id}</TableCell>
             <TableCell>{row.user ?? '—'}</TableCell>
             <TableCell>{row.status ?? 'running'}</TableCell>

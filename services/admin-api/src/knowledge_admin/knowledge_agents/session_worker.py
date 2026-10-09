@@ -1,4 +1,4 @@
-"""What the session workers share: claiming the sessions of one agent type with a lease,
+"""What the session workers share: claiming sessions with a lease,
 delivering queued messages as turns, Stop, finishing a turn (draft, tokens and, for native sessions, history in one
 transaction), the idle release and the serve loop. A worker only adds how it runs a turn."""
 import asyncio
@@ -61,7 +61,8 @@ def scrub(value: Any, secrets: list[str]) -> Any:
 
 
 def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int) -> list[dict]:
-    """Close idle sessions, renew this worker's leases, then claim sessions that need a worker: a queued message, or a turn left `working` by a worker that stopped (that turn is recorded as failed)."""
+    """Close idle sessions, renew this worker's leases, then claim sessions that need a worker: a queued message,
+    or a turn left `working` by a worker that stopped (that turn is recorded as failed)."""
     with store.connect() as conn:
         close_idle(conn)
         conn.execute("""UPDATE ka.agent_sessions SET lease_expires_at=now()+%s*interval '1 second'

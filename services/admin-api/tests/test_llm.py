@@ -151,13 +151,3 @@ def test_native_provider_probe_uses_saved_bedrock_region_and_bearer(store, tmp_p
     assert calls[0]['model'] == 'bedrock/invoke/' + BEDROCK['model']
     assert calls[0]['api_key'] == BEDROCK['api_key'] and calls[0]['aws_region_name'] == BEDROCK['aws_region']
     assert calls[0]['max_tokens'] == 32 and calls[0]['num_retries'] == 0
-
-
-def test_claude_model_accepts_only_claude_connections():
-    from knowledge_llm import claude_model
-    assert claude_model('bedrock', 'native', 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0')
-    assert claude_model('anthropic', 'native', 'claude-sonnet-4-5')
-    for provider, api_format, model in (('openai', 'responses', 'gpt-5'), ('bedrock', 'native', 'amazon.nova-pro-v1:0'),
-                                        ('bedrock', 'embeddings', 'amazon.titan-embed-text-v2:0'),
-                                        ('openai', 'chat_completions', 'anthropic.claude-proxy')):
-        assert not claude_model(provider, api_format, model)

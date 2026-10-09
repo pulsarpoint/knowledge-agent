@@ -41,4 +41,12 @@ ALTER TABLE agents
     ADD COLUMN claude_code_tools text[] NOT NULL DEFAULT '{Read,Grep,Glob,Bash}' CONSTRAINT claude_code_tools_known
         CHECK (claude_code_tools <@ ARRAY['Read', 'Grep', 'Glob', 'Bash']);
 
+COMMENT ON COLUMN agent_sessions_cc.agent_config IS
+    'Native sessions: the agent config pinned when the session started, with the session''s working folders as code roots. Credential references only.';
+COMMENT ON COLUMN agent_sessions_cc.history IS 'Native sessions: the Agents SDK items of successful turns, redacted.';
+COMMENT ON COLUMN agent_sessions_cc.purpose IS
+    'documents: a Generate documents session (document name, folder, draft); test: an agent Test tab session (native only).';
+COMMENT ON COLUMN agent_sessions_cc.model_calls IS 'Native sessions: model calls made, one per call.';
+COMMENT ON COLUMN agent_sessions_cc.reasoning_tokens IS 'Native sessions: reasoning tokens reported by the model calls.';
+
 COMMIT;

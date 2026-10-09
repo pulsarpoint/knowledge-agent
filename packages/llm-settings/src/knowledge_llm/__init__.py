@@ -72,12 +72,6 @@ def code_compatible(provider: str, api_format: str, model: str) -> bool:
             or provider == 'bedrock' and ('anthropic.claude' in model or 'anthropic/claude' in model))
 
 
-def claude_model(provider: str, api_format: str, model: str) -> bool:
-    """A connection the Claude Agent SDK can use: Anthropic's API, or Claude on Bedrock (an inference profile such as
-    eu.anthropic.claude-…)."""
-    return api_format == 'native' and (provider == 'anthropic' or provider == 'bedrock' and 'anthropic.claude' in model)
-
-
 def completion_model(provider: str, model: str) -> str:
     """Claude bearer tokens use Bedrock Invoke, avoiding the Converse IAM path."""
     if provider == 'bedrock' and ('anthropic.claude' in model or 'anthropic/claude' in model):

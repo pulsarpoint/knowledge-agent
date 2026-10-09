@@ -297,6 +297,23 @@ existing installation, run the database migration (`make up` runs it, or `make d
   They remain usable as the Search model in LLM Settings.
 - `PHOENIX_PUBLIC_URL` is no longer read; remove it from `.env`.
 
+## Upgrading to the removal of Claude Code agents
+
+Claude Code agents and the `claude-code-worker` are gone; every agent is a native agent and Generate documents runs
+native agents through `agent-session-worker`. After pulling this version on an existing installation:
+
+1. Run the database migration (`make up` runs it, or `make db-migrate`). Migration 0083 converts Claude Code agents
+   to native agents with the tools of their enabled capabilities, deletes Claude Code sessions with their inputs and
+   reviews, and renames `ka.agent_sessions_cc` to `ka.agent_sessions`. Saved documents stay, and the run records of
+   the deleted sessions stay readable in Agent runs.
+2. Remove the orphaned `claude-code-worker` container and its network:
+   `docker compose --env-file .env -f deploy/compose.yaml up -d --build --remove-orphans`
+   (`make up` does not remove orphans, so the old worker would keep running with database secrets).
+3. `CLAUDE_CODE_MAX_SESSIONS` and `CLAUDE_CODE_CLI` in `.env` are no longer used; delete them.
+4. Verify: `docker ps` lists no `claude-code-worker`, and `docker network ls` lists no `*_claude-code` network.
+
+Back up the database first: rolling 0083 back does not restore the deleted Claude Code sessions.
+
 ## Upgrading to clones instead of versions
 
 An agent now has one configuration, and its system prompt is a field on the agent. After pulling this version on an

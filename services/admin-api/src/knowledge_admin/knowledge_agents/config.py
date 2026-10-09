@@ -41,7 +41,7 @@ def private_key_ref(credential_id, project_id, key_version) -> dict[str, Any] | 
 
 
 class AgentConfig(TypedDict):
-    """The resolved config of one agent, Sessions pin this shape."""
+    """The resolved config of one agent; sessions pin this shape."""
     id: str
     name: str
     description: str

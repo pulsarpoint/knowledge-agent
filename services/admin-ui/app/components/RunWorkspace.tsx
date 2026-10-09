@@ -212,7 +212,7 @@ export default function RunWorkspace({ run, agentName, resources, heading, heade
         + ` · Model calls ${formatTokens(session.model_calls)}`
         + (session.reasoning_tokens > 0 ? ` · Reasoning ${formatTokens(session.reasoning_tokens)}` : '')}</p>}
       {toolCounts && <p aria-label="Tools used" className="text-sm text-muted-foreground">{toolUsageLine(toolCounts)}</p>}
-      {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>{`Waiting for the agent session worker. The session starts when the worker is running.`}</AlertDescription></Alert>}
+      {session?.status === 'starting' && !session.worker_active && <Alert><AlertDescription>Waiting for the agent session worker. The session starts when the worker is running.</AlertDescription></Alert>}
       {session?.status_message && ['failed', 'stopped'].includes(session.status) && !turnCarries && <Alert variant={session.status === 'failed' ? 'destructive' : 'default'}><AlertDescription>{session.status_message}</AlertDescription></Alert>}
       {run.error && <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert>}
       {run.reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}

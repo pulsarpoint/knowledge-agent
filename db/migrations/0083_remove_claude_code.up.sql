@@ -59,4 +59,13 @@ END $$;
 ALTER TABLE agent_sessions
     ADD CONSTRAINT agent_sessions_ad_hoc CHECK (agent_id IS NOT NULL OR purpose = 'documents');
 
+-- Every session is native: the comments no longer say so.
+COMMENT ON COLUMN agent_sessions.agent_config IS
+    'The agent config pinned when the session started, with the session''s working folders as code roots. Credential references only.';
+COMMENT ON COLUMN agent_sessions.history IS 'The Agents SDK items of successful turns, redacted.';
+COMMENT ON COLUMN agent_sessions.purpose IS
+    'documents: a Generate documents session (document name, folder, draft); test: an agent Test tab session.';
+COMMENT ON COLUMN agent_sessions.model_calls IS 'Model calls made, one per call.';
+COMMENT ON COLUMN agent_sessions.reasoning_tokens IS 'Reasoning tokens reported by the model calls.';
+
 COMMIT;

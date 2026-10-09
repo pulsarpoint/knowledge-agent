@@ -1,6 +1,5 @@
 import { request } from './api';
 import type { ToolCount } from './runs';
-import type { ModelProfile } from './llm';
 import type { RunResourcesInput } from './profiles';
 import type { SessionReview } from './testSessions';
 
