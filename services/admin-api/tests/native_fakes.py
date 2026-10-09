@@ -12,14 +12,16 @@ from knowledge_admin.knowledge_agents.subagents import run_subagent
 
 
 class Recorder:
-    """Collects events like RunRecorder.add and counts flushes."""
+    """Collects events like RunRecorder.add (and the agent id each was added with) and counts flushes."""
 
     def __init__(self):
         self.events: list[tuple[str, dict]] = []
+        self.agent_ids: list[str | None] = []  # each event's agent_id argument (None: the run's own agent)
         self.flushes = 0
 
-    def add(self, kind: str, payload: dict) -> None:
+    def add(self, kind: str, payload: dict, agent_id: str | None = None) -> None:
         self.events.append((kind, payload))
+        self.agent_ids.append(agent_id)
 
     def flush(self) -> None:
         self.flushes += 1

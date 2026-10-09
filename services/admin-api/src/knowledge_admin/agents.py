@@ -25,7 +25,7 @@ from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
-from knowledge_admin.tools.sdk import function_tool
+from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
 
@@ -140,8 +140,9 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
 
     Used by agent() for test chats, live runs and native sessions. This does
     not run the agent or read the database; credentials stay in backend objects.
-    subagents: whether the run can start subagents (a native session turn); without, run_subagent is not offered
-    even when its row is on (the tuning reviewer, test chats, live runs), since it could only fail.
+    subagents: whether the run can start subagents and call experts (a native session turn); without, run_subagent and
+    the pinned experts are not offered even when on (the tuning reviewer, test chats, live runs), since they could only
+    fail.
     """
     if not config['enabled']:
         raise ValueError('This agent is disabled.')
@@ -157,6 +158,8 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
                if subagents or spec.name != SUBAGENT]
     prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
     tools = [function_tool(spec, usage) for spec, usage in offered]
+    if subagents:  # experts run like subagents: only in a session turn, never inside an expert or a subagent
+        tools += [expert_tool(entry) for entry in config.get('experts', [])]
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')

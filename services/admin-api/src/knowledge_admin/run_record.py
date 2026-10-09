@@ -83,11 +83,13 @@ class RunRecorder(RunHooks):
             return [self._clean(item) for item in value]
         return value
 
-    def add(self, kind: str, payload: dict[str, Any]) -> None:
+    def add(self, kind: str, payload: dict[str, Any], agent_id: str | None = None) -> None:
+        """One event; agent_id: the agent it belongs to when not the run's own (an expert called in this run)."""
         if self.closed:
             return
         self.events.append({'run_key': self.run_key, 'seq': len(self.events) + 1, 'kind': kind,
-                            'project_id': self.project_id, 'agent_id': self.agent_id, 'actor_id': self.actor_id,
+                            'project_id': self.project_id, 'agent_id': agent_id or self.agent_id,
+                            'actor_id': self.actor_id,
                             'payload': self._clean(jsonable_encoder(payload))})
 
     def close(self) -> None:

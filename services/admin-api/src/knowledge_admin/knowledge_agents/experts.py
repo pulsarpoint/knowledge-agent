@@ -1,12 +1,16 @@
 """Experts: saved agents other agents call as tools (ask_<name>). Which experts a caller is offered, their tool names
-and descriptions, and pinning them into a session's configuration. Running a call is subagents.Subagents.ask."""
+and descriptions, pinning them into a session's configuration, and loading one for a call. Running a call is
+subagents.Subagents.ask."""
 import re
+from collections.abc import Mapping
 from typing import Any
 
-from knowledge_admin.knowledge_agents.config import model_fits
-from knowledge_admin.knowledge_agents.run_resources import KINDS
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run
+from knowledge_admin.knowledge_agents.run_resources import KINDS, RunResources, resolve
 
 ROW_PREFIX = 'expert:'
+UNAVAILABLE = 'Expert {name} is not available.'
+FAILED = 'Expert {name} failed: {message}'
 MAX_SLUG = 50
 # The agents row switch behind each run-resource kind, in KINDS order.
 SWITCHES = {'code_project_ids': 'repositories_enabled', 'collection_ids': 'documents_enabled',
@@ -57,3 +61,28 @@ def offered(conn, caller_id: str | None) -> list[dict[str, Any]]:
 def pin(conn, config: dict[str, Any], caller_id: str | None) -> dict[str, Any]:
     """The configuration a session pins, with the experts it may call (later changes apply to new sessions)."""
     return {**config, 'experts': offered(conn, caller_id)}
+
+
+def load(store, project_id, entry: Mapping[str, Any], resources: Mapping[str, list[str]] | None
+         ) -> tuple[dict[str, Any], dict[str, str]]:
+    """The expert's configuration for one call (its current settings; per run: resolved with the given resources,
+    which the caller already checked are its own) and its decrypted credentials. ValueError: a message for the model.
+    Synchronous: the caller runs it in a thread."""
+    from knowledge_admin.agents import load_credentials  # agents imports this package
+
+    unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))
+    try:
+        config = get_agent_config(entry['id'], conninfo=store.conninfo)
+    except LookupError:
+        raise unavailable from None
+    with store.connect() as conn:
+        row = conn.execute('SELECT expert FROM ka.agents WHERE id=%s', (entry['id'],)).fetchone()
+        model = config['model']
+        if row is None or not row['expert'] or not config['enabled'] or model is None or not model['enabled'] \
+                or not model_fits(model):
+            raise unavailable
+        if per_run(config):
+            config = resolve(conn, project_id, config, RunResources(**(resources or {})))
+    config.pop('record', None)
+    config['experts'] = []  # an expert never calls experts
+    return config, load_credentials(store, config)

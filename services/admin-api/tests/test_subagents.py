@@ -124,6 +124,7 @@ def test_a_turn_starts_at_most_16_subagents_and_refused_calls_do_not_count():
     results = asyncio.run(scenario())
     assert len(fake.calls) == 16 and subagents.started == 16
     assert [str(result) for result in results if isinstance(result, ValueError)] == [LIMIT]
+    assert LIMIT == 'This turn already started 16 helpers.'  # subagents and expert calls together
 
 
 def test_a_failed_subagent_returns_a_redacted_failure_and_is_recorded():

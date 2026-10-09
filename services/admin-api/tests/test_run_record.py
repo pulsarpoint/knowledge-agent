@@ -87,6 +87,14 @@ def test_flush_is_idempotent(captured):
     assert len(captured) == 1
 
 
+def test_an_event_can_belong_to_another_agent_than_the_run(captured):
+    recorder = RunRecorder(run_key='run:e', project_id='p1', agent_id='lead', actor_id=None, secrets=[])
+    recorder.add('message', {'text': 'lead'})
+    recorder.add('message', {'text': 'expert'}, agent_id='payments')
+    recorder.flush()
+    assert [event['agent_id'] for event in captured] == ['lead', 'payments']
+
+
 def test_unconfigured_store_raises(monkeypatch):
     monkeypatch.setattr(run_record, '_store', None)
     recorder = RunRecorder(run_key='run:q', project_id='p1', agent_id='a', actor_id=None, secrets=[])

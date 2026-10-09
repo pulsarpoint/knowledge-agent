@@ -322,9 +322,14 @@ class NativeRunner(shared.SessionRunner):
         try:
             try:
                 # Imported here: the subagent runtime builds on this module's SessionEvents.
+                from knowledge_admin.knowledge_agents import experts
                 from knowledge_admin.knowledge_agents.subagents import Subagents
+                project_id = str(self.session['project_id'])
+
+                def load_expert(entry: dict, given: dict | None) -> tuple[dict, dict[str, str]]:
+                    return experts.load(self.store, project_id, entry, given)
                 subagents = Subagents(events, secrets=secrets, record_usage=events.record_usage,
-                                      run_agent=self.run_subagent)
+                                      run_agent=self.run_subagent, load_expert=load_expert)
                 config, credentials, history = await asyncio.to_thread(self.load)
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
