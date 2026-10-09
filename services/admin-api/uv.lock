@@ -964,6 +964,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jinja2" },
     { name = "jira2markdown" },
     { name = "knowledge-llm" },
     { name = "litellm" },
@@ -972,6 +973,7 @@ dependencies = [
     { name = "openinference-instrumentation-openai-agents" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
+    { name = "regex" },
     { name = "tzdata" },
     { name = "uvicorn" },
 ]
@@ -989,6 +991,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "jinja2", specifier = ">=3.1.6" },
     { name = "jira2markdown", specifier = ">=0.5.1" },
     { name = "knowledge-llm", editable = "../../packages/llm-settings" },
     { name = "litellm", specifier = "==1.100.0" },
@@ -997,6 +1000,7 @@ requires-dist = [
     { name = "openinference-instrumentation-openai-agents", specifier = "==2.4.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "regex", specifier = ">=2026.9.3" },
     { name = "tzdata", specifier = ">=2026.3" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
