@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import SchedulesView from "../SchedulesView";
@@ -89,4 +89,45 @@ test("editor previews a custom cron, shows errors under the field and saves", as
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({ cron: "0 7 * * 1-5", timezone: "Europe/Belgrade", enabled: true, revision: 3 }));
   expect(await screen.findByText("0 7 * * 1-5")).toBeInTheDocument();
+});
+
+test("a successful refresh clears an earlier refresh error", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    let calls = 0;
+    api({ "GET /api/schedules": () => ++calls === 2 ? [500, { error: { message: "Backend down." } }] : [200, { schedules: [schedule] }] });
+    view();
+    await screen.findByText("Jira auto pull");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(await screen.findByText("Backend down.")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await waitFor(() => expect(screen.queryByText("Backend down.")).not.toBeInTheDocument());
+  } finally { vi.useRealTimers(); }
+});
+
+test("a slow refresh that resolves after a pause does not revert the row", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    let release: () => void = () => {};
+    let calls = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const key = `${init?.method ?? "GET"} ${url}`;
+      if (key === "GET /api/schedules") {
+        if (++calls === 1) return new Response(JSON.stringify({ schedules: [schedule] }));
+        await new Promise<void>(resolve => { release = resolve; });
+        return new Response(JSON.stringify({ schedules: [schedule] }));
+      }
+      if (key === "PUT /api/schedules/s-1") return new Response(JSON.stringify({ schedule: { ...schedule, enabled: false, next_run_at: null, revision: 4 } }));
+      throw new Error(`unexpected ${key}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+    view();
+    const toggle = await screen.findByRole("switch", { name: "Enabled: Jira auto pull" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await userEvent.setup({ advanceTimers: ms => vi.advanceTimersByTimeAsync(ms) }).click(toggle);
+    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    await act(async () => { release(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Enabled: Jira auto pull" })).not.toBeChecked();
+  } finally { vi.useRealTimers(); }
 });

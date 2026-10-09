@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { CalendarClock, History, Pencil, Play } from "lucide-react";
 import { ApiError } from "../lib/api";
 import { STATUS_LABELS, TARGETS, getScheduleRuns, getSchedules, runSchedule, saveSchedule, type Schedule, type ScheduleRun } from "../lib/schedules";
@@ -29,9 +29,14 @@ export default function SchedulesView() {
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [history, setHistory] = useState<{ id: string; runs: ScheduleRun[] | null } | null>(null);
 
-  const load = useCallback((signal?: AbortSignal) => getSchedules(signal)
-    .then(result => { setSchedules(result.schedules); })
-    .catch(reason => { if (!signal?.aborted) setError(text(reason, "Could not load schedules.")); }), []);
+  const changes = useRef(0);
+
+  const load = useCallback((signal?: AbortSignal) => {
+    const seen = changes.current;
+    return getSchedules(signal)
+    .then(result => { if (changes.current !== seen) return; setSchedules(result.schedules); setError(null); })
+    .catch(reason => { if (!signal?.aborted) setError(text(reason, "Could not load schedules.")); });
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
@@ -39,7 +44,8 @@ export default function SchedulesView() {
     return () => { controller.abort(); clearInterval(timer); };
   }, [load]);
 
-  const replace = (changed: Schedule) => setSchedules(current => current?.map(item => item.id === changed.id ? changed : item) ?? null);
+  /** Any local change invalidates refreshes that started earlier, so they cannot bring back older rows. */
+  const replace = (changed: Schedule) => { changes.current += 1; setSchedules(current => current?.map(item => item.id === changed.id ? changed : item) ?? null); };
   async function change(schedule: Schedule, action: () => Promise<{ schedule: Schedule }>) {
     setBusy(schedule.id); setError(null);
     try { replace((await action()).schedule); } catch (reason) { setError(text(reason, "Could not change the schedule.")); } finally { setBusy(null); }
