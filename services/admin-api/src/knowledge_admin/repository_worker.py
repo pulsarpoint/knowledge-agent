@@ -191,12 +191,15 @@ def main() -> None:
     # Schedules (e.g. the Jira auto pull) run beside the repository jobs; a running target finishes before exit.
     schedules = threading.Thread(target=scheduler.loop, args=(store, stopped), name="scheduler")
     schedules.start()
-    while not stopped.is_set():
-        try:
-            worked = run_once(store, code_root)
-        except psycopg.Error:
-            print("Repository worker database unavailable; retrying", flush=True)
-            worked = False
-        if not worked:
-            stopped.wait(2)
-    schedules.join()
+    try:
+        while not stopped.is_set():
+            try:
+                worked = run_once(store, code_root)
+            except psycopg.Error:
+                print("Repository worker database unavailable; retrying", flush=True)
+                worked = False
+            if not worked:
+                stopped.wait(2)
+    finally:
+        stopped.set()
+        schedules.join()

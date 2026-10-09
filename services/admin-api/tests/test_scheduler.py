@@ -142,3 +142,27 @@ def test_loop_returns_when_stopped(store):
     stopped = threading.Event()
     stopped.set()
     scheduler.loop(store, stopped, {'jira.pull': ok})  # returns at once
+
+
+def test_main_stops_the_scheduler_when_the_repository_loop_crashes(tmp_path, monkeypatch):
+    import base64
+    import pytest
+    from knowledge_admin import repository_worker
+
+    ended = threading.Event()
+
+    def waits_for_stop(store, stopped):
+        stopped.wait()
+        ended.set()
+
+    def crash(store, code_root):
+        raise RuntimeError('boom')
+
+    monkeypatch.setenv('CREDENTIAL_ENCRYPTION_KEY', base64.urlsafe_b64encode(b'k' * 32).decode())
+    monkeypatch.setenv('AUTH_ISSUER_URL', 'http://issuer')
+    monkeypatch.setenv('CODE_ROOT', str(tmp_path))
+    monkeypatch.setattr(repository_worker, 'run_once', crash)
+    monkeypatch.setattr(scheduler, 'loop', waits_for_stop)
+    with pytest.raises(RuntimeError, match='boom'):
+        repository_worker.main()
+    assert ended.is_set()
