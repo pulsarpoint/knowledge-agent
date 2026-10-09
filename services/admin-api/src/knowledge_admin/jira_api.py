@@ -6,11 +6,11 @@ from uuid import UUID, uuid4
 
 import httpx
 import psycopg
-from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
+from knowledge_admin import jira_sync
 from knowledge_admin.data_root import jira_folder
 from knowledge_admin.jira import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
@@ -100,20 +100,7 @@ def build_api(app: str, store: RepositoryStore | None,
     def connection_credentials(db: RepositoryStore) -> tuple[dict, str]:
         with db.connect() as conn:
             project = db.project(conn, app)
-            config = conn.execute("SELECT * FROM ka.jira_connections WHERE project_id=%s AND name='primary' FOR SHARE", (project,)).fetchone()
-            if config is None or config["credential_id"] is None or config["username"] is None:
-                raise HTTPException(400, "Save a Jira URL, username and token in Jira Settings first")
-            if not config["enabled"] or config["deployment"] != "data_center":
-                raise HTTPException(400, "This Jira Data Center connection is disabled or unsupported")
-            secret = conn.execute("SELECT ciphertext,key_version FROM ka.credentials WHERE id=%s AND project_id=%s AND kind='jira_pat'", (config["credential_id"], project)).fetchone()
-            try:
-                if secret is None or secret["key_version"] != "v1":
-                    raise ValueError("Unsupported credential")
-                blob = bytes(secret["ciphertext"])
-                token = db.cipher.decrypt(blob[:12], blob[12:], f"{project}:{config['credential_id']}:jira_pat:v1".encode()).decode()
-            except (InvalidTag, ValueError, UnicodeDecodeError):
-                raise HTTPException(503, "Stored Jira token could not be read. Re-enter the token in Jira Settings") from None
-        return config, token
+        return jira_sync.credentials(db, project)
 
     @router.post("/jira/test")
     def test_connection(request: Request) -> dict:
@@ -159,41 +146,10 @@ def build_api(app: str, store: RepositoryStore | None,
     @router.post("/jira/tickets/fetch")
     def fetch_tickets(value: TicketFetchInput, request: Request) -> dict:
         db = database()
-        subject, email = request_actor(request)
-        config, token = connection_credentials(db)
-        with JiraClient(config["base_url"], token, transport) as jira:
-            jira.current_user(config["username"])
-            issues, total = jira.tickets(value.limit, value.jql)
+        actor = request_actor(request)
         with db.connect() as conn:
-            current = conn.execute("SELECT revision,fetch_revision FROM ka.jira_connections WHERE id=%s AND project_id=%s FOR UPDATE", (config["id"], config["project_id"])).fetchone()
-            if current is None or current["revision"] != config["revision"] or current["fetch_revision"] != config["fetch_revision"]:
-                raise HTTPException(409, "Jira settings or tickets changed during the fetch. Fetch tickets again")
-            actor = db.actor(conn, subject, email)
-            conn.execute("UPDATE ka.jira_tickets SET out_of_scope_at=now() WHERE connection_id=%s AND out_of_scope_at IS NULL", (config["id"],))
-            for issue in issues:
-                fields = issue["fields"]
-                conn.execute("""INSERT INTO ka.jira_tickets(project_id,connection_id,remote_id,issue_key,jira_project_key,
-                    summary,description,issue_type,status_id,status_name,priority,assignee_id,assignee_name,reporter_id,
-                    labels,raw_payload,source_created_at,source_updated_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT(connection_id,remote_id) DO UPDATE SET issue_key=EXCLUDED.issue_key,
-                    jira_project_key=EXCLUDED.jira_project_key,summary=EXCLUDED.summary,description=EXCLUDED.description,
-                    issue_type=EXCLUDED.issue_type,status_id=EXCLUDED.status_id,status_name=EXCLUDED.status_name,
-                    priority=EXCLUDED.priority,assignee_id=EXCLUDED.assignee_id,assignee_name=EXCLUDED.assignee_name,
-                    reporter_id=EXCLUDED.reporter_id,labels=EXCLUDED.labels,raw_payload=EXCLUDED.raw_payload,
-                    source_created_at=EXCLUDED.source_created_at,source_updated_at=EXCLUDED.source_updated_at,
-                    imported_at=now(),last_seen_at=now(),out_of_scope_at=NULL""",
-                    (config["project_id"], config["id"], issue["id"], issue["key"], fields["project"]["key"],
-                     fields["summary"], Jsonb(fields.get("description")), (fields.get("issuetype") or {}).get("name"),
-                     (fields.get("status") or {}).get("id"), (fields.get("status") or {}).get("name"),
-                     (fields.get("priority") or {}).get("name"), (fields.get("assignee") or {}).get("key"),
-                     (fields.get("assignee") or {}).get("displayName"), (fields.get("reporter") or {}).get("key"),
-                     fields.get("labels", []), Jsonb(issue), fields.get("created"), fields["updated"]))
-            conn.execute("""UPDATE ka.jira_connections SET last_successful_sync_at=now(),last_fetch_limit=%s,
-                last_fetch_total=%s,jql=%s,fetch_revision=fetch_revision+1 WHERE id=%s""", (value.limit, total, value.jql, config["id"]))
-            conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,'jira.tickets_fetched','jira_connection',%s,%s)""",
-                (config["project_id"], actor, config["id"], Jsonb({"requested": value.limit, "fetched": len(issues), "total": total})))
+            project = db.project(conn, app)
+        jira_sync.pull_tickets(db, project, value.jql, value.limit, actor, transport)
         return list_tickets()
 
     @router.post("/jira/tickets/{ticket_id}/export")
