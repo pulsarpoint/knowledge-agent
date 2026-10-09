@@ -80,10 +80,10 @@ def test_runaway_cpu_times_out_and_the_pool_recovers(monkeypatch):
 
 @pytest.mark.skipif(sys.platform != 'linux', reason='address-space limit is only enforced on Linux')
 @pytest.mark.parametrize('source', [
-    "{{ 'x'.ljust(100000000) | length }}", "{{ 'x' | center(100000000) | length }}",
-    "{{ '{:>100000000}'.format('x') | length }}", "{{ ('x'.encode() * 100000000) | length }}"])
+    "{{ 'x'.ljust(1000000000) | length }}", "{{ 'x' | center(1000000000) | length }}",
+    "{{ '{:>1000000000}'.format('x') | length }}", "{{ ('x'.encode() * 1000000000) | length }}"])
 def test_big_allocations_hit_the_memory_limit(source):
-    with pytest.raises(TemplateProblem):
+    with pytest.raises(TemplateProblem, match='^Template (used too much memory|took too long to render).$'):
         render_prompt(source, EVENT)
     assert render_prompt('ok', EVENT) == 'ok'
 
