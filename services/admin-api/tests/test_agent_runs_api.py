@@ -54,3 +54,83 @@ def test_runs_are_admin_only(store, tmp_path):
     for path in ('/api/agent-runs', '/api/agent-runs/run:1'):
         assert client.get(path).status_code == 403
         assert client.get(path, headers={'X-Forwarded-Groups': 'readers', 'X-Forwarded-User': 'u'}).status_code == 403
+
+
+def seed_expert_calls(store):
+    """A caller run `cc:s2:1` (agent Lead) with expert calls e1 (answered), e2 (failed), e3 (no result yet)."""
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        alice = store.actor(conn, 'alice', 'alice@example.test')
+        def add(seq, kind, payload, agent='lead', run_key='cc:s2:1'):
+            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (project, run_key, seq, kind, agent, alice, Jsonb(payload)))
+        expert = {'id': 'payments', 'name': 'Payments'}
+        add(1, 'start', {'kind': 'claude_code', 'title': 'Plan the release', 'agent': 'Lead'})
+        add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'e1'})
+        add(3, 'input', {'task': 'Map payments', 'expert': expert, 'parent_call_id': 'e1'}, agent='payments')
+        add(4, 'usage', {'total_tokens': 120, 'parent_call_id': 'e1'}, agent='payments')
+        add(5, 'tool_call', {'name': 'read_file', 'parent_call_id': 'e1'}, agent='payments')
+        add(6, 'tool_result', {'call_id': 'e1', 'preview': 'Answer'})
+        add(7, 'tool_call', {'name': 'ask_payments', 'call_id': 'e2'})
+        add(8, 'input', {'task': 'x' * 300, 'expert': expert, 'parent_call_id': 'e2'}, agent='payments')
+        add(9, 'tool_result', {'call_id': 'e2', 'preview': 'Expert Payments failed: boom'})
+        add(10, 'tool_call', {'name': 'ask_payments', 'call_id': 'e3'})
+        add(11, 'input', {'task': 'Still going', 'expert': expert, 'parent_call_id': 'e3'}, agent='payments')
+        # a subagent the expert started: same agent, another call id, not part of the listing
+        add(12, 'input', {'task': 'Helper', 'parent_call_id': 's1'}, agent='payments')
+
+
+def test_expert_calls_are_listed_for_the_expert(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store)
+    seed_expert_calls(store)
+    listing = client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()
+    rows = listing['runs']
+    assert [r['call_id'] for r in rows] == ['e3', 'e2', 'e1'] and listing['next'] is None
+    done = rows[2]
+    assert done | {'started_at': None, 'id': None} == {'run_key': 'cc:s2:1', 'agent_id': 'payments', 'agent': 'Payments',
+        'kind': 'expert_call', 'title': 'Map payments', 'user': 'alice@example.test', 'status': 'completed',
+        'total_tokens': 120, 'started_at': None, 'tool_counts': [{'name': 'read_file', 'calls': 1}],
+        'call_id': 'e1', 'caller': 'Lead', 'id': None}
+    assert rows[1]['status'] == 'failed' and rows[1]['title'] == 'x' * 200
+    assert rows[0]['status'] == 'working'
+    assert rows[0]['total_tokens'] == 0 and rows[0]['tool_counts'] == []
+
+
+def test_expert_calls_page_with_the_expert_runs(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed(store)
+    seed_expert_calls(store)
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+            VALUES (%s,'run:own',1,'start','payments',%s)''', (project, Jsonb({'kind': 'test', 'title': 'Own run', 'agent': 'Payments'})))
+    get = lambda **params: client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'} | params).json()
+    everything = get()
+    assert [r.get('call_id', r['run_key']) for r in everything['runs']] == ['run:own', 'e3', 'e2', 'e1']
+    first = get(limit=3)
+    assert [r.get('call_id', r['run_key']) for r in first['runs']] == ['run:own', 'e3', 'e2'] and first['next']
+    second = get(limit=3, before=first['next'])
+    assert [r.get('call_id', r['run_key']) for r in second['runs']] == ['e1'] and second['next'] is None
+    assert [r['kind'] for r in get(kind='expert_call')['runs']] == ['expert_call'] * 3
+    assert [r['run_key'] for r in get(kind='test')['runs']] == ['run:own']
+
+
+def test_caller_listing_has_no_expert_call_rows(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_expert_calls(store)
+    rows = client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'lead'}).json()['runs']
+    assert [(r['run_key'], r['kind']) for r in rows] == [('cc:s2:1', 'claude_code')]
+    assert 'call_id' not in rows[0]
+
+
+def test_read_one_expert_call(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_expert_calls(store)
+    record = client.get('/api/agent-runs/cc:s2:1', headers=HEADERS, params={'call': 'e1'}).json()
+    assert [e['seq'] for e in record['events']] == [2, 3, 4, 5, 6]
+    assert [e['kind'] for e in record['events']] == ['tool_call', 'input', 'usage', 'tool_call', 'tool_result']
+    assert record['tool_counts'] == [{'name': 'read_file', 'calls': 1}]
+    whole = client.get('/api/agent-runs/cc:s2:1', headers=HEADERS).json()
+    assert len(whole['events']) == 12
+    assert client.get('/api/agent-runs/cc:s2:1', headers=HEADERS, params={'call': 'nope'}).status_code == 404
