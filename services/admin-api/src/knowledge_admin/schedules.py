@@ -3,7 +3,7 @@ cron rules; scheduler.py claims and runs due schedules, schedules_api.py edits t
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
 
-from croniter import croniter
+from croniter import CroniterBadDateError, croniter
 
 MIN_INTERVAL = timedelta(minutes=5)
 CHECKED_FIRES = 11  # the gaps between the next 11 fire times are checked against MIN_INTERVAL
@@ -48,7 +48,10 @@ def validate(cron: str, timezone: str) -> None:
         raise ScheduleError(BAD_CRON)
     if timezone not in available_timezones():
         raise ScheduleError(BAD_TIMEZONE)
-    times = upcoming(expression, timezone, datetime.now(UTC), CHECKED_FIRES)
+    try:
+        times = upcoming(expression, timezone, datetime.now(UTC), CHECKED_FIRES)
+    except CroniterBadDateError:
+        raise ScheduleError(BAD_CRON) from None
     if any(later - earlier < MIN_INTERVAL for earlier, later in zip(times, times[1:])):
         raise ScheduleError(TOO_OFTEN)
 

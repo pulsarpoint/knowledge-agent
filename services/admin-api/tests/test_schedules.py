@@ -15,6 +15,7 @@ def test_valid(cron):
 @pytest.mark.parametrize('cron,message', [
     ('', BAD_CRON), ('* * * *', BAD_CRON), ('0 0 * * * *', BAD_CRON), ('61 * * * *', BAD_CRON), ('every hour', BAD_CRON),
     ('*/4 * * * *', TOO_OFTEN), ('* * * * *', TOO_OFTEN), ('0-4 * * * *', TOO_OFTEN), ('0,3 9 * * *', TOO_OFTEN),
+    ('0 0 30 2 *', BAD_CRON), ('0 0 31 4 *', BAD_CRON),
 ])
 def test_invalid(cron, message):
     with pytest.raises(ScheduleError, match=message.replace('*', r'\*').replace('.', r'\.')):

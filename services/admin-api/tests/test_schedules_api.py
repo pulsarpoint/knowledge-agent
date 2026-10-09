@@ -65,6 +65,12 @@ def test_preview_lists_the_next_three_runs(store, tmp_path):
     assert len(times) == 3 and times == sorted(times) and all(t.hour == 6 and t > datetime.now(UTC) for t in times)
 
 
+def test_preview_rejects_a_date_that_never_comes(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    response = client.post('/api/schedules/preview', headers=HEADERS, json={'cron': '0 0 30 2 *', 'timezone': 'UTC'})
+    assert response.status_code == 400 and error(response) == BAD_CRON
+
+
 def test_editing_checks_the_revision(store, tmp_path):
     client, _ = setup(store, tmp_path)
     schedule = enable(client)

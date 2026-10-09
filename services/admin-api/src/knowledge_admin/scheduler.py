@@ -55,7 +55,13 @@ def finish(store: RepositoryStore, schedule: dict, status: str, message: str) ->
             FOR UPDATE""", (schedule['id'], schedule['lease_expires_at'])).fetchone()
         if current is None:
             return  # deleted, or the lease ran out and another worker took the schedule over
-        next_run = next_after(current['cron'], current['timezone'], datetime.now(UTC)) if current['enabled'] else None
+        next_run = None
+        if current['enabled']:
+            try:
+                next_run = next_after(current['cron'], current['timezone'], datetime.now(UTC))
+            except Exception:
+                logger.exception('Schedule %s has no usable next run time; it will not run again until edited', schedule['id'])
+                status, message = 'failed', UNEXPECTED
         conn.execute("""UPDATE ka.schedules SET lease_expires_at=NULL,run_requested=false,next_run_at=%s,
             last_finished_at=clock_timestamp(),last_status=%s,last_message=%s WHERE id=%s""",
             (next_run, status, message, schedule['id']))
@@ -83,6 +89,9 @@ def loop(store: RepositoryStore, stopped: threading.Event, targets: dict[str, Ta
             worked = run_once(store, targets)
         except psycopg.Error:
             print('Scheduler database unavailable; retrying', flush=True)
+            worked = False
+        except Exception:
+            logger.exception('Scheduler loop failed; retrying')
             worked = False
         if not worked:
             stopped.wait(POLL_SECONDS)

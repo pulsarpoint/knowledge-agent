@@ -19,7 +19,7 @@ export default function JiraAutoPullCard({ refreshKey }: { refreshKey: string | 
 
   useEffect(() => {
     const controller = new AbortController();
-    getAutoPull(controller.signal).then(setState)
+    getAutoPull(controller.signal).then(next => { setState(next); setError(null); })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof ApiError ? reason.message : "Could not load the auto pull settings."); });
     return () => controller.abort();
   }, [refreshKey]);

@@ -144,6 +144,38 @@ def test_loop_returns_when_stopped(store):
     scheduler.loop(store, stopped, {'jira.pull': ok})  # returns at once
 
 
+def test_loop_survives_an_unexpected_error(store, monkeypatch):
+    stopped = threading.Event()
+    calls = []
+
+    def flaky(store, targets=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError('boom')
+        stopped.set()
+        return False
+
+    monkeypatch.setattr(scheduler, 'run_once', flaky)
+    monkeypatch.setattr(scheduler, 'POLL_SECONDS', 0)
+    scheduler.loop(store, stopped, {'jira.pull': ok})
+    assert len(calls) == 2
+
+
+def test_a_schedule_with_an_unusable_time_zone_is_recorded_as_failed_and_stops(store):
+    schedule = a_schedule(store)
+
+    def breaks_the_zone(store, schedule):
+        with store.connect() as conn:
+            conn.execute("UPDATE ka.schedules SET timezone='Mars/Base' WHERE id=%s", (schedule['id'],))
+        return 'succeeded', 'Pulled 3 of 3 tickets.'
+
+    assert scheduler.run_once(store, {'jira.pull': breaks_the_zone}) is True
+    saved = row(store, schedule)
+    assert saved['last_status'] == 'failed' and saved['last_message'] == scheduler.UNEXPECTED
+    assert saved['next_run_at'] is None and saved['lease_expires_at'] is None and saved['run_requested'] is False
+    assert [(r['status'], r['message']) for r in runs(store, schedule)] == [('failed', scheduler.UNEXPECTED)]
+
+
 def test_main_stops_the_scheduler_when_the_repository_loop_crashes(tmp_path, monkeypatch):
     import base64
     import pytest
