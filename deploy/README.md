@@ -153,6 +153,9 @@ job for that repository. Closing the browser has no effect; stopping the worker
 pauses pulls and overdue repositories are picked up after it restarts. Busy workers
 can delay the actual start. Manual pulls also advance the next scheduled time.
 
+The same service also runs due **schedules** (Administration → Schedules, e.g. the Jira auto pull) on a second thread:
+it checks every 5 seconds, leases a schedule for 15 minutes while it runs, and finishes a running pull before it stops.
+
 The Keycloak image uses its original development/H2 mode, and the local gateway
 uses HTTP cookies because all host ports bind to loopback. Network deployments
 need explicit TLS, hostname, cookie and Keycloak production configuration before

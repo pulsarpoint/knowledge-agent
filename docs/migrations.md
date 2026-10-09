@@ -131,3 +131,12 @@ Deleting an agent deletes the `expert:<its id>` rows of every caller. A partial 
 serves the expert-calls listing of Agent runs. The down migration drops the column and the index, deletes every
 `expert:%` row (callers lose their choices of experts to switch off, and the expert switch is gone) and restores the
 old check.
+
+## 0086_schedules
+
+Schedules. `ka.schedules` holds one row per scheduled target (`target_kind` `jira.pull` with `target_id` = the Jira
+connection): a five-field cron expression, an IANA time zone, `enabled`, `next_run_at` (NULL while paused unless Run now
+is pending, `run_requested`), the lease of a run in progress and the last result. `UNIQUE (project_id, target_kind,
+target_id)`. `ka.schedule_runs` keeps each schedule's newest 100 runs (`trigger` `schedule` or `manual`) and is deleted
+with its schedule. repository-worker runs due schedules. The down migration drops both tables: auto pull settings and
+run history are lost; the Jira tickets already pulled stay.
