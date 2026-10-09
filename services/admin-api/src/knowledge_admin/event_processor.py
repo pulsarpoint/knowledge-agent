@@ -2,7 +2,8 @@
 repository-worker claims one event at a time (FOR UPDATE SKIP LOCKED, so several workers never take the same event),
 runs each matching handler's action in a savepoint, records one run per handler and marks the event processed — or
 failed when a handler failed. Emitted events enter as pending and are processed on a later pass. Nothing is retried:
-an event that cannot be processed at all is logged and marked failed, so it never blocks the queue."""
+an event that cannot be processed at all is logged and marked failed, so it never blocks the queue. Send to agent
+queues an agent task (agent_tasks.py runs it in agent-session-worker)."""
 import logging
 import threading
 
@@ -10,7 +11,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin import event_matching, event_templates
-from knowledge_admin.agent_sessions import SessionRefused, start_session
+from knowledge_admin.event_handlers_api import PER_RUN
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ BATCH = 50
 MAX_DEPTH = 5
 TOO_DEEP = f'Chain too deep ({MAX_DEPTH} levels).'
 NO_AGENT = 'Agent not found.'
+DISABLED = 'Agent is disabled.'
 UNEXPECTED = 'The handler failed unexpectedly. See the repository-worker log.'
 
 CLAIM = "SELECT * FROM ka.events WHERE status='pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"
@@ -50,17 +52,27 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     return f"Emitted {new['type']}.", {'emitted_event_id': row['id']}
 
 
+def task_id(event: dict, handler: dict) -> str:
+    """One task per event and handler: processing the event again queues nothing new."""
+    return f"agent-task:{event['id']}:{handler['id']}"
+
+
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
-    agent = conn.execute('SELECT name FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
+    """Queue the agent call for agent-session-worker (agent_tasks.py); the answer goes to Notifications."""
+    agent = conn.execute('SELECT name,enabled,resources FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
     if agent is None:
         raise HandlerFailed(NO_AGENT)
+    if not agent['enabled']:
+        raise HandlerFailed(DISABLED)
+    if agent['resources'] != 'fixed':
+        raise HandlerFailed(PER_RUN)
     prompt = event_templates.render_prompt(handler['prompt'], event)
-    try:
-        session = start_session(conn, event['project_id'], handler['agent_id'], handler['created_by'], prompt,
-                                purpose='event', title=f"{event['type']} {event['subject']}", conninfo=store.conninfo)
-    except SessionRefused as exc:
-        raise HandlerFailed(str(exc)) from None
-    return f"Started a session with {agent['name']}.", {'agent_session_id': session}
+    key = task_id(event, handler)
+    title = f"{agent['name']} · {event['type']} {event['subject']}"[:500]
+    conn.execute("""INSERT INTO ka.agent_tasks(id,project_id,agent_id,agent_name,title,prompt,event_id,handler_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING""",
+        (key, event['project_id'], handler['agent_id'], agent['name'], title, prompt, event['id'], handler['id']))
+    return f"Queued for {agent['name']}.", {'agent_task_id': key}
 
 
 ACTIONS = {'emit': emit, 'agent': send}
@@ -86,9 +98,9 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
             status, message = 'failed', UNEXPECTED
         failed = failed or status == 'failed'
         conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id,
-            agent_session_id) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            agent_session_id,agent_task_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (event['id'], handler['id'], handler['name'], status, run_message(message),
-             links.get('emitted_event_id'), links.get('agent_session_id')))
+             links.get('emitted_event_id'), links.get('agent_session_id'), links.get('agent_task_id')))
     status = 'failed' if failed else 'processed'
     conn.execute('UPDATE ka.events SET status=%s,processed_at=now() WHERE id=%s', (status, event['id']))
     return status

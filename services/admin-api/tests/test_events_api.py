@@ -89,8 +89,8 @@ def test_one_event_has_its_parent_chain_and_runs(store, tmp_path):
     event = client.get(f'/api/events/{child}', headers=HEADERS).json()['event']
     assert event['parent']['id'] == root and 'payload' not in event['parent']
     assert [(e['id'], e['depth']) for e in event['chain']] == [(root, 0), (child, 1), (grandchild, 2)]
-    assert [(r['handler_name'], r['status'], r['emitted_event_id'], r['agent_session_id'], r['agent_id']) for r in event['runs']] == [
-        ('Triage', 'succeeded', grandchild, None, None)]
+    assert [(r['handler_name'], r['status'], r['emitted_event_id'], r['agent_session_id'], r['agent_id'], r['agent_task'])
+            for r in event['runs']] == [('Triage', 'succeeded', grandchild, None, None, None)]
     assert client.get(f'/api/events/{root}', headers=HEADERS).json()['event']['parent'] is None
 
 
@@ -126,3 +126,23 @@ def test_other_projects_events_are_not_listed(store, tmp_path):
     [foreign] = seed(store, 1, project_id=other)
     assert client.get('/api/events', headers=HEADERS).json()['events'] == []
     assert client.get(f'/api/events/{foreign}', headers=HEADERS).status_code == 404
+
+
+def test_a_send_to_agent_run_shows_its_task(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    [root] = seed(store, 1)
+    handler = uuid4()
+    key = f'agent-task:{root}:{handler}'
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        conn.execute("""INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,agent_task_id)
+            VALUES (%s,'agent.response','succeeded','Triage · x DEMO-1','Done.',%s,%s)""", (project, root, key))
+        notification = conn.execute('SELECT max(id) AS id FROM ka.notifications').fetchone()['id']
+        conn.execute("""INSERT INTO ka.agent_tasks(id,project_id,agent_id,agent_name,title,prompt,event_id,handler_id,status,
+            attempts,finished_at,notification_id) VALUES (%s,%s,'triage','Triage','Triage · x DEMO-1','Hi',%s,%s,'succeeded',2,
+            now(),%s)""", (key, project, root, handler, notification))
+        conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,agent_task_id)
+            VALUES (%s,%s,'Triage','succeeded','Queued for Triage.',%s)""", (root, handler, key))
+    [run] = client.get(f'/api/events/{root}', headers=HEADERS).json()['event']['runs']
+    assert (run['agent_id'], run['agent_session_id'], run['agent_task']) == (
+        'triage', None, {'id': key, 'status': 'succeeded', 'attempts': 2, 'notification_id': notification})

@@ -72,8 +72,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             row['chain'] = conn.execute(f'SELECT {LISTED} FROM ka.events WHERE project_id=%s AND root_id=%s ORDER BY depth,id LIMIT %s',
                                         (project, row['root_id'], MAX_CHAIN)).fetchall()
             row['runs'] = conn.execute("""SELECT r.handler_id,r.handler_name,r.status,r.message,r.emitted_event_id,
-                r.agent_session_id,s.agent_id,r.created_at FROM ka.event_handler_runs r
-                LEFT JOIN ka.agent_sessions s ON s.id=r.agent_session_id WHERE r.event_id=%s ORDER BY r.id""", (event_id,)).fetchall()
+                r.agent_session_id,coalesce(s.agent_id,t.agent_id) AS agent_id,r.created_at,
+                CASE WHEN t.id IS NULL THEN NULL ELSE jsonb_build_object('id',t.id,'status',t.status,'attempts',t.attempts,
+                    'notification_id',t.notification_id) END AS agent_task
+                FROM ka.event_handler_runs r LEFT JOIN ka.agent_sessions s ON s.id=r.agent_session_id
+                LEFT JOIN ka.agent_tasks t ON t.id=r.agent_task_id WHERE r.event_id=%s ORDER BY r.id""", (event_id,)).fetchall()
         return {'event': row}
 
     return router

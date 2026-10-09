@@ -110,34 +110,56 @@ def test_a_claimed_event_is_not_processed_by_another_worker(store):
         assert event_processor.run_once(store) is False
 
 
-def test_send_to_agent_starts_an_event_session(tester):
+def test_send_to_agent_queues_one_task(tester):
     t = tester
     handler = a_handler(t.store, action='agent', emit=None, agent_id=t.agent,
                         prompt='Triage {{ event.subject }} ({{ event.payload.status }})')
     first = an_event(t.store)
     assert event_processor.run_once(t.store) is True
     [run] = runs(t.store, first['id'])
-    assert (run['status'], run['message']) == ('succeeded', 'Started a session with Tester.')
+    key = f"agent-task:{first['id']}:{handler['id']}"
+    assert (run['status'], run['message'], run['agent_task_id'], run['agent_session_id']) == (
+        'succeeded', 'Queued for Tester.', key, None)
     with t.store.connect() as conn:
-        session = conn.execute('SELECT purpose,title,actor_id,agent_id FROM ka.agent_sessions WHERE id=%s',
-                               (run['agent_session_id'],)).fetchone()
-        text = conn.execute('SELECT text FROM ka.agent_session_inputs WHERE session_id=%s', (run['agent_session_id'],)).fetchone()['text']
-    assert (session['purpose'], session['title'], session['actor_id'], session['agent_id']) == (
-        'event', 'jira.ticket.updated DEMO-1', handler['created_by'], t.agent)
-    assert text == 'Triage DEMO-1 (In Progress)'
+        task = conn.execute('SELECT * FROM ka.agent_tasks WHERE id=%s', (key,)).fetchone()
+        sessions = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
+    assert (task['status'], task['attempts'], task['agent_id'], task['agent_name'], task['prompt'], task['title'],
+            task['event_id'], task['handler_id'], task['project_id']) == (
+        'queued', 0, t.agent, 'Tester', 'Triage DEMO-1 (In Progress)', 'Tester · jira.ticket.updated DEMO-1',
+        first['id'], handler['id'], first['project_id'])
+    assert sessions == 0  # no interactive session any more
     assert event(t.store, first['id'])['status'] == 'processed'
 
 
-def test_a_disabled_agent_fails_the_run(tester):
+def test_processing_an_event_again_queues_no_second_task(tester):
+    t = tester
+    a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt='Triage {{ event.subject }}')
+    first = an_event(t.store)
+    event_processor.run_once(t.store)
+    with t.store.connect() as conn:  # as if the first pass had been rolled back after queueing
+        conn.execute("UPDATE ka.events SET status='pending',processed_at=NULL WHERE id=%s", (first['id'],))
+    event_processor.run_once(t.store)
+    with t.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_tasks').fetchone()['n'] == 1
+    assert [run['status'] for run in runs(t.store, first['id'])] == ['succeeded', 'succeeded']
+
+
+@pytest.mark.parametrize('change, message', [
+    ('UPDATE ka.agents SET enabled=false WHERE id=%s', 'Agent is disabled.'),
+    ("UPDATE ka.agents SET resources='per_run' WHERE id=%s",
+     'This agent gets its resources per run; handlers can only send to agents with fixed resources.')])
+def test_an_unusable_agent_fails_the_run(tester, change, message):
     t = tester
     a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt='Triage {{ event.subject }}')
     with t.store.connect() as conn:
-        conn.execute('UPDATE ka.agents SET enabled=false WHERE id=%s', (t.agent,))
+        conn.execute(change, (t.agent,))
     first = an_event(t.store)
     event_processor.run_once(t.store)
     [run] = runs(t.store, first['id'])
-    assert (run['status'], run['message'], run['agent_session_id']) == ('failed', 'Agent is disabled.', None)
+    assert (run['status'], run['message'], run['agent_task_id']) == ('failed', message, None)
     assert event(t.store, first['id'])['status'] == 'failed'
+    with t.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_tasks').fetchone()['n'] == 0
 
 
 def test_a_missing_agent_fails_the_run(store):
