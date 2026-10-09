@@ -71,10 +71,11 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
-               agent-session-worker (Generate documents and Test sessions)
+               agent-session-worker (Generate documents, Test sessions, event-handler agent tasks)
 ```
 
-`agent-session-worker` runs Generate documents and Test sessions. Like `admin-api` it reaches
+`agent-session-worker` runs Generate documents and Test sessions, and the event-handler agent tasks (one-shot; each
+answer goes to Notifications). Like `admin-api` it reaches
 RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
@@ -826,6 +827,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
+| `AGENT_TASK_MAX` | Event-handler agent tasks running at once per agent-session-worker (whole number of at least 1, default 2; an invalid value is logged every 5 s and the task runner stays down while sessions keep working) |
 | `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |
