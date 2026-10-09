@@ -1,6 +1,8 @@
 BEGIN;
 SET search_path = ka, public;
 
+DROP INDEX agent_run_events_expert_calls;
+
 DELETE FROM agent_tools WHERE tool LIKE 'expert:%';
 ALTER TABLE agent_tools DROP CONSTRAINT subagents_do_not_spawn;
 ALTER TABLE agent_tools ADD CONSTRAINT subagents_do_not_spawn

@@ -29,15 +29,19 @@ EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS 
          WHEN r.payload->>'preview' ~ '^Expert .+ failed: ' OR r.payload->>'is_error' = 'true' THEN 'failed'
          ELSE 'completed' END AS status,
     (SELECT coalesce(sum((e.payload->>'total_tokens')::bigint),0) FROM ka.agent_run_events e
-        WHERE e.run_key=i.run_key AND e.kind='usage' AND e.payload->>'parent_call_id'=i.payload->>'parent_call_id') AS total_tokens,
+        WHERE e.run_key=i.run_key AND e.kind='usage' AND e.payload->>'parent_call_id'=ANY(c.ids)) AS total_tokens,
     (SELECT coalesce(jsonb_agg(jsonb_build_object('name', t.name, 'calls', t.calls) ORDER BY t.calls DESC, t.name), '[]'::jsonb)
         FROM (SELECT e.payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events e
-              WHERE e.run_key=i.run_key AND e.kind='tool_call' AND e.payload->>'parent_call_id'=i.payload->>'parent_call_id'
+              WHERE e.run_key=i.run_key AND e.kind='tool_call' AND e.payload->>'parent_call_id'=ANY(c.ids)
               GROUP BY 1) t) AS tool_counts,
     i.id, i.payload->>'parent_call_id' AS call_id, s.payload->>'agent' AS caller
     FROM ka.agent_run_events i
     LEFT JOIN ka.agent_run_events s ON s.run_key=i.run_key AND s.project_id=i.project_id AND s.kind='start'
     LEFT JOIN ka.principals p ON p.id=coalesce(s.actor_id, i.actor_id)
+    CROSS JOIN LATERAL (SELECT i.payload->>'parent_call_id' AS call_id) k
+    CROSS JOIN LATERAL (SELECT array_cat(ARRAY[k.call_id], coalesce(array_agg(e.payload->>'call_id'), '{}')) AS ids
+        FROM ka.agent_run_events e WHERE e.run_key=i.run_key AND e.kind='tool_call' AND e.agent_id=i.agent_id
+          AND e.payload->>'parent_call_id'=k.call_id AND e.payload->>'call_id' IS NOT NULL) c
     LEFT JOIN LATERAL (SELECT e.id, e.payload FROM ka.agent_run_events e
         WHERE e.run_key=i.run_key AND e.kind='tool_result' AND e.payload->>'call_id'=i.payload->>'parent_call_id'
         ORDER BY e.seq DESC LIMIT 1) r ON true
@@ -46,6 +50,11 @@ EXPERT_CALLS = """SELECT i.run_key, i.agent_id, i.payload->'expert'->>'name' AS 
       AND (%(key_prefix)s::text IS NULL OR starts_with(i.run_key, %(key_prefix)s))
       AND (%(before)s::bigint IS NULL OR i.id < %(before)s)
     ORDER BY i.id DESC LIMIT %(limit)s"""
+
+NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent_run_events e
+    WHERE e.run_key=%s AND e.kind='tool_call' AND e.payload->>'parent_call_id'=%s AND e.payload->>'call_id' IS NOT NULL
+      AND e.agent_id=(SELECT i.agent_id FROM ka.agent_run_events i WHERE i.run_key=%s AND i.kind='input'
+                      AND i.payload->>'parent_call_id'=%s AND i.payload ? 'expert' LIMIT 1)"""
 
 
 def build_api(app_name: str, store) -> APIRouter:
@@ -77,17 +86,20 @@ def build_api(app_name: str, store) -> APIRouter:
     @router.get('/{run_key}')
     def record(run_key: str, call: str | None = Query(None)):
         with database().connect() as conn:
+            # the expert's own subagents belong to the call: their run_subagent calls are expert events
+            ids = [call] + [row['call_id'] for row in conn.execute(NESTED_CALLS, (run_key, call, run_key, call)).fetchall()] \
+                if call is not None else None
             events = conn.execute('''SELECT e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
                 FROM ka.agent_run_events e LEFT JOIN ka.principals p ON p.id=e.actor_id
                 WHERE e.run_key=%s AND e.project_id=%s
-                  AND (%s::text IS NULL OR e.payload->>'parent_call_id'=%s
+                  AND (%s::text[] IS NULL OR e.payload->>'parent_call_id'=ANY(%s)
                        OR (e.kind IN ('tool_call','tool_result') AND e.payload->>'call_id'=%s))
-                ORDER BY e.seq''', (run_key, store.project(conn, app_name), call, call, call)).fetchall()
+                ORDER BY e.seq''', (run_key, store.project(conn, app_name), ids, ids, call)).fetchall()
             if call is None:
                 counts = tool_counts(conn, [run_key]) if events else []
         if call is not None:
             calls = Counter(e['payload'].get('name') for e in events
-                            if e['kind'] == 'tool_call' and e['payload'].get('parent_call_id') == call)
+                            if e['kind'] == 'tool_call' and e['payload'].get('parent_call_id') in ids)
             counts = [{'name': name, 'calls': n} for name, n in sorted(calls.items(), key=lambda item: (-item[1], item[0]))]
         if not events:
             raise HTTPException(404, 'Run record not found.')

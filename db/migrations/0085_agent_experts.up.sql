@@ -12,4 +12,8 @@ ALTER TABLE agent_tools ADD CONSTRAINT subagents_do_not_spawn
     CHECK (NOT subagent_allowed OR (tool <> 'run_subagent' AND tool NOT LIKE 'expert:%'));
 COMMENT ON COLUMN agent_tools.tool IS 'A catalog name (read_file), mcp:<mcp_server_id>:<tool name> or expert:<agent id>.';
 
+-- Agent runs lists the calls made to an expert: the input event that opens each one.
+CREATE INDEX agent_run_events_expert_calls ON agent_run_events(project_id, agent_id, id DESC)
+    WHERE kind = 'input' AND payload ? 'expert';
+
 COMMIT;

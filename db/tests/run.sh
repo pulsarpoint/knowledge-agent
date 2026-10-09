@@ -59,7 +59,9 @@ run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 experts_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'expert')")
-[ "$experts_removed" = t ] || { echo 'FAIL: 0085 down left agents.expert' >&2; exit 1; }
+experts_index_gone=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_run_events_expert_calls') IS NULL")
+[ "$experts_removed" = t ] && [ "$experts_index_gone" = t ] || { echo 'FAIL: 0085 down left agents.expert or its index' >&2; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 rolled_back_version=$(docker exec "$test_container" psql -X -U postgres -Atc \
     'SELECT version FROM public.golang_schema_migrations WHERE NOT dirty')
@@ -120,7 +122,9 @@ experts=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema = 'ka' AND table_name = 'agents' AND column_name = 'expert')
         AND pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'subagents_do_not_spawn')) LIKE '%expert:%'")
-[ "$experts" = t ] || { echo 'FAIL: 0085 expert column or check missing' >&2; exit 1; }
+experts_index=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.agent_run_events_expert_calls') IS NOT NULL")
+[ "$experts" = t ] && [ "$experts_index" = t ] || { echo 'FAIL: 0085 expert column, check or index missing' >&2; exit 1; }
 printf '%s\n' 'PASS: agents can be experts; expert rows are never given to subagents.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {

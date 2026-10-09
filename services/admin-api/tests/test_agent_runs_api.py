@@ -134,3 +134,41 @@ def test_read_one_expert_call(store, tmp_path):
     whole = client.get('/api/agent-runs/cc:s2:1', headers=HEADERS).json()
     assert len(whole['events']) == 12
     assert client.get('/api/agent-runs/cc:s2:1', headers=HEADERS, params={'call': 'nope'}).status_code == 404
+
+
+def seed_expert_with_subagent(store):
+    """Caller run `cc:s3:1`: expert call x1 whose expert starts one subagent (n1) with usage and a tool call; call x2
+    is a different expert call with its own subagent that must stay out of x1."""
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        def add(seq, kind, payload, agent='payments'):
+            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,'cc:s3:1',%s,%s,%s,%s)''', (project, seq, kind, agent, Jsonb(payload)))
+        expert = {'id': 'payments', 'name': 'Payments'}
+        add(1, 'start', {'kind': 'claude_code', 'title': 'Plan', 'agent': 'Lead'}, agent='lead')
+        add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'x1'}, agent='lead')
+        add(3, 'input', {'task': 'Map payments', 'expert': expert, 'parent_call_id': 'x1'})
+        add(4, 'usage', {'total_tokens': 100, 'parent_call_id': 'x1'})
+        add(5, 'tool_call', {'name': 'run_subagent', 'call_id': 'n1', 'parent_call_id': 'x1'})
+        add(6, 'input', {'task': 'Helper', 'parent_call_id': 'n1'})
+        add(7, 'usage', {'total_tokens': 30, 'parent_call_id': 'n1'})
+        add(8, 'tool_call', {'name': 'read_file', 'parent_call_id': 'n1'})
+        add(9, 'tool_result', {'call_id': 'n1', 'preview': 'done', 'parent_call_id': 'x1'})
+        add(10, 'tool_result', {'call_id': 'x1', 'preview': 'Answer'}, agent='lead')
+        add(11, 'tool_call', {'name': 'ask_payments', 'call_id': 'x2'}, agent='lead')
+        add(12, 'input', {'task': 'Other', 'expert': expert, 'parent_call_id': 'x2'})
+        add(13, 'tool_call', {'name': 'run_subagent', 'call_id': 'n2', 'parent_call_id': 'x2'})
+        add(14, 'usage', {'total_tokens': 7, 'parent_call_id': 'n2'})
+
+
+def test_expert_call_includes_the_experts_subagents(store, tmp_path):
+    client = _client(tmp_path, repository_store=store)
+    seed_expert_with_subagent(store)
+    rows = {r['call_id']: r for r in client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()['runs']}
+    assert set(rows) == {'x1', 'x2'}
+    assert rows['x1']['total_tokens'] == 130
+    assert rows['x1']['tool_counts'] == [{'name': 'read_file', 'calls': 1}, {'name': 'run_subagent', 'calls': 1}]
+    assert rows['x2']['total_tokens'] == 7
+    record = client.get('/api/agent-runs/cc:s3:1', headers=HEADERS, params={'call': 'x1'}).json()
+    assert [e['seq'] for e in record['events']] == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert record['tool_counts'] == [{'name': 'read_file', 'calls': 1}, {'name': 'run_subagent', 'calls': 1}]

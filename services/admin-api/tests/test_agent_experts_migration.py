@@ -41,3 +41,13 @@ def test_down_removes_the_column_and_the_rows_and_up_restores_the_column(store):
         assert conn.execute("SELECT count(*) AS n FROM ka.agent_tools WHERE tool LIKE 'expert:%'").fetchone()['n'] == 0
         run(conn, UP)
         assert conn.execute('SELECT expert FROM ka.agents WHERE id=%s', (expert,)).fetchone()['expert'] is False
+
+
+def test_expert_calls_index_exists_after_up_and_is_gone_after_down(store):
+    exists = "SELECT to_regclass('ka.agent_run_events_expert_calls') IS NOT NULL AS found"
+    with store.connect() as conn:
+        assert conn.execute(exists).fetchone()['found'] is True
+        run(conn, DOWN)
+        assert conn.execute(exists).fetchone()['found'] is False
+        run(conn, UP)
+        assert conn.execute(exists).fetchone()['found'] is True
