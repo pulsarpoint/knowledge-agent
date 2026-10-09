@@ -42,4 +42,5 @@ export default [
   route("schedules", "./routes/schedules.tsx"),
   route("events", "./routes/events.tsx"),
   route("events/handlers", "./routes/eventHandlers.tsx"),
+  route("notifications", "./routes/notifications.tsx"),
 ] satisfies RouteConfig;

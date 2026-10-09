@@ -12,6 +12,7 @@ test("administration has its own navigation without reader pages", async () => {
   expect(screen.getByRole("link", { name: "Agent runs" })).toHaveAttribute("href", "/activity/runs");
   expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("href", "/schedules");
   expect(screen.getByRole("link", { name: "Events" })).toHaveAttribute("href", "/events");
+  expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("href", "/notifications");
   expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("href", "/storage");
   const code = within(screen.getByRole("navigation", { name: "Code" }));
   expect(code.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/code-projects");
@@ -56,4 +57,12 @@ test("the Events link stays active on the Handlers tab", async () => {
   expect(screen.getByRole("link", { name: "Events" })).toHaveAttribute("data-active", "true");
   expect(screen.getByRole("heading", { level: 1, name: "Events" })).toBeInTheDocument();
   vi.unstubAllGlobals();
+});
+
+test("the Notifications page has its heading", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
+  render(<MemoryRouter initialEntries={["/notifications"]}><AdminLayout><div>List</div></AdminLayout></MemoryRouter>);
+  expect(await screen.findByText("List")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("data-active", "true");
+  expect(screen.getByRole("heading", { level: 1, name: "Notifications" })).toBeInTheDocument();
 });
