@@ -56,6 +56,10 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+manual_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'events_source_check')) NOT LIKE '%manual%'")
+[ "$manual_removed" = t ] || { echo 'FAIL: 0091 down left manual in the event source check' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 tasks_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.agent_tasks') IS NULL AND to_regclass('ka.notifications') IS NULL")
 [ "$tasks_removed" = t ] || { echo 'FAIL: 0090 down left agent tasks or notifications' >&2; exit 1; }
@@ -173,6 +177,10 @@ tasks=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.agent_tasks_due') IS NOT NULL")
 [ "$tasks" = t ] || { echo 'FAIL: 0090 agent tasks or notifications missing' >&2; exit 1; }
 printf '%s\n' 'PASS: agent tasks and notifications exist.'
+manual=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'events_source_check')) LIKE '%manual%'")
+[ "$manual" = t ] || { echo 'FAIL: 0091 events.source does not allow manual' >&2; exit 1; }
+printf '%s\n' 'PASS: events can be made by hand (source manual).'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
