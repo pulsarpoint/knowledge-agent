@@ -1,7 +1,10 @@
 """Handler templates: the matched event is `event`; strict, sandboxed, size-limited; payload must be a JSON object."""
+import sys
 from datetime import UTC, datetime
 
 import pytest
+
+from knowledge_admin import event_templates as templates
 
 from knowledge_admin.event_templates import TemplateProblem, check_emit, check_prompt, render_emit, render_prompt
 
@@ -65,3 +68,42 @@ def test_syntax_is_checked_on_save():
         check_prompt(' ')
     with pytest.raises(TemplateProblem, match='^Prompt: '):
         check_prompt('{% if %}')
+
+
+def test_runaway_cpu_times_out_and_the_pool_recovers(monkeypatch):
+    monkeypatch.setattr(templates, 'RENDER_SECONDS', 0.5)
+    with pytest.raises(TemplateProblem, match='^Template took too long to render.$'):
+        render_prompt('{% for i in range(100000) %}{% for j in range(100000) %}{% endfor %}{% endfor %}x', EVENT)
+    monkeypatch.setattr(templates, 'RENDER_SECONDS', 2)
+    assert render_prompt('ok {{ event.id }}', EVENT) == 'ok 7'
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='address-space limit is only enforced on Linux')
+@pytest.mark.parametrize('source', [
+    "{{ 'x'.ljust(100000000) | length }}", "{{ 'x' | center(100000000) | length }}",
+    "{{ '{:>100000000}'.format('x') | length }}", "{{ ('x'.encode() * 100000000) | length }}"])
+def test_big_allocations_hit_the_memory_limit(source):
+    with pytest.raises(TemplateProblem):
+        render_prompt(source, EVENT)
+    assert render_prompt('ok', EVENT) == 'ok'
+
+
+def test_doubling_loop_is_stopped(monkeypatch):
+    monkeypatch.setattr(templates, 'RENDER_SECONDS', 1)
+    source = "{% set ns = namespace(s='x') %}{% for i in range(40) %}{% set ns.s = ns.s ~ ns.s %}{% endfor %}{{ ns.s | length }}"
+    with pytest.raises(TemplateProblem, match='too (long|much)'):
+        render_prompt(source, EVENT)
+    assert render_prompt('ok', EVENT) == 'ok'
+
+
+def test_nul_is_refused():
+    for emit in ({'type': 'a.b', 'subject': '{{ "a\\u0000b" }}'}, {'type': 'a.b', 'title': '{{ "a\\u0000b" }}'},
+                 {'type': 'a.b', 'payload': '{"x": {"y": ["a\\u0000b"]}}'}):
+        with pytest.raises(TemplateProblem, match='^Template output contains a NUL character.$'):
+            render_emit(emit, EVENT)
+
+
+def test_missing_type_is_a_problem_not_a_keyerror():
+    for emit in ({}, {'type': ' '}):
+        with pytest.raises(TemplateProblem, match='^New event type: enter a type'):
+            render_emit(emit, EVENT)
