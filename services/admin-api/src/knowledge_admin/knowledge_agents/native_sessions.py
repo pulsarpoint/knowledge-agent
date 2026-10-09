@@ -416,6 +416,23 @@ async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Eve
         label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
 
 
+RESTART_SECONDS = 5
+
+
+async def supervise(name: str, make_loop: Callable[[], Any], stopped: asyncio.Event) -> None:
+    """Run a loop until `stopped`; if it fails, log it and start it again after RESTART_SECONDS, so one loop's crash
+    never takes the other down."""
+    while not stopped.is_set():
+        try:
+            await make_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception('%s loop failed; restarting in %s s', name, RESTART_SECONDS)
+            with suppress(TimeoutError):
+                await asyncio.wait_for(stopped.wait(), RESTART_SECONDS)
+
+
 def main() -> None:
     """agent-session-worker: PostgreSQL from the PG* environment, run records like admin-api, and Agents SDK tracing to
     Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api. It also runs event handlers' agent tasks (agent_tasks.serve)."""
@@ -430,6 +447,8 @@ def main() -> None:
         loop = asyncio.get_running_loop()
         for signum in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(signum, stopped.set)
-        await asyncio.gather(serve(store, stopped=stopped), agent_tasks.serve(store, stopped=stopped))
+        await asyncio.gather(
+            supervise('Session', lambda: serve(store, stopped=stopped), stopped),
+            supervise('Agent task', lambda: agent_tasks.serve(store, stopped=stopped), stopped))
 
     asyncio.run(run())

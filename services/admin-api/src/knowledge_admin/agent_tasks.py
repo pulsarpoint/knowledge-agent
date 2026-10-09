@@ -153,28 +153,42 @@ async def guarded(store: RepositoryStore, task: dict[str, Any], run_agent) -> No
         logger.exception('Agent task %s could not be finished', task['id'])
 
 
+def task_limit(limit: int | None) -> int:
+    """The number of tasks run at once: `limit`, else AGENT_TASK_MAX (default 2); a whole number of at least 1."""
+    try:
+        value = int(os.environ.get('AGENT_TASK_MAX', '2')) if limit is None else int(limit)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError('AGENT_TASK_MAX must be a whole number of at least 1.')
+    return value
+
+
 async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,
                 limit: int | None = None, poll: float = POLL_SECONDS) -> None:
-    """Run due tasks, AGENT_TASK_MAX of them at once (default 2), until stopped; running ones are then given back."""
+    """Run due tasks, AGENT_TASK_MAX of them at once (default 2), until stopped; running ones are then given back
+    (also when serve itself is cancelled or fails)."""
     worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}:tasks'
-    limit = limit or int(os.environ.get('AGENT_TASK_MAX', '2'))
+    limit = task_limit(limit)
     running: set[asyncio.Task] = set()
-    while not stopped.is_set():
-        try:
-            if len(running) < limit:
-                for task in await asyncio.to_thread(claim, store, worker_id, limit - len(running)):
-                    job = asyncio.create_task(guarded(store, task, run_agent))
-                    running.add(job)
-                    job.add_done_callback(running.discard)
-        except psycopg.Error:
-            print('Agent task runner database unavailable; retrying', flush=True)
-        except Exception:
-            logger.exception('Agent task runner loop failed; retrying')
-        try:
-            await asyncio.wait_for(stopped.wait(), poll)
-        except asyncio.TimeoutError:
-            pass
-    await asyncio.sleep(0)  # let tasks claimed just now start, so cancelling them releases them
-    for job in list(running):
-        job.cancel()
-    await asyncio.gather(*running, return_exceptions=True)
+    try:
+        while not stopped.is_set():
+            try:
+                if len(running) < limit:
+                    for task in await asyncio.to_thread(claim, store, worker_id, limit - len(running)):
+                        job = asyncio.create_task(guarded(store, task, run_agent))
+                        running.add(job)
+                        job.add_done_callback(running.discard)
+            except psycopg.Error as exc:
+                logger.warning('Agent task runner database unavailable (%s); retrying', type(exc).__name__)
+            except Exception:
+                logger.exception('Agent task runner loop failed; retrying')
+            try:
+                await asyncio.wait_for(stopped.wait(), poll)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        await asyncio.sleep(0)  # let tasks claimed just now start, so cancelling them releases them
+        for job in list(running):
+            job.cancel()
+        await asyncio.gather(*running, return_exceptions=True)

@@ -303,3 +303,56 @@ def test_the_limit_comes_from_the_environment(tester, monkeypatch):
     asyncio.run(scenario())
     assert slow.running == 1
     assert all(task(t.store, task_id)['status'] == 'queued' for task_id in ids)
+
+
+def test_tasks_claimed_in_the_iteration_that_stops_are_given_back(tester, monkeypatch):
+    t = tester
+    ids = [queue(t)['id'] for _ in range(2)]
+    real = agent_tasks.claim
+
+    async def scenario():
+        stopped = asyncio.Event()
+
+        def claim_then_stop(*args):
+            rows = real(*args)
+            stopped.set()
+            return rows
+        monkeypatch.setattr(agent_tasks, 'claim', claim_then_stop)
+        await asyncio.wait_for(agent_tasks.serve(t.store, Slow(), stopped=stopped, worker_id='w1', limit=2, poll=0.05), 10)
+    asyncio.run(scenario())
+    assert sorted((task(t.store, i)['status'], task(t.store, i)['attempts']) for i in ids) == [('queued', 0)] * 2
+
+
+@pytest.mark.parametrize('value', ['0', 'x'])
+def test_a_bad_limit_is_an_error(tester, monkeypatch, value):
+    monkeypatch.setenv('AGENT_TASK_MAX', value)
+    with pytest.raises(ValueError, match='AGENT_TASK_MAX must be a whole number of at least 1.'):
+        asyncio.run(agent_tasks.serve(tester.store, Slow(), stopped=asyncio.Event()))
+    with pytest.raises(ValueError, match='AGENT_TASK_MAX'):
+        asyncio.run(agent_tasks.serve(tester.store, Slow(), stopped=asyncio.Event(), limit=0))
+
+
+def test_a_failing_loop_is_restarted_and_the_other_loop_is_unaffected(monkeypatch):
+    from knowledge_admin.knowledge_agents import native_sessions
+    monkeypatch.setattr(native_sessions, 'RESTART_SECONDS', 0.01)
+    starts, other = [], []
+
+    async def scenario():
+        stopped = asyncio.Event()
+
+        async def flaky():
+            starts.append(1)
+            if len(starts) == 1:
+                raise RuntimeError('boom')
+            await stopped.wait()
+
+        async def steady():
+            other.append('start')
+            await stopped.wait()
+            other.append('stop')
+        both = asyncio.gather(native_sessions.supervise('A', flaky, stopped), native_sessions.supervise('B', steady, stopped))
+        await asyncio.sleep(0.2)
+        stopped.set()
+        await asyncio.wait_for(both, 5)
+    asyncio.run(scenario())
+    assert len(starts) == 2 and other == ['start', 'stop']
