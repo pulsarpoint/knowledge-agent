@@ -24,6 +24,7 @@ from knowledge_admin.session_text import agent_system_prompt, close_idle
 from knowledge_admin.generations_api import session_detail
 from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run,
                                                      require_run_resources)
+from knowledge_admin.knowledge_agents.experts import pin
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.knowledge_agents.session_worker import run_key
 
@@ -140,6 +141,7 @@ def build_api(app_name, store):
                 raise HTTPException(400, str(exc)) from None
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from None
+            pinned = pin(conn, pinned, agent_id)
             session_id = uuid4()
             # The worker decrypts per turn: the pinned config holds credential references only.
             conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,

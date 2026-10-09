@@ -7,12 +7,14 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
 from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, capability_tools,
                                            catalog_listing, enabled_capability_tools, needs_met)
 
 STALE = 'The tools changed since you opened them. Reload.'
 GROUNDED = 'Grounded answers need report_not_covered.'
 UNKNOWN = 'Unknown tool: {tool}.'
+UNKNOWN_EXPERT = 'Unknown expert: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
 MCP_REASON = 'Needs MCP'
 SUBAGENTS_OFF = 'Turn on May start subagents in General first.'
@@ -23,7 +25,9 @@ SUBAGENT_ROW = '''INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_a
 INSERT_TOOL = 'INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed) VALUES (%s,%s,%s,%s,%s)'
 
 AGENT = '''SELECT id,revision,repositories_enabled,documents_enabled,documents_grounded,
-    ssh_enabled,mcp_enabled FROM ka.agents WHERE id=%s'''
+    ssh_enabled,mcp_enabled,expert FROM ka.agents WHERE id=%s'''
+# Every other expert, including those this agent switched off (the Tools tab shows the switch).
+EXPERTS = '''SELECT id,name,when_to_use,resources FROM ka.agents WHERE expert AND id<>%s ORDER BY lower(name),id'''
 # As the agent configuration selects them: the application project's servers, linked in the same project.
 SELECTED_MCP = '''SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
     WHERE m.project_id=%s AND EXISTS (
@@ -116,7 +120,14 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                           'default_usage': found.get('description', ''),
                           'subagent_allowed': row['subagent_allowed'] if row else True,
                           'available': available, 'reason': None if available else MCP_REASON, 'tab': 'mcp'})
-    return {'revision': agent['revision'], 'tools': tools}
+    for found in conn.execute(EXPERTS, (agent_id,)):
+        name = f'{ROW_PREFIX}{found["id"]}'
+        row = saved.get(name)
+        tools.append({'tool': name, 'label': found['name'], 'summary': found['when_to_use'], 'group': 'experts',
+                      'mode': row['mode'] if row else 'on', 'usage': None, 'default_usage': '',
+                      'subagent_allowed': False, 'available': True, 'reason': None, 'tab': None,
+                      'resources': found['resources']})
+    return {'revision': agent['revision'], 'expert': agent['expert'], 'tools': tools}
 
 
 CAPABILITIES = ('code', 'documents', 'ssh')
@@ -168,8 +179,13 @@ def build_api(app_name, store):
             if agent['revision'] != value.expected_revision:
                 raise HTTPException(409, STALE)
             servers = {row['id']: {found['name'] for found in row['tools']} for row in conn.execute(SELECTED_MCP, (store.project(conn, app_name), agent_id))}
+            experts = {row['id'] for row in conn.execute('SELECT id FROM ka.agents WHERE expert AND id<>%s', (agent_id,))}
             for choice in value.tools:
                 if choice.tool in CATALOG:
+                    continue
+                if choice.tool.startswith(ROW_PREFIX):
+                    if choice.tool.removeprefix(ROW_PREFIX) not in experts:
+                        raise HTTPException(400, UNKNOWN_EXPERT.format(tool=choice.tool))
                     continue
                 kind, _, rest = choice.tool.partition(':')
                 server, _, name = rest.partition(':')
@@ -185,8 +201,18 @@ def build_api(app_name, store):
             report = chosen.get('report_not_covered')
             if agent['documents_enabled'] and agent['documents_grounded'] and (report is None or report.mode != 'on'):
                 raise HTTPException(400, GROUNDED)
+            # Choices about agents that are not experts now survive the replace (they apply again if one returns).
+            kept = [row['tool'] for row in conn.execute(
+                "SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND tool LIKE 'expert:%%'", (agent_id,))
+                if row['tool'].removeprefix(ROW_PREFIX) not in experts]
             conn.execute('DELETE FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))
+            for tool in kept:
+                conn.execute(INSERT_TOOL, (agent_id, tool, 'off', None, False))
             for choice in value.tools:
+                if choice.tool.startswith(ROW_PREFIX):  # on: no row
+                    if choice.mode == 'off':
+                        conn.execute(INSERT_TOOL, (agent_id, choice.tool, 'off', None, False))
+                    continue
                 usage = _usage(choice.usage)
                 if choice.tool == SUBAGENT:  # on while the switch is on, whatever the choice says
                     conn.execute(SUBAGENT_ROW, (agent_id, usage))
