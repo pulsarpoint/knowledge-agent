@@ -648,6 +648,7 @@ def load(store, project_id, entry: dict[str, Any], resources: Mapping[str, list[
 
 `subagents.py`:
 - `LIMIT = 'This turn already started 16 helpers.'`.
+- Import `from knowledge_admin.knowledge_agents import experts` (experts imports only config and run_resources, so there is no cycle).
 - `subagent_config`: `sub['experts'] = []`; in `_given_tools`, a name that is an expert tool (`name in {e['tool'] for e in config.get('experts', [])}`) raises `ValueError(NOT_FOR_SUBAGENTS.format(name=name))` before the `offered` check.
 - Make the caller-side resource check reusable: `def check_given(config, resources) -> dict[str, list[str]]` — the loop at the top of `_narrow` (each id must be in `_listed`, raises `NOT_GIVEN`), returning the de-duplicated ids per kind key; `_narrow` calls it.
 - `SubagentEvents.__init__(…, agent_id: str | None = None)`; `add` passes it: `self.recorder.add(kind, {...}, agent_id=self.agent_id)` — extend `RunRecorder.add(kind, payload, agent_id=None)` in `run_record.py` so an event row can carry a different `agent_id` than the recorder's default (store it per event; `flush` writes it). The test `Recorder` fake must accept the keyword.
