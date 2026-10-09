@@ -48,6 +48,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [options, setOptions] = useState<WizardOptions>();
   const [role, setRole] = useState('');
   const [model, setModel] = useState('');
+  const [agentModel, setAgentModel] = useState<string | null>(null);  // the model the new agent runs on
   const [proposal, setProposal] = useState<AgentProposal>();
   const [toolChoice, setToolChoice] = useState<string[] | null>(null);
   const [subagents, setSubagents] = useState(false);
@@ -66,6 +67,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       if (!live) return;
       setOptions(data); setError('');
       setModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models[0]?.id ?? '');
+      setAgentModel(current => data.catalog.models.some(m => m.id === current) ? current : data.catalog.models.find(m => runtime !== 'claude_code' || claudeModel(m))?.id ?? null);
     }).catch(reason => { if (live) setError(reason.message); });
     return () => { live = false; };
   }, [reload]);
@@ -77,9 +79,10 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const agentModels = catalog?.models.filter(m => runtime !== 'claude_code' || claudeModel(m)) ?? [];
   function chooseType(next: AgentRuntime) {
     setRuntime(next);
-    if (next === 'claude_code' && proposal?.model_id && !catalog?.models.some(m => m.id === proposal.model_id && claudeModel(m))) edit({ model_id: null });
+    if (next === 'claude_code' && agentModel && !catalog?.models.some(m => m.id === agentModel && claudeModel(m))) setAgentModel(null);
   }
   const agentType = <Field><FieldLabel htmlFor="wizard-agent-type">Agent type</FieldLabel><Select value={runtime} onValueChange={value => chooseType(value as AgentRuntime)}><SelectTrigger id="wizard-agent-type"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{AGENT_TYPE_HELP[runtime]} Every other setting is the same for both types.</FieldDescription></Field>;
+  const agentModelField = <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={agentModel ?? 'none'} onValueChange={value => setAgentModel(value === 'none' ? null : value)}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{agentModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>The model this agent runs on. An agent runs only after a model is selected.</FieldDescription></Field>;
   const resourcesField = <Field><FieldLabel htmlFor="wizard-resources">Resources</FieldLabel><Select value={resources} onValueChange={value => setResources(value as AgentResources)}><SelectTrigger id="wizard-resources"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{RESOURCE_MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>{RESOURCES_HELP[resources]}</FieldDescription></Field>;
   function edit(value: Partial<AgentProposal>) { setProposal(current => current ? { ...current, ...value } : current); }
   function editServer(id: string, value: Partial<WizardServer>) {
@@ -87,12 +90,12 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }
   async function generate() {
     setBusy('generate'); setError('');
-    try { const data = await generateAgent(role, model, runtime); setProposal(data.proposal); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setStep('review'); setTab('general'); }
+    try { const data = await generateAgent(role, model, runtime); setProposal({ ...data.proposal, model_id: agentModel }); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setStep('review'); setTab('general'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not generate an agent.'); }
     finally { setBusy(null); }
   }
   function startBlank() {
-    setError(''); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setProposal(blankProposal(agentModels.some(m => m.id === model) ? model : null)); setStep('review'); setTab('general');
+    setError(''); setToolChoice(null); setSubagents(false); setSubagentBlocked([]); setProposal(blankProposal(agentModel)); setStep('review'); setTab('general');
   }
   async function create() {
     if (!proposal) return;
@@ -100,7 +103,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       setError('Name and system prompt are required.'); setTab(!proposal.system_prompt.trim() ? 'prompt' : 'general'); return;
     }
     setBusy('create'); setError('');
-    try { const saved = await createWizardAgent({ ...proposal, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES], ...(runtime === 'openai' && toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
+    try { const saved = await createWizardAgent({ ...proposal, model_id: agentModel, runtime, resources, claude_code_tools: [...CLAUDE_CODE_TOOL_NAMES], ...(runtime === 'openai' && toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
       ...(runtime === 'openai' ? { subagents, subagent_blocked: subagentBlocked.filter(name => chosenTools.includes(name)) } : {}) }); toast.success(`Agent ${proposal.name.trim()} created`); onCreated(saved.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create the agent.'); }
     finally { setBusy(null); }
@@ -113,7 +116,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
     {error && <Alert variant="destructive"><AlertDescription>{error}{!options && <Button variant="outline" size="sm" onClick={() => setReload(n => n + 1)}>Retry</Button>}</AlertDescription></Alert>}
     {!options || !catalog ? <Skeleton className="h-48 w-full" /> : <fieldset disabled={busy !== null} className="min-w-0">
       {step === 'describe' ? <FieldGroup>
-        <div className="grid gap-4 sm:grid-cols-2">{agentType}{resourcesField}</div>
+        <div className="grid gap-4 sm:grid-cols-2">{agentType}{agentModelField}{resourcesField}</div>
         <Field><FieldLabel htmlFor="wizard-role">What should this agent do?</FieldLabel>
           <Textarea id="wizard-role" autoFocus rows={5} maxLength={20000} value={role} onChange={e => setRole(e.target.value)} placeholder="Create a payments investigator that reads the payments code and runbooks, checks staging logs over SSH, and explains failures with evidence. Do not allow sudo." />
           <FieldDescription>Describe its role, expected output, resources, and any restrictions. Do not include passwords or private keys.</FieldDescription></Field>
@@ -130,11 +133,10 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       </FieldGroup> : proposal && <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 h-auto flex-wrap justify-start">{[['general','General'],['prompt','Prompt'],['documents','Documents'],['code','Code projects'],['ssh','SSH'],['skills','Skills'],['mcp','MCP'],['services','Services'],...(runtime === 'openai' ? [['tools','Tools']] : [])].map(([value,label]) => <TabsTrigger key={value} value={value}>{label}</TabsTrigger>)}</TabsList>
         <TabsContent value="general"><FieldGroup>
-          <p className="text-sm" aria-label="Agent type and resources"><span className="font-medium">{agentTypeLabel(runtime)} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
+          <p className="text-sm" aria-label="Agent type, model and resources"><span className="font-medium">{agentTypeLabel(runtime)} · {catalog.models.find(m => m.id === agentModel)?.name ?? 'No model'} · {resourcesLabel(resources)}</span> <span className="text-muted-foreground">Change them on page 1 with Edit role.</span></p>
           <Field><FieldLabel htmlFor="wizard-name">Agent name</FieldLabel><Input id="wizard-name" maxLength={100} value={proposal.name} onChange={e => edit({ name: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-purpose">Purpose</FieldLabel><Textarea id="wizard-purpose" maxLength={4000} value={proposal.description} onChange={e => edit({ description: e.target.value })} /></Field>
           <Field><FieldLabel htmlFor="wizard-when">When to use this agent</FieldLabel><Textarea id="wizard-when" maxLength={4000} value={proposal.when_to_use} onChange={e => edit({ when_to_use: e.target.value })} /></Field>
-          <Field><FieldLabel htmlFor="wizard-agent-model">Agent model</FieldLabel><Select value={proposal.model_id ?? 'none'} onValueChange={value => edit({ model_id: value === 'none' ? null : value })}><SelectTrigger id="wizard-agent-model"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="none">No model (choose later)</SelectItem>{agentModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name} · {m.model}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>An agent runs only after a model is selected.</FieldDescription></Field>
           <Toggle label="Enable agent" checked={proposal.enabled} onChange={enabled => edit({ enabled })} />
           <Field><FieldLabel htmlFor="wizard-instructions">Additional instructions</FieldLabel><Textarea id="wizard-instructions" rows={5} maxLength={40000} value={proposal.instructions} onChange={e => edit({ instructions: e.target.value })} /></Field>
           <FieldSet><FieldLegend>Proposed access</FieldLegend><div className="flex flex-wrap gap-2">{([['documents_enabled','Documents'],['repositories_enabled','Code projects'],['ssh_enabled','SSH'],['skills_enabled','Skills'],['mcp_enabled','MCP'],['services_enabled','Services']] as const).map(([key,label]) => <Badge key={key} variant={proposal[key] ? 'default' : 'outline'}>{label}: {proposal[key] ? 'on' : 'off'}</Badge>)}</div><FieldDescription>Review each tab to change access and resource selections.</FieldDescription></FieldSet>

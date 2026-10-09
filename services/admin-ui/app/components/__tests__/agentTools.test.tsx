@@ -13,7 +13,6 @@ vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib
 vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
 vi.mock('../OperationsView', () => ({ default: () => null }));
-vi.mock('../AgentModelSelection', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'payments', name: 'Payments analyst', description: '', when_to_use: '', enabled: true,
   runtime: 'openai', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'], documents_enabled: false, repositories_enabled: true,

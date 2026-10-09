@@ -9,7 +9,6 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import { claudeCodeNotes } from '~/lib/claudeCode';
 import { Card, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
-import AgentModelSelection from './AgentModelSelection';
 import AgentProfileSettings from './AgentProfileSettings';
 import OperationsView from './OperationsView';
 import AgentPromptCard from './AgentPromptCard';
@@ -51,7 +50,6 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
             onSaved={revision => setProfile(current => current && { ...current, revision })} /></div>}
           <div hidden={['test','tools'].includes(view)}><AgentProfileSettings key={reload} profile={profile} view={view} onSaved={setProfile} onDirtyChange={setProfileDirty} configurationDirty={configurationDirty} /></div>
           <div hidden={view !== 'general'}><AgentPromptCard profile={profile} onSaved={setProfile} onDirtyChange={setPromptDirty} /></div>
-          <div hidden={view !== 'general'}><AgentModelSelection profile={profile} onRefresh={() => setReload(n => n + 1)} onSaved={saved => { if (saved) setProfile(saved); }} /></div>
           <div hidden={!(['general','ssh','mcp'].includes(view) || nativeTest)}><OperationsView view={nativeTest ? 'test' : 'settings'} section={view} agentId={agentId} profile={profile} unsavedProfile={profileDirty || promptDirty} onDirtyChange={setConfigurationDirty} onAgentChanged={() => setReload(n => n + 1)} available={profile.enabled} active={['general','ssh','mcp'].includes(view) || nativeTest} /></div>
           {claudeCode && view === 'test' && <Card><CardHeader><CardTitle>Test in a Claude Code session</CardTitle>
             <CardDescription>Claude Code agents can no longer start sessions. Use a native agent.</CardDescription></CardHeader></Card>}

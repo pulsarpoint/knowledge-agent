@@ -2,6 +2,8 @@ import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
 import { AGENT_TYPES, AGENT_TYPE_HELP, CLAUDE_CODE_TOOL_NAMES, RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources, type AgentRuntime } from '../lib/profiles';
 import { SUBAGENTS_HELP } from '../lib/tools';
+import { codeCompatible, getLlmSettings, type ModelProfile } from '../lib/llm';
+import { claudeModel } from '~/lib/claudeCode';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -12,6 +14,11 @@ import { Input } from '~/components/ui/input';
 import { Textarea } from '~/components/ui/textarea';
 import { Switch } from '~/components/ui/switch';
 import { toast } from 'sonner';
+
+const NO_MODEL = 'none';
+/** A model this agent type can run: Claude connections only for Claude Code. */
+const fits = (runtime: AgentRuntime | undefined, model: ModelProfile) =>
+  model.enabled && model.api_format !== 'embeddings' && (runtime === 'claude_code' ? claudeModel(model) : codeCompatible(model));
 
 function ResourceSelection({ label, options, selected, onChange, disabled }: { label: string; options: { id: string; name: string; description?: string; enabled?: boolean }[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
   return <FieldSet disabled={disabled}><FieldLegend variant="label">{label}</FieldLegend><div className="max-h-60 overflow-auto rounded-md border p-3">
@@ -28,10 +35,13 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
   const [dirty, setDirty] = useState(false);
   const [skillsDirty, setSkillsDirty] = useState(false);
   const [reload, setReload] = useState(0);
+  const [models, setModels] = useState<ModelProfile[]>();
+  const [modelsError, setModelsError] = useState('');
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => { let live = true; setModelsError(''); getLlmSettings().then(value => { if (live) setModels(value.models); }).catch(e => { if (live) setModelsError(e instanceof Error ? e.message : 'Could not load models.'); }); return () => { live = false; }; }, [reload]);
   useEffect(() => { let live = true; getAgentOptions(profile.id).then(value => { if (live) setOptions(value); }).catch(e => { if (live) setError(e.message); }); return () => { live = false; }; }, [profile.id, reload]);
-  // Saving the independent model field must preserve edits in this form.
-  useEffect(() => { setDraft(current => ({ ...current, revision: profile.revision, model_id: profile.model_id })); }, [profile.revision, profile.model_id]);
+  // Saving the prompt elsewhere on this tab must preserve edits in this form.
+  useEffect(() => { setDraft(current => ({ ...current, revision: profile.revision })); }, [profile.revision]);
   function change(patch: Partial<AgentProfile>) { setDraft(current => ({ ...current, ...patch })); setDirty(true); setNotice(''); }
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
@@ -49,10 +59,18 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
       <Field><FieldLabel htmlFor="agent-purpose">Purpose</FieldLabel><Textarea id="agent-purpose" maxLength={4000} disabled={busy} value={draft.description} onChange={e => change({ description: e.target.value })} /></Field>
       <Field><FieldLabel htmlFor="agent-when">When to use this agent</FieldLabel><Textarea id="agent-when" maxLength={4000} disabled={busy} value={draft.when_to_use} onChange={e => change({ when_to_use: e.target.value })} /><FieldDescription>Describe the tasks that belong to this agent. Agents are currently selected explicitly.</FieldDescription></Field>
       <Field><FieldLabel htmlFor="agent-type">Agent type</FieldLabel>
-        <Select value={draft.runtime ?? 'openai'} disabled={busy} onValueChange={value => change({ runtime: value as AgentRuntime })}>
+        <Select value={draft.runtime ?? 'openai'} disabled={busy} onValueChange={value => { const runtime = value as AgentRuntime; const current = models?.find(m => m.id === draft.model_id);
+          change({ runtime, ...(current && !fits(runtime, current) ? { model_id: null } : {}) }); }}>
           <SelectTrigger id="agent-type"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup>{AGENT_TYPES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select>
         <FieldDescription>{AGENT_TYPE_HELP[draft.runtime ?? 'openai']} Switching keeps every setting; only the runtime changes.</FieldDescription></Field>
+      <Field><FieldLabel htmlFor="agent-model">Model</FieldLabel>
+        <Select value={draft.model_id ?? NO_MODEL} disabled={busy || !models} onValueChange={value => change({ model_id: value === NO_MODEL ? null : value })}>
+          <SelectTrigger id="agent-model"><SelectValue placeholder={modelsError ? 'Models unavailable' : 'Loading models…'} /></SelectTrigger>
+          <SelectContent><SelectGroup><SelectItem value={NO_MODEL}>Not configured</SelectItem>
+            {models?.filter(m => fits(draft.runtime, m) || m.id === draft.model_id).map(m => <SelectItem key={m.id} value={m.id} disabled={!fits(draft.runtime, m)}>{m.name}{!m.enabled && ' (disabled)'}</SelectItem>)}
+          </SelectGroup></SelectContent></Select>
+        <FieldDescription>{modelsError || <>{draft.runtime === 'claude_code' ? 'Claude Code agents use Claude connections only: Bedrock inference profiles (eu.anthropic.claude-…) or the Anthropic API.' : 'An enabled Responses connection or a Claude model.'} An agent runs only after a model is selected. <Link to="/llm-settings" className="underline underline-offset-4">Manage model connections</Link></>}</FieldDescription></Field>
             <Field><FieldLabel htmlFor="agent-resources">Resources</FieldLabel>
         <Select value={draft.resources ?? 'fixed'} disabled={busy} onValueChange={value => change({ resources: value as AgentResources })}>
           <SelectTrigger id="agent-resources"><SelectValue /></SelectTrigger>

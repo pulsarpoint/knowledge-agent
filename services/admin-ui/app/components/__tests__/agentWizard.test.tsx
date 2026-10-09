@@ -129,30 +129,31 @@ test('start blank opens an empty proposal without generating and can create with
   expect(created).toHaveBeenCalledWith('new-agent');
 });
 
-test('Agent type and Resources come from page 1; switching to Claude Code there clears a non-Claude model', async () => {
+test('Agent type, Agent model and Resources come from page 1; switching to Claude Code there clears a non-Claude model', async () => {
   vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
     { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' },
     { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' }] } });
   const user = userEvent.setup();
   render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={vi.fn()} /><Toaster /></MemoryRouter>);
   await screen.findByLabelText('What should this agent do?');
-  await user.click(screen.getByRole('button', { name: 'Start blank' }));
-  expect(screen.queryByRole('combobox', { name: 'Agent type' })).toBeNull();  // not repeated on the review
-  expect(screen.queryByRole('combobox', { name: 'Resources' })).toBeNull();
-  expect(screen.getByLabelText('Agent type and resources')).toHaveTextContent('Native · Fixed');
   await user.click(screen.getByRole('combobox', { name: 'Agent model' }));
   await user.click(screen.getByRole('option', { name: /^GPT/ }));
+  await user.click(screen.getByRole('button', { name: 'Start blank' }));
+  expect(screen.queryByRole('combobox', { name: 'Agent type' })).toBeNull();  // not repeated on the review
+  expect(screen.queryByRole('combobox', { name: 'Agent model' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: 'Resources' })).toBeNull();
+  expect(screen.getByLabelText('Agent type, model and resources')).toHaveTextContent('Native · GPT · Fixed');
   await user.click(screen.getByRole('button', { name: 'Edit role' }));
   await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
   await user.click(screen.getByRole('option', { name: 'Claude Code' }));
-  await user.click(screen.getByRole('combobox', { name: 'Resources' }));
-  await user.click(screen.getByRole('option', { name: 'Per run' }));
-  await user.click(screen.getByRole('button', { name: 'Back to proposal' }));
-  expect(screen.getByLabelText('Agent type and resources')).toHaveTextContent('Claude Code · Per run');
   expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('No model (choose later)');  // GPT does not fit
   await user.click(screen.getByRole('combobox', { name: 'Agent model' }));
   expect(screen.queryByRole('option', { name: /^GPT/ })).toBeNull();
   await user.click(screen.getByRole('option', { name: /^Claude/ }));
+  await user.click(screen.getByRole('combobox', { name: 'Resources' }));
+  await user.click(screen.getByRole('option', { name: 'Per run' }));
+  await user.click(screen.getByRole('button', { name: 'Back to proposal' }));
+  expect(screen.getByLabelText('Agent type, model and resources')).toHaveTextContent('Claude Code · Claude · Per run');
   await user.type(screen.getByLabelText('Agent name'), 'Writer');
   await user.click(screen.getByRole('tab', { name: 'Prompt' }));
   await user.type(screen.getByLabelText('System prompt'), 'Write documentation.');
@@ -161,19 +162,20 @@ test('Agent type and Resources come from page 1; switching to Claude Code there 
     runtime: 'claude_code', resources: 'per_run', claude_code_tools: ['Read', 'Grep', 'Glob', 'Bash'] }));
 });
 
-test('step 1 starts with Agent type and Resources, which shape the proposal and a blank start', async () => {
+test('step 1 starts with Agent type, Agent model and Resources, which shape the proposal and a blank start', async () => {
   vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
     { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' },
     { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' }] } });
   const { user } = await open();
-  expect(screen.getAllByRole('combobox').map(box => box.getAttribute('id')).slice(0, 2)).toEqual(['wizard-agent-type', 'wizard-resources']);
+  expect(screen.getAllByRole('combobox').map(box => box.getAttribute('id')).slice(0, 3)).toEqual(['wizard-agent-type', 'wizard-agent-model', 'wizard-resources']);
+  expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('GPT');  // the first model that fits
   expect(screen.getByRole('combobox', { name: 'Agent type' })).toHaveTextContent('Native');
   expect(screen.getByRole('combobox', { name: 'Resources' })).toHaveTextContent('Fixed');
   await user.click(screen.getByRole('combobox', { name: 'Agent type' }));
   await user.click(screen.getByRole('option', { name: 'Claude Code' }));
   await user.click(screen.getByRole('button', { name: 'Generate proposal' }));
   expect(api.generateAgent).toHaveBeenCalledWith('Investigate payment incidents.', 'gpt', 'claude_code');
-  expect(await screen.findByLabelText('Agent type and resources')).toHaveTextContent('Claude Code · Fixed');
+  expect(await screen.findByLabelText('Agent type, model and resources')).toHaveTextContent('Claude Code · No model · Fixed');
   expect(screen.queryByRole('combobox', { name: 'Agent type' })).toBeNull();
 });
 
@@ -193,8 +195,22 @@ test('a blank Claude Code agent does not take a non-Claude generator model', asy
   render(<MemoryRouter><AgentWizard onClose={vi.fn()} onCreated={vi.fn()} /></MemoryRouter>);
   await user.click(await screen.findByRole('combobox', { name: 'Agent type' }));
   await user.click(screen.getByRole('option', { name: 'Claude Code' }));
-  await user.click(screen.getByRole('button', { name: 'Start blank' }));
   expect(screen.getByRole('combobox', { name: 'Agent model' })).toHaveTextContent('No model (choose later)');
+  await user.click(screen.getByRole('button', { name: 'Start blank' }));
+  expect(screen.getByLabelText('Agent type, model and resources')).toHaveTextContent('Claude Code · No model · Fixed');
+});
+
+test('a generated proposal runs on the model chosen on page 1', async () => {
+  vi.mocked(api.getWizardOptions).mockResolvedValue({ ...structuredClone(options), catalog: { ...structuredClone(options.catalog), models: [
+    { id: 'gpt', name: 'GPT', model: 'gpt-5', provider: 'openai', api_format: 'responses' },
+    { id: 'model', name: 'Claude', model: 'eu.anthropic.claude-test', provider: 'bedrock', api_format: 'native' }] } });
+  const { user } = await open();
+  await user.click(screen.getByRole('combobox', { name: 'Agent model' }));
+  await user.click(screen.getByRole('option', { name: /^GPT/ }));
+  await user.click(screen.getByRole('button', { name: 'Generate proposal' }));  // the proposal names 'model'
+  await screen.findByLabelText('Agent name');
+  await user.click(screen.getByRole('button', { name: 'Create agent' }));
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ model_id: 'gpt' }));
 });
 
 test('the wizard Tools page follows the capabilities until changed and sends the choice', async () => {
