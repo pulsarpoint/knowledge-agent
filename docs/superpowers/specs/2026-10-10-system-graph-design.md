@@ -142,11 +142,10 @@ at the top of a layer.
 
 All formats are produced from the JSON view.
 
-- **Keys** are generated (`n1`, `n2`, …), never names. **Labels** are the node name (plus kind in smaller text where
-  the format allows), escaped so that any name renders literally: quotes, backslashes, braces, `->`, `;`, `#`, `$`/`${…}`
+- **Keys** are generated (`n1`, `n2`, …), never names. **Labels** are the node name (the kind shows through the shape and in the side list), escaped so that any name renders literally: quotes, backslashes, braces, `->`, `;`, `#`, `$`/`${…}`
   substitutions, newlines (replaced by spaces). Mermaid labels use `"…"` with `#quot;` entities.
 - **Mermaid:** `flowchart LR`. A visible node that has visible children becomes a `subgraph`; boundary nodes go in a
-  subgraph "Outside". Edge label `type` or `type ×N`.
+  subgraph "Outside". Edge labels write the type with spaces (`instance of`). Edge label `type` or `type ×N`.
 - **D2:** visible nodes with visible children become containers. Shapes by `kind`: `database`, `table` → `cylinder`;
   `queue` → `queue`; `person`, `actor` → `person`; otherwise `rectangle`. Boundary nodes `style.stroke-dash: 4` in an
   `Outside` container. Edge labels as in Mermaid. No `icon`, `link`, `import` or `vars` are ever emitted.
