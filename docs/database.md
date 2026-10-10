@@ -20,8 +20,8 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `projects`, `principals`, `project_members` | Workspace identity and attributed administrators |
 | `credentials` | Typed encrypted credentials and rotation metadata |
 | `repositories`, `code_project_folders` | Code projects, optional Git sources, one or more mounted folders |
-| `services`, `service_repositories`, `service_deployments` | Applications, source code and server/environment deployments |
-| `service_dependencies` | Directed dependencies between services, with a description of each relationship |
+| `services`, `service_deployments` | Applications and server/environment deployments |
+| `inventory_links`, `inventory_documents` | Connections between inventory entries (`depends_on`, `built_from`, `connects_to`, with description and string attributes; they replaced `service_dependencies` and `service_repositories` in migration 0095) and documents attached to entries |
 | `servers` | Host inventory and SSH connection settings |
 | `documents`, `document_versions` | Stable document IDs, canonical Markdown, immutable versions, hashes and source snapshots. `documents.phase_metadata` holds the service phase export layout (`services/<service>/<phase>/`); `document_versions.generation_id` is history without a foreign key since migration 0073 |
 | `document_code_projects`, `document_services`, `document_servers`, `document_deployments` | Current document associations to inventory |
@@ -149,7 +149,8 @@ Environment-scoped architecture is a separate upcoming change.
 
 ## Service dependencies
 
-Migration 42 adds `ka.service_dependencies`. A row means `service_id` depends on
+Migration 42 added `ka.service_dependencies`; migration 0095 moved its rows into `ka.inventory_links` (kind `depends_on`,
+columns `from_service_id` and `to_service_id`), and the description below applies to those rows. A row means `service_id` depends on
 `depends_on_service_id`; for example, Orders API depends on PostgreSQL, with the
 description "Stores orders and transaction history." Both IDs reference existing
 services in the same internal workspace. The composite primary key allows several

@@ -52,6 +52,17 @@ def test_an_environment_brings_its_services_code_and_servers(sessions):
     assert [item['name'] for item in config['services']['items']] == ['Payments']
 
 
+def test_a_services_connects_to_links_reach_the_ad_hoc_agent(sessions):
+    s = sessions
+    with s.store.connect() as conn:
+        project = s.store.project(conn, 'shop')
+        conn.execute("INSERT INTO ka.inventory_links(project_id,kind,from_service_id,to_server_id) VALUES (%s,'connects_to',%s,%s)",
+                     (project, s.service, s.server['id']))
+    config = build(s, chosen(service_ids=[s.service]))
+    links = config['services']['items'][0]['links']
+    assert [l['kind'] for l in links] == ['connects_to']
+
+
 def test_a_brought_server_without_a_connection_is_left_out_but_a_chosen_one_is_refused(sessions):
     s = sessions  # prod-1 allows SSH but has no username: not enabled
     with s.store.connect() as conn:

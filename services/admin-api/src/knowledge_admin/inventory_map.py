@@ -186,6 +186,13 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
             common += 1
         return target[common] if common < len(target) else None
 
+    def ancestor_of(upper: str, lower: str) -> bool:
+        while lower is not None and lower in rows:
+            lower = rows[lower]['parent_id']
+            if lower == upper:
+                return True
+        return False
+
     boundary, grouped = {}, {}
     for edge in edges:
         start, end = edge['from_id'], edge['to_id']
@@ -195,6 +202,9 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         b = representative[end] if end in representative else outside(end)
         if a is None or b is None or a == b:
             rows[a if a is not None and a in rows else b]['internal_edges'] += 1
+            continue
+        if ancestor_of(a, b) or ancestor_of(b, a):  # a box and something inside it: no renderer can draw that line
+            rows[a if ancestor_of(a, b) else b]['internal_edges'] += 1
             continue
         for end_id in (a, b):
             if end_id not in rows and end_id not in boundary:

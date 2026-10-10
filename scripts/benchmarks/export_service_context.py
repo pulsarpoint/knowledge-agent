@@ -64,8 +64,8 @@ def main() -> None:
             raise ValueError('Service not found')
         projects = conn.execute('''SELECT r.id,r.name,r.description,r.current_commit,
             ARRAY(SELECT path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY path) AS folder_paths
-            FROM ka.repositories r JOIN ka.service_repositories sr ON sr.repository_id=r.id
-            WHERE sr.service_id=%s AND r.archived_at IS NULL ORDER BY r.id''', (service_id,)).fetchall()
+            FROM ka.repositories r JOIN ka.inventory_links l ON l.to_code_project_id=r.id
+            WHERE l.kind='built_from' AND l.from_service_id=%s AND r.archived_at IS NULL ORDER BY r.id''', (service_id,)).fetchall()
         deployments = conn.execute('''SELECT s.name AS server_name,s.hostname,d.runtime,d.runtime_name,
             d.environment_id,COALESCE(e.name,d.environment) AS environment,d.port,d.deployed_version
             FROM ka.service_deployments d JOIN ka.servers s ON s.id=d.server_id

@@ -1,4 +1,4 @@
-"""Diagrams of a system graph view (system_graph.build_view): Mermaid and D2 text, and an SVG drawn by the d2 binary.
+"""Diagrams of a system graph view (inventory_map.build_view): Mermaid and D2 text, and an SVG drawn by the d2 binary.
 Keys are generated (n1, n2, …); names only ever appear as escaped, quoted labels, so a node name cannot add shapes,
 edges, variables or imports. No icons, links or imports are emitted, so d2 never fetches anything."""
 import shutil

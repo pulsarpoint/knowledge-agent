@@ -106,7 +106,7 @@ def test_up_moves_dependencies_code_projects_and_attachments(store):
 
 
 def test_down_refuses_what_the_old_schema_cannot_hold(store):
-    for setup in ('connects_to', 'attributes', 'attachment'):
+    for setup in ('connects_to', 'attributes', 'built_from_description', 'attachment'):
         with store.connect() as conn:
             project = store.project(conn, 'shop')
             ids = inventory(conn, project)
@@ -115,6 +115,8 @@ def test_down_refuses_what_the_old_schema_cannot_hold(store):
             elif setup == 'attributes':
                 link(conn, project, 'depends_on', ('service', ids['api']), ('service', ids['worker']),
                      attributes=Jsonb({'protocol': 'grpc'}))
+            elif setup == 'built_from_description':
+                link(conn, project, 'built_from', ('service', ids['api']), ('code_project', ids['repo']), description='main repo')
             else:
                 conn.execute('INSERT INTO ka.inventory_documents(project_id,service_id,document_id) VALUES (%s,%s,%s)', (project, ids['api'], ids['doc']))
             with pytest.raises(psycopg.errors.RaiseException, match='Cannot roll back 0095'):

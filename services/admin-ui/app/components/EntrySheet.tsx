@@ -33,7 +33,7 @@ function LinkFields({ id, description, attributes, onDescription, onAttributes }
   </FieldGroup>;
 }
 
-function EditLink({ link, onSaved, onCancel }: { link: Link; onSaved: () => void; onCancel: () => void }) {
+function EditLink({ link, onSaved, onFailed, onCancel }: { link: Link; onSaved: () => void; onFailed: () => void; onCancel: () => void }) {
   const [description, setDescription] = useState(link.description);
   const [attributes, setAttributes] = useState(formatAttributes(link.attributes));
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ function EditLink({ link, onSaved, onCancel }: { link: Link; onSaved: () => void
     if (!("value" in parsed)) return;
     setError(null);
     try { await updateLink(link.id, { description, attributes: parsed.value, revision: link.revision }); onSaved(); }
-    catch (reason) { setError(say(reason, "Could not save the connection.")); }
+    catch (reason) { setError(say(reason, "Could not save the connection.")); onFailed(); }
   }
   return <form onSubmit={save} className="flex flex-col gap-2 rounded-md border p-2">
     <LinkFields id={`link-${link.id}`} description={description} attributes={attributes} onDescription={setDescription} onAttributes={setAttributes} />
@@ -150,7 +150,7 @@ export default function EntrySheet({ entry, onClose, onChanged }: { entry: MapEn
                   <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${text}`} onClick={() => void act(() => deleteLink(link.id), "Could not remove the connection.")}>Remove</Button>
                 </span></div>
               {linkNote(link) && <span className="text-muted-foreground text-xs">{linkNote(link)}</span>}
-              {editing === link.id && <EditLink link={link} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); void load(); }} />}
+              {editing === link.id && <EditLink link={link} onCancel={() => setEditing(null)} onFailed={() => void load()} onSaved={() => { setEditing(null); onChanged(); void load(); }} />}
             </li>; })}</ul>}
         </section>
         <Connect entry={entry} onConnected={() => { onChanged(); void load(); }} />

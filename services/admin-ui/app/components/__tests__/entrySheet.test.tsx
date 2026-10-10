@@ -86,3 +86,15 @@ test("attaches and detaches documents", async () => {
   await user.click(await screen.findByRole("button", { name: "Detach Runbook" }));
   await waitFor(() => expect(screen.getByText("No documents attached.")).toBeInTheDocument());
 });
+
+test("after a stale-revision save the links are fetched again, so Edit reopens the current revision", async () => {
+  const user = userEvent.setup();
+  let current = 1;
+  const fetch = server({ [`GET ${LINKS}`]: () => ({ json: { links: [{ ...link, revision: current }] } }), [`GET ${DOCS}`]: () => ({ json: { documents: [] } }),
+    ["PUT /api/inventory/links/l1"]: () => { current = 2; return { status: 409, json: { error: { message: "This connection was changed by someone else. Reload and try again." } } }; } });
+  sheet();
+  await user.click(await screen.findByRole("button", { name: "Edit connects to → prod-1" }));
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  expect(await screen.findByText(/changed by someone else/)).toBeInTheDocument();  // the message stays visible
+  await waitFor(() => expect(fetch.mock.calls.filter(call => call[0] === LINKS)).toHaveLength(2));
+});

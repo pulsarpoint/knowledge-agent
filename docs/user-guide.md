@@ -776,15 +776,14 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
   projects are left out.
 - **Browsing.** **Inside** lists what the current box holds (→ opens it; "+N inside" says it holds more), **Outside**
   lists what its connections reach elsewhere. The breadcrumb goes back up. **Depth** shows up to 3 levels; deeper
-  entries fold into their box and lines add up (`connects to ×3`). A connection is drawn inside one environment: it
-  never joins one environment's copy of a server to another's. Everything you choose is in the page address.
+  entries fold into their box and lines add up (`connects to ×3`). When both ends of a connection are in one environment, the line stays inside it: it never joins one environment's copy of a server to another's. Everything you choose is in the page address.
 - **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
   with Mermaid; **D2** and **JSON** show the source, with **Copy**.
 - **Connections.** Click an entry's name: the panel shows its connections and documents and links to its page.
   **Connect to…** picks a kind — *depends on* (service → service), *built from* (service → code project) or
   *connects to* (anything → anything) — an optional description and attributes (one `name: value` per line, at most
   20), then the target by name. **Edit** changes the description and attributes; to change the ends or the kind,
-  remove the connection and add it again. The Services page edits the same *depends on* and *built from*
+  remove the connection and add it again. A *built from* connection starts from the service; a code project's panel offers *connects to* only. The Services page edits the same *depends on* and *built from*
   connections; an open Services form that someone changed meanwhile asks you to reload.
 - **Documents.** Attach documents from Docs → Documents to any entry; detaching never deletes the document. Deleting an
   entry removes its connections and attachments.

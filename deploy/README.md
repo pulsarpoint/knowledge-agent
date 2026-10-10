@@ -410,6 +410,15 @@ the system graph tables (Environments → System map).
 - Without `d2` (for example admin-api running outside Docker), the Diagram view says "d2 is not installed." and the
   Mermaid, D2 and JSON views still work.
 
+## Upgrading to the inventory map
+
+Migration 0095 replaces the stored system graph with connections between inventory entries (Environments → System map).
+
+- Rows of `service_dependencies` and `service_repositories` move into `inventory_links`; documents attached to graph
+  nodes move to the entry behind the node. Hand-drawn graph nodes and their attachments are gone (the documents stay).
+- The rollback refuses while `connects_to` links, link attributes, `built_from` descriptions or attachments exist;
+  remove them first.
+
 ## Upgrading to the inventory sync
 
 Migration 0093 links the system graph to the inventory. When admin-api starts it gives every server, service,

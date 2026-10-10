@@ -65,13 +65,20 @@ def test_links_stay_within_one_environment_and_roll_up_with_counts():
     # api → prod-1 is drawn per environment (production copy → production prod-1, staging copy → staging prod-1),
     # never across environments or to the top-level prod-1; depends_on is not an infrastructure link
     assert all(e['type'] == 'connects_to' for e in view['edges'])
-    api_to_server = {(a, b) for a, b, _ in drawn if a.startswith('service:')}
-    assert api_to_server == {(f"service:{E['production']}:{E['prod-1']}:{E['api']}", f"server:{E['production']}:{E['prod-1']}"),
-                             (f"service:{E['staging']}:{E['prod-1']}:{E['api']}", f"server:{E['staging']}:{E['prod-1']}")}
+    assert not any(a.startswith('service:') and b.startswith('server:') for a, b, _ in drawn)  # api sits inside its server
     assert (f"environment:{E['staging']}", f"service:{E['production']}:{E['db']}", 'connects_to') in drawn
     top = build_view(inventory(links=links), 'infrastructure', None, 1)
     assert [(e['from'], e['to'], e['count']) for e in top['edges']] == [
         (f"environment:{E['staging']}", f"environment:{E['production']}", 1)]
+
+
+def test_a_link_between_a_box_and_something_inside_it_counts_as_internal():
+    links = [{'id': uuid4(), 'kind': 'connects_to', 'from': ('service', E['api']), 'to': ('server', E['prod-1'])}]
+    view = build_view(inventory(links=links), 'infrastructure', None, 3)
+    by_id = {n['id']: n for n in view['nodes']}
+    assert view['edges'] == []
+    assert by_id[f"server:{E['production']}:{E['prod-1']}"]['internal_edges'] == 1
+    assert by_id[f"server:{E['staging']}:{E['prod-1']}"]['internal_edges'] == 1
 
 
 def test_drilled_in_views_show_the_other_end_outside():

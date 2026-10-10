@@ -3,9 +3,10 @@ SET search_path = ka, public;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM inventory_links WHERE kind = 'connects_to' OR attributes <> '{}'::jsonb)
+    IF EXISTS (SELECT 1 FROM inventory_links WHERE kind = 'connects_to' OR attributes <> '{}'::jsonb
+            OR (kind = 'built_from' AND description <> ''))
         OR EXISTS (SELECT 1 FROM inventory_documents) THEN
-        RAISE EXCEPTION 'Cannot roll back 0095: remove connects_to links, link attributes and attached documents first.';
+        RAISE EXCEPTION 'Cannot roll back 0095: remove connects_to links, link attributes, built_from descriptions and attached documents first.';
     END IF;
 END $$;
 

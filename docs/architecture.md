@@ -80,7 +80,7 @@ state. Generated and uploaded documents appear in the same set.
 ## Service inventory and agent context
 
 `ka.services` identifies a logical application within a configured project.
-`ka.service_repositories` links any number of source repositories; repositories
+`ka.inventory_links` (kind `built_from`) links any number of source repositories; repositories
 can be shared. `ka.service_deployments` identifies where each service runs, with
 separate server, environment, runtime identifier, port, log location and reported
 version. This avoids repeating source links across production/staging deployments.

@@ -223,5 +223,5 @@ and string attributes; each end is a foreign key to its entry table and deleting
 `inventory_links`; documents attached to graph nodes move to the entry behind the node (a deployment's to its service),
 and attachments of hand-drawn nodes are dropped (the documents stay). `kg_nodes`, `kg_edges`, `kg_node_documents`,
 `kg_graph_version` and their triggers are dropped. `service_assets` reads the new table and gains `links` (the service's
-`connects_to` links). The down migration refuses while `connects_to` links, link attributes or attachments exist;
+`connects_to` links). The down migration refuses while `connects_to` links, link attributes, `built_from` descriptions or attachments exist;
 otherwise it restores the old tables and an empty graph, which the old code's start-up sync refills.
