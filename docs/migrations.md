@@ -206,3 +206,10 @@ and releases linked nodes and keeps edges marked `synced` (`depends_on`, `uses`,
 rebuild their in-memory graph; editing a document that a node has attached increases it too (editing an unattached
 document does not). The down migration deletes synced and `includes` edges, deletes linked nodes with nothing
 attached, and drops the links, the version table and its trigger.
+
+## 0094_graph_environment_tree
+
+Environments contain their servers in the system graph: a server has one linked node per environment it is in (both
+`server_id` and `environment_id` set) and a top-level node when it is in none (`environment_id` NULL). The unique rule
+becomes one node per (server, environment) pair; an environment's own node is the only node with `environment_id` and no
+`server_id`. The down migration turns the per-environment copies into hand-made nodes and restores one node per server.

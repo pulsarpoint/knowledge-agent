@@ -33,8 +33,8 @@ def test_link_rules(store):
          (project, host['id']), psycopg.errors.CheckViolation),                       # layer must match the link
         ("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,server_id) VALUES (%s,'infrastructure','x','y',%s)",
          (project, host['id']), psycopg.errors.UniqueViolation),                      # one node per row
-        ("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,server_id,environment_id) VALUES (%s,'infrastructure','x','z',%s,%s)",
-         (project, host['id'], uuid4()), psycopg.errors.CheckViolation)]:             # one link per node
+        ("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,server_id,service_id) VALUES (%s,'infrastructure','x','z',%s,%s)",
+         (project, host['id'], uuid4()), psycopg.errors.CheckViolation)]:             # one link per node (0094 allows only server + environment together)
         with pytest.raises(error), store.connect() as conn:
             conn.execute(sql, values)
     with store.connect() as conn:
@@ -100,9 +100,11 @@ def test_down_and_up(store):
             VALUES (%s,'infrastructure','disk','disk',%s)""", (project, linked))  # keeps its linked parent
         conn.execute("""INSERT INTO ka.kg_nodes(project_id,layer,kind,name,server_id)
             VALUES (%s,'infrastructure','server','prod-2',%s)""", (project, server(conn, project, 'prod-2')['id']))
+        run(conn, '0094_graph_environment_tree.down.sql')  # 0094 builds on 0093
         run(conn, '0093_graph_inventory_sync.down.sql')
         names = {row['name'] for row in conn.execute('SELECT name FROM ka.kg_nodes').fetchall()}
         assert names == {'prod-1', 'disk'}  # the bare linked node went, the one with a child stayed (unlinked)
         assert conn.execute("SELECT to_regclass('ka.kg_graph_version') IS NULL AS gone").fetchone()['gone']
         run(conn, '0093_graph_inventory_sync.up.sql')
+        run(conn, '0094_graph_environment_tree.up.sql')
         assert version(conn) == 0
