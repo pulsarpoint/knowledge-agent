@@ -280,4 +280,85 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                   {'layer': node['layer'], 'name': node['name']})
         return Response(status_code=204)
 
+    def edge_row(conn, project: UUID, edge_id: UUID, lock: bool = False) -> dict:
+        row = conn.execute(f"SELECT {EDGE} FROM ka.kg_edges WHERE id=%s AND project_id=%s{' FOR UPDATE' if lock else ''}",
+                           (edge_id, project)).fetchone()
+        if row is None:
+            raise HTTPException(404, NO_EDGE)
+        return row
+
+    @router.post('/graph/edges', status_code=201)
+    def create_edge(value: EdgeDraft, request: Request) -> dict:
+        if has_nul(value.description):
+            raise bad('Remove the NUL character from Description.')
+        if value.from_id == value.to_id:
+            raise HTTPException(422, SAME_NODE)
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            for node_id in (value.from_id, value.to_id):
+                node_row(conn, project, node_id)
+            actor = db.actor(conn, *request_actor(request))
+            with refused(conn, DUPLICATE_EDGE, (404, NO_NODE)):
+                edge_id = conn.execute("""INSERT INTO ka.kg_edges(project_id,from_id,to_id,type,description,created_by)
+                    VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (project, value.from_id, value.to_id, value.type, value.description, actor)).fetchone()['id']
+            audit(conn, project, request, 'graph.edge.created', 'graph_edge', edge_id,
+                  {'type': value.type, 'from_id': str(value.from_id), 'to_id': str(value.to_id)})
+            return {'edge': edge_row(conn, project, edge_id)}
+
+    @router.put('/graph/edges/{edge_id}')
+    def save_edge(edge_id: UUID, value: EdgeChange, request: Request) -> dict:
+        if has_nul(value.description):
+            raise bad('Remove the NUL character from Description.')
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            current = edge_row(conn, project, edge_id, lock=True)
+            if current['revision'] != value.revision:
+                raise HTTPException(409, STALE_EDGE)
+            conn.execute('UPDATE ka.kg_edges SET description=%s,revision=revision+1 WHERE id=%s', (value.description, edge_id))
+            audit(conn, project, request, 'graph.edge.updated', 'graph_edge', edge_id, {'type': current['type']})
+            return {'edge': edge_row(conn, project, edge_id)}
+
+    @router.delete('/graph/edges/{edge_id}', status_code=204)
+    def delete_edge(edge_id: UUID, request: Request) -> Response:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            row = conn.execute('DELETE FROM ka.kg_edges WHERE id=%s AND project_id=%s RETURNING type,from_id,to_id',
+                               (edge_id, project)).fetchone()
+            if row is None:
+                raise HTTPException(404, NO_EDGE)
+            audit(conn, project, request, 'graph.edge.deleted', 'graph_edge', edge_id,
+                  {'type': row['type'], 'from_id': str(row['from_id']), 'to_id': str(row['to_id'])})
+        return Response(status_code=204)
+
+    @router.put('/graph/nodes/{node_id}/documents/{document_id}', status_code=204)
+    def attach(node_id: UUID, document_id: UUID, request: Request) -> Response:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            node_row(conn, project, node_id)
+            if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone() is None:
+                raise HTTPException(404, NO_DOCUMENT)
+            with refused(conn, '', (404, NO_DOCUMENT)):  # the document was deleted meanwhile
+                added = conn.execute("""INSERT INTO ka.kg_node_documents(node_id,document_id,project_id) VALUES (%s,%s,%s)
+                    ON CONFLICT DO NOTHING RETURNING node_id""", (node_id, document_id, project)).fetchone()
+            if added:
+                audit(conn, project, request, 'graph.document.attached', 'graph_node', node_id, {'document_id': str(document_id)})
+        return Response(status_code=204)
+
+    @router.delete('/graph/nodes/{node_id}/documents/{document_id}', status_code=204)
+    def detach(node_id: UUID, document_id: UUID, request: Request) -> Response:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            node_row(conn, project, node_id)
+            removed = conn.execute('DELETE FROM ka.kg_node_documents WHERE node_id=%s AND document_id=%s RETURNING node_id',
+                                   (node_id, document_id)).fetchone()
+            if removed:
+                audit(conn, project, request, 'graph.document.detached', 'graph_node', node_id, {'document_id': str(document_id)})
+        return Response(status_code=204)
+
     return router

@@ -197,3 +197,58 @@ def test_graph_requires_admin(client):
     readers = {'X-Forwarded-Groups': 'readers', 'X-Forwarded-User': 'reader-id', 'X-Forwarded-Email': 'reader@example.test'}
     assert client.get('/api/graph/view/software', headers=readers).status_code == 403
     assert client.post('/api/graph/nodes', headers=readers, json={}).status_code == 403
+
+
+def test_edges(client, store):
+    api = make(client, 'admin-api')
+    events = make(client, 'Event processor', parent=api['id'], kind='module')
+    worker = make(client, 'repository-worker')
+    prod = make(client, 'prod-1', layer='infrastructure', kind='server')
+    add = lambda a, b, type='calls', **extra: client.post('/api/graph/edges', headers=HEADERS,
+                                                          json={'from_id': a, 'to_id': b, 'type': type, **extra})
+    made = add(events['id'], worker['id'], description='pulls')
+    assert made.status_code == 201, made.text
+    edge = made.json()['edge']
+    assert (edge['from_id'], edge['to_id'], edge['type'], edge['description'], edge['revision']) == (
+        events['id'], worker['id'], 'calls', 'pulls', 1)
+    out = client.get(f"/api/graph/nodes/{events['id']}", headers=HEADERS).json()['node']['outgoing']
+    assert [(row['type'], row['node']['name'], row['node']['layer'], row['description']) for row in out] == [
+        ('calls', 'repository-worker', 'software', 'pulls')]
+    back = client.get(f"/api/graph/nodes/{worker['id']}", headers=HEADERS).json()['node']['incoming']
+    assert [(row['id'], row['node']['name']) for row in back] == [(edge['id'], 'Event processor')]
+    assert message(add(events['id'], worker['id'])) == (409, 'This edge already exists.')
+    assert message(add(worker['id'], worker['id'])) == (422, 'An edge needs two different nodes.')
+    assert message(add(events['id'], api['id'], 'depends_on')) == (422, 'An edge cannot join a node and a node that contains it.')
+    assert message(add(events['id'], str(uuid4()))) == (404, 'Node not found.')
+    assert add(events['id'], worker['id'], 'sends').status_code == 400
+    assert message(add(events['id'], worker['id'], 'uses', description='a\x00')) == (400, 'Remove the NUL character from Description.')
+    assert add(prod['id'], api['id'], 'instance_of').status_code == 201  # across layers
+    endpoint = f"/api/graph/edges/{edge['id']}"
+    edited = client.put(endpoint, headers=HEADERS, json={'description': 'pulls tickets', 'revision': 1})
+    assert edited.status_code == 200 and (edited.json()['edge']['description'], edited.json()['edge']['revision']) == ('pulls tickets', 2)
+    assert message(client.put(endpoint, headers=HEADERS, json={'description': 'x', 'revision': 1})) == (
+        409, 'This edge was changed by someone else. Reload and try again.')
+    assert client.put(endpoint, headers=HEADERS, json={'description': 'x', 'revision': 2, 'type': 'uses'}).status_code == 400
+    assert client.delete(endpoint, headers=HEADERS).status_code == 204
+    assert message(client.delete(endpoint, headers=HEADERS)) == (404, 'Edge not found.')
+    assert message(client.put(endpoint, headers=HEADERS, json={'description': 'x', 'revision': 3})) == (404, 'Edge not found.')
+    assert actions(store, 'graph.edge.') == ['graph.edge.created', 'graph.edge.created', 'graph.edge.updated', 'graph.edge.deleted']
+
+
+def test_documents(client, store):
+    made = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'runbook', 'title': 'Runbook', 'markdown': '# Runbook\n'})
+    assert made.status_code == 201, made.text
+    document = made.json()['id']
+    api = make(client, 'admin-api')
+    endpoint = f"/api/graph/nodes/{api['id']}/documents/{document}"
+    assert client.put(endpoint, headers=HEADERS).status_code == 204
+    assert client.put(endpoint, headers=HEADERS).status_code == 204  # idempotent
+    expected = [{'id': document, 'slug': 'runbook', 'title': 'Runbook'}]
+    assert client.get(f"/api/graph/nodes/{api['id']}", headers=HEADERS).json()['node']['documents'] == expected
+    assert client.get('/api/graph/view/software', headers=HEADERS).json()['nodes'][0]['documents'] == expected
+    assert message(client.put(f"/api/graph/nodes/{api['id']}/documents/{uuid4()}", headers=HEADERS)) == (404, 'Document not found.')
+    assert message(client.put(f'/api/graph/nodes/{uuid4()}/documents/{document}', headers=HEADERS)) == (404, 'Node not found.')
+    assert client.delete(endpoint, headers=HEADERS).status_code == 204
+    assert client.delete(endpoint, headers=HEADERS).status_code == 204
+    assert client.get(f"/api/graph/nodes/{api['id']}", headers=HEADERS).json()['node']['documents'] == []
+    assert actions(store, 'graph.document.') == ['graph.document.attached', 'graph.document.detached']
