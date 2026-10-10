@@ -11,6 +11,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
+from knowledge_admin import graph_sync
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import host_path
@@ -130,6 +131,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
                                                      'remove that folder in RAG → Collections first or keep the files.')
             conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repository_id,))
             conn.execute('DELETE FROM ka.code_project_folders WHERE code_project_id=%s', (repository_id,))
+            graph_sync.sync_inventory(conn, project)
         deleted: list[str] = []
         errors: list[str] = []
         if value.delete_files:

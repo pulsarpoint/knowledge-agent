@@ -151,3 +151,19 @@ def test_graph_save_takes_the_project_lock_before_the_node_row(client, store):
     thread.join(10)
     assert not thread.is_alive()
     assert outcome['response'].status_code == 200, outcome['response'].text
+
+
+def test_every_inventory_page_keeps_the_graph(client, store):
+    host = client.post('/api/servers', headers=HEADERS, json={'name': 'h1', 'hostname': 'h1.internal'}).json()
+    renamed = client.put(f"/api/servers/{host['id']}", headers=HEADERS, json={'name': 'h2', 'hostname': 'h1.internal', 'revision': 1})
+    assert renamed.status_code == 200, renamed.text
+    env = client.post('/api/environments', headers=HEADERS, json={'name': 'dev', 'server_ids': [host['id']]}).json()
+    assert {'h2', 'dev'} <= set(nodes(client, 'infrastructure'))
+    assert client.delete(f"/api/environments/{env['id']}?revision=1&confirmed=true", headers=HEADERS).status_code == 200
+    assert client.delete(f"/api/servers/{host['id']}?revision=2&confirmed=true", headers=HEADERS).status_code == 200
+    assert nodes(client, 'infrastructure') == {}
+    repo = store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', '')
+    assert len(nodes(client, 'software')) == 1
+    archived = client.post(f'/api/code-projects/{repo}/archive', headers=HEADERS, json={})
+    assert archived.status_code in (200, 204), archived.text
+    assert nodes(client, 'software') == {}

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from knowledge_admin import graph_sync
 from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
 
@@ -104,6 +105,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     conn.execute("INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)", (project_id, environment_id, server_id))
                 changed_services = previous_services ^ set(value.service_ids)
                 conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (list(changed_services),))
+                graph_sync.sync_inventory(conn, project_id)
                 environment = conn.execute("SELECT * FROM ka.environment_assets WHERE id=%s", (environment_id,)).fetchone()
                 conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                     VALUES (%s,%s,%s,'environment',%s,%s)""",
@@ -142,6 +144,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 (SELECT service_id FROM ka.environment_services WHERE environment_id=%s)''', (environment_id,))
             conn.execute('UPDATE ka.service_deployments SET environment=%s WHERE environment_id=%s', (current['name'],environment_id))
             conn.execute("DELETE FROM ka.environments WHERE id=%s", (environment_id,))
+            graph_sync.sync_inventory(conn, project_id)
             conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'environment.deleted','environment',%s,%s)""", (project_id, actor_id, environment_id, Jsonb(current)))
         return {"id": environment_id}

@@ -7,6 +7,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 
+from knowledge_admin import graph_sync
 from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.services import ServerInput, ServiceInput
@@ -150,6 +151,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         DO UPDATE SET description=EXCLUDED.description''', (project_id,source,target,links[source,target]))
                 changed_related_ids = {other for pair in changed_pairs for other in pair} - {service_id}
                 conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (list(changed_related_ids),))
+                graph_sync.sync_inventory(conn, project_id)
                 conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                     VALUES (%s,%s,%s,'service',%s,%s)""", (project_id, actor_id, action, service_id,
                         Jsonb({"revision": revision, **classification, "repository_ids": [str(i) for i in value.repository_ids], "deployment_count": len(value.deployments),
@@ -195,6 +197,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             conn.execute("DELETE FROM ka.service_deployments WHERE service_id=%s", (service_id,))
             # Agent selections cascade; shared repositories and servers remain in inventory.
             conn.execute("DELETE FROM ka.services WHERE id=%s AND project_id=%s", (service_id, project_id))
+            graph_sync.sync_inventory(conn, project_id)
             conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'service.deleted','service',%s,%s)""", (project_id, actor_id, service_id, Jsonb(service)))
         return {"id": service_id}
@@ -233,6 +236,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                          value.ssh_allowed if "ssh_allowed" in value.model_fields_set else existing["ssh_allowed"],
                          server_id, project_id))
                     action = "server.updated"
+                graph_sync.sync_inventory(conn, project_id)
                 server = conn.execute("SELECT * FROM ka.server_assets WHERE id=%s AND project_id=%s", (server_id, project_id)).fetchone()
                 conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                     VALUES (%s,%s,%s,'server',%s,%s)""", (project_id, actor_id, action, server_id, Jsonb({"revision": server["revision"], "ssh_allowed": server["ssh_allowed"]})))
@@ -274,6 +278,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             conn.execute('''DELETE FROM ka.credentials c WHERE id=ANY(%s) AND kind='ssh_private_key'
                 AND NOT EXISTS (SELECT 1 FROM ka.servers s WHERE s.credential_id=c.id)
                 AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections a WHERE a.credential_id=c.id)''', (credentials,))
+            graph_sync.sync_inventory(conn, project_id)
             conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                 VALUES (%s,%s,'server.deleted','server',%s,%s)""", (project_id, actor_id, server_id, Jsonb(server)))
         return {"id": server_id}
