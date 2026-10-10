@@ -151,3 +151,18 @@ def test_service_assets_lists_connects_to_links_from_both_sides(store):
              'name': 'prod-1', 'description': '', 'attributes': {'port': '5432'}},
             {'id': str(into['id']), 'direction': 'incoming', 'kind': 'connects_to', 'entry_kind': 'service', 'entry_id': str(ids['worker']),
              'name': 'worker', 'description': '', 'attributes': {}}]
+
+
+def test_link_kinds_only_join_the_entries_they_are_for(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        ids = inventory(conn, project)
+        link(conn, project, 'depends_on', ('service', ids['api']), ('service', ids['worker']))
+        link(conn, project, 'built_from', ('service', ids['api']), ('code_project', ids['repo']))
+        link(conn, project, 'connects_to', ('server', ids['prod-1']), ('environment', ids['production']))
+    for kind, start, end in [('depends_on', ('server', ids['prod-1']), ('environment', ids['production'])),
+                             ('depends_on', ('service', ids['api']), ('code_project', ids['repo'])),
+                             ('built_from', ('service', ids['api']), ('server', ids['prod-1'])),
+                             ('built_from', ('code_project', ids['repo']), ('service', ids['api']))]:
+        with pytest.raises(psycopg.errors.CheckViolation, match='inventory_links_kind_ends'), store.connect() as conn:
+            link(conn, project, kind, start, end)

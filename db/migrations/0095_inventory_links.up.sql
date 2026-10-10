@@ -36,6 +36,9 @@ CREATE TABLE inventory_links (
     CONSTRAINT inventory_links_one_to CHECK (num_nonnulls(to_service_id, to_server_id, to_environment_id, to_code_project_id) = 1),
     CONSTRAINT inventory_links_not_self CHECK (COALESCE(from_service_id, from_server_id, from_environment_id, from_code_project_id)
         <> COALESCE(to_service_id, to_server_id, to_environment_id, to_code_project_id)),
+    CONSTRAINT inventory_links_kind_ends CHECK (kind = 'connects_to'
+        OR (kind = 'depends_on' AND from_service_id IS NOT NULL AND to_service_id IS NOT NULL)
+        OR (kind = 'built_from' AND from_service_id IS NOT NULL AND to_code_project_id IS NOT NULL)),
     FOREIGN KEY (from_service_id, project_id) REFERENCES services(id, project_id) ON DELETE CASCADE,
     FOREIGN KEY (from_server_id, project_id) REFERENCES servers(id, project_id) ON DELETE CASCADE,
     FOREIGN KEY (from_environment_id, project_id) REFERENCES environments(id, project_id) ON DELETE CASCADE,
