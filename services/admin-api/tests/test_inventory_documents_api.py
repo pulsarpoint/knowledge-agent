@@ -53,11 +53,33 @@ def test_unknown_entries_and_documents_are_refused(client):
     assert client.get('/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service'}).status_code == 400
 
 
+def count(store) -> int:
+    with store.connect() as conn:
+        return conn.execute('SELECT count(*) AS n FROM ka.inventory_documents').fetchone()['n']
+
+
 def test_deleting_the_entry_or_the_document_removes_the_attachment(client, store):
     environment = client.post('/api/environments', headers=HEADERS, json={'name': 'production'}).json()
     runbook = document(client)
-    client.post('/api/inventory/documents', headers=HEADERS, json={'entry': {'kind': 'environment', 'id': environment['id']}, 'document_id': runbook})
+    attached = client.post('/api/inventory/documents', headers=HEADERS,
+                           json={'entry': {'kind': 'environment', 'id': environment['id']}, 'document_id': runbook})
+    assert attached.status_code == 201, attached.text
+    assert count(store) == 1
     assert client.delete(f"/api/environments/{environment['id']}", headers=HEADERS,
                          params={'revision': environment['revision'], 'confirmed': True}).status_code == 200
-    with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.inventory_documents').fetchone()['n'] == 0
+    assert count(store) == 0
+    assert client.get(f'/api/documentation/documents/{runbook}', headers=HEADERS).status_code == 200  # the document stays
+
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'api'}).json()['id']
+    notes = document(client, 'notes', 'Notes')
+    entry = {'kind': 'service', 'id': service}
+    assert client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': notes}).status_code == 201
+    params = {'entry_kind': 'service', 'entry_id': service}
+    assert [row['document_id'] for row in client.get('/api/inventory/documents', headers=HEADERS, params=params).json()['documents']] == [notes]
+    revision = client.get(f'/api/documentation/documents/{notes}', headers=HEADERS).json()['revision']
+    assert client.delete(f'/api/documentation/documents/{notes}', headers=HEADERS,
+                         params={'revision': revision, 'confirmed': True}).status_code == 200
+    assert client.get('/api/inventory/documents', headers=HEADERS, params=params).json()['documents'] == []
+    assert count(store) == 0
+    with store.connect() as conn:  # the entry stays
+        assert conn.execute('SELECT count(*) AS n FROM ka.services WHERE id=%s', (service,)).fetchone()['n'] == 1
