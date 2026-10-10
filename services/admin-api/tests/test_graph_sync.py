@@ -1,5 +1,5 @@
 """graph_sync: inventory rows keep linked graph nodes and synced edges, written by one reconcile in the caller's transaction."""
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from knowledge_admin.graph_sync import SyncResult, sync_all, sync_inventory
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
@@ -277,3 +277,57 @@ def test_sync_all_fills_each_app_and_survives_failures(store, caplog):
     broken = RepositoryStore('host=127.0.0.1 port=1 dbname=none connect_timeout=1', b'k' * 32, 'http://identity.test/realms/docs')
     sync_all(broken, ['shop'])  # must not raise
     assert 'Graph inventory sync failed' in caplog.text
+
+
+def test_a_kept_node_keeps_its_name_for_siblings(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        api, host = service(conn, project), server(conn, project)
+        first = deployment(conn, project, api['id'], host['id'])
+        sync(conn, project)
+        kept = node(conn, 'deployment_id', first['id'])
+        conn.execute("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,parent_id) VALUES (%s,'infrastructure','disk','d',%s)",
+                     (project, kept['id']))
+        conn.execute('DELETE FROM ka.service_deployments WHERE id=%s', (first['id'],))
+        second = deployment(conn, project, api['id'], host['id'])
+        sync(conn, project)
+        assert node(conn, 'deployment_id', second['id'])['name'] == 'admin-api · production (2)'
+        left = conn.execute('SELECT * FROM ka.kg_nodes WHERE id=%s', (kept['id'],)).fetchone()
+        assert left['name'] == 'admin-api · production' and left['deployment_id'] is None
+        assert 'Removed from Services (deployment) on ' in left['description']
+
+
+def test_renames_that_swap_names_settle_in_one_sync(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        api, host = service(conn, project), server(conn, project)
+        a, b = (conn.execute("""INSERT INTO ka.service_deployments(id,project_id,service_id,server_id,environment,runtime_name)
+            VALUES (%s,%s,%s,%s,'production',%s) RETURNING *""", (i, project, api['id'], host['id'], name)).fetchone()
+                for i, name in ((UUID(int=1), 'blue'), (UUID(int=2), 'green')))
+        sync(conn, project)
+        conn.execute("UPDATE ka.service_deployments SET runtime_name='green' WHERE id=%s", (a['id'],))
+        conn.execute("UPDATE ka.service_deployments SET runtime_name='blue' WHERE id=%s", (b['id'],))
+        sync(conn, project)
+        assert node(conn, 'deployment_id', a['id'])['name'] == 'green · production'
+        assert node(conn, 'deployment_id', b['id'])['name'] == 'blue · production'
+        assert sync(conn, project) == SyncResult()
+
+
+def test_start_up_sync_retries_once_after_a_deadlock(store, caplog, monkeypatch):
+    import psycopg
+    from knowledge_admin import graph_sync
+    with store.connect() as conn:
+        server(conn, store.project(conn, 'shop'))
+    real, calls = graph_sync.sync_inventory, []
+
+    def flaky(conn, project):
+        calls.append(1)
+        if len(calls) == 1:
+            raise psycopg.errors.DeadlockDetected()
+        return real(conn, project)
+
+    monkeypatch.setattr(graph_sync, 'sync_inventory', flaky)
+    sync_all(store, ['shop'])
+    assert len(calls) == 2 and 'failed' not in caplog.text
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.kg_nodes').fetchone()['n'] == 1

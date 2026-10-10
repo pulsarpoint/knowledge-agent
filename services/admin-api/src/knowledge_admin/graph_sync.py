@@ -3,10 +3,13 @@ graph nodes; service dependencies, service code projects, environment members an
 sync_inventory works out the whole wanted picture from the inventory and writes only the difference, inside the
 caller's transaction, so the inventory and the graph never disagree and anything changed behind its back is repaired."""
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+import psycopg
 
 if TYPE_CHECKING:  # repositories calls the sync, so it cannot be imported here at run time
     from knowledge_admin.repositories import RepositoryStore
@@ -95,9 +98,22 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
     gone = sorted((key for key in stored if key not in want), key=lambda key: key[0] != 'deployment_id')
     for key in gone:
         node = stored.pop(key)
-        release(conn, node, key[0])
-        taken.get((node['layer'], node['parent_id']), set()).discard(node['name'].lower())
+        if release(conn, node, key[0]):  # a kept node keeps its name and place, so its name stays taken
+            taken.get((node['layer'], node['parent_id']), set()).discard(node['name'].lower())
         result.released += 1
+
+    # Nodes that are certainly renamed or moved give up their names first: the names are free before any is assigned,
+    # and a parked name (the node's id) lets swaps pass the unique sibling-name rule. One sync then settles rename
+    # chains and swaps, and a second sync has nothing left to do. A suffixed name ("X (2)" for X) is not a rename.
+    for key, node in stored.items():
+        row = want[key]
+        base = row['name'].strip()[:MAX_NAME]
+        parent_id = stored[row['parent']]['id'] if row['parent'] in stored else None
+        suffixed = node['name'] == base or re.fullmatch(re.escape(base[:MAX_NAME - 12]) + r'.* \(\d+\)', node['name']) is not None
+        if parent_id != node['parent_id'] or not suffixed:
+            taken.get((node['layer'], node['parent_id']), set()).discard(node['name'].lower())
+            node['name'] = conn.execute('UPDATE ka.kg_nodes SET name=%s WHERE id=%s RETURNING name',
+                                        (str(node['id']), node['id'])).fetchone()['name']
 
     # 2. Create and update, parents before children.
     for link in SOURCES:
@@ -148,25 +164,33 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
     return result
 
 
-def release(conn, node: dict, link: str) -> None:
+def release(conn, node: dict, link: str) -> bool:
     """The node's row is gone: its synced edges go; the node goes too unless something hand-made hangs off it."""
     conn.execute('DELETE FROM ka.kg_edges WHERE synced AND (from_id=%s OR to_id=%s)', (node['id'], node['id']))
     kept = conn.execute("""SELECT EXISTS (SELECT 1 FROM ka.kg_nodes WHERE parent_id=%s)
         OR EXISTS (SELECT 1 FROM ka.kg_node_documents WHERE node_id=%s) AS kept""", (node['id'], node['id'])).fetchone()['kept']
     if not kept:
         conn.execute('DELETE FROM ka.kg_nodes WHERE id=%s', (node['id'],))
-        return
+        return True
     note = f'Removed from {SOURCES[link][2]} on {date.today():%Y-%m-%d}.'
     description = (node['description'] + '\n' if node['description'] else '') + note
     conn.execute(f'UPDATE ka.kg_nodes SET {link}=NULL,description=%s,revision=revision+1 WHERE id=%s',
                  (description[-MAX_DESCRIPTION:], node['id']))
+    return False
 
 
 def sync_all(store: 'RepositoryStore', apps: list[str]) -> None:
     """Start-up: bring every app's graph in step with its inventory; a failure is logged and never stops the service."""
     for app in apps:
         try:
-            with store.connect() as conn:
-                sync_inventory(conn, store.project(conn, app))
+            try:
+                with store.connect() as conn:
+                    sync_inventory(conn, store.project(conn, app))
+            except (psycopg.errors.DeadlockDetected, psycopg.errors.SerializationFailure):
+                # The first sync creates nodes for rows that already exist; at commit their deferred foreign keys take
+                # key-share locks on those rows while the graph lock is held, so a concurrent inventory save holding
+                # the row and waiting for the graph lock can deadlock with it. Once the graph is filled this cannot recur.
+                with store.connect() as conn:
+                    sync_inventory(conn, store.project(conn, app))
         except Exception:  # noqa: BLE001 - a start-up convenience must never take the service down
             logger.exception('Graph inventory sync failed for %s', app)
