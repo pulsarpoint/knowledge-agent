@@ -26,7 +26,7 @@ SOURCES = {
     'deployment_id': ('infrastructure', 'instance', 'Services (deployment)'),
 }
 LINKS = ','.join(SOURCES)
-MAX_NAME, MAX_DESCRIPTION = 160, 4000
+MAX_NAME, MAX_DESCRIPTION, MAX_LEVELS = 160, 4000, 12
 
 # (link column, row id); a server copy's id is (server id, environment id or None).
 Key = tuple[str, object]
@@ -143,8 +143,15 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
         if not options:
             continue
         target = options[0]
-        missing[key[1][0]].remove(target)
         old = stored.pop(key)
+        if target[1][1] and subtree_height(conn, old['id']) + 1 > MAX_LEVELS:
+            # Under an environment the copy sits one level lower and its subtree would pass the depth limit: keep the
+            # old copy unlinked with its nodes and let step 2 make a fresh one.
+            park_wanted_children(conn, old, stored, taken)
+            release(conn, old, key, 'Environments')
+            result.released += 1
+            continue
+        missing[key[1][0]].remove(target)
         parent = stored.get(('environment_id', target[1][1])) if target[1][1] else None
         taken.get((old['layer'], old['parent_id']), set()).discard(old['name'].lower())
         # Re-parented now (to nothing if the environment has no node yet), so a deleted old environment is not kept by it.
@@ -160,6 +167,7 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
     wanted_servers = {key[1][0] for key in want if key[0] == 'server_id'}
     for key in gone:
         node = stored.pop(key)
+        park_wanted_children(conn, node, stored, taken)
         label = 'Environments' if key[0] == 'server_id' and key[1][0] in wanted_servers else SOURCES[key[0]][2]
         if release(conn, node, key, label):  # a kept node keeps its name and place, so its name stays taken
             taken.get((node['layer'], node['parent_id']), set()).discard(node['name'].lower())
@@ -226,6 +234,25 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
         conn.execute('DELETE FROM ka.kg_edges WHERE id=ANY(%s)', (stale,))
         result.edges_removed += len(stale)
     return result
+
+
+def subtree_height(conn, node_id: UUID) -> int:
+    """Levels in the subtree under a node, the node itself counted as one."""
+    return conn.execute("""WITH RECURSIVE down(id, level) AS (SELECT %s::uuid, 1
+        UNION ALL SELECT n.id, down.level + 1 FROM ka.kg_nodes n JOIN down ON n.parent_id = down.id)
+        SELECT max(level) AS height FROM down""", (node_id,)).fetchone()['height']
+
+
+def park_wanted_children(conn, node: dict, stored: dict[Key, dict], taken: dict) -> None:
+    """Before a node is released, its children that the inventory still wants leave it (name parked as the node's id,
+    no parent; step 2 places them), so only hand-made children decide whether the released node is kept."""
+    for child in stored.values():
+        if child['parent_id'] != node['id']:
+            continue
+        taken.get((child['layer'], node['id']), set()).discard(child['name'].lower())
+        child['name'] = conn.execute('UPDATE ka.kg_nodes SET parent_id=NULL,name=%s,revision=revision+1 WHERE id=%s RETURNING name',
+                                     (str(child['id']), child['id'])).fetchone()['name']
+        child['parent_id'] = None
 
 
 def release(conn, node: dict, key: Key, label: str) -> bool:

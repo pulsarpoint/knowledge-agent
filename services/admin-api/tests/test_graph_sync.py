@@ -495,3 +495,67 @@ def test_a_moved_server_copy_gets_a_free_name_when_its_environment_is_deleted(st
         assert (moved['id'], moved['name'], moved['parent_id']) == (before, 'staging (2)', None)
         assert node(conn, 'environment_id', clash['id'])['name'] == 'staging'
         assert sync(conn, project) == SyncResult()
+
+
+def shells(conn):
+    """Infrastructure nodes that are not linked to anything and hold nothing: empty leftovers."""
+    return [row['name'] for row in conn.execute("""SELECT name FROM ka.kg_nodes n WHERE layer='infrastructure'
+        AND server_id IS NULL AND environment_id IS NULL AND deployment_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM ka.kg_nodes c WHERE c.parent_id=n.id)""")]
+
+
+def deployment_in(conn, project, service_id, server_id, environment_id, label, runtime_name=''):
+    return conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,environment_id,runtime_name)
+        VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (project, service_id, server_id, label, environment_id, runtime_name)).fetchone()
+
+
+def test_a_released_server_copy_whose_deployment_moves_away_leaves_no_empty_node(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        e1, e2 = environment(conn, project, 'e1'), environment(conn, project, 'e2')
+        api, host = service(conn, project), server(conn, project, 's')
+        member(conn, project, e2['id'], host['id'])
+        made = deployment_in(conn, project, api['id'], host['id'], e1['id'], 'e1')
+        sync(conn, project)
+        conn.execute("UPDATE ka.service_deployments SET environment_id=%s,environment='e2' WHERE id=%s", (e2['id'], made['id']))
+        sync(conn, project)
+        assert shells(conn) == []
+        assert copy(conn, host['id'], e1['id']) is None
+        assert node(conn, 'deployment_id', made['id'])['parent_id'] == copy(conn, host['id'], e2['id'])['id']
+        assert sync(conn, project) == SyncResult()
+
+
+def test_deleting_an_environment_does_not_leave_two_empty_nodes_kept_by_each_other(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        e1 = environment(conn, project, 'e1')
+        api, host = service(conn, project), server(conn, project, 's')
+        deployment_in(conn, project, api['id'], host['id'], e1['id'], 'e1')
+        deployment_in(conn, project, api['id'], host['id'], None, 'legacy', 'r2')
+        sync(conn, project)
+        conn.execute('DELETE FROM ka.environments WHERE id=%s', (e1['id'],))
+        sync(conn, project)
+        assert shells(conn) == []
+        assert conn.execute("SELECT count(*) AS n FROM ka.kg_nodes WHERE server_id=%s", (host['id'],)).fetchone()['n'] == 1
+        assert sync(conn, project) == SyncResult()
+
+
+def test_a_server_copy_too_deep_to_move_stays_unlinked_and_a_new_copy_is_made(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        e1, host = environment(conn, project, 'e1'), server(conn, project, 's')
+        sync(conn, project)
+        old = copy(conn, host['id'], None)['id']
+        parent = old
+        for i in range(11):
+            parent = conn.execute("""INSERT INTO ka.kg_nodes(project_id,layer,kind,name,parent_id)
+                VALUES (%s,'infrastructure','x',%s,%s) RETURNING id""", (project, f'n{i}', parent)).fetchone()['id']
+        member(conn, project, e1['id'], host['id'])
+        sync(conn, project)
+        kept = conn.execute('SELECT * FROM ka.kg_nodes WHERE id=%s', (old,)).fetchone()
+        assert (kept['parent_id'], kept['server_id'], kept['environment_id']) == (None, None, None)
+        assert 'Removed from Environments' in kept['description']
+        assert conn.execute('SELECT count(*) AS n FROM ka.kg_nodes WHERE parent_id=%s', (old,)).fetchone()['n'] == 1
+        fresh = copy(conn, host['id'], e1['id'])
+        assert fresh['id'] != old and fresh['parent_id'] == node(conn, 'environment_id', e1['id'])['id']
+        assert sync(conn, project) == SyncResult()

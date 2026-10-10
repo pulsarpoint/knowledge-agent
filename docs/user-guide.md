@@ -787,7 +787,10 @@ every node is itself a graph of the nodes inside it.
 - **From the inventory.** Every server, service (with its deployments), environment and code project has a node, kept in
   step automatically. Infrastructure is a tree: each environment holds its servers and each server holds its
   deployments (`<runtime or service> · <environment>`); a server in several environments appears under each of them, and
-  a server in no environment (or with deployments without one) sits at the top level. An environment *includes* its
+  a server in no environment (or with deployments without one) sits at the top level. Each environment's server node is separate:
+  notes, documents and nodes you add under it stay with that environment; removing a server from an environment removes
+  that environment's server node (kept with a note if you added something to it); after the upgrade, an existing server
+  node moves under the server's first environment by name. An environment *includes* its
   services (in the Software view), a service *depends on* the services it uses and *uses* its code projects. Such
   nodes say **From Servers** (or Services, Environments, Code projects) with a link to that page; their name, kind and
   place follow the inventory, and their synced edges are read-only. Archiving a code project counts as deleting it. You
