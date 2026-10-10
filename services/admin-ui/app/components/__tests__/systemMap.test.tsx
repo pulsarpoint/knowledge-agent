@@ -5,16 +5,15 @@ import SystemMapView from "../SystemMapView";
 
 vi.mock("../Mermaid", () => ({ default: ({ chart }: { chart: string }) => <pre data-testid="mermaid">{chart}</pre> }));
 
-const node = (id: string, name: string, extra = {}) => ({ id, parent_id: null, layer: "software", kind: "service", name, description: "",
-  child_count: 0, expandable: false, internal_edges: 0, documents: [], source_kind: null, ...extra });
-const top = { layer: "software", depth: 1, root: null, breadcrumb: [],
-  nodes: [node("api", "admin-api", { child_count: 2, expandable: true }), node("worker", "repository-worker")], boundary: [],
-  edges: [{ from: "api", to: "worker", type: "calls", count: 2, edge_ids: ["e1", "e2"], synced: false }] };
-const inside = { layer: "software", depth: 1, root: { id: "api", name: "admin-api", kind: "service", description: "" },
-  breadcrumb: [{ id: "api", name: "admin-api", kind: "service" }], nodes: [node("events", "Event processor", { kind: "module" })],
-  boundary: [{ id: "prod", name: "prod-1", kind: "server", layer: "infrastructure", source_kind: null }],
-  edges: [{ from: "prod", to: "events", type: "instance_of", count: 1, edge_ids: ["e3"], synced: false }] };
-const empty = { layer: "data", depth: 1, root: null, breadcrumb: [], nodes: [], boundary: [], edges: [] };
+const node = (id: string, name: string, kind: string, extra = {}) => ({ id, parent_id: null, kind, name, description: "", entry_kind: kind,
+  entry_id: `${kind}-id`, child_count: 0, expandable: false, internal_edges: 0, documents: [], ...extra });
+const top = { view: "infrastructure", depth: 1, root: null, breadcrumb: [], boundary: [], edges: [],
+  nodes: [node("environment:p", "production", "environment", { child_count: 1, expandable: true }), node("server:top:s", "spare", "server")] };
+const inside = { view: "infrastructure", depth: 1, root: { id: "environment:p", name: "production", kind: "environment", description: "", entry_kind: "environment", entry_id: "p" },
+  breadcrumb: [{ id: "environment:p", name: "production", kind: "environment" }], nodes: [node("server:p:s1", "prod-1", "server")],
+  boundary: [{ id: "server:top:s", name: "spare", kind: "server", entry_kind: "server", entry_id: "s" }],
+  edges: [{ from: "server:p:s1", to: "server:top:s", type: "connects_to", count: 2, link_ids: ["l1", "l2"] }] };
+const services = { view: "services", depth: 1, root: null, breadcrumb: [], boundary: [], edges: [], nodes: [] };
 
 type Page = { status?: number; json?: unknown; text?: string; error?: string };
 function api(pages: Record<string, Page>) {
@@ -27,124 +26,52 @@ function api(pages: Record<string, Page>) {
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
-const urls = (fetch: ReturnType<typeof api>) => fetch.mock.calls.map(call => call[0]);
 function Where() { return <output data-testid="where">{useLocation().search}</output>; }
 const view = (entry = "/system-map") => render(<MemoryRouter initialEntries={[entry]}>
   <Routes><Route path="/system-map" element={<><SystemMapView /><Where /></>} /></Routes></MemoryRouter>);
 const where = () => screen.getByTestId("where").textContent;
-const TOP = "/api/graph/view/software?depth=1&format=json";
-const TOP_SVG = "/api/graph/view/software?depth=1&format=svg&layout=tala";
-const API = "/api/graph/view/software?root=api&depth=1&format=json";
-const API_SVG = "/api/graph/view/software?root=api&depth=1&format=svg&layout=tala";
+const TOP = "/api/map/view/infrastructure?depth=1&format=json";
+const TOP_SVG = "/api/map/view/infrastructure?depth=1&format=svg&layout=tala";
+const PROD = "/api/map/view/infrastructure?root=environment%3Ap&depth=1&format=json";
+const PROD_SVG = "/api/map/view/infrastructure?root=environment%3Ap&depth=1&format=svg&layout=tala";
 afterEach(() => vi.unstubAllGlobals());
 
-test("shows the top of a layer as a diagram with Inside and Outside lists", async () => {
-  api({ [TOP]: { json: top }, [TOP_SVG]: { text: "<svg><text>admin-api</text></svg>" } });
+test("shows the infrastructure map with Inside and Outside lists", async () => {
+  api({ [TOP]: { json: top }, [TOP_SVG]: { text: "<svg/>" } });
   view();
-  expect(screen.getByRole("tab", { name: "Software" })).toHaveAttribute("aria-selected", "true");
-  const diagram = await screen.findByRole("img", { name: "Software map" });
-  expect(diagram.getAttribute("src")).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent("<svg><text>admin-api</text></svg>")}`);
-  const insideList = within(screen.getByRole("region", { name: "Inside" }));
-  expect(insideList.getByRole("button", { name: "admin-api" })).toBeInTheDocument();
-  expect(insideList.getByText("service · +2 inside")).toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Outside" })).getByText("Nothing outside.")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Infrastructure" })).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByRole("img", { name: "Infrastructure map" })).toBeInTheDocument();
+  const list = within(screen.getByRole("region", { name: "Inside" }));
+  expect(list.getByRole("button", { name: "production" })).toBeInTheDocument();
+  expect(list.getByText("environment · +1 inside")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /New node/ })).toBeNull();
 });
 
-test("opens a node, shows what is outside it, and goes back with the breadcrumb", async () => {
+test("opens an environment, lists what its links reach outside, and goes back with the breadcrumb", async () => {
   const user = userEvent.setup();
-  const fetch = api({ [TOP]: { json: top }, [TOP_SVG]: { text: "<svg/>" }, [API]: { json: inside }, [API_SVG]: { text: "<svg/>" } });
+  api({ [TOP]: { json: top }, [TOP_SVG]: { text: "<svg/>" }, [PROD]: { json: inside }, [PROD_SVG]: { text: "<svg/>" } });
   view();
-  await user.click(await screen.findByRole("button", { name: "Open admin-api" }));
-  await waitFor(() => expect(where()).toBe("?layer=software&root=api"));
-  expect(urls(fetch)).toContain(API);
-  const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(await breadcrumb.findByRole("button", { name: "admin-api" })).toBeInTheDocument();
-  const outside = within(screen.getByRole("region", { name: "Outside" }));
-  expect(outside.getByRole("button", { name: "prod-1" })).toBeInTheDocument();
-  expect(outside.getByText("Infrastructure · 1 edge")).toBeInTheDocument();
-  await user.click(breadcrumb.getByRole("button", { name: "Software" }));
-  await waitFor(() => expect(where()).toBe("?layer=software"));
+  await user.click(await screen.findByRole("button", { name: "Open production" }));
+  await waitFor(() => expect(where()).toBe("?map=infrastructure&root=environment%3Ap"));
+  const outside = within(await screen.findByRole("region", { name: "Outside" }));
+  expect(await outside.findByText("server · 2 links")).toBeInTheDocument();
+  await user.click(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Infrastructure" }));
+  await waitFor(() => expect(where()).toBe("?map=infrastructure"));
 });
 
-test("an outside node opens in its own layer", async () => {
+test("switches to the services map and explains an empty map", async () => {
   const user = userEvent.setup();
-  api({ [API]: { json: inside }, [API_SVG]: { text: "<svg/>" },
-    "/api/graph/view/infrastructure?root=prod&depth=1&format=json": { json: { ...empty, layer: "infrastructure" } },
-    "/api/graph/view/infrastructure?root=prod&depth=1&format=svg&layout=tala": { text: "<svg/>" } });
-  view("/system-map?layer=software&root=api");
-  await user.click(await screen.findByRole("button", { name: "Open prod-1" }));
-  await waitFor(() => expect(where()).toBe("?layer=infrastructure&root=prod"));
-});
-
-test("keeps layer, root, depth and view in the URL", async () => {
-  const user = userEvent.setup();
-  const fetch = api({
-    "/api/graph/view/infrastructure?root=prod&depth=2&format=json": { json: { ...inside, layer: "infrastructure", boundary: [], edges: [] } },
-    "/api/graph/view/infrastructure?root=prod&depth=2&format=d2": { text: 'n1: "admin-api @ prod-1" {shape: rectangle}\n' },
-    "/api/graph/view/business?depth=2&format=json": { json: { ...empty, layer: "business" } },
-    "/api/graph/view/business?depth=2&format=d2": { text: "" } });
-  view("/system-map?layer=infrastructure&root=prod&depth=2&view=d2");
-  expect(await screen.findByText('n1: "admin-api @ prod-1" {shape: rectangle}')).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "D2" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.queryByLabelText("Layout")).toBeNull();  // layouts only apply to the diagram
-  await user.click(screen.getByRole("tab", { name: "Business" }));
-  await waitFor(() => expect(where()).toBe("?layer=business&depth=2&view=d2"));
-  expect(urls(fetch)).toContain("/api/graph/view/business?depth=2&format=json");
-});
-
-test("shows the diagram error but keeps the lists and the other views", async () => {
-  const user = userEvent.setup();
-  api({ [TOP]: { json: top }, [TOP_SVG]: { status: 503, error: "d2 is not installed." },
-    "/api/graph/view/software?depth=1&format=mermaid": { text: "flowchart LR\n" } });
+  api({ [TOP]: { json: top }, [TOP_SVG]: { text: "<svg/>" }, ["/api/map/view/services?depth=1&format=json"]: { json: services } });
   view();
-  expect(await screen.findByText("d2 is not installed.")).toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Inside" })).getByRole("button", { name: "admin-api" })).toBeInTheDocument();
-  await user.click(screen.getByRole("tab", { name: "Mermaid" }));
-  expect((await screen.findByTestId("mermaid")).textContent).toBe("flowchart LR\n");
+  await user.click(await screen.findByRole("tab", { name: "Services" }));
+  await waitFor(() => expect(where()).toBe("?map=services"));
+  expect(await screen.findByText(/Nothing here yet/)).toBeInTheDocument();
 });
 
-test("shows an error when the root is gone", async () => {
-  const user = userEvent.setup();
-  api({ "/api/graph/view/software?root=gone&depth=1&format=json": { status: 404, error: "Node not found." },
-    "/api/graph/view/software?root=gone&depth=1&format=svg&layout=tala": { status: 404, error: "Node not found." },
-    [TOP]: { json: top }, [TOP_SVG]: { text: "<svg/>" } });
-  view("/system-map?layer=software&root=gone");
-  expect((await screen.findAllByText("Node not found.")).length).toBeGreaterThan(0);  // the diagram may say it too, briefly
-  await user.click(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Software" }));
-  expect(await screen.findByRole("img", { name: "Software map" })).toBeInTheDocument();
-});
-
-test("the JSON view shows the view with Copy, and an empty layer offers New node", async () => {
-  api({ "/api/graph/view/data?depth=1&format=json": { json: empty } });
-  view("/system-map?layer=data&view=json");
-  expect(await screen.findByText("Nothing here yet. Add a node to start.")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "New node" }).length).toBeGreaterThan(0);
-});
-
-test("New node opens the sheet in the current layer and root", async () => {
-  const user = userEvent.setup();
-  api({ [API]: { json: inside }, [API_SVG]: { text: "<svg/>" } });
-  view("/system-map?layer=software&root=api");
-  await screen.findByRole("button", { name: "Open Event processor" });
-  await user.click(screen.getAllByRole("button", { name: "New node" })[0]);
-  expect(await screen.findByText("In the Software layer, inside admin-api.")).toBeInTheDocument();
-});
-
-test("an outside node's name opens its sheet", async () => {
-  const user = userEvent.setup();
-  const fetch = api({ [API]: { json: inside }, [API_SVG]: { text: "<svg/>" }, "/api/graph/nodes/prod": { error: "Node not found.", status: 404 } });
-  view("/system-map?layer=software&root=api");
-  await user.click(await screen.findByRole("button", { name: "prod-1" }));
-  await waitFor(() => expect(urls(fetch)).toContain("/api/graph/nodes/prod"));
-  expect(where()).toBe("?layer=software&root=api");
-});
-
-test("synced nodes say where they come from", async () => {
-  api({ [TOP]: { json: { ...top, nodes: [node("api", "admin-api", { source_kind: "service" }), node("worker", "repository-worker")] } },
-    [TOP_SVG]: { text: "<svg/>" } });
-  view();
-  const inside = within(await screen.findByRole("region", { name: "Inside" }));
-  expect(await inside.findByText("service · from Services")).toBeInTheDocument();
-  expect(inside.getByText("service")).toBeInTheDocument();
+test("a root that no longer exists shows the error and the breadcrumb still leads back", async () => {
+  api({ ["/api/map/view/infrastructure?root=server%3Ax%3Ay&depth=1&format=json"]: { status: 404, error: "Node not found." },
+        ["/api/map/view/infrastructure?root=server%3Ax%3Ay&depth=1&format=svg&layout=tala"]: { status: 404, error: "Node not found." } });
+  view("/system-map?map=infrastructure&root=server:x:y");
+  expect(await screen.findByText("Node not found.")).toBeInTheDocument();
+  expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Infrastructure" })).toBeInTheDocument();
 });
