@@ -38,7 +38,8 @@ def create_app(cfg: Config, *, server: ServerConfig,
     @asynccontextmanager
     async def lifespan(app):
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
-        # to_thread cannot be interrupted: shutdown waits for a running start-up sync (one short transaction per app).
+        # to_thread cannot be interrupted: cancelling returns at once, and a sync still running finishes in its worker thread
+        # (one short transaction per app) before the interpreter exits.
         graph = (asyncio.create_task(asyncio.to_thread(graph_sync.sync_all, repository_store, [a.name for a in cfg.apps]))
                  if repository_store is not None else None)
         hub = None

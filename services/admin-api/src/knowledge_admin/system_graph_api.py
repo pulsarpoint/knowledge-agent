@@ -157,9 +157,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(409, CONCURRENT) from None
 
     def lock_project(conn, project: UUID) -> None:
-        # The inventory triggers take this advisory lock before they touch graph rows. A graph write that locked its row
-        # first and then fired kg_nodes_place would wait on the lock while an inventory save, holding it, waited for the
-        # row: a deadlock. Everyone takes the advisory lock first, then rows.
+        # The inventory sync (graph_sync) takes this advisory lock before it touches graph rows. A graph write that locked
+        # its row first and then fired kg_nodes_place would wait on the lock while an inventory save, holding it, waited
+        # for the row: a deadlock. Everyone takes the advisory lock first, then rows, then the version row.
         conn.execute(LOCK_PROJECT, (project,))
 
     def node_row(conn, project: UUID, node_id: UUID, lock: bool = False) -> dict:
@@ -256,6 +256,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             check_parent(conn, project, value.layer, fields['parent_id'])
             actor = db.actor(conn, *request_actor(request))
             with refused(conn, duplicate_name(fields['name']), (404, NO_PARENT)):  # the parent was deleted meanwhile
@@ -335,6 +336,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             for node_id in (value.from_id, value.to_id):
                 node_row(conn, project, node_id)
             actor = db.actor(conn, *request_actor(request))
@@ -380,6 +382,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             node_row(conn, project, node_id)
             if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone() is None:
                 raise HTTPException(404, NO_DOCUMENT)
@@ -395,6 +398,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             node_row(conn, project, node_id)
             removed = conn.execute('DELETE FROM ka.kg_node_documents WHERE node_id=%s AND document_id=%s RETURNING node_id',
                                    (node_id, document_id)).fetchone()

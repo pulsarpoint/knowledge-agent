@@ -56,7 +56,12 @@ def test_a_delete_without_a_sync_fails_at_commit(store):
         conn.execute('UPDATE ka.kg_nodes SET server_id=NULL WHERE server_id=%s', (host['id'],))
 
 
-def test_every_graph_statement_bumps_the_version_and_notifies(store):
+def test_every_graph_statement_bumps_the_version_and_notifies(store, tmp_path):
+    from test_api import _client
+    from test_repositories import HEADERS
+    created = _client(tmp_path, repository_store=store).post(
+        '/api/documentation/documents', headers=HEADERS, json={'slug': 'runbook', 'title': 'Runbook', 'markdown': '# Runbook\n'})
+    document = created.json()['id']
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         start = version(conn)
@@ -67,15 +72,20 @@ def test_every_graph_statement_bumps_the_version_and_notifies(store):
                      (project, node[0]['id'], node[1]['id']))
         conn.execute("UPDATE ka.kg_nodes SET description='x' WHERE id=%s", (node[0]['id'],))
         assert version(conn) == start + 3
-        conn.execute('UPDATE ka.documents SET slug=slug WHERE project_id=%s', (project,))  # a statement trigger: fires even for no rows
-        assert version(conn) == start + 4  # editing a document moves the titles the graph shows
+        conn.execute('UPDATE ka.documents SET slug=%s WHERE id=%s', ('notes', document))
+        assert version(conn) == start + 3  # editing a document no node uses leaves the graph alone
+        conn.execute('INSERT INTO ka.kg_node_documents(project_id,node_id,document_id) VALUES (%s,%s,%s)',
+                     (project, node[0]['id'], document))
+        assert version(conn) == start + 4
+        conn.execute('UPDATE ka.documents SET slug=%s WHERE id=%s', ('runbook', document))
+        assert version(conn) == start + 5  # editing an attached document moves the titles the graph shows
     listener = psycopg.connect(store.conninfo, autocommit=True)
     try:
         listener.execute('LISTEN ka_graph')
         with store.connect() as conn:
             conn.execute("UPDATE ka.kg_nodes SET description='y' WHERE id=%s", (node[0]['id'],))
         notice = next(listener.notifies(timeout=5))
-        assert (notice.channel, int(notice.payload)) == ('ka_graph', start + 5)
+        assert (notice.channel, int(notice.payload)) == ('ka_graph', start + 6)
     finally:
         listener.close()
 

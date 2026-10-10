@@ -39,6 +39,14 @@ class SyncResult:
     edges_removed: int = 0
 
 
+GRAPH_CLASH = 'The system graph already has a node with this name. Rename the other node or try again.'
+
+
+def graph_clash(exc: psycopg.errors.UniqueViolation) -> bool:
+    """True when a unique violation came from a graph table (kg_*), not from the inventory table being saved."""
+    return (exc.diag.constraint_name or '').startswith('kg_')
+
+
 def free_name(taken: set[str], wanted: str) -> str:
     """The first of wanted, wanted (2), wanted (3), … not in taken (lower-case names), cut to 160 characters."""
     base = wanted.strip()
@@ -46,7 +54,7 @@ def free_name(taken: set[str], wanted: str) -> str:
     while candidate.lower() in taken:
         n += 1
         suffix = f' ({n})'
-        candidate = base[:MAX_NAME - len(suffix)] + suffix
+        candidate = base[:MAX_NAME - len(suffix)].rstrip() + suffix
     return candidate
 
 
@@ -57,8 +65,9 @@ def wanted_nodes(conn, project: UUID) -> dict[Key, dict]:
                                ('service_id', 'services', ''), ('repository_id', 'repositories', 'AND archived_at IS NULL')):
         for row in conn.execute(f'SELECT id,name FROM ka.{table} WHERE project_id=%s {extra} ORDER BY id', (project,)):
             want[(link, row['id'])] = {'name': row['name'], 'parent': None}
-    for row in conn.execute("""SELECT d.id,d.server_id,coalesce(nullif(btrim(d.runtime_name),''),s.name) || ' · ' || d.environment AS name
-            FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id WHERE d.project_id=%s ORDER BY d.id""", (project,)):
+    for row in conn.execute("""SELECT d.id,d.server_id,coalesce(nullif(btrim(d.runtime_name),''),s.name) || ' · ' || coalesce(e.name,d.environment) AS name
+            FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
+            LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.project_id=%s ORDER BY d.id""", (project,)):
         want[('deployment_id', row['id'])] = {'name': row['name'], 'parent': ('server_id', row['server_id'])}
     return want
 

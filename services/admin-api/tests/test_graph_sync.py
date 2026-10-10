@@ -331,3 +331,12 @@ def test_start_up_sync_retries_once_after_a_deadlock(store, caplog, monkeypatch)
     assert len(calls) == 2 and 'failed' not in caplog.text
     with store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.kg_nodes').fetchone()['n'] == 1
+
+
+def test_a_suffix_after_a_cut_name_has_no_double_space():
+    from knowledge_admin.graph_sync import MAX_NAME, free_name
+    wanted = 'a' * 155 + ' ' + 'b' * 20  # the suffix cut ends on a space
+    taken = {wanted[:MAX_NAME].lower()}
+    name = free_name(taken, wanted)
+    assert name.endswith(' (2)') and '  ' not in name and len(name) <= MAX_NAME
+    assert free_name({'x', 'x (2)'}, 'x') == 'x (3)'

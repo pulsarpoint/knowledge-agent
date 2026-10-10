@@ -49,7 +49,17 @@ END $$;
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_nodes FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_edges FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_node_documents FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
--- Editing an attached document (new version, slug, folder) changes the titles and slugs the graph snapshot holds.
-CREATE TRIGGER kg_graph_changed AFTER UPDATE ON documents FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
+-- Editing an attached document (new version, slug, folder) changes the titles and slugs the graph snapshot holds;
+-- editing a document no node uses leaves the graph alone.
+CREATE FUNCTION kg_document_changed() RETURNS trigger LANGUAGE plpgsql SET search_path = ka, pg_temp AS $$
+DECLARE next_version bigint;
+BEGIN
+    IF EXISTS (SELECT 1 FROM kg_node_documents WHERE document_id = NEW.id) THEN
+        UPDATE kg_graph_version SET version = version + 1 RETURNING version INTO next_version;
+        PERFORM pg_notify('ka_graph', next_version::text);
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER kg_graph_changed AFTER UPDATE ON documents FOR EACH ROW EXECUTE FUNCTION kg_document_changed();
 
 COMMIT;

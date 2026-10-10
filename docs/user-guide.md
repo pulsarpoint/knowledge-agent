@@ -781,15 +781,17 @@ every node is itself a graph of the nodes inside it.
 - **Editing.** **New node** adds a node inside the node you are looking at (kind, name, description, optional
   properties as a JSON object). Click a node's name to open it: edit and **Save**, **Move** it under another node of the
   same layer (or to the top level), add or remove **Edges** (type + target found by name, in any layer), attach or
-  detach **Documents** from Docs → Documents, or **Delete** it (a node that still has nodes inside cannot be deleted).
+  detach **Documents** from Docs → Documents, or **Delete** it (a node that still has nodes inside cannot be deleted;
+  nodes from the inventory cannot be moved or deleted here).
   Names are unique among siblings; a node cannot be moved inside itself; a layer has at most 12 levels.
 - **From the inventory.** Every server, service (with its deployments), environment and code project has a node, kept in
   step automatically: a server's node holds its deployments (`<runtime or service> · <environment>`), an environment
   *includes* its servers and services, a service *depends on* the services it uses and *uses* its code projects. Such
   nodes say **From Servers** (or Services, Environments, Code projects) with a link to that page; their name, kind and
-  place follow the inventory, and their synced edges are read-only. Archiving a code project counts as deleting it. You can still give them a description and
-  properties, add nodes inside them, connect them with your own edges and attach documents. Deleting the row deletes its
-  node, unless you added something to it — then the node stays, with "Removed from … on <date>." in its description.
+  place follow the inventory, and their synced edges are read-only. Archiving a code project counts as deleting it. You
+  can still give them a description and properties, add nodes inside them, connect them with your own edges and attach
+  documents. Deleting the row deletes its node, unless you added something to it — then the node stays, with "Removed
+  from … on <date>." in its description.
 
 ---
 

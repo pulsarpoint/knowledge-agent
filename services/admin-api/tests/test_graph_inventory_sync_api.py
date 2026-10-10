@@ -1,6 +1,4 @@
 """Inventory pages write the graph: Servers, Services (deployments, dependencies, code projects), Environments."""
-from uuid import uuid4
-
 import pytest
 
 from knowledge_admin.repositories import RepositoryInput
@@ -123,7 +121,8 @@ def test_synced_edges_are_read_only(client):
         409, 'This edge comes from the inventory. Change it in Environments.')
     assert message(client.delete(url, headers=HEADERS)) == (409, 'This edge comes from the inventory. Change it in Environments.')
     view = client.get('/api/graph/view/infrastructure', headers=HEADERS).json()
-    assert view['edges'] == [] or all('synced' in edge for edge in view['edges'])
+    includes = [edge for edge in view['edges'] if edge['type'] == 'includes']
+    assert includes and all(edge['synced'] is True for edge in includes)
 
 
 def test_graph_save_takes_the_project_lock_before_the_node_row(client, store):
@@ -167,3 +166,28 @@ def test_every_inventory_page_keeps_the_graph(client, store):
     archived = client.post(f'/api/code-projects/{repo}/archive', headers=HEADERS, json={})
     assert archived.status_code in (200, 204), archived.text
     assert nodes(client, 'software') == {}
+
+
+def test_renaming_an_environment_renames_its_deployment_nodes(client):
+    host = client.post('/api/servers', headers=HEADERS, json={'name': 'prod-1', 'hostname': 'one.internal'}).json()
+    prod = client.post('/api/environments', headers=HEADERS, json={'name': 'production', 'server_ids': [host['id']]}).json()
+    api = client.post('/api/services', headers=HEADERS, json={
+        'name': 'API', 'environment_ids': [prod['id']],
+        'deployments': [{'server_id': host['id'], 'environment_id': prod['id']}]}).json()
+    server_node = nodes(client, 'infrastructure')['prod-1']
+    assert list(nodes(client, 'infrastructure', server_node['id'])) == ['API · production']
+    current = client.get(f"/api/environments/{prod['id']}", headers=HEADERS).json()
+    renamed = client.put(f"/api/environments/{prod['id']}", headers=HEADERS, json={
+        'name': 'live', 'revision': current['revision'], 'server_ids': [host['id']], 'service_ids': [api['id']]})
+    assert renamed.status_code == 200, renamed.text
+    assert list(nodes(client, 'infrastructure', server_node['id'])) == ['API · live']
+
+
+def test_a_graph_name_clash_is_not_reported_as_an_inventory_duplicate(client, monkeypatch):
+    from knowledge_admin import graph_sync
+    client.post('/api/graph/nodes', headers=HEADERS, json={'layer': 'infrastructure', 'kind': 'server', 'name': 'prod-1'}).raise_for_status()
+    monkeypatch.setattr(graph_sync, 'free_name', lambda taken, wanted: wanted.strip())  # the sync stops avoiding clashes
+    response = client.post('/api/servers', headers=HEADERS, json={'name': 'prod-1', 'hostname': 'one.internal'})
+    assert message(response) == (409, graph_sync.GRAPH_CLASH)
+    environment = client.post('/api/environments', headers=HEADERS, json={'name': 'prod-1'})
+    assert message(environment) == (409, graph_sync.GRAPH_CLASH)

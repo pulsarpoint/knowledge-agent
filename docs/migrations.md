@@ -203,5 +203,6 @@ commit: the admin API's sync (`graph_sync.py`), run by every inventory write and
 and releases linked nodes and keeps edges marked `synced` (`depends_on`, `uses`, `instance_of`, and the new type
 `includes`). A delete that skipped the sync fails at commit. `kg_graph_version` holds one number that every statement on
 `kg_nodes`, `kg_edges` and `kg_node_documents` increases (with a `ka_graph` notification), so processes know when to
-rebuild their in-memory graph. The down migration deletes synced and `includes` edges, deletes linked nodes with nothing
+rebuild their in-memory graph; editing a document that a node has attached increases it too (editing an unattached
+document does not). The down migration deletes synced and `includes` edges, deletes linked nodes with nothing
 attached, and drops the links, the version table and its trigger.

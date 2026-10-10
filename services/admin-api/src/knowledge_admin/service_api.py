@@ -160,7 +160,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                "dependents": [str(source) for source,target in links if target == service_id],
                                "changed_related_service_ids": [str(i) for i in changed_related_ids]})))
             return {"id": service_id, "revision": revision}
-        except psycopg.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation as exc:
+            if graph_sync.graph_clash(exc):
+                raise HTTPException(409, graph_sync.GRAPH_CLASH) from None
             raise HTTPException(409, "A service with this name already exists in this application") from None
 
     @router.post("/services", status_code=201)
@@ -241,7 +243,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
                     VALUES (%s,%s,%s,'server',%s,%s)""", (project_id, actor_id, action, server_id, Jsonb({"revision": server["revision"], "ssh_allowed": server["ssh_allowed"]})))
             return server
-        except psycopg.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation as exc:
+            if graph_sync.graph_clash(exc):
+                raise HTTPException(409, graph_sync.GRAPH_CLASH) from None
             raise HTTPException(409, "A server with this name already exists in this application") from None
 
     @router.post("/servers", status_code=201)

@@ -243,7 +243,9 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
             raise HTTPException(400, 'Configure at least one code project folder.')
         try:
             repository_id = repository_store().save(app_name, value, *request_actor(request))
-        except psycopg.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation as exc:
+            if graph_sync.graph_clash(exc):
+                raise HTTPException(409, graph_sync.GRAPH_CLASH) from None
             raise HTTPException(409, "This Git source or clone folder has already been added") from None
         return {"id": repository_id}
 

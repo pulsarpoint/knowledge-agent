@@ -114,7 +114,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         "service_ids": [str(i) for i in value.service_ids], "server_ids": [str(i) for i in value.server_ids],
                     })))
             return environment
-        except psycopg.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation as exc:
+            if graph_sync.graph_clash(exc):
+                raise HTTPException(409, graph_sync.GRAPH_CLASH) from None
             raise HTTPException(409, "An environment with this name already exists") from None
 
     @router.post("/environments", status_code=201)
