@@ -5,6 +5,7 @@ import { getDocuments, type DocumentSummary } from "../lib/documents";
 import { EDGE_LABELS, EDGE_TYPES, KIND_SUGGESTIONS, LAYER_LABELS, attachDocument, createEdge, createNode, deleteEdge, deleteNode,
   detachDocument, getNode, searchNodes, updateNode, type EdgeType, type Layer, type NodeDetail, type NodeHit } from "../lib/systemGraph";
 import { Alert, AlertDescription } from "~/components/ui/alert";
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -30,15 +31,16 @@ function parseProperties(text: string): { value: Record<string, unknown> } | { p
 const ready = (draft: Draft) => draft.kind.trim() !== "" && draft.name.trim() !== "" && "value" in parseProperties(draft.properties);
 const propertiesOf = (draft: Draft) => { const parsed = parseProperties(draft.properties); return "value" in parsed ? parsed.value : {}; };
 
-function DraftFields({ id, layer, draft, onChange }: { id: string; layer: Layer; draft: Draft; onChange: (draft: Draft) => void }) {
+function DraftFields({ id, layer, draft, onChange, locked }: { id: string; layer: Layer; draft: Draft; onChange: (draft: Draft) => void; locked?: { label: string } }) {
   const parsed = parseProperties(draft.properties);
   const problem = "problem" in parsed ? parsed.problem : null;
   return <FieldGroup>
     <Field><FieldLabel htmlFor={`${id}-kind`}>Kind</FieldLabel>
-      <Input id={`${id}-kind`} list={`${id}-kinds`} value={draft.kind} maxLength={60} autoComplete="off" onChange={event => onChange({ ...draft, kind: event.target.value })} />
+      <Input id={`${id}-kind`} list={`${id}-kinds`} value={draft.kind} maxLength={60} readOnly={!!locked} autoComplete="off" onChange={event => onChange({ ...draft, kind: event.target.value })} />
       <datalist id={`${id}-kinds`}>{KIND_SUGGESTIONS[layer].map(kind => <option key={kind} value={kind} />)}</datalist></Field>
     <Field><FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
-      <Input id={`${id}-name`} value={draft.name} maxLength={160} onChange={event => onChange({ ...draft, name: event.target.value })} /></Field>
+      <Input id={`${id}-name`} value={draft.name} maxLength={160} readOnly={!!locked} onChange={event => onChange({ ...draft, name: event.target.value })} />
+      {locked && <FieldDescription>Change it in {locked.label}.</FieldDescription>}</Field>
     <Field><FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
       <Textarea id={`${id}-description`} value={draft.description} maxLength={4000} rows={3} onChange={event => onChange({ ...draft, description: event.target.value })} /></Field>
     <Field data-invalid={problem !== null || undefined}><FieldLabel htmlFor={`${id}-properties`}>Properties</FieldLabel>
@@ -159,28 +161,31 @@ function NodeDetails({ nodeId, onChanged, onDeleted }: { nodeId: string; onChang
   return <>
     <SheetHeader><SheetTitle>{node.name}</SheetTitle>
       <SheetDescription>{LAYER_LABELS[node.layer]} · {node.breadcrumb.map(crumb => crumb.name).join(" › ")}</SheetDescription></SheetHeader>
+    {node.source && <p className="px-4 text-sm"><span>From {node.source.label}</span> · <Link to={node.source.page} className="underline">Open {node.source.label}</Link></p>}
     <div className="flex flex-col gap-6 px-4 pb-4">
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <form onSubmit={save} className="flex flex-col gap-4">
-        <DraftFields id="node" layer={node.layer} draft={draft} onChange={setDraft} />
+        <DraftFields id="node" layer={node.layer} draft={draft} onChange={setDraft} locked={node.source ?? undefined} />
         <div><Button type="submit" disabled={busy || !ready(draft)}>Save</Button></div>
       </form>
-      <section aria-label="Move" className="flex flex-col gap-2">
+      {!node.source && <section aria-label="Move" className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Move</h3>
         <NodePicker label="New parent" layer={node.layer} exclude={node.id} action="Move here" onPick={hit => void moveTo(hit.id)} />
         {node.parent_id && <div><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void moveTo(null)}>Move to the top level</Button></div>}
-      </section>
+      </section>}
       <section aria-label="Edges" className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Edges</h3>
         {noEdges ? <p className="text-muted-foreground text-sm">No edges yet.</p> : <ul className="flex flex-col gap-1 text-sm">
           {node.outgoing.map(edge => <li key={edge.id} className="flex items-center justify-between gap-2">
             <span>{`${EDGE_LABELS[edge.type]} → ${edge.node.name}`}</span>
-            <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${EDGE_LABELS[edge.type]} edge to ${edge.node.name}`}
-              onClick={() => void act(() => deleteEdge(edge.id), "Could not remove the edge.")}>Remove</Button></li>)}
+            {edge.synced ? <Badge variant="secondary">synced</Badge>
+              : <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${EDGE_LABELS[edge.type]} edge to ${edge.node.name}`}
+                onClick={() => void act(() => deleteEdge(edge.id), "Could not remove the edge.")}>Remove</Button>}</li>)}
           {node.incoming.map(edge => <li key={edge.id} className="flex items-center justify-between gap-2">
             <span>{`${edge.node.name} → ${EDGE_LABELS[edge.type]}`}</span>
-            <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${EDGE_LABELS[edge.type]} edge from ${edge.node.name}`}
-              onClick={() => void act(() => deleteEdge(edge.id), "Could not remove the edge.")}>Remove</Button></li>)}
+            {edge.synced ? <Badge variant="secondary">synced</Badge>
+              : <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${EDGE_LABELS[edge.type]} edge from ${edge.node.name}`}
+                onClick={() => void act(() => deleteEdge(edge.id), "Could not remove the edge.")}>Remove</Button>}</li>)}
         </ul>}
         <Field><FieldLabel htmlFor="node-edge-type">New edge</FieldLabel>
           <Select value={edgeType} onValueChange={value => setEdgeType(value as EdgeType)}>
@@ -201,13 +206,13 @@ function NodeDetails({ nodeId, onChanged, onDeleted }: { nodeId: string; onChang
         <DocumentPicker attached={node.documents.map(document => document.id)}
           onPick={document => void act(() => attachDocument(node.id, document.id), "Could not attach the document.")} />
       </section>
-      <section aria-label="Delete node" className="flex flex-wrap items-center gap-2">
+      {!node.source && <section aria-label="Delete node" className="flex flex-wrap items-center gap-2">
         {confirming ? <>
           <span className="text-sm">Delete {node.name}? Its edges and document links go with it.</span>
           <Button type="button" variant="destructive" disabled={busy} onClick={() => void remove()}>Delete node</Button>
           <Button type="button" variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
         </> : <Button type="button" variant="outline" onClick={() => setConfirming(true)}>Delete</Button>}
-      </section>
+      </section>}
     </div>
   </>;
 }

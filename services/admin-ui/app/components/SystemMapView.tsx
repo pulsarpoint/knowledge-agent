@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { ArrowRight, Copy, Plus } from "lucide-react";
 import { ApiError } from "../lib/api";
-import { LAYERS, LAYER_LABELS, LAYOUTS, MAX_DEPTH, VIEWS, VIEW_LABELS, getView, getViewText, mapQuery, readMapState,
+import { LAYERS, LAYER_LABELS, LAYOUTS, MAX_DEPTH, SOURCE_LABELS, VIEWS, VIEW_LABELS, getView, getViewText, mapQuery, readMapState,
   type GraphView, type Layer, type Layout, type MapState, type MapView } from "../lib/systemGraph";
 import Mermaid from "./Mermaid";
 import NodeSheet, { type SheetTarget } from "./NodeSheet";
@@ -107,7 +107,7 @@ export default function SystemMapView() {
             {inside.map(node => <li key={node.id} className="flex items-center justify-between gap-2">
               <div className="flex min-w-0 flex-col">
                 <button type="button" className="truncate text-left text-sm underline-offset-4 hover:underline" onClick={() => setSheet({ nodeId: node.id })}>{node.name}</button>
-                <span className="text-muted-foreground text-xs">{node.child_count > 0 ? `${node.kind} · +${node.child_count} inside` : node.kind}</span>
+                <span className="text-muted-foreground text-xs">{(node.source_kind ? `${node.kind} · from ${SOURCE_LABELS[node.source_kind]}` : node.kind) + (node.child_count > 0 ? ` · +${node.child_count} inside` : "")}</span>
               </div>
               <Button size="icon" variant="ghost" aria-label={`Open ${node.name}`} onClick={() => go({ root: node.id })}><ArrowRight /></Button>
             </li>)}
@@ -119,7 +119,7 @@ export default function SystemMapView() {
             {graph!.boundary.map(node => { const count = edgeCount(node.id); return <li key={node.id} className="flex items-center justify-between gap-2">
               <div className="flex min-w-0 flex-col">
                 <button type="button" className="truncate text-left text-sm underline-offset-4 hover:underline" onClick={() => setSheet({ nodeId: node.id })}>{node.name}</button>
-                <span className="text-muted-foreground text-xs">{`${LAYER_LABELS[node.layer]} · ${count} ${count === 1 ? "edge" : "edges"}`}</span></div>
+                <span className="text-muted-foreground text-xs">{`${LAYER_LABELS[node.layer]}${node.source_kind ? ` · from ${SOURCE_LABELS[node.source_kind]}` : ""} · ${count} ${count === 1 ? "edge" : "edges"}`}</span></div>
               <Button size="icon" variant="ghost" aria-label={`Open ${node.name}`} onClick={() => go({ layer: node.layer, root: node.id })}><ArrowRight /></Button>
             </li>; })}
           </ul>}

@@ -6,14 +6,14 @@ import SystemMapView from "../SystemMapView";
 vi.mock("../Mermaid", () => ({ default: ({ chart }: { chart: string }) => <pre data-testid="mermaid">{chart}</pre> }));
 
 const node = (id: string, name: string, extra = {}) => ({ id, parent_id: null, layer: "software", kind: "service", name, description: "",
-  child_count: 0, expandable: false, internal_edges: 0, documents: [], ...extra });
+  child_count: 0, expandable: false, internal_edges: 0, documents: [], source_kind: null, ...extra });
 const top = { layer: "software", depth: 1, root: null, breadcrumb: [],
   nodes: [node("api", "admin-api", { child_count: 2, expandable: true }), node("worker", "repository-worker")], boundary: [],
-  edges: [{ from: "api", to: "worker", type: "calls", count: 2, edge_ids: ["e1", "e2"] }] };
+  edges: [{ from: "api", to: "worker", type: "calls", count: 2, edge_ids: ["e1", "e2"], synced: false }] };
 const inside = { layer: "software", depth: 1, root: { id: "api", name: "admin-api", kind: "service", description: "" },
   breadcrumb: [{ id: "api", name: "admin-api", kind: "service" }], nodes: [node("events", "Event processor", { kind: "module" })],
-  boundary: [{ id: "prod", name: "prod-1", kind: "server", layer: "infrastructure" }],
-  edges: [{ from: "prod", to: "events", type: "instance_of", count: 1, edge_ids: ["e3"] }] };
+  boundary: [{ id: "prod", name: "prod-1", kind: "server", layer: "infrastructure", source_kind: null }],
+  edges: [{ from: "prod", to: "events", type: "instance_of", count: 1, edge_ids: ["e3"], synced: false }] };
 const empty = { layer: "data", depth: 1, root: null, breadcrumb: [], nodes: [], boundary: [], edges: [] };
 
 type Page = { status?: number; json?: unknown; text?: string; error?: string };
@@ -138,4 +138,13 @@ test("an outside node's name opens its sheet", async () => {
   await user.click(await screen.findByRole("button", { name: "prod-1" }));
   await waitFor(() => expect(urls(fetch)).toContain("/api/graph/nodes/prod"));
   expect(where()).toBe("?layer=software&root=api");
+});
+
+test("synced nodes say where they come from", async () => {
+  api({ [TOP]: { json: { ...top, nodes: [node("api", "admin-api", { source_kind: "service" }), node("worker", "repository-worker")] } },
+    [TOP_SVG]: { text: "<svg/>" } });
+  view();
+  const inside = within(await screen.findByRole("region", { name: "Inside" }));
+  expect(await inside.findByText("service · from Services")).toBeInTheDocument();
+  expect(inside.getByText("service")).toBeInTheDocument();
 });

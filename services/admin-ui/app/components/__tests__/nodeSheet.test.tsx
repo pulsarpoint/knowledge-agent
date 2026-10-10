@@ -4,12 +4,12 @@ import { MemoryRouter } from "react-router";
 import NodeSheet, { type SheetTarget } from "../NodeSheet";
 import { mapQuery, readMapState } from "../../lib/systemGraph";
 
-const events = { id: "events", layer: "software", kind: "module", name: "Event processor", description: "Runs handlers", parent_id: "api",
+const events = { id: "events", layer: "software", kind: "module", name: "Event processor", description: "Runs handlers", parent_id: "api", source: null,
   properties: { language: "python" }, revision: 3, created_at: "2026-10-10T10:00:00Z", updated_at: "2026-10-10T10:00:00Z",
   breadcrumb: [{ id: "api", name: "admin-api", kind: "service" }, { id: "events", name: "Event processor", kind: "module" }],
   children: [{ id: "match", name: "matching", kind: "module", child_count: 0 }],
-  outgoing: [{ id: "e1", type: "calls", description: "", revision: 1, node: { id: "worker", name: "repository-worker", kind: "service", layer: "software" } }],
-  incoming: [{ id: "e2", type: "instance_of", description: "", revision: 1, node: { id: "prod", name: "prod-1", kind: "server", layer: "infrastructure" } }],
+  outgoing: [{ id: "e1", type: "calls", description: "", revision: 1, synced: false, node: { id: "worker", name: "repository-worker", kind: "service", layer: "software" } }],
+  incoming: [{ id: "e2", type: "instance_of", description: "", revision: 1, synced: false, node: { id: "prod", name: "prod-1", kind: "server", layer: "infrastructure" } }],
   documents: [{ id: "d1", slug: "runbook", title: "Runbook" }] };
 
 type Reply = { status?: number; body?: unknown };
@@ -195,4 +195,26 @@ test("unsaved edits survive other actions, and Save refills the form from the re
   expect(screen.getByLabelText("Name")).toHaveValue("Edited");
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Saved name"));
+});
+
+test("a synced node shows where it comes from and keeps only what the graph owns", async () => {
+  const host = { ...events, id: "host", layer: "infrastructure", kind: "server", name: "prod-1", parent_id: null,
+    breadcrumb: [{ id: "host", name: "prod-1", kind: "server" }],
+    source: { kind: "server", id: "s1", page: "/servers", label: "Servers" },
+    outgoing: [], incoming: [{ id: "e9", type: "includes", description: "", revision: 1, synced: true,
+      node: { id: "env", name: "production", kind: "environment", layer: "infrastructure" } }] };
+  api({ "GET /api/graph/nodes/host": () => ({ body: { node: host } }) });
+  open({ nodeId: "host" });
+  expect(await screen.findByText("From Servers")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open Servers" })).toHaveAttribute("href", "/servers");
+  expect(screen.getByLabelText("Name")).toHaveAttribute("readonly");
+  expect(screen.getByLabelText("Kind")).toHaveAttribute("readonly");
+  expect(screen.getByLabelText("Description")).not.toHaveAttribute("readonly");
+  expect(screen.queryByRole("region", { name: "Move" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  const edges = within(screen.getByRole("region", { name: "Edges" }));
+  expect(edges.getByText("production → includes")).toBeInTheDocument();
+  expect(edges.getByText("synced")).toBeInTheDocument();
+  expect(edges.queryByRole("button", { name: /Remove/ })).toBeNull();
+  expect(edges.getByLabelText("Target")).toBeInTheDocument();
 });

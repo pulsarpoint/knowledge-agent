@@ -3,11 +3,15 @@ import { request } from "./api";
 export type Layer = "business" | "software" | "data" | "infrastructure";
 export const LAYERS: Layer[] = ["business", "software", "data", "infrastructure"];
 export const LAYER_LABELS: Record<Layer, string> = { business: "Business", software: "Software", data: "Data", infrastructure: "Infrastructure" };
-export const EDGE_TYPES = ["calls", "uses", "depends_on", "reads", "writes", "publishes", "subscribes", "instance_of", "runs_on", "implements", "stores"] as const;
+export const EDGE_TYPES = ["calls", "uses", "depends_on", "reads", "writes", "publishes", "subscribes", "instance_of", "runs_on", "implements", "stores", "includes"] as const;
 export type EdgeType = typeof EDGE_TYPES[number];
 export const EDGE_LABELS: Record<EdgeType, string> = { calls: "calls", uses: "uses", depends_on: "depends on", reads: "reads",
   writes: "writes", publishes: "publishes", subscribes: "subscribes", instance_of: "instance of", runs_on: "runs on",
-  implements: "implements", stores: "stores" };
+  implements: "implements", stores: "stores", includes: "includes" };
+export type SourceKind = "server" | "deployment" | "environment" | "service" | "repository";
+export const SOURCE_LABELS: Record<SourceKind, string> = { server: "Servers", deployment: "Services", environment: "Environments",
+  service: "Services", repository: "Code projects" };
+export interface NodeSource { kind: SourceKind; id: string; page: string; label: string }
 export const KIND_SUGGESTIONS: Record<Layer, string[]> = {
   business: ["capability", "process", "actor"],
   software: ["system", "service", "module", "component", "library", "job"],
@@ -23,17 +27,17 @@ export const MAX_DEPTH = 5;
 
 export interface GraphDocument { id: string; slug: string; title: string }
 export interface ViewNode { id: string; parent_id: string | null; layer: Layer; kind: string; name: string; description: string;
-  child_count: number; expandable: boolean; internal_edges: number; documents: GraphDocument[] }
-export interface BoundaryNode { id: string; name: string; kind: string; layer: Layer }
-export interface ViewEdge { from: string; to: string; type: EdgeType; count: number; edge_ids: string[] }
+  child_count: number; expandable: boolean; internal_edges: number; documents: GraphDocument[]; source_kind: SourceKind | null }
+export interface BoundaryNode { id: string; name: string; kind: string; layer: Layer; source_kind: SourceKind | null }
+export interface ViewEdge { from: string; to: string; type: EdgeType; count: number; edge_ids: string[]; synced: boolean }
 export interface Crumb { id: string; name: string; kind: string }
 export interface GraphView { layer: Layer; depth: number; root: (Crumb & { description: string }) | null; breadcrumb: Crumb[];
   nodes: ViewNode[]; boundary: BoundaryNode[]; edges: ViewEdge[] }
-export interface EdgeRow { id: string; type: EdgeType; description: string; revision: number;
+export interface EdgeRow { id: string; type: EdgeType; description: string; revision: number; synced: boolean;
   node: { id: string; name: string; kind: string; layer: Layer } }
 export interface NodeDetail { id: string; layer: Layer; kind: string; name: string; description: string; parent_id: string | null;
   properties: Record<string, unknown>; revision: number; created_at: string; updated_at: string; breadcrumb: Crumb[];
-  children: (Crumb & { child_count: number })[]; outgoing: EdgeRow[]; incoming: EdgeRow[]; documents: GraphDocument[] }
+  children: (Crumb & { child_count: number })[]; outgoing: EdgeRow[]; incoming: EdgeRow[]; documents: GraphDocument[]; source: NodeSource | null }
 export interface NodeHit { id: string; layer: Layer; kind: string; name: string; path: string[] }
 export interface NodeFieldsInput { kind: string; name: string; description: string; properties: Record<string, unknown>; parent_id: string | null }
 export interface NewNodeInput extends NodeFieldsInput { layer: Layer }
