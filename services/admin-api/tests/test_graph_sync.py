@@ -30,7 +30,9 @@ def deployment(conn, project, service_id, server_id, environment='production', r
 
 
 def node(conn, link, row_id) -> dict | None:
-    return conn.execute(f'SELECT * FROM ka.kg_nodes WHERE {link}=%s', (row_id,)).fetchone()
+    # an environment's own node, not the server copies placed in it
+    extra = ' AND server_id IS NULL' if link == 'environment_id' else ''
+    return conn.execute(f'SELECT * FROM ka.kg_nodes WHERE {link}=%s{extra}', (row_id,)).fetchone()
 
 
 def edges(conn) -> set[tuple]:
@@ -463,3 +465,33 @@ def test_renaming_or_deleting_a_server_reaches_every_copy(store):
         conn.execute('DELETE FROM ka.servers WHERE id=%s', (host['id'],))
         sync(conn, project)
         assert conn.execute('SELECT count(*) AS n FROM ka.kg_nodes WHERE layer=%s AND kind=%s', ('infrastructure', 'server')).fetchone()['n'] == 0
+
+
+def test_a_moved_server_copy_gets_a_free_name_when_its_name_is_taken_at_the_new_level(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        a, host = environment(conn, project, 'a'), server(conn, project, 'prod-1')
+        member(conn, project, a['id'], host['id'])
+        conn.execute("""INSERT INTO ka.kg_nodes(project_id,layer,kind,name) VALUES (%s,'infrastructure','server','prod-1')""", (project,))
+        sync(conn, project)
+        before = copy(conn, host['id'], a['id'])['id']
+        conn.execute('DELETE FROM ka.environment_servers WHERE server_id=%s', (host['id'],))
+        sync(conn, project)
+        moved = copy(conn, host['id'], None)
+        assert (moved['id'], moved['name'], moved['parent_id']) == (before, 'prod-1 (2)', None)
+        assert sync(conn, project) == SyncResult()
+
+
+def test_a_moved_server_copy_gets_a_free_name_when_its_environment_is_deleted(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        qa, clash, host = environment(conn, project, 'qa'), environment(conn, project, 'staging'), server(conn, project, 'staging')
+        member(conn, project, qa['id'], host['id'])
+        sync(conn, project)
+        before = copy(conn, host['id'], qa['id'])['id']
+        conn.execute('DELETE FROM ka.environments WHERE id=%s', (qa['id'],))
+        sync(conn, project)
+        moved = copy(conn, host['id'], None)
+        assert (moved['id'], moved['name'], moved['parent_id']) == (before, 'staging (2)', None)
+        assert node(conn, 'environment_id', clash['id'])['name'] == 'staging'
+        assert sync(conn, project) == SyncResult()

@@ -184,7 +184,9 @@ def test_renaming_an_environment_renames_its_deployment_nodes(client):
         'name': 'live', 'revision': current['revision'], 'server_ids': [host['id']], 'service_ids': [api['id']]})
     assert renamed.status_code == 200, renamed.text
     live = nodes(client, 'infrastructure')['live']
-    assert list(nodes(client, 'infrastructure', nodes(client, 'infrastructure', live['id'])['prod-1']['id'])) == ['API · live']
+    renamed_server = nodes(client, 'infrastructure', live['id'])['prod-1']
+    assert renamed_server['id'] == server_node['id']  # the server's node is kept across the rename
+    assert list(nodes(client, 'infrastructure', renamed_server['id'])) == ['API · live']
 
 
 def test_a_graph_name_clash_is_not_reported_as_an_inventory_duplicate(client, monkeypatch):

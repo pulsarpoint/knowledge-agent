@@ -148,10 +148,10 @@ def sync_inventory(conn, project: UUID) -> SyncResult:
         parent = stored.get(('environment_id', target[1][1])) if target[1][1] else None
         taken.get((old['layer'], old['parent_id']), set()).discard(old['name'].lower())
         # Re-parented now (to nothing if the environment has no node yet), so a deleted old environment is not kept by it.
-        stored[target] = conn.execute(f"""UPDATE ka.kg_nodes SET environment_id=%s,parent_id=%s,revision=revision+1
+        # The name is parked (the node's id) because it may clash at the new level; step 2 gives it a free name.
+        stored[target] = conn.execute(f"""UPDATE ka.kg_nodes SET environment_id=%s,parent_id=%s,name=%s,revision=revision+1
             WHERE id=%s RETURNING id,layer,parent_id,name,description,{LINKS}""",
-            (target[1][1], parent['id'] if parent else None, old['id'])).fetchone()
-        taken.setdefault((old['layer'], stored[target]['parent_id']), set()).add(old['name'].lower())
+            (target[1][1], parent['id'] if parent else None, str(old['id']), old['id'])).fetchone()
         result.updated += 1
 
     # 1. Release nodes whose row is gone (deployments, then server copies, then the rest, so a parent has no children left from them).
