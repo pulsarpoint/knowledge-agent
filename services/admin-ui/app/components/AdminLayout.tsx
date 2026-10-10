@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { Bell, BookOpen, CalendarClock, FolderOpen, Bot, Database, Files, Inbox, ListChecks, Search, FolderGit2, Layers, Network, LogOut, Plug, Server, Settings, Shield, Ticket } from "lucide-react";
+import { Bell, BookOpen, CalendarClock, FolderOpen, Bot, Database, Files, Inbox, ListChecks, Search, FolderGit2, Layers, Network, LogOut, Plug, Server, Settings, Shield, Ticket, Workflow } from "lucide-react";
 import { ApiError, getAdminSession } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "~/lib/utils";
@@ -39,6 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const services = pathname === `/services`;
   const environments = pathname === "/environments";
   const servers = pathname === `/servers`;
+  const systemMap = pathname === "/system-map";
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;
   const jiraAutoPull = pathname === "/jira/auto-pull";
@@ -59,7 +60,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const schedulesPage = pathname === "/schedules";
   const eventsPage = pathname === "/events" || pathname.startsWith("/events/");
   const notificationsPage = pathname === "/notifications";
-  const title = notificationsPage ? "Notifications" : eventsPage ? "Events" : schedulesPage ? "Schedules" : runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : jiraAutoPull ? "Jira Auto pull" : "Administration";
+  const title = notificationsPage ? "Notifications" : eventsPage ? "Events" : schedulesPage ? "Schedules" : runsPage ? "Agent runs" : pathname === "/storage" ? "Storage" : environments ? "Environments" : docsPage ? (docsPrompts ? "Documentation prompts" : docsHistory ? "Generate documents" : docsFolders ? "Documentation folders" : "Documents") : pathname === "/mcp-servers" ? "MCP servers" : pathname === "/llm-settings" ? "LLM Settings" : pathname === "/skills" ? "Skills" : agentPage ? "Agents" : ragPage ? ragPage.title : repositories ? "Code projects" : codeGraphs ? "Code graphs" : systemMap ? "System map" : services ? "Services" : servers ? "Servers" : jiraSettings ? "Jira Settings" : jiraTickets ? "Jira Tickets" : jiraAutoPull ? "Jira Auto pull" : "Administration";
   const description = notificationsPage ? "Answers agents gave to events, and the calls that failed." : eventsPage ? "Things that happened at your sources, and handlers that turn them into new events or agent answers." : schedulesPage ? "Run work on a timetable, such as pulling Jira tickets." : runsPage ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers." : pathname === "/storage" ? "See where source code, RAG files and documentation are stored, and browse their folders." : environments ? "Organize services and servers into Development, Staging, Production, or your own environments." : docsPage ? "Write and maintain documentation linked to your code projects, services, and servers." : pathname === "/mcp-servers" ? "Manage external tools for Code search and SSH agents." : pathname === "/llm-settings" ? "Manage model providers, credentials, and connection tests." : pathname === "/skills" ? "Manage reusable instructions for your agents." : agentPage ? "Create agents with their own models, instructions, resources, and test conversations." : ragPage ? ragPage.description : repositories ? "Browse the mounted code folder and organize local folders and Git sources into projects."
     : codeGraphs ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
     : services ? "Connect applications, source code, and server deployments for agent investigations."
@@ -102,6 +103,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <SidebarMenuItem><SidebarMenuButton asChild isActive={environments}><Link to="/environments"><Network /><span>Environments</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={services}><Link to={`/services`}><Layers /><span>Services</span></Link></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={servers}><Link to={`/servers`}><Server /><span>Servers</span></Link></SidebarMenuButton></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton asChild isActive={systemMap}><Link to="/system-map"><Workflow /><span>System map</span></Link></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu></SidebarGroup>
         <SidebarGroup role="navigation" aria-label="Code"><SidebarGroupLabel>Code</SidebarGroupLabel><SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton asChild isActive={repositories}><Link to="/code-projects"><FolderGit2 /><span>Projects</span></Link></SidebarMenuButton></SidebarMenuItem>

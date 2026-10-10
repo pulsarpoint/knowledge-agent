@@ -22,6 +22,7 @@ export default [
   route("documentation/folders/*", "./routes/documentationFolder.tsx"),
   route("services", "./routes/services.tsx"),
   route("environments", "./routes/environments.tsx"),
+  route("system-map", "./routes/systemMap.tsx"),
   route("agents/:agentId", "./routes/agentDetail.tsx"),
   route("agents", "./routes/agents.tsx"),
   route("mcp-servers", "./routes/mcpServers.tsx"),

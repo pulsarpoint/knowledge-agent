@@ -762,6 +762,27 @@ failed, after its last attempt), the agent, the number of attempts and **Open ev
 triggered it. On the event, the handler run shows the call's status (Queued, Running, Succeeded or Failed) and **Open
 notification**.
 
+### 4.20 System map
+
+Environments → **System map** describes the whole system as a graph you open one level at a time (graph in graph):
+every node is itself a graph of the nodes inside it.
+
+- **Layers.** Business (capabilities, processes), Software (services, modules, components), Data (databases, tables,
+  queues) and Infrastructure (servers, containers). A node lives in one layer and has at most one parent there; edges
+  may join nodes of any layers (for example a container is an *instance of* a service).
+- **Browsing.** The page shows the inside of one node: **Inside** lists its children (→ opens one; "+N inside" says it
+  has more), **Outside** lists what they connect to elsewhere (→ opens it in its own layer). The breadcrumb goes back
+  up. **Depth** shows more levels at once (up to 5); deeper nodes are folded into the box that contains them, and edges
+  are added up (`calls ×3`). Edges inside one box are not drawn. Everything you choose is in the page address, so a view
+  can be shared as a link.
+- **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
+  with Mermaid; **D2** and **JSON** show the source, with **Copy**. If the server cannot draw a diagram (for example
+  "d2 is not installed."), the other views still work.
+- **Editing.** **New node** adds a node inside the node you are looking at (kind, name, description, optional
+  properties as a JSON object). Click a node's name to open it: edit and **Save**, **Move** it under another node of the
+  same layer (or to the top level), add or remove **Edges** (type + target found by name, in any layer), attach or
+  detach **Documents** from Docs → Documents, or **Delete** it (a node that still has nodes inside cannot be deleted).
+  Names are unique among siblings; a node cannot be moved inside itself; a layer has at most 12 levels.
 ---
 
 ## 5. End-to-end workflows
