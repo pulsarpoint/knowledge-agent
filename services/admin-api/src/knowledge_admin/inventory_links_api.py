@@ -39,6 +39,19 @@ class Entry(BaseModel):
     id: UUID
 
 
+NO_DOCUMENT = 'Document not found.'
+NO_ATTACHMENT = 'Attachment not found.'
+ATTACHED = 'This document is already attached.'
+ATTACHMENT = '''SELECT a.id,a.entry_kind,a.entry_id,a.document_id,d.slug,d.title,a.created_at
+    FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id'''
+
+
+class AttachmentDraft(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    entry: Entry
+    document_id: UUID
+
+
 class LinkFields(BaseModel):
     model_config = ConfigDict(extra='forbid')
     description: str = Field(default='', max_length=4000)
@@ -181,6 +194,49 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             audit(conn, project, request, 'inventory.link.deleted', 'inventory_link', link_id,
                   {'kind': current['kind'], 'from': f"{current['from_kind']}:{current['from_id']}",
                    'to': f"{current['to_kind']}:{current['to_id']}"})
+        return Response(status_code=204)
+
+    @router.get('/inventory/documents')
+    def attachments(entry_kind: EntryKind, entry_id: UUID) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            rows = conn.execute(ATTACHMENT + ' WHERE a.project_id=%s AND a.entry_id=%s ORDER BY lower(d.title),a.id',
+                                (project, entry_id)).fetchall()
+        return {'documents': rows}
+
+    @router.post('/inventory/documents', status_code=201)
+    def attach(value: AttachmentDraft, request: Request) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            lock_inventory(conn, project)
+            find_entry(conn, project, value.entry)
+            if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s FOR SHARE',
+                            (value.document_id, project)).fetchone() is None:
+                raise HTTPException(404, NO_DOCUMENT)
+            try:
+                with conn.transaction():
+                    attachment = conn.execute(f'''INSERT INTO ka.inventory_documents(project_id,{value.entry.kind}_id,document_id)
+                        VALUES (%s,%s,%s) RETURNING id''', (project, value.entry.id, value.document_id)).fetchone()['id']
+            except psycopg.errors.UniqueViolation:
+                raise HTTPException(409, ATTACHED) from None
+            audit(conn, project, request, 'inventory.document.attached', value.entry.kind, value.entry.id,
+                  {'document_id': str(value.document_id)})
+            return {'attachment': conn.execute(ATTACHMENT + ' WHERE a.id=%s', (attachment,)).fetchone()}
+
+    @router.delete('/inventory/documents/{attachment_id}', status_code=204)
+    def detach(attachment_id: UUID, request: Request) -> Response:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app)
+            lock_inventory(conn, project)
+            removed = conn.execute('''DELETE FROM ka.inventory_documents WHERE id=%s AND project_id=%s
+                RETURNING entry_kind,entry_id,document_id''', (attachment_id, project)).fetchone()
+            if removed is None:
+                raise HTTPException(404, NO_ATTACHMENT)
+            audit(conn, project, request, 'inventory.document.detached', removed['entry_kind'], removed['entry_id'],
+                  {'document_id': str(removed['document_id'])})
         return Response(status_code=204)
 
     return router

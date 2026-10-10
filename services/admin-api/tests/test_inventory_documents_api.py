@@ -1,0 +1,63 @@
+"""Inventory → documents attached to services, servers, environments and code projects."""
+from uuid import uuid4
+
+import pytest
+
+from test_api import _client
+from test_repositories import HEADERS
+
+
+@pytest.fixture
+def client(store, tmp_path):
+    return _client(tmp_path, repository_store=store)
+
+
+def message(response) -> tuple:
+    return response.status_code, response.json()['error']['message']
+
+
+def document(client, slug='runbook', title='Runbook'):
+    made = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': slug, 'title': title, 'markdown': f'# {title}\n'})
+    assert made.status_code == 201, made.text
+    return made.json()['id']
+
+
+def test_attach_list_and_detach(client, store):
+    server = client.post('/api/servers', headers=HEADERS, json={'name': 'prod-1', 'hostname': 'one.internal'}).json()['id']
+    runbook, backups = document(client), document(client, 'backups', 'Backups')
+    entry = {'kind': 'server', 'id': server}
+    first = client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': runbook})
+    assert first.status_code == 201, first.text
+    assert client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': backups}).status_code == 201
+    assert message(client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': runbook})) == (
+        409, 'This document is already attached.')
+    listed = client.get('/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': server}).json()['documents']
+    assert [(row['title'], row['slug'], row['document_id']) for row in listed] == [('Backups', 'backups', backups), ('Runbook', 'runbook', runbook)]
+    attachment = first.json()['attachment']['id']
+    assert client.delete(f'/api/inventory/documents/{attachment}', headers=HEADERS).status_code == 204
+    assert message(client.delete(f'/api/inventory/documents/{attachment}', headers=HEADERS)) == (404, 'Attachment not found.')
+    assert client.get(f'/api/documentation/documents/{runbook}', headers=HEADERS).status_code == 200  # the document stays
+    with store.connect() as conn:
+        actions = [row['action'] for row in conn.execute(
+            "SELECT action FROM ka.audit_events WHERE action LIKE 'inventory.document.%' ORDER BY created_at,id")]
+    assert actions == ['inventory.document.attached', 'inventory.document.attached', 'inventory.document.detached']
+
+
+def test_unknown_entries_and_documents_are_refused(client):
+    service = client.post('/api/services', headers=HEADERS, json={'name': 'api'}).json()['id']
+    assert message(client.post('/api/inventory/documents', headers=HEADERS,
+                               json={'entry': {'kind': 'service', 'id': service}, 'document_id': str(uuid4())})) == (404, 'Document not found.')
+    assert message(client.post('/api/inventory/documents', headers=HEADERS,
+                               json={'entry': {'kind': 'environment', 'id': str(uuid4())}, 'document_id': document(client)})) == (
+        404, 'That environment was not found.')
+    assert client.get('/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service'}).status_code == 400
+
+
+def test_deleting_the_entry_or_the_document_removes_the_attachment(client, store):
+    environment = client.post('/api/environments', headers=HEADERS, json={'name': 'production'}).json()
+    runbook = document(client)
+    client.post('/api/inventory/documents', headers=HEADERS, json={'entry': {'kind': 'environment', 'id': environment['id']}, 'document_id': runbook})
+    assert client.delete(f"/api/environments/{environment['id']}", headers=HEADERS,
+                         params={'revision': environment['revision'], 'confirmed': True}).status_code == 200
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.inventory_documents').fetchone()['n'] == 0
