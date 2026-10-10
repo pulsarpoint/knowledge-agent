@@ -49,5 +49,7 @@ END $$;
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_nodes FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_edges FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
 CREATE TRIGGER kg_graph_changed AFTER INSERT OR UPDATE OR DELETE ON kg_node_documents FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
+-- Editing an attached document (new version, slug, folder) changes the titles and slugs the graph snapshot holds.
+CREATE TRIGGER kg_graph_changed AFTER UPDATE ON documents FOR EACH STATEMENT EXECUTE FUNCTION kg_graph_changed();
 
 COMMIT;

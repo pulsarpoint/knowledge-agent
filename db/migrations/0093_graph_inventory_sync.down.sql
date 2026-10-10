@@ -2,6 +2,7 @@ BEGIN;
 SET search_path = ka, public;
 SET CONSTRAINTS ALL IMMEDIATE;  -- settle pending link checks so the tables can be altered
 
+DROP TRIGGER kg_graph_changed ON documents;
 DROP TRIGGER kg_graph_changed ON kg_node_documents;
 DROP TRIGGER kg_graph_changed ON kg_edges;
 DROP TRIGGER kg_graph_changed ON kg_nodes;

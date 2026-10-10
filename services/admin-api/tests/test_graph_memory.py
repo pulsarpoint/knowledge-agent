@@ -66,3 +66,24 @@ def test_search_is_literal_and_limited(store):
     assert [row['name'] for row in snapshot.search('%', None, 50)] == ['100% done']
     assert [row['name'] for row in snapshot.search('', 'data', 50)] == ['Events table']
     assert len(snapshot.search('', None, 2)) == 2
+
+
+def test_editing_an_attached_document_refreshes_its_title(store, tmp_path):
+    from test_api import _client
+    from test_repositories import HEADERS
+    client = _client(tmp_path, repository_store=store)
+    memory = GraphMemory()
+    value = {'slug': 'runbook', 'title': 'Runbook', 'markdown': '# Runbook\n'}
+    document = client.post('/api/documentation/documents', headers=HEADERS, json=value).json()
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        node = add(conn, project, 'admin-api')
+        conn.execute('INSERT INTO ka.kg_node_documents(project_id,node_id,document_id) VALUES (%s,%s,%s)',
+                     (project, node, document['id']))
+    with store.connect() as conn:
+        assert memory.get(conn, project).documents[node][0]['title'] == 'Runbook'
+    edited = client.put(f"/api/documentation/documents/{document['id']}", headers=HEADERS,
+                        json={**value, 'title': 'Operations runbook', 'revision': 1})
+    assert edited.status_code == 200, edited.text
+    with store.connect() as conn:
+        assert memory.get(conn, project).documents[node][0]['title'] == 'Operations runbook'
