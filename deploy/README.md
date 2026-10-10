@@ -410,9 +410,9 @@ the system graph tables (Environments → System map).
 - Without `d2` (for example admin-api running outside Docker), the Diagram view says "d2 is not installed." and the
   Mermaid, D2 and JSON views still work.
 
-git add db/migrations/0093_graph_inventory_sync.up.sql db/migrations/0093_graph_inventory_sync.down.sql db/tests/run.sh \
-  docs/migrations.md deploy/README.md services/admin-api/tests/
-git commit -m "feat(db): inventory rows sync into the system graph (0093)
+## Upgrading to the inventory sync
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
-
+Migration 0093 links the system graph to the inventory: every server, service, deployment, environment and code project
+gets a node (Environments → System map), kept in step whenever the inventory changes. The migration creates the nodes
+for the existing inventory; nodes made by hand keep their names, and a synced node whose name is already taken gets
+" (2)".

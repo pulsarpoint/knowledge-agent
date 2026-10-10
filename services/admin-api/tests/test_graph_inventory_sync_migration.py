@@ -213,3 +213,37 @@ def test_link_rules(store):
         includes = conn.execute("""SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint
             WHERE conname='kg_edges_type' AND conrelid='ka.kg_edges'::regclass""").fetchone()['d']
         assert "'includes'" in includes
+
+
+def test_archiving_a_code_project_counts_as_deleting_it(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        api = service(conn, project)
+        conn.commit()
+        bare = store.save('shop', RepositoryInput(remote_url='example/bare', token='private'), 'admin', '')
+        kept = store.save('shop', RepositoryInput(remote_url='example/kept', token='private'), 'admin', '')
+        for repo_id in (bare, kept):
+            conn.execute('INSERT INTO ka.service_repositories(project_id,service_id,repository_id) VALUES (%s,%s,%s)',
+                         (project, api['id'], repo_id))
+        kept_node = node(conn, 'repository_id', kept)
+        conn.execute("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,parent_id) VALUES (%s,'software','module','child',%s)",
+                     (project, kept_node['id']))
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id IN (%s,%s)', (bare, kept))
+        assert node(conn, 'repository_id', bare) is None
+        assert {e[1] for e in edges(conn) if e[2] == 'uses'} == set()
+        left = conn.execute('SELECT * FROM ka.kg_nodes WHERE id=%s', (kept_node['id'],)).fetchone()
+        assert left['repository_id'] is None and 'Removed from Code projects on ' in left['description']
+        conn.execute('UPDATE ka.repositories SET archived_at=NULL WHERE id=%s', (bare,))
+        assert node(conn, 'repository_id', bare) is not None
+        assert len([e for e in edges(conn) if e[2] == 'uses']) == 1
+
+
+def test_backfill_skips_archived_code_projects(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        conn.commit()
+        repo_id = store.save('shop', RepositoryInput(remote_url='example/old', token='private'), 'admin', '')
+        run(conn, '0093_graph_inventory_sync.down.sql')
+        conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (repo_id,))
+        run(conn, '0093_graph_inventory_sync.up.sql')
+        assert conn.execute('SELECT count(*) AS n FROM ka.kg_nodes').fetchone()['n'] == 0

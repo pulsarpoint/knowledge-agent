@@ -195,9 +195,15 @@ edge between a node and a node that contains it is refused when made. `ka.kg_nod
 `ka.documents`. Deleting a node with children is refused; deleting a node removes its edges and document links;
 deleting a document removes its links. The down migration drops the three tables and both trigger functions.
 
-## Upgrading to the inventory sync
+## 0093_graph_inventory_sync
 
-Migration 0093 links the system graph to the inventory: every server, service, deployment, environment and code project
-gets a node (Environments → System map), kept in step whenever the inventory changes. The migration creates the nodes
-for the existing inventory; nodes made by hand keep their names, and a synced node whose name is already taken gets
-" (2)".
+Servers, services, service deployments, environments and code projects are linked to system graph nodes
+(`kg_nodes.server_id`, `service_id`, `deployment_id`, `environment_id`, `repository_id`; at most one per node, one node
+per row, the layer must match). Triggers on the inventory tables create, rename and move those nodes in the same
+transaction (a deployment's node sits under its server's node), and turn service dependencies, service code projects and
+environment members into edges marked `synced` (`depends_on`, `uses`, and the new type `includes`). Deleting a row
+deletes its node unless the node has children or documents; then the node stays, unlinked, with "Removed from … on
+<date>." added to its description. Archiving a code project counts as deleting it (code projects are archived, never
+deleted); un-archiving it brings its node back. The migration fills the graph from the existing inventory, skipping
+archived code projects (a clash with a hand-made node's name gets " (2)"). The down migration deletes synced edges and
+`includes` edges, deletes linked nodes with nothing attached, and drops the links, triggers and functions.

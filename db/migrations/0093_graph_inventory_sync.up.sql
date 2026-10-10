@@ -101,7 +101,7 @@ BEGIN
             SELECT s.project_id, s.name INTO project, wanted FROM services s WHERE s.id = row_id;
             the_layer := 'software'; the_kind := 'service';
         WHEN 'repository_id' THEN
-            SELECT r.project_id, r.name INTO project, wanted FROM repositories r WHERE r.id = row_id;
+            SELECT r.project_id, r.name INTO project, wanted FROM repositories r WHERE r.id = row_id AND r.archived_at IS NULL;  -- archived = gone
             the_layer := 'software'; the_kind := 'repository';
         WHEN 'deployment_id' THEN
             SELECT d.project_id, coalesce(nullif(btrim(d.runtime_name), ''), s.name) || ' · ' || d.environment,
@@ -172,6 +172,19 @@ BEGIN
         PERFORM kg_sync_release(link, OLD.id, TG_ARGV[1]);
         RETURN OLD;
     END IF;
+    IF link = 'repository_id' THEN
+        IF NEW.archived_at IS NOT NULL THEN  -- archiving a code project counts as deleting it
+            PERFORM kg_sync_release(link, NEW.id, TG_ARGV[1]);
+            RETURN NEW;
+        END IF;
+        PERFORM kg_sync_row(link, NEW.id);
+        IF TG_OP = 'UPDATE' THEN  -- un-archived: bring back its edges
+            FOR deployment IN SELECT service_id FROM service_repositories WHERE repository_id = NEW.id LOOP
+                PERFORM kg_sync_edge(NEW.project_id, kg_node_for('service_id', deployment.service_id), kg_node_for(link, NEW.id), 'uses');
+            END LOOP;
+        END IF;
+        RETURN NEW;
+    END IF;
     PERFORM kg_sync_row(link, NEW.id);
     IF link = 'service_id' AND TG_OP = 'UPDATE' THEN  -- deployment names use the service name
         FOR deployment IN SELECT id FROM service_deployments WHERE service_id = NEW.id LOOP
@@ -187,7 +200,7 @@ CREATE TRIGGER kg_sync AFTER INSERT OR UPDATE OF name ON environments FOR EACH R
 CREATE TRIGGER kg_sync_release BEFORE DELETE ON environments FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('environment_id', 'Environments');
 CREATE TRIGGER kg_sync AFTER INSERT OR UPDATE OF name ON services FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('service_id', 'Services');
 CREATE TRIGGER kg_sync_release BEFORE DELETE ON services FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('service_id', 'Services');
-CREATE TRIGGER kg_sync AFTER INSERT OR UPDATE OF name ON repositories FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('repository_id', 'Code projects');
+CREATE TRIGGER kg_sync AFTER INSERT OR UPDATE OF name, archived_at ON repositories FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('repository_id', 'Code projects');
 CREATE TRIGGER kg_sync_release BEFORE DELETE ON repositories FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('repository_id', 'Code projects');
 CREATE TRIGGER kg_sync AFTER INSERT OR UPDATE OF server_id, service_id, runtime_name, environment ON service_deployments
     FOR EACH ROW EXECUTE FUNCTION kg_sync_inventory('deployment_id', 'Services (deployment)');
@@ -226,7 +239,7 @@ BEGIN
     FOR r IN SELECT id FROM servers ORDER BY created_at, id LOOP PERFORM kg_sync_row('server_id', r.id); END LOOP;
     FOR r IN SELECT id FROM environments ORDER BY created_at, id LOOP PERFORM kg_sync_row('environment_id', r.id); END LOOP;
     FOR r IN SELECT id FROM services ORDER BY created_at, id LOOP PERFORM kg_sync_row('service_id', r.id); END LOOP;
-    FOR r IN SELECT id FROM repositories ORDER BY created_at, id LOOP PERFORM kg_sync_row('repository_id', r.id); END LOOP;
+    FOR r IN SELECT id FROM repositories WHERE archived_at IS NULL ORDER BY created_at, id LOOP PERFORM kg_sync_row('repository_id', r.id); END LOOP;
     FOR r IN SELECT id FROM service_deployments ORDER BY id LOOP PERFORM kg_sync_row('deployment_id', r.id); END LOOP;
     FOR r IN SELECT * FROM service_dependencies LOOP
         PERFORM kg_sync_edge(r.project_id, kg_node_for('service_id', r.service_id), kg_node_for('service_id', r.depends_on_service_id), 'depends_on');
