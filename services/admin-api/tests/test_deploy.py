@@ -171,3 +171,14 @@ def test_docs_commands_serve_the_docs_folder_inside_the_data_root(tmp_path):
     assert services["admin-api"]["command"] == ["/work/data/manuals/bootstrap", "--host", "0.0.0.0"]
     dockerfile = (DEPLOY / "Dockerfile.admin-api").read_text(encoding="utf-8")
     assert "/work/data/docs" in dockerfile and '"/work/docs"' not in dockerfile
+
+
+def test_admin_api_image_pins_d2_for_system_map_diagrams():
+    dockerfile = (Path(__file__).resolve().parents[3] / 'deploy/Dockerfile.admin-api').read_text()
+    assert 'FROM debian:bookworm-slim AS d2' in dockerfile
+    assert 'https://github.com/d2lang/d2/releases/download/${D2_VERSION}/d2-${D2_VERSION}-linux-${arch}.tar.gz' in dockerfile
+    assert 'ARG D2_VERSION=v0.9.0' in dockerfile
+    assert '5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9' in dockerfile  # linux-amd64
+    assert 'ac2c028697199479acb321db1e3d68caee9f2ba492ed73caa3cd13f3829bf913' in dockerfile  # linux-arm64
+    assert 'sha256sum -c -' in dockerfile
+    assert 'COPY --from=d2 /usr/local/bin/d2 /usr/local/bin/d2' in dockerfile and 'RUN d2 --version' in dockerfile

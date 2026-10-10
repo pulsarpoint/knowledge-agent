@@ -399,3 +399,13 @@ After pulling this version, run the database migration (`make up` runs it, or `m
   `repository-worker` queues the tasks and `agent-session-worker` runs them, so update both together (`make up` does).
 - Sessions that handlers started before 0090 stay viewable.
 - `AGENT_TASK_MAX` (default 2) sets how many tasks run at once per `agent-session-worker`.
+
+## Upgrading to the system graph
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0092 adds
+the system graph tables (Environments → System map).
+
+- The admin-api image now contains `d2` v0.9.0 (with the TALA, ELK and dagre layouts) to draw System map diagrams;
+  rebuild admin-api (`make up` does). The build downloads the release from GitHub and checks its sha256.
+- Without `d2` (for example admin-api running outside Docker), the Diagram view says "d2 is not installed." and the
+  Mermaid, D2 and JSON views still work.
