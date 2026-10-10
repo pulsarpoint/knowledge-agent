@@ -117,7 +117,8 @@ export default function SystemMapView() {
           <h2 className="text-sm font-medium">Outside</h2>
           {(graph?.boundary.length ?? 0) === 0 ? <p className="text-muted-foreground text-sm">Nothing outside.</p> : <ul className="flex flex-col gap-1">
             {graph!.boundary.map(node => { const count = edgeCount(node.id); return <li key={node.id} className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 flex-col"><span className="truncate text-sm">{node.name}</span>
+              <div className="flex min-w-0 flex-col">
+                <button type="button" className="truncate text-left text-sm underline-offset-4 hover:underline" onClick={() => setSheet({ nodeId: node.id })}>{node.name}</button>
                 <span className="text-muted-foreground text-xs">{`${LAYER_LABELS[node.layer]} · ${count} ${count === 1 ? "edge" : "edges"}`}</span></div>
               <Button size="icon" variant="ghost" aria-label={`Open ${node.name}`} onClick={() => go({ layer: node.layer, root: node.id })}><ArrowRight /></Button>
             </li>; })}

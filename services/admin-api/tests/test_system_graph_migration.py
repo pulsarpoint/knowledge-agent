@@ -3,7 +3,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import psycopg
-import pytest
 from psycopg.types.json import Jsonb
 
 from test_api import _client
@@ -75,7 +74,7 @@ def test_nodes_nest_within_a_layer(store):
 def test_cycles_are_refused(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        a, b, c = chain(conn, project, 3)
+        a, _, c = chain(conn, project, 3)
     with refused(store, psycopg.errors.CheckViolation, 'A node cannot be moved inside itself.') as conn:
         conn.execute('UPDATE ka.kg_nodes SET parent_id=%s WHERE id=%s', (c, a))
     with refused(store, psycopg.errors.CheckViolation, 'A node cannot be moved inside itself.') as conn:
@@ -159,7 +158,7 @@ def test_document_links_cascade(store, tmp_path):
 def test_down_and_up(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        a, b = chain(conn, project, 2)
+        a, _ = chain(conn, project, 2)
         edge(conn, project, a, node(conn, project)['id'])
         run(conn, '0092_system_graph.down.sql')
         assert conn.execute("SELECT to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.kg_edges') IS NULL "

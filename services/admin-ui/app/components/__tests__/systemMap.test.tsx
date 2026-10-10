@@ -60,7 +60,7 @@ test("opens a node, shows what is outside it, and goes back with the breadcrumb"
   const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
   expect(await breadcrumb.findByRole("button", { name: "admin-api" })).toBeInTheDocument();
   const outside = within(screen.getByRole("region", { name: "Outside" }));
-  expect(outside.getByText("prod-1")).toBeInTheDocument();
+  expect(outside.getByRole("button", { name: "prod-1" })).toBeInTheDocument();
   expect(outside.getByText("Infrastructure · 1 edge")).toBeInTheDocument();
   await user.click(breadcrumb.getByRole("button", { name: "Software" }));
   await waitFor(() => expect(where()).toBe("?layer=software"));
@@ -129,4 +129,13 @@ test("New node opens the sheet in the current layer and root", async () => {
   await screen.findByRole("button", { name: "Open Event processor" });
   await user.click(screen.getAllByRole("button", { name: "New node" })[0]);
   expect(await screen.findByText("In the Software layer, inside admin-api.")).toBeInTheDocument();
+});
+
+test("an outside node's name opens its sheet", async () => {
+  const user = userEvent.setup();
+  const fetch = api({ [API]: { json: inside }, [API_SVG]: { text: "<svg/>" }, "/api/graph/nodes/prod": { error: "Node not found.", status: 404 } });
+  view("/system-map?layer=software&root=api");
+  await user.click(await screen.findByRole("button", { name: "prod-1" }));
+  await waitFor(() => expect(urls(fetch)).toContain("/api/graph/nodes/prod"));
+  expect(where()).toBe("?layer=software&root=api");
 });

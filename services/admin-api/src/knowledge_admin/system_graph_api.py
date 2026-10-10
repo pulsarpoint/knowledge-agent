@@ -32,6 +32,9 @@ SAME_NODE = 'An edge needs two different nodes.'
 DUPLICATE_EDGE = 'This edge already exists.'
 INSIDE_ITSELF = 'A node cannot be moved inside itself.'
 REFUSED = 'The graph refused this change.'
+CONCURRENT = 'Someone changed the graph at the same time. Try again.'
+SVG_HEADERS = {'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+               'X-Content-Type-Options': 'nosniff'}
 MAX_PROPERTIES = 16384
 NODE = 'id,layer,kind,name,description,parent_id,properties,revision,created_at,updated_at'
 EDGE = 'id,from_id,to_id,type,description,revision,created_at,updated_at'
@@ -127,9 +130,13 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             raise bad(REFUSED) from None
         except psycopg.errors.ForeignKeyViolation:
             raise HTTPException(*missing) from None
+        except (psycopg.errors.DeadlockDetected, psycopg.errors.SerializationFailure):
+            raise HTTPException(409, CONCURRENT) from None
 
     def node_row(conn, project: UUID, node_id: UUID, lock: bool = False) -> dict:
-        row = conn.execute(f"SELECT {NODE} FROM ka.kg_nodes WHERE id=%s AND project_id=%s{' FOR UPDATE' if lock else ''}",
+        # NO KEY UPDATE: the node's UPDATE waits for the project lock that a concurrent create holds while its foreign key
+        # check wants a share lock on this row; FOR UPDATE would conflict with that share lock and deadlock.
+        row = conn.execute(f"SELECT {NODE} FROM ka.kg_nodes WHERE id=%s AND project_id=%s{' FOR NO KEY UPDATE' if lock else ''}",
                            (node_id, project)).fetchone()
         if row is None:
             raise HTTPException(404, NO_NODE)
@@ -198,12 +205,14 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         if format == 'd2':
             return PlainTextResponse(text)
         try:
-            return Response(system_graph_render.svg(text, layout), media_type='image/svg+xml')
+            return Response(system_graph_render.svg(text, layout), media_type='image/svg+xml', headers=SVG_HEADERS)
         except system_graph_render.RenderError as exc:
             raise HTTPException(exc.status, str(exc)) from None
 
     @router.get('/graph/nodes')
     def search(layer: Layer | None = None, q: str = Query('', max_length=200), limit: int = Query(50, ge=1, le=200)) -> dict:
+        if has_nul(q):
+            raise bad('Remove the NUL character from the search.')
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
@@ -215,7 +224,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
         def path(node_id) -> list[str]:
             names, parent = [], everything[node_id]['parent_id']
-            while parent is not None:
+            while parent in everything:  # a parent deleted between the two queries ends the path
                 names.append(everything[parent]['name'])
                 parent = everything[parent]['parent_id']
             return names[::-1]
@@ -235,7 +244,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             project = db.project(conn, app)
             check_parent(conn, project, value.layer, fields['parent_id'])
             actor = db.actor(conn, *request_actor(request))
-            with refused(conn, duplicate_name(fields['name'])):
+            with refused(conn, duplicate_name(fields['name']), (404, NO_PARENT)):  # the parent was deleted meanwhile
                 node_id = conn.execute("""INSERT INTO ka.kg_nodes(project_id,layer,kind,name,description,parent_id,properties,created_by)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (project, value.layer, fields['kind'], fields['name'], fields['description'], fields['parent_id'],
@@ -256,7 +265,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             if fields['parent_id'] == node_id:
                 raise HTTPException(422, INSIDE_ITSELF)
             check_parent(conn, project, current['layer'], fields['parent_id'])
-            with refused(conn, duplicate_name(fields['name'])):
+            with refused(conn, duplicate_name(fields['name']), (404, NO_PARENT)):  # the parent was deleted meanwhile
                 conn.execute("""UPDATE ka.kg_nodes SET kind=%s,name=%s,description=%s,parent_id=%s,properties=%s,
                     revision=revision+1 WHERE id=%s""",
                     (fields['kind'], fields['name'], fields['description'], fields['parent_id'], Jsonb(fields['properties']),

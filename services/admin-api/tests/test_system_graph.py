@@ -148,3 +148,9 @@ def test_edge_ids_are_capped_at_twenty():
     edges = [e(f'x{i}', f'm{i}', 'tasks') for i in range(25)]
     [edge] = view(edges, root='api', nodes=nodes)['edges']
     assert edge['count'] == 25 and len(edge['edge_ids']) == 20
+
+
+def test_an_edge_to_a_node_created_after_the_nodes_were_read_is_skipped():
+    nodes = [n('api', kind='service'), n('events', 'api')]
+    assert view([e('e1', 'events', 'ghost'), e('e2', 'ghost', 'events'), e('e3', 'ghost', 'phantom')], nodes=nodes)['edges'] == []
+    assert view([e('e1', 'events', 'ghost')], root='api', nodes=nodes)['edges'] == []

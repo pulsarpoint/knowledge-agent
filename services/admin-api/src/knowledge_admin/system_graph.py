@@ -81,6 +81,8 @@ def build_view(nodes: list[dict], edges: list[dict], documents: dict, layer: str
     boundary, grouped = {}, {}
     for edge in edges:
         start, end = edge['from_id'], edge['to_id']
+        if start not in by_id or end not in by_id:  # created after the nodes were read
+            continue
         if start not in representative and end not in representative:
             continue
         a = representative[start] if start in representative else outside(start)

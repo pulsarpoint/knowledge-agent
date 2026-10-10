@@ -158,7 +158,7 @@ General conventions throughout the admin app:
 | Agents | All agents |
 | LLM Settings | Models |
 | Jira | Tickets · Auto pull · Settings |
-| Environments | Environments · Services · Servers |
+| Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
 | Docs | Documents · Prompts · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
@@ -783,6 +783,7 @@ every node is itself a graph of the nodes inside it.
   same layer (or to the top level), add or remove **Edges** (type + target found by name, in any layer), attach or
   detach **Documents** from Docs → Documents, or **Delete** it (a node that still has nodes inside cannot be deleted).
   Names are unique among siblings; a node cannot be moved inside itself; a layer has at most 12 levels.
+
 ---
 
 ## 5. End-to-end workflows

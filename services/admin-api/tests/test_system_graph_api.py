@@ -1,9 +1,12 @@
 """Environments → System map API: nodes in four layers, views of one node's inside, search."""
+import threading
+import time
 from uuid import uuid4
 
+import psycopg
 import pytest
 
-from knowledge_admin import system_graph_render
+from knowledge_admin import system_graph_api, system_graph_render
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -185,6 +188,8 @@ def test_view_formats(client, store, monkeypatch):
     svg = client.get('/api/graph/view/software', headers=HEADERS, params={'format': 'svg', 'layout': 'elk'})
     assert svg.headers['content-type'] == 'image/svg+xml'
     assert svg.text == '<svg data-layout="elk">n1: "admin-api" {shape: rectangle}\n</svg>'
+    assert svg.headers['content-security-policy'] == "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+    assert svg.headers['x-content-type-options'] == 'nosniff'
 
 
 def test_svg_without_d2(client, monkeypatch):
@@ -252,3 +257,62 @@ def test_documents(client, store):
     assert client.delete(endpoint, headers=HEADERS).status_code == 204
     assert client.get(f"/api/graph/nodes/{api['id']}", headers=HEADERS).json()['node']['documents'] == []
     assert actions(store, 'graph.document.') == ['graph.document.attached', 'graph.document.detached']
+
+
+def test_saving_a_parent_while_a_child_is_created_under_it_does_not_deadlock(client, store, monkeypatch):
+    """save() locks the node, then its UPDATE waits for the project's advisory lock; a concurrent create holds that lock and
+    its foreign-key check needs a share lock on the node. FOR UPDATE made those wait on each other (40P01); FOR NO KEY UPDATE
+    does not conflict with the share lock."""
+    parent = make(client, 'P')
+    with store.connect() as conn:
+        project = conn.execute('SELECT project_id FROM ka.kg_nodes WHERE id=%s', (parent['id'],)).fetchone()['project_id']
+    outcome = {}
+
+    def create_child():
+        try:
+            with store.connect() as conn:
+                conn.execute("INSERT INTO ka.kg_nodes(project_id,layer,kind,name,parent_id) VALUES (%s,'software','module','C',%s)",
+                             (project, parent['id']))
+            outcome['child'] = 'ok'
+        except psycopg.Error as exc:
+            outcome['child'] = type(exc).__name__
+    thread = threading.Thread(target=create_child)
+    real = system_graph_api.Jsonb
+    once = []
+
+    def jsonb_after_the_lock(value):
+        if not once:  # save() has locked the node and is about to UPDATE it: let the create get in between
+            once.append(1)
+            thread.start()
+            time.sleep(1)
+        return real(value)
+    monkeypatch.setattr(system_graph_api, 'Jsonb', jsonb_after_the_lock)
+    saved = change(client, parent, name='P2')
+    thread.join()
+    assert saved.status_code == 200, saved.text
+    assert outcome == {'child': 'ok'}
+
+
+def test_a_deadlock_is_answered_as_a_conflict(client, monkeypatch):
+    def deadlock(*args, **kwargs):
+        raise psycopg.errors.DeadlockDetected()
+    parent = make(client, 'P')
+    monkeypatch.setattr(system_graph_api, 'Jsonb', deadlock)
+    assert message(change(client, parent, name='P2')) == (409, 'Someone changed the graph at the same time. Try again.')
+
+
+def test_search_refuses_nul(client):
+    response = client.get('/api/graph/nodes', headers=HEADERS, params={'q': 'a\x00b'})
+    assert message(response) == (400, 'Remove the NUL character from the search.')
+
+
+def test_a_parent_deleted_meanwhile_is_not_found(client, store, monkeypatch):
+    parent = make(client, 'P')
+    real = type(store).actor
+
+    def actor_after_the_parent_vanished(self, *args):
+        with store.connect() as conn:
+            conn.execute('DELETE FROM ka.kg_nodes WHERE id=%s', (parent['id'],))
+        return real(self, *args)
+    monkeypatch.setattr(type(store), 'actor', actor_after_the_parent_vanished)
+    assert message(post(client, name='C', parent_id=parent['id'])) == (404, 'Parent not found.')
