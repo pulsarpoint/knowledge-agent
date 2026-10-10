@@ -785,8 +785,10 @@ every node is itself a graph of the nodes inside it.
   nodes from the inventory cannot be moved or deleted here).
   Names are unique among siblings; a node cannot be moved inside itself; a layer has at most 12 levels.
 - **From the inventory.** Every server, service (with its deployments), environment and code project has a node, kept in
-  step automatically: a server's node holds its deployments (`<runtime or service> · <environment>`), an environment
-  *includes* its servers and services, a service *depends on* the services it uses and *uses* its code projects. Such
+  step automatically. Infrastructure is a tree: each environment holds its servers and each server holds its
+  deployments (`<runtime or service> · <environment>`); a server in several environments appears under each of them, and
+  a server in no environment (or with deployments without one) sits at the top level. An environment *includes* its
+  services (in the Software view), a service *depends on* the services it uses and *uses* its code projects. Such
   nodes say **From Servers** (or Services, Environments, Code projects) with a link to that page; their name, kind and
   place follow the inventory, and their synced edges are read-only. Archiving a code project counts as deleting it. You
   can still give them a description and properties, add nodes inside them, connect them with your own edges and attach

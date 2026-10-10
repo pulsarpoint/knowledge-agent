@@ -43,10 +43,11 @@ def test_services_page_saves_sync_the_graph(client, store):
     assert {'API', 'API (2)', 'Worker'} <= set(software)
     assert software['API (2)']['source_kind'] == 'service' and software['API']['source_kind'] is None
     infrastructure = nodes(client, 'infrastructure')
-    assert {name: row['source_kind'] for name, row in infrastructure.items()} == {
-        'prod-1': 'server', 'prod-2': 'server', 'production': 'environment'}
-    on_one = nodes(client, 'infrastructure', infrastructure['prod-1']['id'])
-    on_two = nodes(client, 'infrastructure', infrastructure['prod-2']['id'])
+    assert {name: row['source_kind'] for name, row in infrastructure.items()} == {'production': 'environment'}
+    in_production = nodes(client, 'infrastructure', infrastructure['production']['id'])
+    assert {name: row['source_kind'] for name, row in in_production.items()} == {'prod-1': 'server', 'prod-2': 'server'}
+    on_one = nodes(client, 'infrastructure', in_production['prod-1']['id'])
+    on_two = nodes(client, 'infrastructure', in_production['prod-2']['id'])
     assert list(on_one) == ['api · production'] and list(on_two) == ['API · production']
     service_node = detail(client, software['API (2)']['id'])
     assert service_node['source'] == {'kind': 'service', 'id': api['id'], 'page': '/services', 'label': 'Services'}
@@ -157,7 +158,8 @@ def test_every_inventory_page_keeps_the_graph(client, store):
     renamed = client.put(f"/api/servers/{host['id']}", headers=HEADERS, json={'name': 'h2', 'hostname': 'h1.internal', 'revision': 1})
     assert renamed.status_code == 200, renamed.text
     env = client.post('/api/environments', headers=HEADERS, json={'name': 'dev', 'server_ids': [host['id']]}).json()
-    assert {'h2', 'dev'} <= set(nodes(client, 'infrastructure'))
+    assert set(nodes(client, 'infrastructure')) == {'dev'}
+    assert set(nodes(client, 'infrastructure', nodes(client, 'infrastructure')['dev']['id'])) == {'h2'}
     assert client.delete(f"/api/environments/{env['id']}?revision=1&confirmed=true", headers=HEADERS).status_code == 200
     assert client.delete(f"/api/servers/{host['id']}?revision=2&confirmed=true", headers=HEADERS).status_code == 200
     assert nodes(client, 'infrastructure') == {}
@@ -174,13 +176,15 @@ def test_renaming_an_environment_renames_its_deployment_nodes(client):
     api = client.post('/api/services', headers=HEADERS, json={
         'name': 'API', 'environment_ids': [prod['id']],
         'deployments': [{'server_id': host['id'], 'environment_id': prod['id']}]}).json()
-    server_node = nodes(client, 'infrastructure')['prod-1']
+    production = nodes(client, 'infrastructure')['production']
+    server_node = nodes(client, 'infrastructure', production['id'])['prod-1']
     assert list(nodes(client, 'infrastructure', server_node['id'])) == ['API · production']
     current = client.get(f"/api/environments/{prod['id']}", headers=HEADERS).json()
     renamed = client.put(f"/api/environments/{prod['id']}", headers=HEADERS, json={
         'name': 'live', 'revision': current['revision'], 'server_ids': [host['id']], 'service_ids': [api['id']]})
     assert renamed.status_code == 200, renamed.text
-    assert list(nodes(client, 'infrastructure', server_node['id'])) == ['API · live']
+    live = nodes(client, 'infrastructure')['live']
+    assert list(nodes(client, 'infrastructure', nodes(client, 'infrastructure', live['id'])['prod-1']['id'])) == ['API · live']
 
 
 def test_a_graph_name_clash_is_not_reported_as_an_inventory_duplicate(client, monkeypatch):
