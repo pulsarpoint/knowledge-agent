@@ -36,16 +36,26 @@ def postgres():
         subprocess.run(["docker", "rm", "-f", name], check=False, capture_output=True)
 
 
+@pytest.fixture(scope="session")
+def migrated_template(postgres):
+    """All migrations applied once; each test copies this database instead of migrating its own."""
+    template = f"template_{uuid4().hex}"
+    with psycopg.connect(postgres, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(template)))
+    with psycopg.connect(f"{postgres} dbname={template}") as conn:
+        for migration in sorted((Path(__file__).resolve().parents[3] / "db/migrations").glob("*.up.sql")):
+            conn.execute(migration.read_text(), prepare=False)
+    return template
+
+
 @pytest.fixture
-def store(postgres):
+def store(postgres, migrated_template):
     database = f"test_{uuid4().hex}"
     with psycopg.connect(postgres, autocommit=True) as conn:
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        conn.execute(sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(
+            sql.Identifier(database), sql.Identifier(migrated_template)))
     conninfo = f"{postgres} dbname={database}"
     try:
-        with psycopg.connect(conninfo) as conn:
-            for migration in sorted((Path(__file__).resolve().parents[3] / "db/migrations").glob("*.up.sql")):
-                conn.execute(migration.read_text(), prepare=False)
         yield RepositoryStore(conninfo, b"k" * 32, "http://identity.test/realms/docs")
     finally:
         with psycopg.connect(postgres, autocommit=True) as conn:
