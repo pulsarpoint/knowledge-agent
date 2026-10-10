@@ -412,7 +412,6 @@ the system graph tables (Environments → System map).
 
 ## Upgrading to the inventory sync
 
-Migration 0093 links the system graph to the inventory: every server, service, deployment, environment and code project
-gets a node (Environments → System map), kept in step whenever the inventory changes. The migration creates the nodes
-for the existing inventory; nodes made by hand keep their names, and a synced node whose name is already taken gets
-" (2)".
+Migration 0093 links the system graph to the inventory. When admin-api starts it gives every server, service,
+deployment, environment and code project a node (Environments → System map) and from then on keeps them in step whenever
+the inventory changes. Nodes made by hand keep their names; a synced node whose name is already taken gets " (2)".

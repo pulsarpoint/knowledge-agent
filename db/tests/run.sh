@@ -200,7 +200,8 @@ sync=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
             AND table_name = 'kg_nodes' AND column_name = 'server_id')
         AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
-            AND table_name = 'kg_edges' AND column_name = 'synced')")
+            AND table_name = 'kg_edges' AND column_name = 'synced')
+        AND to_regclass('ka.kg_graph_version') IS NOT NULL")
 [ "$sync" = t ] || { echo 'FAIL: 0093 inventory sync columns missing' >&2; exit 1; }
 printf '%s\n' 'PASS: inventory rows sync into the system graph.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \

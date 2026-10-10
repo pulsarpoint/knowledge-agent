@@ -197,13 +197,11 @@ deleting a document removes its links. The down migration drops the three tables
 
 ## 0093_graph_inventory_sync
 
-Servers, services, service deployments, environments and code projects are linked to system graph nodes
-(`kg_nodes.server_id`, `service_id`, `deployment_id`, `environment_id`, `repository_id`; at most one per node, one node
-per row, the layer must match). Triggers on the inventory tables create, rename and move those nodes in the same
-transaction (a deployment's node sits under its server's node), and turn service dependencies, service code projects and
-environment members into edges marked `synced` (`depends_on`, `uses`, and the new type `includes`). Deleting a row
-deletes its node unless the node has children or documents; then the node stays, unlinked, with "Removed from … on
-<date>." added to its description. Archiving a code project counts as deleting it (code projects are archived, never
-deleted); un-archiving it brings its node back. The migration fills the graph from the existing inventory, skipping
-archived code projects (a clash with a hand-made node's name gets " (2)"). The down migration deletes synced edges and
-`includes` edges, deletes linked nodes with nothing attached, and drops the links, triggers and functions.
+System graph nodes can link to inventory rows (`kg_nodes.server_id`, `service_id`, `deployment_id`, `environment_id`,
+`repository_id`; at most one per node, one node per row, the layer must match). The links are foreign keys checked at
+commit: the admin API's sync (`graph_sync.py`), run by every inventory write and at start-up, creates, renames, moves
+and releases linked nodes and keeps edges marked `synced` (`depends_on`, `uses`, `instance_of`, and the new type
+`includes`). A delete that skipped the sync fails at commit. `kg_graph_version` holds one number that every statement on
+`kg_nodes`, `kg_edges` and `kg_node_documents` increases (with a `ka_graph` notification), so processes know when to
+rebuild their in-memory graph. The down migration deletes synced and `includes` edges, deletes linked nodes with nothing
+attached, and drops the links, the version table and its trigger.

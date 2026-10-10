@@ -1,20 +1,12 @@
 BEGIN;
 SET search_path = ka, public;
+SET CONSTRAINTS ALL IMMEDIATE;  -- settle pending link checks so the tables can be altered
 
-DROP TRIGGER kg_sync ON servers;
-DROP TRIGGER kg_sync_release ON servers;
-DROP TRIGGER kg_sync ON environments;
-DROP TRIGGER kg_sync_release ON environments;
-DROP TRIGGER kg_sync ON services;
-DROP TRIGGER kg_sync_release ON services;
-DROP TRIGGER kg_sync ON repositories;
-DROP TRIGGER kg_sync_release ON repositories;
-DROP TRIGGER kg_sync ON service_deployments;
-DROP TRIGGER kg_sync_release ON service_deployments;
-DROP TRIGGER kg_sync ON service_dependencies;
-DROP TRIGGER kg_sync ON service_repositories;
-DROP TRIGGER kg_sync ON environment_servers;
-DROP TRIGGER kg_sync ON environment_services;
+DROP TRIGGER kg_graph_changed ON kg_node_documents;
+DROP TRIGGER kg_graph_changed ON kg_edges;
+DROP TRIGGER kg_graph_changed ON kg_nodes;
+DROP FUNCTION kg_graph_changed();
+DROP TABLE kg_graph_version;
 
 DELETE FROM kg_edges WHERE synced OR type = 'includes';
 -- Linked nodes with nothing hand-made attached go (deployments before their servers); the rest are unlinked.
@@ -30,15 +22,6 @@ BEGIN
         EXIT WHEN removed = 0;
     END LOOP;
 END $$;
-
-DROP FUNCTION kg_sync_relation();
-DROP FUNCTION kg_sync_inventory();
-DROP FUNCTION kg_sync_release(text, uuid, text);
-DROP FUNCTION kg_sync_row(text, uuid);
-DROP FUNCTION kg_unsync_edge(uuid, uuid, text);
-DROP FUNCTION kg_sync_edge(uuid, uuid, uuid, text);
-DROP FUNCTION kg_free_name(uuid, text, uuid, text, uuid);
-DROP FUNCTION kg_node_for(text, uuid);
 
 ALTER TABLE kg_edges
     DROP COLUMN synced,
