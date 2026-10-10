@@ -1,6 +1,7 @@
 # System graph inventory sync — design
 
-Date: 2026-10-10. Status: approved in conversation, section by section. Follows
+Date: 2026-10-10. Status: approved in conversation, section by section; **revised the same day** — the sync moved from
+database triggers to a Python reconcile, and reads moved to an in-memory graph (networkx), at the user's request. Follows
 `2026-10-10-system-graph-design.md` (step 1, merged as 8f81e5e); this is roadmap step 3 brought forward (LLM/Diátaxis
 output, step 2, is postponed).
 
@@ -14,9 +15,14 @@ graph must follow it automatically: same transaction, whichever page or code pat
 
 - **Typed links.** `kg_nodes` gets nullable foreign keys `service_id`, `server_id`, `deployment_id`, `environment_id`,
   `repository_id`; at most one per node; one node per inventory row; the link must match the node's layer.
-- **Database triggers do the sync** (not API code): inventory rows are written from several places (services API with
-  its deployments, servers API, environments API, migrations), and only triggers cover every path. Each trigger runs in
-  the writer's transaction, so the inventory and the graph never disagree.
+- **A Python reconcile does the sync** (`graph_sync.sync_inventory(conn, project)`): it reads the inventory, works out
+  which synced nodes and edges should exist, compares that with what is stored and writes only the difference. Every
+  inventory write path calls it in its own transaction, so the inventory and the graph never disagree; because it
+  compares whole pictures, a missed call or an old bug is repaired by the next call. It also runs when admin-api starts
+  (that is the backfill for existing inventory). No sync triggers in the database.
+- **Reads come from an in-memory graph.** Each process keeps the project's graph in a `networkx.MultiDiGraph`
+  (`graph_memory.GraphMemory`), rebuilt whole from the database when the stored graph version changes, and the old copy
+  dropped. Views and search use it; writes still go to PostgreSQL first.
 - **Mapping** (below). Deployments are nodes under their server (so opening a server shows what runs on it).
   Environments are Infrastructure nodes with `includes` edges (an environment cannot be a parent: a server can be in
   several). `ka.projects` gets no node (the deployment's single project is the implicit root of every layer).
@@ -37,8 +43,10 @@ graph must follow it automatically: same transaction, whichever page or code pat
 | `environment_id` | `environments(id, project_id)` | Infrastructure only |
 | `repository_id` | `repositories(id, project_id)` | Software only |
 
-- Foreign keys use `(x, project_id)` so a link can never cross projects, and `ON DELETE SET NULL (x)` as a backstop (the
-  delete trigger decides first; see Sync).
+- Foreign keys use `(x, project_id)` so a link can never cross projects, and are `DEFERRABLE INITIALLY DEFERRED`: when an
+  inventory row is deleted, the link still points at it until commit, so the reconcile in the same transaction sees
+  which node lost its row and applies the delete rule. A write path that forgot to call the sync fails at commit
+  instead of leaving a broken link — tests catch it.
 - `CHECK (num_nonnulls(service_id, server_id, deployment_id, environment_id, repository_id) <= 1)`.
 - `CHECK` that a set link matches the layer (service/repository → `software`; server/deployment/environment →
   `infrastructure`).
@@ -49,11 +57,17 @@ graph must follow it automatically: same transaction, whichever page or code pat
 - New column `synced boolean NOT NULL DEFAULT false`. Sync-made edges have `synced = true`.
 - Edge type list gains `includes` (the type CHECK is replaced; diagrams draw it like the other types).
 
+### `ka.kg_graph_version`
+
+One row (`version bigint`). A statement-level trigger on `kg_nodes`, `kg_edges` and `kg_node_documents`
+(`AFTER INSERT OR UPDATE OR DELETE … FOR EACH STATEMENT`) adds 1 and calls `pg_notify('ka_graph', version)`. Every
+process compares it with the version of its in-memory copy before serving a read.
+
 ### Down migration
 
-Deletes synced edges, deletes nodes that are linked and have no children or documents, clears the rest of the links,
-drops the triggers, functions, columns and indexes, and restores the old edge-type CHECK (any remaining `includes` edge
-is deleted first). `db/tests/run.sh` gets the 0093 down/up checks; the rollback chain still ends at version 83.
+Deletes synced edges, deletes nodes that are linked and have no children or documents (repeatedly, so deployments go
+before their servers), clears the rest of the links, drops the version table and its trigger, the columns and indexes,
+and restores the old edge-type CHECK (any remaining `includes` edge is deleted first). `db/tests/run.sh` gets the 0093 down/up checks; the rollback chain still ends at version 83.
 
 ## Mapping
 
@@ -69,34 +83,44 @@ is deleted first). `db/tests/run.sh` gets the 0093 down/up checks; the rollback 
 first free of `<name> (2)`, `<name> (3)`, … — an inventory save never fails because of the graph. On rename, the same
 rule applies to the new name.
 
-## Sync (triggers, `AFTER INSERT OR UPDATE OR DELETE … FOR EACH ROW`)
+## Sync (`graph_sync.py`)
 
-All sync functions take the same per-project advisory lock as `kg_nodes_place`
-(`pg_advisory_xact_lock(hashtext('ka.kg_nodes'), hashtext(project_id::text))`) before touching the graph, so inventory
-saves and graph edits serialise the same way.
+`sync_inventory(conn, project) -> SyncResult` runs inside the caller's transaction:
 
-| Change | Effect |
-|---|---|
-| server / service / environment / repository inserted | create its node at the top of its layer, linked |
-| … name updated | rename its node (suffix rule) |
-| deployment inserted | create its node under the server's node; `instance_of` edge to the service's node |
-| deployment `server_id` updated | move its node under the new server's node |
-| deployment `runtime_name`, `environment` updated | rename its node (environment renames already rewrite the `environment` label of every deployment, so deployment names follow) |
-| `service_dependencies` insert / delete | add / remove the `depends_on` edge |
-| `service_repositories` insert / delete | add / remove the `uses` edge |
-| `environment_servers`, `environment_services` insert / delete | add / remove the `includes` edge |
-| any linked row deleted | its synced edges are deleted; then its node is deleted if it has no children and no documents, otherwise its link is cleared and `Removed from <Servers / Services / Services (deployment) / Environments / Code projects> on <YYYY-MM-DD>.` is appended to its description (on a new line; description truncated from the front if it would exceed 4000 characters) |
+1. Take the project's graph lock (`pg_advisory_xact_lock(hashtext('ka.kg_nodes'), hashtext(project::text))`), the same
+   lock graph writes take first, so syncs and graph edits never deadlock.
+2. Read the inventory: servers, environments, services, code projects that are not archived, deployments (with their
+   service name), and the four relation tables.
+3. Build the **desired** synced nodes (link, layer, kind, parent link, wanted name) and edges (from link, to link, type)
+   per the Mapping table.
+4. Read the **stored** linked nodes and synced edges.
+5. Apply the difference, in this order: create missing nodes (servers before deployments), rename and move changed ones
+   (suffix rule), release nodes whose row is gone or archived (delete rule below), add missing synced edges, delete
+   synced edges no longer wanted. Unchanged rows are not touched (no revision bump).
 
-- A node missing when a trigger expects it (e.g. a server's node was unlinked earlier) is created on demand; an edge
-  whose end node is missing is skipped.
-- Cascading deletes (an environment deleted → its `environment_servers` rows) fire the row triggers; the order is safe
-  because edge removal tolerates already-deleted nodes.
-- Deleting a server is already refused by the API while deployments use it, so deployment nodes are always handled
-  first.
+**Delete rule.** A linked node whose row is gone (or whose code project is archived) loses its synced edges; it is
+deleted if it has no children and no documents, otherwise its link is cleared and
+`Removed from <Servers / Services / Services (deployment) / Environments / Code projects> on <YYYY-MM-DD>.` is appended
+to its description (new line; cut from the front to 4000 characters). Releases run deepest first, so a deployment node is
+handled before its server's node.
 
-**Backfill.** The migration creates nodes and synced edges for every existing inventory row, in this order: servers,
-environments, services, repositories, deployments, then the edge tables. The suffix rule applies to clashes with
-hand-made nodes made since 0092.
+**Hand-made edges** with the same ends and type as a wanted synced edge are left as they are (the sync does not add a
+duplicate and never deletes them).
+
+**Who calls it.** Every write of the inventory, at the end of its transaction: Servers (create, edit, delete), Services
+(create, edit with deployments, dependencies, code projects and environments, delete), Environments (create, edit,
+delete), Code projects (create, edit, archive), and the admin-api start-up (backfill; logs and continues on failure, like
+the other start-up tasks). Each call is cheap at our size (a few queries over a few hundred rows).
+
+## In-memory graph (`graph_memory.py`)
+
+- `GraphMemory.get(conn, project) -> Snapshot` returns the current snapshot: a `networkx.MultiDiGraph` (node attributes:
+  layer, kind, name, description, parent_id, source_kind; edge keys: edge id, attributes: type, synced) plus the
+  documents per node and the version it was built from. If the stored `kg_graph_version` differs from the snapshot's,
+  it rebuilds the whole snapshot from the database and replaces the old one (thread-safe; one rebuild at a time).
+- `system_graph.build_view` and search read from the snapshot instead of querying all rows per request. Node detail,
+  edits and refusals keep reading single rows from PostgreSQL (they need the current `revision`).
+- One snapshot per project per process (admin-api; later the agent tools). `networkx` becomes an admin-api dependency.
 
 ## API (`system_graph_api.py`)
 
@@ -124,10 +148,15 @@ hand-made nodes made since 0092.
 
 ## Testing
 
-- **Migration / triggers (`db` tests via the `store` fixture):** each row of the Sync table; deployment moved to another
-  server; environment rename renames its deployment nodes; suffix rule on a clash with a hand-made node (create and
-  rename); delete with and without children/documents (node gone vs unlinked with the note); link/layer CHECK and
-  one-node-per-row index; backfill of rows that existed before 0093; down migration and up again; `run.sh` chain.
+- **Migration:** link/layer CHECK, one-node-per-row index, deferred foreign keys (a delete without a sync fails at
+  commit), version bump and notify per statement, down and up again, `run.sh` chain.
+- **Sync (`graph_sync`, against the `store` fixture):** create for each kind; rename; deployment moved to another server;
+  environment rename renames its deployment nodes; service rename renames deployments without a runtime name; each
+  relation table makes and removes its synced edge; suffix rule on a clash (create and rename); delete with and without
+  children/documents; archived code projects; hand-made edge with the same ends left alone; a second run changes
+  nothing (no revision bumps); repair of a node changed behind the sync's back.
+- **In-memory graph:** builds from the database; a write bumps the version and the next `get` rebuilds; unchanged
+  version returns the same snapshot object; views and search from the snapshot match the old SQL results.
 - **Through the real APIs:** save a service with two deployments and two environments in Services → nodes and edges in
   `/api/graph`; change a deployment's server; delete the service whose node has a hand-made child → node kept, unlinked;
   delete a server with no deployments.
