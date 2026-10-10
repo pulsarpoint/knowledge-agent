@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from knowledge_admin import system_graph, system_graph_render
 from knowledge_admin.access import request_actor
 from knowledge_admin.event_templates import has_nul
-from knowledge_admin.events_api import like
+from knowledge_admin.graph_memory import GraphMemory
 from knowledge_admin.repositories import RepositoryStore
 
 Layer = Literal['business', 'software', 'data', 'infrastructure']
@@ -46,8 +46,6 @@ SOURCES = {  # link column → (kind, page, label)
 LINKS = ','.join(SOURCES)
 NODE = f'id,layer,kind,name,description,parent_id,properties,revision,created_at,updated_at,{LINKS}'
 EDGE = 'id,from_id,to_id,type,description,revision,synced,created_at,updated_at'
-SOURCE_KIND = ('CASE ' + ' '.join(f"WHEN {link} IS NOT NULL THEN '{kind}'" for link, (kind, _, _) in SOURCES.items())
-               + ' END AS source_kind')
 LOCK_PROJECT = "SELECT pg_advisory_xact_lock(hashtext('ka.kg_nodes'), hashtext(%s::text))"
 
 
@@ -128,6 +126,7 @@ def clean(value: NodeFields) -> dict:
 
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
+    memory = GraphMemory()  # one per process
 
     def database() -> RepositoryStore:
         if store is None:
@@ -219,12 +218,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
-            nodes = conn.execute(f'SELECT id,parent_id,layer,kind,name,description,{SOURCE_KIND} FROM ka.kg_nodes WHERE project_id=%s',
-                                 (project,)).fetchall()
-            edges = conn.execute('SELECT id,from_id,to_id,type,synced FROM ka.kg_edges WHERE project_id=%s ORDER BY id', (project,)).fetchall()
-            documents = documents_of(conn, project)
+            snapshot = memory.get(conn, project)
         try:
-            graph = system_graph.build_view(nodes, edges, documents, layer, root, depth)
+            graph = system_graph.build_view(snapshot.nodes(), snapshot.edges(), snapshot.documents, layer, root, depth)
         except system_graph.ViewError as exc:
             raise HTTPException(exc.status, str(exc)) from None
         if format == 'json':
@@ -246,19 +242,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
-            rows = conn.execute("""SELECT id,layer,kind,name FROM ka.kg_nodes
-                WHERE project_id=%s AND (%s::text IS NULL OR layer=%s) AND name ILIKE %s ESCAPE '\\'
-                ORDER BY lower(name),id LIMIT %s""", (project, layer, layer, like(q.strip()), limit)).fetchall()
-            everything = {row['id']: row for row in conn.execute(
-                'SELECT id,parent_id,name FROM ka.kg_nodes WHERE project_id=%s', (project,)).fetchall()}
-
-        def path(node_id) -> list[str]:
-            names, parent = [], everything[node_id]['parent_id']
-            while parent in everything:  # a parent deleted between the two queries ends the path
-                names.append(everything[parent]['name'])
-                parent = everything[parent]['parent_id']
-            return names[::-1]
-        return {'nodes': [{**row, 'path': path(row['id'])} for row in rows]}
+            return {'nodes': memory.get(conn, project).search(q, layer, limit)}
 
     @router.get('/graph/nodes/{node_id}')
     def one(node_id: UUID) -> dict:
