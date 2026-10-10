@@ -44,15 +44,15 @@ def subjects(conn, project: UUID, value) -> dict:
         value.collection_ids, 'collections')
     environments = _in_order(conn.execute('''SELECT id,name,description,services,servers FROM ka.environment_assets
         WHERE project_id=%s AND id=ANY(%s)''', (project, value.environment_ids)).fetchall(), value.environment_ids, 'environments')
-    services = _in_order(conn.execute('''SELECT id,name,description,deployments FROM ka.service_assets
+    services = _in_order(conn.execute('''SELECT id,name,description,deployments,links FROM ka.service_assets
         WHERE project_id=%s AND id=ANY(%s)''', (project, value.service_ids)).fetchall(), value.service_ids, 'services')
     servers = _in_order(conn.execute('SELECT id,name,hostname,description FROM ka.servers WHERE project_id=%s AND id=ANY(%s)',
                                      (project, value.server_ids)).fetchall(), value.server_ids, 'servers')
     members = {e['id']: [UUID(s['id']) for s in e['services']] for e in environments}
     linked: dict[UUID, list[dict]] = {}
-    for row in conn.execute(f'''SELECT sr.service_id,r.id,r.name,{FOLDER_PATHS} FROM ka.service_repositories sr
-            JOIN ka.repositories r ON r.id=sr.repository_id WHERE sr.service_id=ANY(%s) AND r.archived_at IS NULL
-            ORDER BY lower(r.name),r.id''',
+    for row in conn.execute(f'''SELECT l.from_service_id AS service_id,r.id,r.name,{FOLDER_PATHS} FROM ka.inventory_links l
+            JOIN ka.repositories r ON r.id=l.to_code_project_id WHERE l.kind='built_from' AND l.from_service_id=ANY(%s)
+            AND r.archived_at IS NULL ORDER BY lower(r.name),r.id''',
             ([item for ids in members.values() for item in ids] + [s['id'] for s in services],)).fetchall():
         linked.setdefault(row['service_id'], []).append({'id': row['id'], 'name': row['name'], 'paths': paths(row['folder_paths'])})
     deployments: dict[UUID, list[str]] = {}
@@ -80,8 +80,15 @@ def subjects(conn, project: UUID, value) -> dict:
                           'code_projects': environment_code(e['id'])} for e in environments],
         'services': [{'id': s['id'], 'name': s['name'], 'description': s['description'],
                       'deployments': [f"{d['server']['name']} ({d['environment']})" for d in s['deployments']],
-                      'code_projects': linked.get(s['id'], [])} for s in services],
+                      'code_projects': linked.get(s['id'], []),
+                      'connections': [connection(link) for link in s['links']]} for s in services],
         'servers': servers})
+
+
+def connection(link: dict) -> str:
+    """A connects_to link of a service as one line: 'connects to prod-db (server)' or 'billing (service) connects to it'."""
+    other = f"{link['name']} ({link['entry_kind'].replace('_', ' ')})"
+    return f'connects to {other}' if link['direction'] == 'outgoing' else f'{other} connects to it'
 
 
 def _flat(text: str) -> str:
@@ -114,7 +121,8 @@ def _sections(context: dict[str, Any]) -> list[str]:
             ('code: ', [_code(p) for p in e['code_projects']])]) for e in context['environments']))
     if context['services']:
         sections.append('## Services\n' + '\n'.join(_line(s['name'], s['description'], [
-            ('deployed on ', s['deployments']), ('code: ', [_code(p) for p in s['code_projects']])]) for s in context['services']))
+            ('deployed on ', s['deployments']), ('code: ', [_code(p) for p in s['code_projects']]),
+            ('connections: ', s['connections'])]) for s in context['services']))
     if context['servers']:
         sections.append('## Servers\n' + '\n'.join(
             _line(f"{s['name']} ({s['hostname']})", s['description'], []) for s in context['servers']))

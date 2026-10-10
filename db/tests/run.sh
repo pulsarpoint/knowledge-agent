@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+links_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.inventory_links') IS NULL AND to_regclass('ka.kg_nodes') IS NOT NULL
+        AND to_regclass('ka.service_dependencies') IS NOT NULL")
+[ "$links_removed" = t ] || { echo 'FAIL: 0095 down did not restore the graph and link tables' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 tree_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT pg_get_indexdef('ka.kg_nodes_by_server'::regclass) NOT LIKE '%environment_id%'")
 [ "$tree_removed" = t ] || { echo 'FAIL: 0094 down left server nodes per environment' >&2; exit 1; }
@@ -195,23 +200,11 @@ manual=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'events_source_check')) LIKE '%manual%'")
 [ "$manual" = t ] || { echo 'FAIL: 0091 events.source does not allow manual' >&2; exit 1; }
 printf '%s\n' 'PASS: events can be made by hand (source manual).'
-graph=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT to_regclass('ka.kg_nodes') IS NOT NULL AND to_regclass('ka.kg_edges') IS NOT NULL
-        AND to_regclass('ka.kg_node_documents') IS NOT NULL")
-[ "$graph" = t ] || { echo 'FAIL: 0092 system graph tables missing' >&2; exit 1; }
-printf '%s\n' 'PASS: the system graph has nodes, edges and document links.'
-sync=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
-            AND table_name = 'kg_nodes' AND column_name = 'server_id')
-        AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
-            AND table_name = 'kg_edges' AND column_name = 'synced')
-        AND to_regclass('ka.kg_graph_version') IS NOT NULL")
-[ "$sync" = t ] || { echo 'FAIL: 0093 inventory sync columns missing' >&2; exit 1; }
-printf '%s\n' 'PASS: inventory rows sync into the system graph.'
-tree=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT pg_get_indexdef('ka.kg_nodes_by_server'::regclass) LIKE '%environment_id%'")
-[ "$tree" = t ] || { echo 'FAIL: 0094 server nodes per environment missing' >&2; exit 1; }
-printf '%s\n' 'PASS: environments contain their servers in the system graph.'
+links=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.inventory_links') IS NOT NULL AND to_regclass('ka.inventory_documents') IS NOT NULL
+        AND to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.service_dependencies') IS NULL")
+[ "$links" = t ] || { echo 'FAIL: 0095 inventory links missing or the stored graph still there' >&2; exit 1; }
+printf '%s\n' 'PASS: inventory links replace the stored system graph.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

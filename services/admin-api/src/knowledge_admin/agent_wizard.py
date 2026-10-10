@@ -145,7 +145,7 @@ def inventory(conn, project):
         'mcp_servers': conn.execute('''SELECT id,name,description FROM ka.mcp_servers
             WHERE project_id=%s AND enabled ORDER BY name''', (project,)).fetchall(),
         'services': conn.execute('''SELECT id,name,description,operations_notes,
-            ARRAY(SELECT repository_id FROM ka.service_repositories r WHERE r.service_id=s.id) AS repository_ids,
+            ARRAY(SELECT to_code_project_id FROM ka.inventory_links l WHERE l.kind='built_from' AND l.from_service_id=s.id) AS repository_ids,
             ARRAY(SELECT server_id FROM ka.service_deployments d WHERE d.service_id=s.id) AS server_ids
             FROM ka.services s WHERE project_id=%s ORDER BY name''', (project,)).fetchall(),
         'existing_agents': conn.execute('SELECT name,description,when_to_use FROM ka.agents ORDER BY name').fetchall(),

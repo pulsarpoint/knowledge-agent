@@ -213,3 +213,15 @@ Environments contain their servers in the system graph: a server has one linked 
 `server_id` and `environment_id` set) and a top-level node when it is in none (`environment_id` NULL). The unique rule
 becomes one node per (server, environment) pair; an environment's own node is the only node with `environment_id` and no
 `server_id`. The down migration turns the per-environment copies into hand-made nodes and restores one node per server.
+
+## 0095_inventory_links
+
+Connections between inventory entries replace the stored system graph. `inventory_links` holds `depends_on`
+(service → service), `built_from` (service → code project) and `connects_to` (any entry → any entry) with a description
+and string attributes; each end is a foreign key to its entry table and deleting an entry deletes its links.
+`inventory_documents` attaches documents to entries. Rows of `service_dependencies` and `service_repositories` move into
+`inventory_links`; documents attached to graph nodes move to the entry behind the node (a deployment's to its service),
+and attachments of hand-drawn nodes are dropped (the documents stay). `kg_nodes`, `kg_edges`, `kg_node_documents`,
+`kg_graph_version` and their triggers are dropped. `service_assets` reads the new table and gains `links` (the service's
+`connects_to` links). The down migration refuses while `connects_to` links, link attributes or attachments exist;
+otherwise it restores the old tables and an empty graph, which the old code's start-up sync refills.

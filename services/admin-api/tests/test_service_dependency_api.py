@@ -42,7 +42,7 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
 
     # Editing the reverse side updates the same row without replacing its identity/timestamps.
     with store.connect() as conn:
-        original = conn.execute('SELECT created_at FROM ka.service_dependencies WHERE service_id=%s AND depends_on_service_id=%s', (UUID(payments),UUID(postgres))).fetchone()
+        original = conn.execute("SELECT created_at FROM ka.inventory_links WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s", (UUID(payments),UUID(postgres))).fetchone()
     response = client.put(f'/api/services/{postgres}', headers=HEADERS, json={
         'name': 'PostgreSQL', 'revision': postgres_asset['revision'],
         'dependents': [{'service_id': payments, 'description': 'Stores transactions'}, {'service_id': reporting, 'description': 'Reads reports'}]})
@@ -52,7 +52,7 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
     assert current['dependencies'][0]['description'] == 'Stores transactions'
     assert current['dependents'] == payment_asset['dependents']
     with store.connect() as conn:
-        assert conn.execute('SELECT created_at FROM ka.service_dependencies WHERE service_id=%s AND depends_on_service_id=%s', (UUID(payments),UUID(postgres))).fetchone() == original
+        assert conn.execute("SELECT created_at FROM ka.inventory_links WHERE kind='depends_on' AND from_service_id=%s AND to_service_id=%s", (UUID(payments),UUID(postgres))).fetchone() == original
     # The opposite form cannot erase a change using an old revision.
     assert client.put(f'/api/services/{payments}', headers=HEADERS, json={
         'name': 'Payments', 'revision': payment_asset['revision'], 'dependencies': []}).status_code == 409
@@ -66,8 +66,8 @@ def test_both_directions_create_edit_remove_and_preserve_other_relationships(sto
     assert client.put(f'/api/services/{payments}', headers=HEADERS, json={
         'name': 'Payments', 'revision': current['revision'], 'dependents': []}).status_code == 200
     with store.connect() as conn:
-        links = conn.execute('SELECT service_id,depends_on_service_id FROM ka.service_dependencies').fetchall()
-        assert links == [{'service_id': UUID(reporting), 'depends_on_service_id': UUID(postgres)}]
+        links = conn.execute("SELECT from_service_id,to_service_id FROM ka.inventory_links WHERE kind='depends_on'").fetchall()
+        assert links == [{'from_service_id': UUID(reporting), 'to_service_id': UUID(postgres)}]
 
 
 def test_create_with_both_directions_and_reject_invalid_requests_atomically(store, inventory):

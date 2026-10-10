@@ -44,7 +44,7 @@ def test_service_assets_link_multiple_repositories_and_server_deployments(store,
     other = client.post("/api/services", headers=HEADERS, json={"name": "Reports", "repository_ids": [str(second)]})
     assert other.status_code == 201
     with store.connect() as conn:
-        assert conn.execute("SELECT count(*) AS n FROM ka.service_repositories WHERE repository_id=%s", (second,)).fetchone()["n"] == 2
+        assert conn.execute("SELECT count(*) AS n FROM ka.inventory_links WHERE kind='built_from' AND to_code_project_id=%s", (second,)).fetchone()["n"] == 2
         actions = conn.execute("SELECT action FROM ka.audit_events WHERE resource_id=%s", (UUID(service_id),)).fetchall()
         assert actions == [{"action": "service.created"}]
 
@@ -99,7 +99,7 @@ def test_cross_project_references_and_ids_fail_without_mutation(store, tmp_path)
         local_service = conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'Local') RETURNING id", (local_project,)).fetchone()["id"]
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with store.connect() as conn:
-            conn.execute("INSERT INTO ka.service_repositories(project_id,service_id,repository_id) VALUES (%s,%s,%s)", (local_project, local_service, repo))
+            conn.execute("INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind) VALUES (%s,%s,%s,'built_from')", (local_project, local_service, repo))
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with store.connect() as conn:
             conn.execute("INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment) VALUES (%s,%s,%s,'prod')", (local_project, local_service, foreign_server))
@@ -199,7 +199,7 @@ def test_delete_service_removes_links_but_preserves_shared_assets_and_audits(sto
     assert client.get("/api/servers", headers=HEADERS).json()["servers"] == [server]
     with store.connect() as conn:
         assert conn.execute("SELECT * FROM ka.repositories WHERE id=%s", (repository_id,)).fetchone() == repository
-        assert conn.execute("SELECT 1 FROM ka.service_repositories WHERE service_id=%s", (UUID(service_id),)).fetchone() is None
+        assert conn.execute("SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s", (UUID(service_id),)).fetchone() is None
         assert conn.execute("SELECT 1 FROM ka.service_deployments WHERE service_id=%s", (UUID(service_id),)).fetchone() is None
         assert conn.execute("SELECT service_id FROM ka.agent_services WHERE agent_id='search'").fetchall() == [{"service_id": UUID(other_id)}]
         audit = conn.execute("SELECT resource_type,actor_id,details FROM ka.audit_events WHERE action='service.deleted' AND resource_id=%s", (UUID(service_id),)).fetchall()

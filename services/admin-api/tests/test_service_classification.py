@@ -59,6 +59,7 @@ def test_migration_preserves_inventory_and_refuses_to_discard_saved_classificati
     up = (MIGRATIONS / "0044_service_classification.up.sql").read_text(encoding="utf-8")
     down = (MIGRATIONS / "0044_service_classification.down.sql").read_text(encoding="utf-8")
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / "0095_inventory_links.down.sql").read_text(), prepare=False)  # 0044 reads the old link tables
         conn.execute(down, prepare=False)
         project = store.project(conn, "shop")
         service_id = conn.execute("INSERT INTO ka.services(project_id,name,description) VALUES (%s,'Existing','Retained') RETURNING id", (project,)).fetchone()["id"]

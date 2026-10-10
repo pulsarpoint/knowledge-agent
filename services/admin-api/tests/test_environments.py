@@ -134,6 +134,7 @@ def test_migration_reapply_and_populated_rollback_protection(store):
     with store.connect() as conn:
         project = store.project(conn, "shop")
         conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'Retained')", (project,))
+        conn.execute((migrations / "0095_inventory_links.down.sql").read_text(), prepare=False)  # 0050 reads the old link tables
         conn.execute((migrations / "0073_remove_documentation_generation.down.sql").read_text(), prepare=False)
         conn.execute((migrations / "0050_service_environments.down.sql").read_text(), prepare=False)
         conn.execute((migrations / "0049_layered_environment_architecture.down.sql").read_text(), prepare=False)

@@ -89,6 +89,7 @@ def test_environment_selection_rejects_missing_foreign_and_duplicate_ids(store, 
 def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations/'0095_inventory_links.down.sql').read_text(), prepare=False)  # 0050 reads the old link tables
         conn.execute((migrations/'0050_service_environments.down.sql').read_text(), prepare=False)
         project = store.project(conn, 'legacy')
         service = conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'API') RETURNING id", (project,)).fetchone()['id']

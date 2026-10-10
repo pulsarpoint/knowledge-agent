@@ -67,9 +67,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     revision = existing["revision"] + 1
                     existing_ids = {row["id"] for row in conn.execute("SELECT id FROM ka.service_deployments WHERE service_id=%s", (service_id,))}
                     action = "service.updated"
-                original_links = {(row['service_id'], row['depends_on_service_id']): row['description']
-                    for row in conn.execute('''SELECT service_id,depends_on_service_id,description FROM ka.service_dependencies
-                        WHERE service_id=%s OR depends_on_service_id=%s''', (service_id,service_id))}
+                original_links = {(row['from_id'], row['to_id']): row['description']
+                    for row in conn.execute('''SELECT from_id,to_id,description FROM ka.inventory_links
+                        WHERE kind='depends_on' AND (from_id=%s OR to_id=%s)''', (service_id,service_id))}
                 links = dict(original_links)
                 # Omitted directions preserve saved links; an explicit [] removes them.
                 if 'dependencies' in value.model_fields_set:
@@ -114,9 +114,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     (service_id, project_id, value.name, value.description, value.owner, value.operations_notes, actor_id,
                      value.service_type, value.service_role, revision,
                      'service_type' in value.model_fields_set, 'service_role' in value.model_fields_set)).fetchone()
-                conn.execute("DELETE FROM ka.service_repositories WHERE service_id=%s", (service_id,))
+                # Unlisted code projects lose their link; listed ones keep theirs (and its description and attributes).
+                conn.execute('''DELETE FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s
+                    AND NOT (to_code_project_id=ANY(%s))''', (service_id, value.repository_ids))
                 for repository_id in value.repository_ids:
-                    conn.execute("INSERT INTO ka.service_repositories(project_id,service_id,repository_id) VALUES (%s,%s,%s)", (project_id, service_id, repository_id))
+                    conn.execute('''INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind)
+                        VALUES (%s,%s,%s,'built_from') ON CONFLICT (from_id,to_id,kind) DO NOTHING''',
+                        (project_id, service_id, repository_id))
                 conn.execute('DELETE FROM ka.environment_services WHERE service_id=%s AND NOT (environment_id=ANY(%s))', (service_id,list(environment_ids)))
                 for environment_id in environment_ids - original_environments:
                     conn.execute('INSERT INTO ka.environment_services(project_id,environment_id,service_id) VALUES (%s,%s,%s)', (project_id,environment_id,service_id))
@@ -143,11 +147,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 changed_pairs = {pair for pair in original_links.keys() | links.keys()
                                  if original_links.get(pair) != links.get(pair)}
                 for source,target in original_links.keys() - links.keys():
-                    conn.execute('DELETE FROM ka.service_dependencies WHERE service_id=%s AND depends_on_service_id=%s', (source,target))
+                    conn.execute('''DELETE FROM ka.inventory_links WHERE kind='depends_on'
+                        AND from_service_id=%s AND to_service_id=%s''', (source,target))
                 for source,target in changed_pairs & links.keys():
-                    conn.execute('''INSERT INTO ka.service_dependencies(project_id,service_id,depends_on_service_id,description)
-                        VALUES (%s,%s,%s,%s) ON CONFLICT (service_id,depends_on_service_id)
-                        DO UPDATE SET description=EXCLUDED.description''', (project_id,source,target,links[source,target]))
+                    conn.execute('''INSERT INTO ka.inventory_links(project_id,from_service_id,to_service_id,kind,description)
+                        VALUES (%s,%s,%s,'depends_on',%s) ON CONFLICT (from_id,to_id,kind)
+                        DO UPDATE SET description=EXCLUDED.description, revision=inventory_links.revision+1''',
+                        (project_id,source,target,links[source,target]))
                 changed_related_ids = {other for pair in changed_pairs for other in pair} - {service_id}
                 conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (list(changed_related_ids),))
                 conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
@@ -186,12 +192,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             actor_id = db.actor(conn, subject, email)
             conn.execute('''UPDATE ka.environments SET revision=revision+1 WHERE id IN
                 (SELECT environment_id FROM ka.environment_services WHERE service_id=%s)''', (service_id,))
-            related_ids = [row['id'] for row in conn.execute('''SELECT depends_on_service_id AS id FROM ka.service_dependencies WHERE service_id=%s
-                UNION SELECT service_id FROM ka.service_dependencies WHERE depends_on_service_id=%s''', (service_id,service_id))]
+            related_ids = [row['id'] for row in conn.execute('''SELECT to_id AS id FROM ka.inventory_links
+                WHERE kind='depends_on' AND from_id=%s UNION SELECT from_id FROM ka.inventory_links
+                WHERE kind='depends_on' AND to_id=%s''', (service_id,service_id))]
             conn.execute('UPDATE ka.services SET revision=revision+1 WHERE id=ANY(%s)', (related_ids,))
             if related_ids:
                 service['changed_related_service_ids'] = [str(i) for i in related_ids]
-            conn.execute("DELETE FROM ka.service_repositories WHERE service_id=%s", (service_id,))
             conn.execute("DELETE FROM ka.service_deployments WHERE service_id=%s", (service_id,))
             # Agent selections cascade; shared repositories and servers remain in inventory.
             conn.execute("DELETE FROM ka.services WHERE id=%s AND project_id=%s", (service_id, project_id))

@@ -63,8 +63,9 @@ ENVIRONMENT_SERVICES = '''SELECT es.service_id AS id FROM ka.environment_service
     WHERE es.project_id=%s AND es.environment_id=ANY(%s) ORDER BY lower(s.name),s.id'''
 ENVIRONMENT_SERVERS = '''SELECT es.server_id AS id FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
     WHERE es.project_id=%s AND es.environment_id=ANY(%s) AND s.ssh_allowed ORDER BY lower(s.name),s.id'''
-SERVICE_CODE = '''SELECT r.id FROM ka.service_repositories sr JOIN ka.repositories r ON r.id=sr.repository_id
-    WHERE r.project_id=%s AND sr.service_id=ANY(%s) AND r.archived_at IS NULL ORDER BY lower(r.name),r.id'''
+SERVICE_CODE = '''SELECT r.id FROM ka.inventory_links l JOIN ka.repositories r ON r.id=l.to_code_project_id
+    WHERE l.kind='built_from' AND r.project_id=%s AND l.from_service_id=ANY(%s) AND r.archived_at IS NULL
+    ORDER BY lower(r.name),r.id'''
 SERVICE_SERVERS = '''SELECT h.id FROM ka.service_deployments d JOIN ka.servers h ON h.id=d.server_id
     WHERE h.project_id=%s AND d.service_id=ANY(%s) AND h.ssh_allowed ORDER BY lower(h.name),h.id'''
 

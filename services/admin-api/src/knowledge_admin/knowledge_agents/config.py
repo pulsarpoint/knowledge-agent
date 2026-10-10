@@ -263,7 +263,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = "") -> dict[str, object]:
             if project['remote_git_url'] is None:
                 del project['remote_git_url']
         services = conn.execute("""SELECT s.id,s.name,s.description,s.owner,s.operations_notes,
-            s.revision,s.repositories,s.deployments,s.dependencies,s.dependents FROM ka.service_assets s
+            s.revision,s.repositories,s.deployments,s.dependencies,s.dependents,s.links FROM ka.service_assets s
             JOIN ka.agent_services a ON a.service_id=s.id WHERE a.agent_id=%s AND s.project_id=%s
             ORDER BY lower(s.name),s.id""", (agent_id, project_id)).fetchall()
         for service in services:
