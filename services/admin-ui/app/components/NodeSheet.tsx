@@ -120,19 +120,20 @@ function NodeDetails({ nodeId, onChanged, onDeleted }: { nodeId: string; onChang
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const load = useCallback(async () => {
+  // The form is filled from the node on the first load and after Save; other reloads keep what was typed.
+  const load = useCallback(async (resetDraft: boolean) => {
     try {
       const { node: loaded } = await getNode(nodeId);
       setNode(loaded);
-      setDraft({ kind: loaded.kind, name: loaded.name, description: loaded.description,
+      if (resetDraft) setDraft({ kind: loaded.kind, name: loaded.name, description: loaded.description,
         properties: Object.keys(loaded.properties).length ? JSON.stringify(loaded.properties, null, 2) : "" });
     } catch (reason) { setError(say(reason, "Could not load the node.")); }
   }, [nodeId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(true); }, [load]);
 
-  async function act(work: () => Promise<unknown>, fallback: string) {
+  async function act(work: () => Promise<unknown>, fallback: string, resetDraft = false) {
     setBusy(true); setError(null);
-    try { await work(); onChanged(); await load(); }
+    try { await work(); onChanged(); await load(resetDraft); }
     catch (reason) { setError(say(reason, fallback)); }
     finally { setBusy(false); }
   }
@@ -152,7 +153,7 @@ function NodeDetails({ nodeId, onChanged, onDeleted }: { nodeId: string; onChang
   const save = (event: FormEvent) => {
     event.preventDefault();
     void act(() => updateNode(node.id, { kind: draft.kind.trim(), name: draft.name.trim(), description: draft.description,
-      properties: propertiesOf(draft), parent_id: node.parent_id, revision: node.revision }), "Could not save the node.");
+      properties: propertiesOf(draft), parent_id: node.parent_id, revision: node.revision }), "Could not save the node.", true);
   };
   const noEdges = node.outgoing.length === 0 && node.incoming.length === 0;
   return <>

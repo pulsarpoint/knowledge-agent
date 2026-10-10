@@ -178,3 +178,21 @@ test("deletes after confirming, and shows why it cannot", async () => {
   await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(onChanged).toHaveBeenCalled();
 });
+
+test("unsaved edits survive other actions, and Save refills the form from the reload", async () => {
+  const user = userEvent.setup();
+  let current = events;
+  const calls = api({ "GET /api/graph/nodes/events": () => ({ body: { node: current } }),
+    "DELETE /api/graph/edges/e1": () => ({ status: 204 }),
+    "PUT /api/graph/nodes/events": () => { current = { ...events, name: "Saved name", revision: 4 }; return { body: { node: current } }; } });
+  open({ nodeId: "events" });
+  const name = await screen.findByLabelText("Name");
+  await user.clear(name);
+  await user.type(name, "Edited");
+  await user.click(screen.getByRole("button", { name: "Remove calls edge to repository-worker" }));
+  await waitFor(() => expect(sent(calls, "DELETE")).toHaveLength(1));
+  await waitFor(() => expect(calls.filter(call => call.method === "GET")).toHaveLength(2));
+  expect(screen.getByLabelText("Name")).toHaveValue("Edited");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Saved name"));
+});
