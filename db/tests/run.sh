@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+graph_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.kg_edges') IS NULL
+        AND to_regclass('ka.kg_node_documents') IS NULL")
+[ "$graph_removed" = t ] || { echo 'FAIL: 0092 down left system graph tables' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 manual_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'events_source_check')) NOT LIKE '%manual%'")
 [ "$manual_removed" = t ] || { echo 'FAIL: 0091 down left manual in the event source check' >&2; exit 1; }
@@ -181,6 +186,11 @@ manual=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'events_source_check')) LIKE '%manual%'")
 [ "$manual" = t ] || { echo 'FAIL: 0091 events.source does not allow manual' >&2; exit 1; }
 printf '%s\n' 'PASS: events can be made by hand (source manual).'
+graph=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.kg_nodes') IS NOT NULL AND to_regclass('ka.kg_edges') IS NOT NULL
+        AND to_regclass('ka.kg_node_documents') IS NOT NULL")
+[ "$graph" = t ] || { echo 'FAIL: 0092 system graph tables missing' >&2; exit 1; }
+printf '%s\n' 'PASS: the system graph has nodes, edges and document links.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

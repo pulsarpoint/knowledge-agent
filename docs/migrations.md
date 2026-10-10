@@ -184,3 +184,13 @@ event has source `manual` or, when simulating Jira, `jira`; either way `source_i
 handler's event has a parent, a handler and a depth. The down migration deletes every `manual` event and the events handlers
 made from them (their handler runs go with them; agent tasks and notifications keep their rows with `event_id` NULL) and restores the old check;
 hand-made `jira` events are kept, as they look like pulled ones.
+
+## 0092_system_graph
+
+The system graph (Environments → System map). `ka.kg_nodes` holds nodes in four layers (`business`, `software`,
+`data`, `infrastructure`); each node has at most one parent, in the same project and layer (`parent_id` NULL = top
+level), sibling names are unique ignoring case, and a trigger refuses a node inside itself or a branch deeper than 12
+levels. `ka.kg_edges` holds typed, directed edges between any two nodes of the project (same or different layers); an
+edge between a node and a node that contains it is refused when made. `ka.kg_node_documents` links nodes to
+`ka.documents`. Deleting a node with children is refused; deleting a node removes its edges and document links;
+deleting a document removes its links. The down migration drops the three tables and both trigger functions.
