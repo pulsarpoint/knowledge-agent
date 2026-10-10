@@ -39,7 +39,7 @@ def test_top_of_a_layer_shows_its_top_level_nodes_with_edges_rolled_up():
     assert ids(result['nodes']) == ['api', 'worker']
     api = result['nodes'][0]
     assert (api['parent_id'], api['child_count'], api['expandable'], api['internal_edges'], api['documents']) == (None, 2, True, 0, [])
-    assert result['edges'] == [{'from': 'api', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e1']}]
+    assert result['edges'] == [{'from': 'api', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e1'], 'synced': False}]
     assert result['boundary'] == []
 
 
@@ -52,8 +52,8 @@ def test_inside_a_node_edges_group_and_internal_edges_are_counted():
     events, tasks = result['nodes']
     assert (events['internal_edges'], events['expandable'], tasks['child_count'], tasks['expandable']) == (1, True, 0, False)
     assert result['edges'] == [
-        {'from': 'events', 'to': 'tasks', 'type': 'calls', 'count': 2, 'edge_ids': ['e1', 'e2']},
-        {'from': 'events', 'to': 'tasks', 'type': 'uses', 'count': 1, 'edge_ids': ['e4']},
+        {'from': 'events', 'to': 'tasks', 'type': 'calls', 'count': 2, 'edge_ids': ['e1', 'e2'], 'synced': False},
+        {'from': 'events', 'to': 'tasks', 'type': 'uses', 'count': 1, 'edge_ids': ['e4'], 'synced': False},
     ]
 
 
@@ -62,24 +62,24 @@ def test_depth_two_shows_grandchildren_nested_under_their_parent():
     assert ids(result['nodes']) == ['events', 'match', 'tpl', 'tasks']
     assert [row['parent_id'] for row in result['nodes']] == [None, 'events', 'events', None]
     assert result['nodes'][0]['expandable'] is False  # its children are shown
-    assert result['edges'] == [{'from': 'match', 'to': 'tpl', 'type': 'calls', 'count': 1, 'edge_ids': ['e3']}]
+    assert result['edges'] == [{'from': 'match', 'to': 'tpl', 'type': 'calls', 'count': 1, 'edge_ids': ['e3'], 'synced': False}]
 
 
 def test_boundary_in_the_same_layer_is_the_child_of_the_lowest_common_ancestor():
     result = view([e('e1', 'match', 'tasks'), e('e2', 'match', 'pull'), e('e3', 'tpl', 'worker')], root='events')
     assert ids(result['boundary']) == ['worker', 'tasks']  # by name: repository-worker, Task runner
     assert result['edges'] == [
-        {'from': 'match', 'to': 'tasks', 'type': 'calls', 'count': 1, 'edge_ids': ['e1']},
-        {'from': 'match', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e2']},
-        {'from': 'tpl', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e3']},
+        {'from': 'match', 'to': 'tasks', 'type': 'calls', 'count': 1, 'edge_ids': ['e1'], 'synced': False},
+        {'from': 'match', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e2'], 'synced': False},
+        {'from': 'tpl', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e3'], 'synced': False},
     ]
-    assert result['boundary'][0] == {'id': 'worker', 'name': 'repository-worker', 'kind': 'service', 'layer': 'software'}
+    assert result['boundary'][0] == {'id': 'worker', 'name': 'repository-worker', 'kind': 'service', 'layer': 'software', 'source_kind': None}
 
 
 def test_boundary_in_another_layer_is_that_layers_top_level_node():
     result = view([e('e1', 'prod-api', 'tasks', 'instance_of')], root='api')
-    assert result['boundary'] == [{'id': 'prod', 'name': 'prod-1', 'kind': 'server', 'layer': 'infrastructure'}]
-    assert result['edges'] == [{'from': 'prod', 'to': 'tasks', 'type': 'instance_of', 'count': 1, 'edge_ids': ['e1']}]
+    assert result['boundary'] == [{'id': 'prod', 'name': 'prod-1', 'kind': 'server', 'layer': 'infrastructure', 'source_kind': None}]
+    assert result['edges'] == [{'from': 'prod', 'to': 'tasks', 'type': 'instance_of', 'count': 1, 'edge_ids': ['e1'], 'synced': False}]
 
 
 def test_boundaries_sort_by_layer_then_name():
@@ -154,3 +154,15 @@ def test_an_edge_to_a_node_created_after_the_nodes_were_read_is_skipped():
     nodes = [n('api', kind='service'), n('events', 'api')]
     assert view([e('e1', 'events', 'ghost'), e('e2', 'ghost', 'events'), e('e3', 'ghost', 'phantom')], nodes=nodes)['edges'] == []
     assert view([e('e1', 'events', 'ghost')], root='api', nodes=nodes)['edges'] == []
+
+
+def test_sources_and_synced_edges_carry_through():
+    nodes = [n('api', kind='service', name='admin-api'), n('worker', kind='service', name='worker'),
+             n('events', 'api', name='Event processor')]
+    nodes[0]['source_kind'] = 'service'
+    edges = [e('e1', 'api', 'worker', 'depends_on'), e('e2', 'events', 'worker')]
+    edges[0]['synced'] = True
+    result = view(edges, nodes=nodes)
+    assert [row['source_kind'] for row in result['nodes']] == ['service', None]
+    assert result['edges'] == [{'from': 'api', 'to': 'worker', 'type': 'calls', 'count': 1, 'edge_ids': ['e2'], 'synced': False},
+                               {'from': 'api', 'to': 'worker', 'type': 'depends_on', 'count': 1, 'edge_ids': ['e1'], 'synced': True}]

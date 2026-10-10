@@ -5,7 +5,7 @@ from collections import defaultdict
 
 LAYERS = ('business', 'software', 'data', 'infrastructure')
 EDGE_TYPES = ('calls', 'uses', 'depends_on', 'reads', 'writes', 'publishes', 'subscribes', 'instance_of', 'runs_on',
-              'implements', 'stores')
+              'implements', 'stores', 'includes')
 MAX_DEPTH, MAX_VISIBLE, MAX_EDGE_IDS = 5, 500, 20
 NOT_FOUND = 'Node not found.'
 TOO_MANY = 'Too many nodes; choose a deeper root or a smaller depth.'
@@ -57,7 +57,7 @@ def build_view(nodes: list[dict], edges: list[dict], documents: dict, layer: str
             shown.append({'id': node['id'], 'parent_id': visible_parent, 'layer': node['layer'], 'kind': node['kind'],
                           'name': node['name'], 'description': node['description'], 'child_count': len(inner),
                           'expandable': bool(inner) and level == depth, 'internal_edges': 0,
-                          'documents': list(documents.get(node['id'], []))})
+                          'source_kind': node.get('source_kind'), 'documents': list(documents.get(node['id'], []))})
             if len(shown) > MAX_VISIBLE:
                 raise ViewError(422, TOO_MANY)
         representative[node['id']] = holder
@@ -93,8 +93,11 @@ def build_view(nodes: list[dict], edges: list[dict], documents: dict, layer: str
         for end_id in (a, b):
             if end_id not in rows and end_id not in boundary:
                 node = by_id[end_id]
-                boundary[end_id] = {'id': end_id, 'name': node['name'], 'kind': node['kind'], 'layer': node['layer']}
-        group = grouped.setdefault((a, b, edge['type']), {'from': a, 'to': b, 'type': edge['type'], 'count': 0, 'edge_ids': []})
+                boundary[end_id] = {'id': end_id, 'name': node['name'], 'kind': node['kind'], 'layer': node['layer'],
+                                    'source_kind': node.get('source_kind')}
+        group = grouped.setdefault((a, b, edge['type']), {'from': a, 'to': b, 'type': edge['type'], 'count': 0, 'edge_ids': [],
+                                                          'synced': True})
+        group['synced'] = group['synced'] and bool(edge.get('synced'))
         group['count'] += 1
         if len(group['edge_ids']) < MAX_EDGE_IDS:
             group['edge_ids'].append(edge['id'])

@@ -19,7 +19,7 @@ from knowledge_admin.repositories import RepositoryStore
 
 Layer = Literal['business', 'software', 'data', 'infrastructure']
 EdgeType = Literal['calls', 'uses', 'depends_on', 'reads', 'writes', 'publishes', 'subscribes', 'instance_of', 'runs_on',
-                   'implements', 'stores']
+                   'implements', 'stores', 'includes']
 NO_NODE = 'Node not found.'
 NO_PARENT = 'Parent not found.'
 NO_EDGE = 'Edge not found.'
@@ -36,8 +36,32 @@ CONCURRENT = 'Someone changed the graph at the same time. Try again.'
 SVG_HEADERS = {'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
                'X-Content-Type-Options': 'nosniff'}
 MAX_PROPERTIES = 16384
-NODE = 'id,layer,kind,name,description,parent_id,properties,revision,created_at,updated_at'
-EDGE = 'id,from_id,to_id,type,description,revision,created_at,updated_at'
+SOURCES = {  # link column → (kind, page, label)
+    'server_id': ('server', '/servers', 'Servers'),
+    'deployment_id': ('deployment', '/services', 'Services'),
+    'environment_id': ('environment', '/environments', 'Environments'),
+    'service_id': ('service', '/services', 'Services'),
+    'repository_id': ('repository', '/code-projects', 'Code projects'),
+}
+LINKS = ','.join(SOURCES)
+NODE = f'id,layer,kind,name,description,parent_id,properties,revision,created_at,updated_at,{LINKS}'
+EDGE = 'id,from_id,to_id,type,description,revision,synced,created_at,updated_at'
+SOURCE_KIND = ('CASE ' + ' '.join(f"WHEN {link} IS NOT NULL THEN '{kind}'" for link, (kind, _, _) in SOURCES.items())
+               + ' END AS source_kind')
+LOCK_PROJECT = "SELECT pg_advisory_xact_lock(hashtext('ka.kg_nodes'), hashtext(%s::text))"
+
+
+def source_of(row: dict) -> dict | None:
+    """Where a node comes from, or None for a hand-made node."""
+    for link, (kind, page, label) in SOURCES.items():
+        if row.get(link):
+            return {'kind': kind, 'id': row[link], 'page': page, 'label': label}
+    return None
+
+
+def public(row: dict) -> dict:
+    """A node row without the five link columns, with its source."""
+    return {**{key: value for key, value in row.items() if key not in SOURCES}, 'source': source_of(row)}
 
 
 class NodeFields(BaseModel):
@@ -133,6 +157,12 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         except (psycopg.errors.DeadlockDetected, psycopg.errors.SerializationFailure):
             raise HTTPException(409, CONCURRENT) from None
 
+    def lock_project(conn, project: UUID) -> None:
+        # The inventory triggers take this advisory lock before they touch graph rows. A graph write that locked its row
+        # first and then fired kg_nodes_place would wait on the lock while an inventory save, holding it, waited for the
+        # row: a deadlock. Everyone takes the advisory lock first, then rows.
+        conn.execute(LOCK_PROJECT, (project,))
+
     def node_row(conn, project: UUID, node_id: UUID, lock: bool = False) -> dict:
         # NO KEY UPDATE: the node's UPDATE waits for the project lock that a concurrent create holds while its foreign key
         # check wants a share lock on this row; FOR UPDATE would conflict with that share lock and deadlock.
@@ -174,11 +204,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             FROM ka.kg_nodes c WHERE c.parent_id=%s ORDER BY lower(c.name),c.id""", (node_id,)).fetchall()
 
         def edges(mine: str, other: str) -> list[dict]:
-            return conn.execute(f"""SELECT e.id,e.type,e.description,e.revision,
+            return conn.execute(f"""SELECT e.id,e.type,e.description,e.revision,e.synced,
                     jsonb_build_object('id',n.id,'name',n.name,'kind',n.kind,'layer',n.layer) AS node
                 FROM ka.kg_edges e JOIN ka.kg_nodes n ON n.id=e.{other}
                 WHERE e.{mine}=%s ORDER BY e.type,lower(n.name),e.id""", (node_id,)).fetchall()
-        return {**node, 'breadcrumb': breadcrumb(conn, node_id), 'children': children,
+        return {**public(node), 'breadcrumb': breadcrumb(conn, node_id), 'children': children,
                 'outgoing': edges('from_id', 'to_id'), 'incoming': edges('to_id', 'from_id'),
                 'documents': documents_of(conn, project, node_id).get(node_id, [])}
 
@@ -189,9 +219,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
-            nodes = conn.execute('SELECT id,parent_id,layer,kind,name,description FROM ka.kg_nodes WHERE project_id=%s',
+            nodes = conn.execute(f'SELECT id,parent_id,layer,kind,name,description,{SOURCE_KIND} FROM ka.kg_nodes WHERE project_id=%s',
                                  (project,)).fetchall()
-            edges = conn.execute('SELECT id,from_id,to_id,type FROM ka.kg_edges WHERE project_id=%s ORDER BY id', (project,)).fetchall()
+            edges = conn.execute('SELECT id,from_id,to_id,type,synced FROM ka.kg_edges WHERE project_id=%s ORDER BY id', (project,)).fetchall()
             documents = documents_of(conn, project)
         try:
             graph = system_graph.build_view(nodes, edges, documents, layer, root, depth)
@@ -259,9 +289,15 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             current = node_row(conn, project, node_id, lock=True)
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE_NODE)
+            source = source_of(current)
+            if source and (fields['kind'] != current['kind'] or fields['name'] != current['name']):
+                raise HTTPException(409, f"This node comes from {source['label']}. Change it there.")
+            if source and fields['parent_id'] != current['parent_id']:
+                raise HTTPException(409, f"This node comes from {source['label']}. Its place follows the inventory.")
             if fields['parent_id'] == node_id:
                 raise HTTPException(422, INSIDE_ITSELF)
             check_parent(conn, project, current['layer'], fields['parent_id'])
@@ -280,7 +316,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             node = node_row(conn, project, node_id, lock=True)
+            if source := source_of(node):
+                raise HTTPException(409, f"This node comes from {source['label']}. Delete it there.")
             if conn.execute('SELECT 1 FROM ka.kg_nodes WHERE parent_id=%s LIMIT 1', (node_id,)).fetchone():
                 raise HTTPException(409, HAS_CHILDREN)
             with refused(conn, HAS_CHILDREN, (409, HAS_CHILDREN)):  # a child added meanwhile
@@ -295,6 +334,13 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         if row is None:
             raise HTTPException(404, NO_EDGE)
         return row
+
+    def refuse_synced(conn, project: UUID, edge: dict) -> None:
+        if not edge['synced']:
+            return
+        start = conn.execute(f'SELECT {LINKS} FROM ka.kg_nodes WHERE id=%s AND project_id=%s', (edge['from_id'], project)).fetchone()
+        source = source_of(start) if start else None
+        raise HTTPException(409, f"This edge comes from the inventory. Change it in {source['label'] if source else 'the inventory pages'}.")
 
     @router.post('/graph/edges', status_code=201)
     def create_edge(value: EdgeDraft, request: Request) -> dict:
@@ -323,7 +369,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
+            lock_project(conn, project)
             current = edge_row(conn, project, edge_id, lock=True)
+            refuse_synced(conn, project, current)
             if current['revision'] != value.revision:
                 raise HTTPException(409, STALE_EDGE)
             conn.execute('UPDATE ka.kg_edges SET description=%s,revision=revision+1 WHERE id=%s', (value.description, edge_id))
@@ -335,10 +383,10 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app)
-            row = conn.execute('DELETE FROM ka.kg_edges WHERE id=%s AND project_id=%s RETURNING type,from_id,to_id',
-                               (edge_id, project)).fetchone()
-            if row is None:
-                raise HTTPException(404, NO_EDGE)
+            lock_project(conn, project)
+            row = edge_row(conn, project, edge_id, lock=True)
+            refuse_synced(conn, project, row)
+            conn.execute('DELETE FROM ka.kg_edges WHERE id=%s', (edge_id,))
             audit(conn, project, request, 'graph.edge.deleted', 'graph_edge', edge_id,
                   {'type': row['type'], 'from_id': str(row['from_id']), 'to_id': str(row['to_id'])})
         return Response(status_code=204)
