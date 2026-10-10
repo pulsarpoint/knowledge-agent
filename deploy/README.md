@@ -409,3 +409,10 @@ the system graph tables (Environments → System map).
   rebuild admin-api (`make up` does). The build downloads the release from GitHub and checks its sha256.
 - Without `d2` (for example admin-api running outside Docker), the Diagram view says "d2 is not installed." and the
   Mermaid, D2 and JSON views still work.
+
+git add db/migrations/0093_graph_inventory_sync.up.sql db/migrations/0093_graph_inventory_sync.down.sql db/tests/run.sh \
+  docs/migrations.md deploy/README.md services/admin-api/tests/
+git commit -m "feat(db): inventory rows sync into the system graph (0093)
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+

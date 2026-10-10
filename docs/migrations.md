@@ -194,3 +194,10 @@ levels. `ka.kg_edges` holds typed, directed edges between any two nodes of the p
 edge between a node and a node that contains it is refused when made. `ka.kg_node_documents` links nodes to
 `ka.documents`. Deleting a node with children is refused; deleting a node removes its edges and document links;
 deleting a document removes its links. The down migration drops the three tables and both trigger functions.
+
+## Upgrading to the inventory sync
+
+Migration 0093 links the system graph to the inventory: every server, service, deployment, environment and code project
+gets a node (Environments → System map), kept in step whenever the inventory changes. The migration creates the nodes
+for the existing inventory; nodes made by hand keep their names, and a synced node whose name is already taken gets
+" (2)".

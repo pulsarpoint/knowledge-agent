@@ -160,9 +160,11 @@ def test_down_and_up(store):
         project = store.project(conn, 'shop')
         a, _ = chain(conn, project, 2)
         edge(conn, project, a, node(conn, project)['id'])
+        run(conn, '0093_graph_inventory_sync.down.sql')  # 0093 builds on 0092
         run(conn, '0092_system_graph.down.sql')
         assert conn.execute("SELECT to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.kg_edges') IS NULL "
                             "AND to_regclass('ka.kg_node_documents') IS NULL AS gone").fetchone()['gone']
         assert conn.execute("SELECT count(*) AS n FROM pg_proc WHERE proname IN ('kg_nodes_place','kg_edges_check')").fetchone()['n'] == 0
         run(conn, '0092_system_graph.up.sql')
+        run(conn, '0093_graph_inventory_sync.up.sql')
         assert conn.execute("SELECT to_regclass('ka.kg_nodes_sibling_name') IS NOT NULL AS found").fetchone()['found']

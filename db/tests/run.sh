@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+sync_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND table_name = 'kg_nodes' AND column_name = 'server_id')")
+[ "$sync_removed" = t ] || { echo 'FAIL: 0093 down left the inventory links' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 graph_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.kg_edges') IS NULL
         AND to_regclass('ka.kg_node_documents') IS NULL")
@@ -191,6 +196,13 @@ graph=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.kg_node_documents') IS NOT NULL")
 [ "$graph" = t ] || { echo 'FAIL: 0092 system graph tables missing' >&2; exit 1; }
 printf '%s\n' 'PASS: the system graph has nodes, edges and document links.'
+sync=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+            AND table_name = 'kg_nodes' AND column_name = 'server_id')
+        AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+            AND table_name = 'kg_edges' AND column_name = 'synced')")
+[ "$sync" = t ] || { echo 'FAIL: 0093 inventory sync columns missing' >&2; exit 1; }
+printf '%s\n' 'PASS: inventory rows sync into the system graph.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
