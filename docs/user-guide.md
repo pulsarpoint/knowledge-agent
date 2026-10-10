@@ -764,39 +764,33 @@ notification**.
 
 ### 4.20 System map
 
-Environments → **System map** describes the whole system as a graph you open one level at a time (graph in graph):
-every node is itself a graph of the nodes inside it.
+Environments → **System map** draws your inventory — environments, servers, services and code projects — and the
+connections between them. Nothing is drawn by hand: add entries on their own pages, and connect them here.
 
-- **Layers.** Business (capabilities, processes), Software (services, modules, components), Data (databases, tables,
-  queues) and Infrastructure (servers, containers). A node lives in one layer and has at most one parent there; edges
-  may join nodes of any layers (for example a container is an *instance of* a service).
-- **Browsing.** The page shows the inside of one node: **Inside** lists its children (→ opens one; "+N inside" says it
-  has more), **Outside** lists what they connect to elsewhere (→ opens it in its own layer). The breadcrumb goes back
-  up. **Depth** shows more levels at once (up to 5); deeper nodes are folded into the box that contains them, and edges
-  are added up (`calls ×3`). Edges inside one box are not drawn. Everything you choose is in the page address, so a view
-  can be shared as a link.
+- **Infrastructure.** Each environment holds its servers (the servers you added to it on the Environments page, and
+  any server with a deployment there), and each server holds the services deployed on it in that environment. A server
+  in two environments appears in both. A server in no environment, or with a deployment that has no environment, sits
+  at the top level. A service that belongs to an environment but is not deployed there sits directly in the
+  environment. Lines are *connects to* connections.
+- **Services.** Every service and code project, with *depends on*, *built from* and *connects to* lines. Archived code
+  projects are left out.
+- **Browsing.** **Inside** lists what the current box holds (→ opens it; "+N inside" says it holds more), **Outside**
+  lists what its connections reach elsewhere. The breadcrumb goes back up. **Depth** shows up to 3 levels; deeper
+  entries fold into their box and lines add up (`connects to ×3`). A connection is drawn inside one environment: it
+  never joins one environment's copy of a server to another's. Everything you choose is in the page address.
 - **Views.** **Diagram** is drawn by D2 with the layout you pick (tala, elk or dagre); **Mermaid** draws the same view
-  with Mermaid; **D2** and **JSON** show the source, with **Copy**. If the server cannot draw a diagram (for example
-  "d2 is not installed."), the other views still work.
-- **Editing.** **New node** adds a node inside the node you are looking at (kind, name, description, optional
-  properties as a JSON object). Click a node's name to open it: edit and **Save**, **Move** it under another node of the
-  same layer (or to the top level), add or remove **Edges** (type + target found by name, in any layer), attach or
-  detach **Documents** from Docs → Documents, or **Delete** it (a node that still has nodes inside cannot be deleted;
-  nodes from the inventory cannot be moved or deleted here).
-  Names are unique among siblings; a node cannot be moved inside itself; a layer has at most 12 levels.
-- **From the inventory.** Every server, service (with its deployments), environment and code project has a node, kept in
-  step automatically. Infrastructure is a tree: each environment holds its servers and each server holds its
-  deployments (`<runtime or service> · <environment>`); a server in several environments appears under each of them, and
-  a server in no environment (or with deployments without one) sits at the top level. Each environment's server node is separate:
-  notes, documents and nodes you add under it stay with that environment; removing a server from an environment removes
-  that environment's server node (kept with a note if you added something to it); after the upgrade, an existing server
-  node moves under the server's first environment by name. An environment *includes* its
-  services (in the Software view), a service *depends on* the services it uses and *uses* its code projects. Such
-  nodes say **From Servers** (or Services, Environments, Code projects) with a link to that page; their name, kind and
-  place follow the inventory, and their synced edges are read-only. Archiving a code project counts as deleting it. You
-  can still give them a description and properties, add nodes inside them, connect them with your own edges and attach
-  documents. Deleting the row deletes its node, unless you added something to it — then the node stays, with "Removed
-  from … on <date>." in its description.
+  with Mermaid; **D2** and **JSON** show the source, with **Copy**.
+- **Connections.** Click an entry's name: the panel shows its connections and documents and links to its page.
+  **Connect to…** picks a kind — *depends on* (service → service), *built from* (service → code project) or
+  *connects to* (anything → anything) — an optional description and attributes (one `name: value` per line, at most
+  20), then the target by name. **Edit** changes the description and attributes; to change the ends or the kind,
+  remove the connection and add it again. The Services page edits the same *depends on* and *built from*
+  connections; an open Services form that someone changed meanwhile asks you to reload.
+- **Documents.** Attach documents from Docs → Documents to any entry; detaching never deletes the document. Deleting an
+  entry removes its connections and attachments.
+- **Upgrading from the stored graph.** Service dependencies and code project links become connections. Documents
+  attached to graph nodes move to the server, environment, service or code project behind the node. Nodes you drew by
+  hand (and their attachments) are gone; the documents themselves stay in Docs → Documents.
 
 ---
 

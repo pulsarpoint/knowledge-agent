@@ -1,4 +1,5 @@
 # System graph inventory sync — design
+> **Superseded** by `2026-10-10-inventory-map-design.md`: the stored graph was replaced by a map computed from the inventory (migration 0095).
 
 Date: 2026-10-10. Status: approved in conversation, section by section; **revised the same day** — the sync moved from
 database triggers to a Python reconcile, and reads moved to an in-memory graph (networkx), at the user's request. Follows

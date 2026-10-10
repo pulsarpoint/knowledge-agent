@@ -1,4 +1,5 @@
 # System graph (step 1: store, API, documents, diagrams) — design
+> **Superseded** by `2026-10-10-inventory-map-design.md`: the stored graph was replaced by a map computed from the inventory (migration 0095).
 
 Date: 2026-10-10. Status: approved in conversation, section by section.
 
