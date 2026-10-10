@@ -84,3 +84,12 @@ def test_legacy_search_chat_is_removed(tmp_path, method, path):
 def test_the_multi_agent_board_is_gone(tmp_path, path):
     # Without storage the board answered 503; with the board removed the route does not exist.
     assert _client(tmp_path).get(path, headers={"X-Forwarded-Groups": "docs-admins"}).status_code == 404
+
+
+def test_the_stored_graph_api_is_gone(tmp_path):
+    client = _client(tmp_path)
+    from test_repositories import HEADERS
+    assert client.get('/api/graph/view/infrastructure', headers=HEADERS).status_code == 404
+    import importlib.util
+    for name in ('graph_sync', 'graph_memory', 'system_graph_api'):
+        assert importlib.util.find_spec(f'knowledge_admin.{name}') is None

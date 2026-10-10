@@ -13,7 +13,6 @@ from starlette.exceptions import HTTPException
 
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
-from knowledge_admin import graph_sync
 from knowledge_admin.documents import backfill_exports
 from knowledge_admin.live.session_hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
@@ -38,10 +37,6 @@ def create_app(cfg: Config, *, server: ServerConfig,
     @asynccontextmanager
     async def lifespan(app):
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
-        # to_thread cannot be interrupted: cancelling returns at once, and a sync still running finishes in its worker thread
-        # (one short transaction per app) before the interpreter exits.
-        graph = (asyncio.create_task(asyncio.to_thread(graph_sync.sync_all, repository_store, [a.name for a in cfg.apps]))
-                 if repository_store is not None else None)
         hub = None
         if repository_store is not None:  # live session pages: one database listener per process
             hub = app.state.session_hub = SessionHub(repository_store.conninfo)
@@ -51,9 +46,6 @@ def create_app(cfg: Config, *, server: ServerConfig,
         finally:
             backfill.cancel()
             await asyncio.gather(backfill, return_exceptions=True)
-            if graph is not None:
-                graph.cancel()
-                await asyncio.gather(graph, return_exceptions=True)
             if hub is not None:
                 await hub.stop()
 

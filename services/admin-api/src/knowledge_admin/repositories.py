@@ -14,7 +14,6 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
-from knowledge_admin import graph_sync
 from knowledge_admin.code_paths import code_path, code_root, relative_code_path
 
 
@@ -267,7 +266,6 @@ class RepositoryStore:
                         value.sync_interval_minutes,value.sync_interval_minutes,repository_id))
             if existing is not None:
                 conn.execute('UPDATE ka.repositories SET revision=revision+1 WHERE id=%s', (repository_id,))
-            graph_sync.sync_inventory(conn, project_id)
             if value.clone_now:
                 job_id = uuid4()
                 conn.execute('''INSERT INTO ka.jobs(id,project_id,kind,repository_id,requested_by,idempotency_key)
