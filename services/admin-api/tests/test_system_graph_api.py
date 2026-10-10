@@ -69,6 +69,15 @@ def test_input_is_validated(client):
     assert message(post(client, properties={'x': 'y' * 16400})) == (400, 'Properties are too large (16 KB at most).')
 
 
+def test_unusual_properties_are_refused(client):
+    raw = {**HEADERS, 'Content-Type': 'application/json'}
+    nan = client.post('/api/graph/nodes', headers=raw,
+                      content='{"layer":"software","kind":"service","name":"x","properties":{"a":NaN}}')
+    assert message(nan) == (400, 'Properties must be valid JSON (no NaN or Infinity).')
+    deep = '{"layer":"software","kind":"service","name":"x","properties":' + '{"a":' * 2000 + '1' + '}' * 2000 + '}'
+    assert message(client.post('/api/graph/nodes', headers=raw, content=deep)) == (400, 'Properties are nested too deeply.')
+
+
 def test_nul_characters_are_refused(client):
     for body, label in [({'name': 'a\x00b'}, 'Name'), ({'kind': 'k\x00'}, 'Kind'), ({'description': '\x00'}, 'Description'),
                         ({'properties': {'deep': ['\x00']}}, 'Properties'), ({'properties': {'k\x00': 1}}, 'Properties')]:

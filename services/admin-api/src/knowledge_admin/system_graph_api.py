@@ -78,16 +78,22 @@ def duplicate_name(name: str) -> str:
 
 def clean(value: NodeFields) -> dict:
     """The node's columns, validated: 400 with a message for the form when something is wrong."""
-    for label, text in (('Kind', value.kind), ('Name', value.name), ('Description', value.description),
-                        ('Properties', value.properties)):
-        if has_nul(text):
-            raise bad(f'Remove the NUL character from {label}.')
-    kind, name = value.kind.strip(), value.name.strip()
-    if not kind:
-        raise bad('Enter a kind.')
-    if not name:
-        raise bad('Enter a name.')
-    if len(json.dumps(value.properties, ensure_ascii=False)) > MAX_PROPERTIES:
+    try:
+        for label, text in (('Kind', value.kind), ('Name', value.name), ('Description', value.description),
+                            ('Properties', value.properties)):
+            if has_nul(text):
+                raise bad(f'Remove the NUL character from {label}.')
+        kind, name = value.kind.strip(), value.name.strip()
+        if not kind:
+            raise bad('Enter a kind.')
+        if not name:
+            raise bad('Enter a name.')
+        size = len(json.dumps(value.properties, ensure_ascii=False, allow_nan=False))
+    except RecursionError:
+        raise bad('Properties are nested too deeply.') from None
+    except ValueError:
+        raise bad('Properties must be valid JSON (no NaN or Infinity).') from None
+    if size > MAX_PROPERTIES:
         raise bad('Properties are too large (16 KB at most).')
     return {'kind': kind, 'name': name, 'description': value.description, 'properties': value.properties,
             'parent_id': value.parent_id}
