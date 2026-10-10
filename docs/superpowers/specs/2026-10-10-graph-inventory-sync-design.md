@@ -169,3 +169,32 @@ the other start-up tasks). Each call is cheap at our size (a few queries over a 
 
 `docs/user-guide.md` §4.20 (what syncs, what is read-only, the delete rule); `docs/migrations.md` 0093;
 `deploy/README.md` upgrade note (the migration fills the graph from the existing inventory).
+
+## Revision 3 — environments contain their servers (2026-10-10, after merge ce659ae)
+
+The user wants the infrastructure view as a strict tree: **Environment › Server › Deployment**. A server can belong to
+several environments, and a node has one parent, so a server gets **one node per environment it is in** (option 1,
+chosen over a single node shown inside several environments).
+
+- **Placements.** A server is placed under an environment when it is a member (`environment_servers`) or has a deployment
+  in that environment (`service_deployments.environment_id`). It is placed at the top level when it is in no environment
+  at all, or has a deployment with no environment (a legacy free-text label).
+- **Server copy nodes.** A server's node is identified by the pair (server, environment): `server_id` plus
+  `environment_id` (NULL for the top-level copy). Each copy is named like the server (suffix rule among its siblings),
+  shows "From Servers", and is read-only for name, kind and place like any synced node. Environment nodes keep
+  `environment_id` alone.
+- **Deployments** sit under the copy of their server for their environment (the top-level copy when the deployment has no
+  environment).
+- **Edges.** `includes` from an environment to a server is dropped (containment says it). `includes` from an environment
+  to a service stays (the cross-layer link to the Software view).
+- **Renames and deletes.** Renaming a server renames every copy. Deleting a server releases every copy (delete rule; note
+  "Removed from Servers"). Removing a server from an environment releases that copy (note "Removed from Environments").
+- **Moving instead of releasing.** When a server's copy is no longer wanted where it is but the same server needs a copy
+  that does not exist yet, the existing node is moved there (its children and documents come along) instead of being
+  released and a new one made. This also turns each existing one-per-server node into the copy for the server's first
+  environment (alphabetical) on the first sync after the upgrade.
+- **Schema (`0094_graph_environment_tree`).** A node may carry `server_id` together with `environment_id` (and no other
+  link); the one-node-per-server index becomes one node per (server, environment) pair (NULLS NOT DISTINCT); the
+  one-node-per-environment index only counts nodes without `server_id`. The down migration unlinks every copy that has an
+  environment (both links cleared, nodes kept as hand-made) before restoring the old indexes and check.
+- **Creation order** in the sync: environments, then servers, then services, code projects, deployments.
