@@ -199,14 +199,12 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         for end_id in (a, b):
             if end_id not in rows and end_id not in boundary:
                 boundary[end_id] = about(end_id)
-        group = grouped.setdefault((a, b, edge['type']), {'from': a, 'to': b, 'type': edge['type'], 'count': 0, 'link_ids': []})
-        group['count'] += 1
-        if edge['id'] not in group['link_ids'] and len(group['link_ids']) < MAX_LINK_IDS:
-            group['link_ids'].append(edge['id'])
+        # a link drawn between several placements rolls up once: count distinct links, not drawn pairs
+        grouped.setdefault((a, b, edge['type']), set()).add(edge['id'])
     if len(rows) + len(boundary) > MAX_VISIBLE:
         raise ViewError(422, TOO_MANY)
-    for group in grouped.values():
-        group['link_ids'].sort(key=str)
+    rolled = [{'from': a, 'to': b, 'type': kind, 'count': len(ids), 'link_ids': sorted(ids, key=str)[:MAX_LINK_IDS]}
+              for (a, b, kind), ids in grouped.items()]
     nodes = []
 
     def emit(node: str) -> None:  # parents before children, siblings by name
@@ -223,7 +221,7 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         'breadcrumb': [{key: about(node)[key] for key in ('id', 'name', 'kind')} for node in root_path],
         'nodes': nodes,
         'boundary': sorted(boundary.values(), key=lambda node: (node['name'].lower(), node['id'])),
-        'edges': sorted(grouped.values(), key=lambda edge: (edge['from'], edge['to'], edge['type'])),
+        'edges': sorted(rolled, key=lambda edge: (edge['from'], edge['to'], edge['type'])),
     }
 
 

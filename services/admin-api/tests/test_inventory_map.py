@@ -104,3 +104,28 @@ def test_documents_come_with_every_placement():
     doc = {'id': uuid4(), 'slug': 'runbook', 'title': 'Runbook'}
     view = build_view(inventory(documents={('server', E['prod-1']): [doc]}), 'infrastructure', None, 3)
     assert [n['documents'] for n in view['nodes'] if n['name'] == 'prod-1'] == [[doc], [doc], [doc]]
+
+
+def fanned_out(links) -> dict:
+    """api is deployed on prod-1 and spare in production; z is a top-level server."""
+    z = uuid4()
+    base = inventory()
+    entries = {**base.entries, ('server', z): {'name': 'z', 'description': ''}}
+    deployments = {(E['api'], E['prod-1'], E['production']), (E['api'], E['spare'], E['production'])}
+    members = {(E['production'], E['api']), (E['production'], E['db'])}
+    return build_view(inventory(entries=entries, deployments=deployments, environment_services=members, links=links(z)),
+                      'infrastructure', None, 1), z
+
+
+def test_a_link_drawn_between_several_placements_counts_once():
+    link = uuid4()
+    view, z = fanned_out(lambda z: [{'id': link, 'kind': 'connects_to', 'from': ('service', E['api']), 'to': ('server', z)}])
+    assert [(e['from'], e['to'], e['count'], e['link_ids']) for e in view['edges']] == [
+        (f"environment:{E['production']}", f"server:top:{z}", 1, [link])]
+
+
+def test_different_links_rolled_up_to_one_pair_are_counted():
+    view, z = fanned_out(lambda z: [{'id': uuid4(), 'kind': 'connects_to', 'from': ('service', E['api']), 'to': ('server', z)},
+                                    {'id': uuid4(), 'kind': 'connects_to', 'from': ('service', E['db']), 'to': ('server', z)}])
+    assert [(e['from'], e['to'], e['count'], len(e['link_ids'])) for e in view['edges']] == [
+        (f"environment:{E['production']}", f"server:top:{z}", 2, 2)]
