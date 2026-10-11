@@ -113,3 +113,28 @@ test("polling never overlaps a pending load, and nothing loads or resolves after
   await tick(10000);
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
+
+test("a refused decision's reason is shown beside the buttons, after the proposal's text", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [document] }],
+    "POST /api/discovery/proposals/q2/accept": () => [400, { error: { message: "The document could not be saved." } }] });
+  show();
+  await user.click(await screen.findByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  const reason = await screen.findByText("The document could not be saved.");
+  const text = screen.getByRole("heading", { name: "Disks" });
+  expect(text.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(screen.getByRole("group", { name: "Decision" })).getByText("The document could not be saved.")).toBeInTheDocument();
+});
+
+test("a document about a service still pending in this run cannot be accepted until the service is", async () => {
+  const user = userEvent.setup();
+  const about = { ...document, service_proposal_id: "q1", service_name: "nginx", service_proposal_status: "pending",
+    payload: { ...document.payload, about_service: "nginx" } };
+  api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [about] }] });
+  show();
+  await user.click(await screen.findByRole("button", { name: "Review" }));
+  expect(await screen.findByRole("button", { name: "Accept" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+  expect(screen.getByText("Accept the service proposal nginx first.")).toBeInTheDocument();
+});

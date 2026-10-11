@@ -54,6 +54,8 @@ export default function ProposalSheet({ proposal, message, onClose, onMessage, o
   const [busy, setBusy] = useState(false);
   const deciding = useRef(false);
   const pending = proposal.status === "pending";
+  // A document about a service proposed in this run is refused until that service is accepted.
+  const waiting = pending && proposal.kind === "document" && proposal.service_proposal_status === "pending";
   async function decide(action: "accept" | "reject") {
     if (deciding.current) return;
     deciding.current = true; setBusy(true); onMessage(null);
@@ -82,7 +84,6 @@ export default function ProposalSheet({ proposal, message, onClose, onMessage, o
         <SheetDescription>{target ?? (proposal.current ? "Untick a change to keep the current value." : "A new service.")}
           {proposal.kind === "document" && proposal.current && ` Replaces version ${proposal.current.version} of “${proposal.current.title}”.`}</SheetDescription></SheetHeader>
       <div className="mt-4 flex flex-col gap-4">
-        {message && <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert>}
         {!pending && <p className="text-sm"><Badge variant="outline">{proposal.status === "accepted" ? "Accepted" : "Rejected"}</Badge>
           {proposal.status === "accepted" && proposal.result_id && (proposal.kind === "document"
             ? <> <Link className="underline" to={`/documents/${proposal.result_id}`}>Open document</Link></>
@@ -90,9 +91,12 @@ export default function ProposalSheet({ proposal, message, onClose, onMessage, o
         {proposal.kind === "service"
           ? <ServiceDetails proposal={proposal} kept={kept} onKeep={(field, on) => setKept(list => on ? [...list, field] : list.filter(item => item !== field))} />
           : <><p className="text-sm text-muted-foreground">{proposal.payload.description}</p><Markdown content={proposal.payload.markdown} /></>}
-        {pending && <div className="flex justify-end gap-2">
-          <Button variant="outline" disabled={busy} onClick={() => void decide("reject")}>Reject</Button>
-          <Button disabled={busy} onClick={() => void decide("accept")}>{busy && <Spinner data-icon="inline-start" />}Accept</Button></div>}
+        {(message || pending) && <div role="group" aria-label="Decision" className="sticky bottom-0 flex flex-col gap-2 border-t bg-background py-3">
+          {message && <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert>}
+          {waiting && <p className="text-sm text-muted-foreground">{`Accept the service proposal ${proposal.service_name} first.`}</p>}
+          {pending && <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => void decide("reject")}>Reject</Button>
+            <Button disabled={busy || waiting} onClick={() => void decide("accept")}>{busy && <Spinner data-icon="inline-start" />}Accept</Button></div>}</div>}
       </div>
     </SheetContent>
   </Sheet>;
