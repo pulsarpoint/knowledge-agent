@@ -168,6 +168,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         try:
             with db.connect() as conn:
                 project_id = db.project(conn, app_name)
+                # Lock the project before the principal upsert: every inventory writer takes them in this order.
+                conn.execute("SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE", (project_id,))
                 actor_id = db.actor(conn, subject, email)
                 return save_service(conn, project_id, actor_id, value, service_id)
         except psycopg.errors.UniqueViolation:

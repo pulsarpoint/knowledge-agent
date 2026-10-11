@@ -5,7 +5,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.discovery import (ACCEPT_SERVICE_FIRST, DECIDED, DOCUMENT_ADDED, SERVICE_ADDED, SERVICE_CHANGED,
-                                       STALE)
+                                       SERVICE_GONE, STALE)
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
@@ -202,3 +202,41 @@ def test_a_stale_revision_and_unknown_ids_are_refused(run):
     assert stale.status_code == 409 and stale.json()['error']['message'] == STALE
     assert world.client.get('/api/discovery/00000000-0000-0000-0000-000000000000/proposals', headers=HEADERS).status_code == 404
     assert decide(world, {'id': '00000000-0000-0000-0000-000000000000', 'revision': 1}, 'reject').status_code == 404
+
+
+def test_accepting_one_proposal_does_not_strand_another_update_of_a_service_it_linked(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **REDIS, depends_on=['nginx'])
+    propose(config, 'propose_service', name='nginx', description='Changed', deployment={'runtime_name': 'nginx'})
+    redis, nginx = listed(world, sid)
+    assert decide(world, redis, 'accept').status_code == 200
+    nginx = listed(world, sid)[1]
+    refused = decide(world, nginx, 'accept')
+    assert refused.status_code == 409 and refused.json()['error']['message'] == SERVICE_CHANGED
+    nginx = listed(world, sid)[1]
+    assert nginx['status'] == 'pending'
+    assert decide(world, nginx, 'accept').status_code == 200
+
+
+def test_a_document_about_a_service_deleted_since_is_refused(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **REDIS)
+    propose(config, 'propose_document', title='Redis', markdown='# redis', about_service='redis')
+    service_proposal, document = listed(world, sid)
+    assert decide(world, service_proposal, 'accept').status_code == 200
+    with world.store.connect() as conn:
+        conn.execute("DELETE FROM ka.service_deployments WHERE service_id IN (SELECT id FROM ka.services WHERE name='redis')")
+        conn.execute("DELETE FROM ka.services WHERE name='redis'")
+    refused = decide(world, listed(world, sid)[1], 'accept')
+    assert refused.status_code == 400 and refused.json()['error']['message'] == SERVICE_GONE.format(name='redis')
+
+
+def test_an_update_ignores_archived_code_projects(run):
+    world, sid, config = run
+    propose(config, 'propose_service', name='nginx', description='Changed', deployment={'runtime_name': 'nginx'})
+    with world.store.connect() as conn:
+        conn.execute("UPDATE ka.repositories SET archived_at=now() WHERE name='Shop'")
+    [proposal] = listed(world, sid)
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    assert service(world, 'nginx')['description'] == 'Changed'

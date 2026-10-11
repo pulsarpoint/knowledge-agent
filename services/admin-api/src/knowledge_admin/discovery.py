@@ -119,7 +119,9 @@ def matching_deployment(conn, service_id, server_id, deployment: dict) -> dict |
 
 def first_error(exc: ValidationError) -> str:
     error = exc.errors()[0]
-    return str(error['msg']).removeprefix('Value error, ')
+    message = str(error['msg']).removeprefix('Value error, ')
+    location = '.'.join(str(part) for part in error['loc'])
+    return f'{location}: {message}' if location else message
 
 
 def free_slug(conn, project, folder: str, base: str) -> str:
@@ -244,8 +246,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                  dependencies=[ServiceDependencyInput(service_id=item) for item in dependencies])
             return save_service(conn, project, actor, value, None)['id']
         current = conn.execute(CURRENT_SERVICE, (row['service_id'],)).fetchone()
-        if current is None or current['revision'] != payload.get('matched_revision'):
+        if current is None:
             raise HTTPException(409, SERVICE_CHANGED)
+        if current['revision'] != payload.get('matched_revision'):
+            # Accepting another proposal can bump this service's revision (a dependency link); keep the new one so a
+            # reload shows the current values and the next accept works.
+            convert(conn, row['id'], SERVICE_CHANGED, payload=Jsonb({**payload, 'matched_revision': current['revision']}))
         changed = changes(payload, current)
         chosen = changed if fields is None else [field for field in fields if field in changed]
         deployments = [DeploymentInput(**item) for item in conn.execute(
@@ -257,8 +263,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             deployments = [item.model_copy(update={key: proposed[key] for key in DEPLOYMENT_FIELDS
                                                    if proposed[key] not in (None, '')}) if item.id == match['id'] else item
                            for item in deployments]
-        repositories = [item['to_code_project_id'] for item in conn.execute('''SELECT to_code_project_id FROM ka.inventory_links
-            WHERE kind='built_from' AND from_service_id=%s ORDER BY to_code_project_id''', (current['id'],))]
+        repositories = [item['to_code_project_id'] for item in conn.execute('''SELECT l.to_code_project_id FROM ka.inventory_links l
+            JOIN ka.repositories r ON r.id=l.to_code_project_id AND r.archived_at IS NULL
+            WHERE l.kind='built_from' AND l.from_service_id=%s ORDER BY l.to_code_project_id''', (current['id'],))]
         links = {}
         if dependencies:
             links['dependencies'] = [ServiceDependencyInput(service_id=item['to_service_id'], description=item['description'])
@@ -276,17 +283,21 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         payload = row['payload']
         server = conn.execute('SELECT id,name FROM ka.servers WHERE id=%s', (row['server_id'],)).fetchone()
         if row['service_proposal_id'] is not None:
-            parent = conn.execute('SELECT status,result_id FROM ka.discovery_proposals WHERE id=%s',
+            parent = conn.execute('SELECT status,result_id,payload FROM ka.discovery_proposals WHERE id=%s',
                                   (row['service_proposal_id'],)).fetchone()
             if parent['status'] != 'accepted':
                 raise HTTPException(400, ACCEPT_SERVICE_FIRST)
             service_id = parent['result_id']
+            gone_name = parent['payload']['name']
         elif row['service_id'] is not None:
             service_id = row['service_id']
+            gone_name = payload.get('about_service')
         elif payload.get('about_service'):
             raise HTTPException(400, SERVICE_GONE.format(name=payload['about_service']))
         else:
             service_id = None
+        if service_id is not None and conn.execute('SELECT 1 FROM ka.services WHERE id=%s', (service_id,)).fetchone() is None:
+            raise HTTPException(400, SERVICE_GONE.format(name=payload.get('about_service') or gone_name))
         column, entry = ('service_id', service_id) if service_id else ('server_id', server['id'])
         if row['document_id'] is None:
             clash = conn.execute(f'''SELECT d.id FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
@@ -356,12 +367,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/discovery/proposals/{proposal_id}/accept')
     def accept(proposal_id: UUID, value: Acceptance, request: Request) -> dict:
         db = database()
+        kind = None
         try:
             with db.connect() as conn:
                 project = db.project(conn, app_name)
                 conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
                 actor = db.actor(conn, *request_actor(request))
                 row = pending(conn, project, proposal_id, value.revision)
+                kind = row['kind']
                 export_error = None
                 if row['kind'] == 'service':
                     result = accept_service(conn, project, actor, row, value.fields)
@@ -376,6 +389,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         except ValidationError as exc:
             raise HTTPException(400, first_error(exc)) from None
         except psycopg.errors.UniqueViolation:
+            if kind == 'document':
+                raise HTTPException(409, 'Another document was saved with this name at the same time. Try again.') from None
             raise HTTPException(409, 'A service with this name already exists in this application') from None
 
     @router.post('/discovery/proposals/{proposal_id}/reject')
@@ -383,6 +398,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app_name)
+            conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
             actor = db.actor(conn, *request_actor(request))
             row = pending(conn, project, proposal_id, value.revision)
             updated = conn.execute('''UPDATE ka.discovery_proposals SET status='rejected',decided_by=%s,decided_at=now(),
