@@ -73,7 +73,8 @@ Added to the tool catalog (`tools/catalog.py`) as `ToolSpec`s.
 
 ### Inventory read tools — new read-only capability `inventory`
 
-Any agent can be given them; a discovery run always has them. Every lookup is limited to the current workspace; a
+Any agent can be given them on its Tools tab (group Inventory, off for existing agents); a discovery run and Generate
+documents sessions always have them. The proposal tools never appear on the Tools tab. Every lookup is limited to the current workspace; a
 server is found by hostname or name (case-insensitive).
 
 - `get_server_info_basic(hostname)` — name, hostname, description, tags, environments; counts of services and
@@ -98,7 +99,8 @@ that ends the run).
   - Fields and limits as in `ServiceInput`/`DeploymentInput`.
   - `deployment`: `runtime`, `runtime_name`, `port`, `log_location`, `deployed_version`, `environment?`. The server is
     the run's server. The environment defaults to the server's only environment; when the server is in several
-    environments it must be one of them; when in none, the deployment has no environment.
+    environments it must be one of them; when the server is in none, the agent gives an environment name (a deployment
+    always has an environment, as in the Services form).
   - `depends_on`: service names; `built_from`: code project names. They must name existing entries; an unknown name
     answers an error listing the valid names.
 - `propose_document(title, markdown, description?, about_service?)` — attaches to the server, or to `about_service`
@@ -111,7 +113,10 @@ The final answer is a short report: what was found, what was proposed, what coul
 
 ## API
 
-- `POST /api/servers/{server_id}/discovery` `{prompt, model?, prompt_id?}` → creates the run (400 when the server is not
+- `GET /api/servers/{server_id}` → the server page's data: the server, its environments, its deployments and whether a
+  discovery run can start (`ready`, `reason`).
+- `POST /api/servers/{server_id}/discovery` `{model_id, prompt, prompt_id?}` (the sheet chooses the model; it defaults
+  to the first usable model, as Generate documents) → creates the run (400 when the server is not
   SSH-configured or agent SSH is not allowed, with the reason). Several runs on one server may run at once. The agent receives the server's id, name and hostname in its system prompt.
 - `GET /api/servers/{server_id}/discovery` → runs with counts of pending/accepted/rejected proposals.
 - `GET /api/discovery/{session_id}/proposals` → proposals; for service updates also the current values of the matched
@@ -141,8 +146,9 @@ The final answer is a short report: what was found, what was proposed, what coul
 - **"Ask agent to collect info"** — enabled only when SSH is configured and agent SSH is allowed; otherwise disabled
   with the reason. Sheet: prompt picker (usable prompts tagged `server-discovery`), the prompt text (filled from the
   chosen prompt, editable, edits not saved to the library), model (default as Generate documents), Start.
-- **Run page `/servers/:serverId/discovery/:runId`** — live transcript (as Generate documents) beside a Proposals panel
-  that updates as proposals arrive.
+- **Run page `/servers/:serverId/discovery/:runId`** — live transcript (as Generate documents); the sidebar lists the
+  proposals (number, kind, name, status) and updates while the agent works; Review opens a wide side panel with the
+  proposal and Accept / Reject.
   - Service, new: all fields. Service, update: current vs proposed per changed field, each with a "keep" checkbox
     (all ticked). Accept / Reject.
   - Document: Markdown preview; "new" or "new version of <title>"; target. Accept / Reject.
