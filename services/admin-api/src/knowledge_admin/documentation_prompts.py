@@ -1,6 +1,6 @@
 """Versioned analysis and writing templates for documentation generation."""
 
-from typing import Literal
+import re
 from uuid import UUID
 
 import psycopg
@@ -12,11 +12,33 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
 
 
+TAG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
+MAX_TAGS = 10
+BAD_TAG = 'Tags use lowercase letters, digits and -, up to 40 characters.'
+TOO_MANY_TAGS = f'Use at most {MAX_TAGS} tags.'
+PROMPT_COLUMNS = ('id,project_id,name,description,tags,enabled,active_version_id,next_version,revision,'
+                  'created_at,updated_at')
+
+
+def clean_tags(tags: list[str]) -> list[str]:
+    """Trimmed, lower-cased, duplicates merged in first-seen order; 400 with a plain message when one is invalid."""
+    cleaned: list[str] = []
+    for tag in tags:
+        tag = tag.strip().lower()
+        if not TAG.match(tag):
+            raise HTTPException(400, BAD_TAG)
+        if tag not in cleaned:
+            cleaned.append(tag)
+    if len(cleaned) > MAX_TAGS:
+        raise HTTPException(400, TOO_MANY_TAGS)
+    return cleaned
+
+
 class PromptInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default='', max_length=4000)
-    input_kind: Literal['code', 'server', 'service', 'mixed']
+    tags: list[str] = Field(default_factory=list, max_length=100)
     enabled: bool = Field(default=True, strict=True)
     content: str = Field(min_length=1, max_length=100000)
     revision: int | None = Field(default=None, ge=1, strict=True)
@@ -58,28 +80,39 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         return row
 
     @router.get('')
-    def list_prompts() -> dict:
+    def list_prompts(tag: str | None = Query(None, max_length=40)) -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
-            rows = conn.execute('''SELECT p.*,v.version AS active_version,
+            rows = conn.execute(f'''SELECT {', '.join('p.' + column for column in PROMPT_COLUMNS.split(','))},v.version AS active_version,
                 (SELECT count(*) FROM ka.documentation_prompt_versions WHERE prompt_id=p.id) AS version_count
                 FROM ka.documentation_prompts p LEFT JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-                WHERE p.project_id=%s ORDER BY lower(p.name),p.id''', (project,)).fetchall()
+                WHERE p.project_id=%s AND (%s::text IS NULL OR %s = ANY(p.tags))
+                ORDER BY lower(p.name),p.id''', (project,tag,tag)).fetchall()
             return {'prompts':rows}
+
+    @router.get('/tags')
+    def tags_in_use() -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn,app_name)
+            rows = conn.execute('''SELECT tag, count(*) AS count FROM ka.documentation_prompts, unnest(tags) AS tag
+                WHERE project_id=%s GROUP BY tag ORDER BY tag''', (project,)).fetchall()
+        return {'tags':rows}
 
     @router.get('/{prompt_id}')
     def get_prompt(prompt_id: UUID) -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
-            row = conn.execute('SELECT * FROM ka.documentation_prompts WHERE id=%s AND project_id=%s', (prompt_id,project)).fetchone()
+            row = conn.execute(f'SELECT {PROMPT_COLUMNS} FROM ka.documentation_prompts WHERE id=%s AND project_id=%s', (prompt_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Documentation prompt not found')
             row['versions'] = conn.execute('SELECT * FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC', (prompt_id,)).fetchall()
             return row
 
     def save(value: PromptInput, request: Request, prompt_id: UUID | None) -> dict:
+        tags = clean_tags(value.tags)
         db = database()
         request_actor(request)
         try:
@@ -88,16 +121,16 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if prompt_id is None:
                     if value.revision is not None:
                         raise HTTPException(400, 'New prompts cannot reuse a revision')
-                    row = conn.execute('''INSERT INTO ka.documentation_prompts(project_id,name,description,input_kind,enabled)
-                        VALUES (%s,%s,%s,%s,%s) RETURNING *''', (project,value.name,value.description,value.input_kind,value.enabled)).fetchone()
+                    row = conn.execute(f'''INSERT INTO ka.documentation_prompts(project_id,name,description,tags,enabled)
+                        VALUES (%s,%s,%s,%s,%s) RETURNING {PROMPT_COLUMNS}''', (project,value.name,value.description,tags,value.enabled)).fetchone()
                     prompt_id = row['id']
                     revision = 1
                 else:
                     row = locked_prompt(conn,project,prompt_id,value.revision)
                     revision = row['revision']+1
-                    conn.execute('''UPDATE ka.documentation_prompts SET name=%s,description=%s,input_kind=%s,enabled=%s,revision=%s
-                        WHERE id=%s''', (value.name,value.description,value.input_kind,value.enabled,revision,prompt_id))
-                actor = audit(conn,db,request,project,prompt_id,'documentation_prompt.saved',{'revision':revision})
+                    conn.execute('''UPDATE ka.documentation_prompts SET name=%s,description=%s,tags=%s,enabled=%s,revision=%s
+                        WHERE id=%s''', (value.name,value.description,tags,value.enabled,revision,prompt_id))
+                actor = audit(conn,db,request,project,prompt_id,'documentation_prompt.saved',{'revision':revision,'tags':tags})
                 latest = conn.execute('SELECT id,content FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC LIMIT 1', (prompt_id,)).fetchone()
                 # Metadata edits do not need another identical draft.
                 version_id = latest['id'] if latest is not None else None

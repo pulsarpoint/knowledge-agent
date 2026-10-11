@@ -21,7 +21,7 @@ def test_fresh_workspace_fixture_is_active_and_edits_are_drafts(store, tmp_path)
     assert response.status_code == 200, response.text
     fixture = next(p for p in response.json()['prompts'] if p['name'] == NAME)
     assert fixture['name'] == NAME
-    assert fixture['input_kind'] == 'code' and fixture['enabled']
+    assert fixture['tags'] == ['documentation', 'code'] and fixture['enabled']
     assert fixture['active_version'] == 1 and fixture['version_count'] == 1
     endpoint = ENDPOINT + '/' + fixture['id']
     original = client.get(endpoint, headers=HEADERS).json()
@@ -29,7 +29,7 @@ def test_fresh_workspace_fixture_is_active_and_edits_are_drafts(store, tmp_path)
     assert version1['id'] == original['active_version_id']
     assert version1['activated_at'] is not None and version1['created_by'] is None
 
-    edit = {key: original[key] for key in ('name', 'description', 'input_kind', 'enabled', 'revision')}
+    edit = {key: original[key] for key in ('name', 'description', 'tags', 'enabled', 'revision')}
     edit['content'] = version1['content'] + '\nPrioritize the incident response runbook.\n'
     updated = client.put(endpoint, headers=HEADERS, json=edit)
     assert updated.status_code == 200, updated.text
@@ -67,7 +67,7 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
         existing_project = store.project(conn, 'existing')
     client = _client(tmp_path, repository_store=store)
     # Case-insensitive collisions must leave an administrator's template untouched.
-    custom = {'name': NAME.upper(), 'input_kind': 'code', 'content': 'Our existing instructions.'}
+    custom = {'name': NAME.upper(), 'tags': ['code'], 'content': 'Our existing instructions.'}
     created = client.post(ENDPOINT, headers=HEADERS, json=custom)
     assert created.status_code == 201, created.text
     endpoint = ENDPOINT + '/' + created.json()['id']

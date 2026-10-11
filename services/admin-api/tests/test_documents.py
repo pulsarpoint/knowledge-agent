@@ -13,7 +13,7 @@ from test_repositories import HEADERS
 
 VALUE = {'slug':'payments-runbook', 'title':'Payments runbook', 'description':'Diagnose failed payments',
          'purpose':'troubleshooting', 'audience':'agents', 'tags':['payments'], 'markdown':'# Payments\n\n  Preserve indentation.\n'}
-PROMPT = {'name':'Code architecture', 'description':'Explain components', 'input_kind':'code', 'content':'Read source code; cite evidence.'}
+PROMPT = {'name':'Code architecture', 'description':'Explain components', 'tags':['code'], 'content':'Read source code; cite evidence.'}
 
 
 def test_document_commits_are_versioned_preserved_and_validated(store, tmp_path):
