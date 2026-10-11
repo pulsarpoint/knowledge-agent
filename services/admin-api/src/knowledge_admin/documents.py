@@ -243,10 +243,11 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
 
 
 def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput, document_id: UUID | None = None,
-                  folder: str | None = None) -> dict:
+                  folder: str | None = None, origin: str = 'manual') -> dict:
     """Save a complete immutable version within the caller's transaction.
 
-    `folder` places a new document in a documentation folder; an existing document keeps its own folder."""
+    `folder` places a new document in a documentation folder; an existing document keeps its own folder. `origin`
+    records where the text came from (manual, generated, uploaded)."""
     # Serialize saves per project so the folder / folder-less export check below cannot race another save.
     conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
     if document_id is None:
@@ -304,7 +305,7 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
         tags,markdown,content_hash,source_snapshot,base_version_id,origin,created_by)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (version_id,document_id,project,revision,value.title,value.description,value.purpose,value.audience,
-         value.tags,value.markdown,hashlib.sha256(value.markdown.encode('utf-8')).hexdigest(),Jsonb(snapshot),base,'manual',actor))
+         value.tags,value.markdown,hashlib.sha256(value.markdown.encode('utf-8')).hexdigest(),Jsonb(snapshot),base,origin,actor))
     # Fixed relation names, never identifiers supplied by an HTTP request.
     for table,column,ids in (
         ('document_code_projects','code_project_id',value.code_project_ids),
