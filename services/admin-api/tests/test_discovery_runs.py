@@ -39,8 +39,10 @@ def test_the_server_page_shows_environments_deployments_and_readiness(world):
     [deployment] = body['deployments']
     assert deployment['service_name'] == 'nginx' and deployment['environment'] == 'Production' and deployment['port'] == 80
     assert body['discovery'] == {'ready': False, 'reason': NOT_CONFIGURED}
+    assert body['ssh_ready'] is False
     ssh_ready(world)
-    assert world.client.get(f"/api/servers/{world.server['id']}", headers=HEADERS).json()['discovery'] == {'ready': True, 'reason': None}
+    ready = world.client.get(f"/api/servers/{world.server['id']}", headers=HEADERS).json()
+    assert ready['discovery'] == {'ready': True, 'reason': None} and ready['ssh_ready'] is True
     assert world.client.get(f'/api/servers/{uuid4()}', headers=HEADERS).status_code == 404
 
 

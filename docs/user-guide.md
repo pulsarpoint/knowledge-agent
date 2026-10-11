@@ -378,8 +378,12 @@ proposal:
 - A **document** shows its text.
 
 **Accept** writes to the inventory: the deployment is added or updated, connections are
-added, and documents are saved as generated documents in `servers/<server>/` and attached.
-**Reject** discards the proposal. Rejecting a service also rejects the documents about it.
+added, and new documents are saved as generated documents in `servers/<server>/` (in `servers/<server>-2`, `-3`, ... when the
+folder would overlap another document's export, or in `server-documents/<server>` when `servers` itself is a
+document's export) and attached; a new version of an existing document keeps that document's folder. If the
+document changed since the proposal was made, Accept refuses once and shows the proposal again; review it and accept.
+**Reject** discards the proposal. Rejecting a proposed new service also rejects the document proposals about it;
+documents about an already recorded service stay and can be accepted on their own.
 A document about a proposed service can be accepted only after the service is. If
 something was added since the proposal was made, it turns into an update or a new version
 and asks you to look at it again.
@@ -985,7 +989,7 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
-| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools, switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
+| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools. Generate documents sessions and discovery runs always have them; other agents get them only when switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
 | Proposal tools | Discovery runs only | Exist only in a server discovery run; they record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |

@@ -47,7 +47,7 @@ export default function ServerPage({ serverId }: { serverId: string }) {
         <p className="font-mono text-sm">{server.hostname}</p>
         {server.description && <p className="text-sm text-muted-foreground">{server.description}</p>}
         <div className="flex flex-wrap gap-1">{environments.map(item => <Badge key={item.id} variant="secondary">{item.name}</Badge>)}
-          <Badge variant={server.access_enabled ? "secondary" : "outline"}>{server.access_enabled ? "SSH set up" : "SSH not set up"}</Badge>
+          <Badge variant={data.ssh_ready ? "secondary" : "outline"}>{data.ssh_ready ? "SSH set up" : "SSH not set up"}</Badge>
           <Badge variant={server.ssh_allowed ? "secondary" : "outline"}>{server.ssh_allowed ? "Agent SSH allowed" : "Agent SSH off"}</Badge></div></div>
       <div className="flex flex-col items-end gap-1">
         <Button disabled={!discovery.ready} onClick={() => setAsking(true)}>Ask agent to collect info</Button>

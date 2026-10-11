@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.capabilities import ast_grep, code_graph, code_search, documents, files, inventory, ssh
 from knowledge_admin.capabilities import discovery as discovery_tools
@@ -291,6 +291,14 @@ ServiceRole = Literal['unclassified', 'application', 'proxy', 'web_server', 'dat
 
 class Proposal(Arguments):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+
+    @field_validator('*')
+    @classmethod
+    def no_null_characters(cls, value: Any) -> Any:
+        texts = value if isinstance(value, list) else [value]
+        if any(isinstance(text, str) and '\x00' in text for text in texts):
+            raise ValueError('Text cannot contain null characters.')
+        return value
 
 
 class DeploymentProposal(Proposal):

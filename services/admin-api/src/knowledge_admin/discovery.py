@@ -11,7 +11,8 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.documents import DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.documents import (DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
+                                       save_document)
 from knowledge_admin.generations_api import NO_MODEL, Selection
 from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
@@ -79,6 +80,7 @@ DECIDED = 'This proposal was already accepted or rejected.'
 STALE = 'This proposal changed since you opened it. Review it again.'
 SERVICE_CHANGED = 'This service changed since the proposal was made. Review it again.'
 SERVICE_ADDED = 'A service named {name} was added since this proposal was made. It is now shown as an update. Review it again.'
+DOCUMENT_CHANGED = 'This document changed since the proposal was made. Review it again.'
 DOCUMENT_ADDED = 'A document titled {title} was added since this proposal was made. It is now shown as a new version. Review it again.'
 ACCEPT_SERVICE_FIRST = 'Accept the service first.'
 SERVICE_GONE = 'The service {name} no longer exists. Reject this proposal.'
@@ -125,13 +127,26 @@ def first_error(exc: ValidationError) -> str:
 
 
 def free_slug(conn, project, folder: str, base: str) -> str:
+    """The first slug in the folder that no document has and whose export does not overlap another export."""
     base = base[:110].rstrip('-') or 'document'
     for number in range(1, 1000):
         slug = base if number == 1 else f'{base}-{number}'
         if conn.execute('SELECT 1 FROM ka.documents WHERE project_id=%s AND folder=%s AND slug=%s',
-                        (project, folder, slug)).fetchone() is None:
+                        (project, folder, slug)).fetchone() is None and export_conflict(conn, project, slug, folder) is None:
             return slug
     raise HTTPException(409, 'Too many documents with this name. Rename one and try again.')
+
+
+def free_folder(conn, project, server_slug: str) -> str:
+    """servers/<server>, or servers/<server>-2, -3, ... when the folder itself cannot hold exports (a document is
+    named like it, or a folder level is a document's export): the conflict does not depend on the slug. When
+    servers itself is a document's export, server-documents/<server> is used instead."""
+    for root in ('servers', 'server-documents'):
+        for number in range(1, 100):
+            folder = f'{root}/{server_slug}' if number == 1 else f'{root}/{server_slug}-{number}'
+            if export_conflict(conn, project, 'probe-slug-0', folder) is None:
+                return folder
+    raise HTTPException(409, 'No folder is free for this server\'s documents. Rename a document or folder and try again.')
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -168,6 +183,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 ORDER BY lower(s.name),environment,d.runtime_name''', (server_id,)).fetchall()
         reason = readiness(access)
         return {'server': server, 'environments': environments, 'deployments': deployments,
+                'ssh_ready': bool(access['enabled'] and access['credential_id'] is not None),
                 'discovery': {'ready': reason is None, 'reason': reason}}
 
     @router.post('/servers/{server_id}/discovery', status_code=201)
@@ -277,7 +293,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                              **{field: payload[field] if field in chosen else current[field] for field in SERVICE_FIELDS},
                              repository_ids=list(dict.fromkeys([*repositories, *code_projects])),
                              deployments=deployments, revision=current['revision'], **links)
-        return save_service(conn, project, actor, value, current['id'])['id']
+        return save_service(conn, project, actor, value, current['id'], keep_archived_links=True)['id']
 
     def accept_document(conn, project, actor, row: dict) -> tuple[UUID, str | None]:
         payload = row['payload']
@@ -300,12 +316,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(400, SERVICE_GONE.format(name=payload.get('about_service') or gone_name))
         column, entry = ('service_id', service_id) if service_id else ('server_id', server['id'])
         if row['document_id'] is None:
-            clash = conn.execute(f'''SELECT d.id FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
+            clash = conn.execute(f'''SELECT d.id,d.revision FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
                 WHERE a.{column}=%s AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1''', (entry, payload['title'])).fetchone()
             if clash is not None:
-                convert(conn, row['id'], DOCUMENT_ADDED.format(title=payload['title']), document_id=clash['id'])
+                convert(conn, row['id'], DOCUMENT_ADDED.format(title=payload['title']), document_id=clash['id'],
+                        payload=Jsonb({**payload, 'matched_document_revision': clash['revision']}))
             name = conn.execute('SELECT name FROM ka.services WHERE id=%s', (service_id,)).fetchone()['name'] if service_id else server['name']
-            folder = f"servers/{document_slug(server['name']) or 'server'}"
+            folder = free_folder(conn, project, document_slug(server['name']) or 'server')
             slug = free_slug(conn, project, folder, document_slug(f"{name} {payload['title']}"))
             saved = save_document(conn, project, actor, DocumentInput(
                 slug=slug, title=payload['title'], description=payload['description'], markdown=payload['markdown'],
@@ -316,6 +333,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         else:
             current = conn.execute('''SELECT slug,description,purpose,audience,tags,code_project_ids,service_ids,server_ids,
                 deployment_ids,environment_ids,revision FROM ka.document_details WHERE id=%s''', (row['document_id'],)).fetchone()
+            if current['revision'] != payload.get('matched_document_revision'):
+                convert(conn, row['id'], DOCUMENT_CHANGED, payload=Jsonb({**payload, 'matched_document_revision': current['revision']}))
             saved = save_document(conn, project, actor, DocumentInput(
                 slug=current['slug'], title=payload['title'], description=payload['description'] or current['description'],
                 purpose=current['purpose'], audience=current['audience'], tags=current['tags'], markdown=payload['markdown'],

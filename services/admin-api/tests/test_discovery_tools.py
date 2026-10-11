@@ -124,3 +124,46 @@ def test_repeated_documents_replace_their_pending_proposal_and_servers_and_servi
     assert [row['number'] for row in rows] == [1, 2, 3, 4]
     assert [row['revision'] for row in rows] == [1, 2, 2, 2]
     assert [row['payload'].get('markdown') for row in rows[1:]] == ['# two', '# nginx 2', '# redis 2']
+
+
+def test_a_decided_proposal_is_never_overwritten_by_a_late_repeat(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **SERVICE)
+    propose(config, 'propose_document', title='Notes', markdown='# one')
+    with world.store.connect() as conn:
+        conn.execute("UPDATE ka.discovery_proposals SET status='rejected',decided_at=now() WHERE session_id=%s", (sid,))
+    assert propose(config, 'propose_service', **{**SERVICE, 'description': 'Late'}) == 'Proposal 3: new service redis.'
+    assert propose(config, 'propose_document', title='Notes', markdown='# late') == 'Proposal 4: new document "Notes" about server web-1.'
+    rows = proposals(world, sid)
+    assert [row['status'] for row in rows] == ['rejected', 'rejected', 'pending', 'pending']
+    assert rows[0]['payload']['description'] == 'Session cache' and rows[1]['payload']['markdown'] == '# one'
+    assert rows[0]['revision'] == 1 and rows[1]['revision'] == 1
+
+
+def test_the_update_itself_rechecks_the_status(run, monkeypatch):
+    from knowledge_admin.capabilities import discovery as tools
+    world, sid, config = run
+    propose(config, 'propose_service', **SERVICE)
+    original = tools._save
+
+    def decided_first(conn, session, kind, payload, existing, **kwargs):
+        conn.execute("UPDATE ka.discovery_proposals SET status='rejected',decided_at=now() WHERE id=%s", (existing['id'],))
+        return original(conn, session, kind, payload, existing, **kwargs)
+    monkeypatch.setattr(tools, '_save', decided_first)
+    assert propose(config, 'propose_service', **{**SERVICE, 'description': 'Late'}) == 'Proposal 2: new service redis.'
+    rows = proposals(world, sid)
+    assert [row['status'] for row in rows] == ['rejected', 'pending']
+    assert rows[0]['payload']['description'] == 'Session cache'
+
+
+def test_text_with_null_characters_is_refused_in_every_proposal_field():
+    with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
+        CATALOG['propose_service'].arguments.model_validate({**SERVICE, 'description': 'a\x00b'})
+    with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
+        CATALOG['propose_service'].arguments.model_validate({**SERVICE, 'deployment': {'runtime_name': 'x\x00'}})
+    with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
+        CATALOG['propose_service'].arguments.model_validate({**SERVICE, 'depends_on': ['nginx\x00']})
+    with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
+        CATALOG['propose_document'].arguments.model_validate({'title': 'T', 'markdown': 'a\x00'})
+    with pytest.raises(pydantic.ValidationError, match='Text cannot contain null characters.'):
+        CATALOG['propose_document'].arguments.model_validate({'title': 'T', 'markdown': 'a', 'about_service': '\x00'})

@@ -7,7 +7,7 @@ const server = { id: "s1", name: "web-1", hostname: "10.0.0.7", ssh_port: 22, ss
   tags: [], revision: 2, created_at: "", updated_at: "", access_enabled: true, allow_sudo: false, ssh_allowed: true };
 const page = (ready: boolean, reason: string | null = null) => ({ server, environments: [{ id: "e1", name: "Production" }],
   deployments: [{ id: "d1", service_id: "n1", service_name: "nginx", environment: "Production", runtime: "systemd", runtime_name: "nginx", port: 80, deployed_version: "" }],
-  discovery: { ready, reason } });
+  ssh_ready: reason !== "Set up SSH for this server first (SSH settings).", discovery: { ready, reason } });
 const runs = { runs: [{ id: "r1", title: "Discovery · web-1", status: "waiting", model_name: "GPT", created_at: "2026-10-11T10:00:00Z", last_activity_at: null, pending: 2, accepted: 1, rejected: 0 }] };
 const prompts = { prompts: [{ id: "p1", name: "Server discovery", description: "", tags: ["server-discovery", "ssh"], enabled: true, active_version_id: "v1", active_version: 1, version_count: 1, revision: 1 }] };
 const prompt = { ...prompts.prompts[0], versions: [{ id: "v1", version: 1, content: "Explore this server.", activated_at: "x", created_at: "x" }] };
@@ -45,6 +45,7 @@ test("shows the server, its services and runs; the button says why it is off", a
   expect(within(run.closest("li")!).getByText("2 pending · 1 accepted · 0 rejected")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Ask agent to collect info" })).toBeDisabled();
   expect(screen.getByText("Set up SSH for this server first (SSH settings).")).toBeInTheDocument();
+  expect(screen.getByText("SSH not set up")).toBeInTheDocument();  // access is enabled but there is no credential
 });
 
 test("the sheet fills the discovery prompt, which can be edited, and Start opens the run", async () => {

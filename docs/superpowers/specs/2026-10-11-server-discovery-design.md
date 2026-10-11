@@ -113,7 +113,7 @@ The final answer is a short report: what was found, what was proposed, what coul
 
 ## API
 
-- `GET /api/servers/{server_id}` → the server page's data: the server, its environments, its deployments and whether a
+- `GET /api/servers/{server_id}` → the server page's data: the server, its environments, its deployments, `ssh_ready` (SSH enabled and a credential saved) and whether a
   discovery run can start (`ready`, `reason`).
 - `POST /api/servers/{server_id}/discovery` `{model_id, prompt, prompt_id?}` (the sheet chooses the model; it defaults
   to the first usable model, as Generate documents) → creates the run (400 when the server is not
@@ -136,7 +136,8 @@ The final answer is a short report: what was found, what was proposed, what coul
   created from `service_proposal_id`.
 - **Document matching an existing one:** a new version of that document.
 - **Document about a pending service proposal:** 400 "Accept the service first."
-- **Reject a service:** its pending document proposals are rejected too.
+- **Reject a proposed new service:** the pending document proposals about it are rejected too. Documents about an
+  already recorded service stay and can be accepted on their own.
 - A decided proposal cannot be decided again (409). Every accept and reject is audited.
 
 ## UI

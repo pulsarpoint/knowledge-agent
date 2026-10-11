@@ -12,7 +12,8 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.services import ServerInput, ServiceInput
 
 
-def save_service(conn, project_id: UUID, actor_id: UUID, value: ServiceInput, service_id: UUID | None) -> dict:
+def save_service(conn, project_id: UUID, actor_id: UUID, value: ServiceInput, service_id: UUID | None,
+                 keep_archived_links: bool = False) -> dict:
     """Save a service with its code projects, environments, deployments and dependencies in the caller's transaction:
     the Services form, and accepted discovery proposals. Raises HTTPException with the form's messages."""
     # Both ends can edit a relationship. Serialize inventory writes before
@@ -81,9 +82,12 @@ def save_service(conn, project_id: UUID, actor_id: UUID, value: ServiceInput, se
         (service_id, project_id, value.name, value.description, value.owner, value.operations_notes, actor_id,
          value.service_type, value.service_role, revision,
          'service_type' in value.model_fields_set, 'service_role' in value.model_fields_set)).fetchone()
-    # Unlisted code projects lose their link; listed ones keep theirs (and its description and attributes).
+    # Unlisted code projects lose their link; listed ones keep theirs (and its description and attributes). With
+    # keep_archived_links the links to archived code projects stay (the form cannot list those, so a proposal must not drop them).
     conn.execute('''DELETE FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s
-        AND NOT (to_code_project_id=ANY(%s))''', (service_id, value.repository_ids))
+        AND NOT (to_code_project_id=ANY(%s))''' + (
+        ''' AND NOT EXISTS (SELECT 1 FROM ka.repositories r WHERE r.id=to_code_project_id AND r.archived_at IS NOT NULL)'''
+        if keep_archived_links else ''), (service_id, value.repository_ids))
     for repository_id in value.repository_ids:
         conn.execute('''INSERT INTO ka.inventory_links(project_id,from_service_id,to_code_project_id,kind)
             VALUES (%s,%s,%s,'built_from') ON CONFLICT (from_id,to_id,kind) DO NOTHING''',

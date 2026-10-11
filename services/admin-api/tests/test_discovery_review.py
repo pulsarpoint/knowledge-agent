@@ -6,6 +6,8 @@ import pytest
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.discovery import (ACCEPT_SERVICE_FIRST, DECIDED, DOCUMENT_ADDED, SERVICE_ADDED, SERVICE_CHANGED,
                                        SERVICE_GONE, STALE)
+from knowledge_admin.discovery import DOCUMENT_CHANGED
+from knowledge_admin.documents import DocumentInput, save_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
@@ -240,3 +242,58 @@ def test_an_update_ignores_archived_code_projects(run):
     accepted = decide(world, proposal, 'accept')
     assert accepted.status_code == 200, accepted.text
     assert service(world, 'nginx')['description'] == 'Changed'
+    with world.store.connect() as conn:  # the link to the archived code project stays
+        assert conn.execute("SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s AND to_code_project_id=%s",
+                            (world.nginx, world.shop)).fetchone() is not None
+
+
+def test_a_blocked_export_folder_moves_new_documents_to_another_folder(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='Disk layout', markdown='# Disks')
+    [proposal] = listed(world, sid)
+    with world.store.connect() as conn:
+        conn.execute("UPDATE ka.documents SET folder='servers',slug='web-1' WHERE slug='web-1-overview'")
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    with world.store.connect() as conn:
+        row = conn.execute('SELECT folder,slug FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)).fetchone()
+    assert row['folder'] == 'servers/web-1-2' and row['slug'] == 'web-1-disk-layout'
+
+
+def test_a_folderless_servers_document_moves_new_documents_to_another_root(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='Disk layout', markdown='# Disks')
+    [proposal] = listed(world, sid)
+    with world.store.connect() as conn:
+        conn.execute("UPDATE ka.documents SET folder=NULL,slug='servers' WHERE slug='web-1-overview'")
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    with world.store.connect() as conn:
+        row = conn.execute('SELECT folder FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)).fetchone()
+    assert row['folder'] == 'server-documents/web-1'
+
+
+def test_a_new_version_of_a_document_changed_since_the_proposal_is_refused_once(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='web-1 overview', markdown='# mine')
+    [proposal] = listed(world, sid)
+    assert proposal['payload']['matched_document_revision'] == 1
+    with world.store.connect() as conn:
+        save_document(conn, world.project, None, DocumentInput(slug='web-1-overview', title='web-1 overview', description='x',
+                      markdown='# theirs', revision=1), proposal['document_id'])
+    refused = decide(world, proposal, 'accept')
+    assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_CHANGED
+    [proposal] = listed(world, sid)
+    assert proposal['payload']['matched_document_revision'] == 2
+    assert decide(world, proposal, 'accept').status_code == 200
+
+
+def test_a_document_converted_to_a_new_version_stores_the_revision(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='Disk layout', markdown='# mine')
+    other = start(world).json()['id']
+    propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# theirs')
+    assert decide(world, listed(world, other)[0], 'accept').status_code == 200
+    assert decide(world, listed(world, sid)[0], 'accept').status_code == 409
+    [proposal] = listed(world, sid)
+    assert proposal['payload']['matched_document_revision'] == 1

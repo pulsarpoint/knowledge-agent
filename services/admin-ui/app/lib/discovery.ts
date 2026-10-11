@@ -5,7 +5,7 @@ export const DISCOVERY_TAG = 'server-discovery';
 export interface ServerDeployment { id: string; service_id: string; service_name: string; environment: string; runtime: string;
   runtime_name: string; port: number | null; deployed_version: string }
 export interface ServerPageData { server: ServerAsset; environments: { id: string; name: string }[]; deployments: ServerDeployment[];
-  discovery: { ready: boolean; reason: string | null } }
+  ssh_ready: boolean; discovery: { ready: boolean; reason: string | null } }
 export interface DiscoveryRun { id: string; title: string; status: SessionStatus; model_name: string | null; created_at: string;
   last_activity_at: string | null; pending: number; accepted: number; rejected: number }
 export type ServiceField = 'service_type' | 'service_role' | 'description' | 'owner' | 'operations_notes';

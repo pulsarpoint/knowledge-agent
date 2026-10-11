@@ -19,7 +19,8 @@ SERVICES = 'SELECT id,name FROM ka.services WHERE project_id=%s'
 CODE_PROJECTS = 'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL'
 SERVICE_BY_NAME = 'SELECT id,name,revision FROM ka.services WHERE project_id=%s AND lower(name)=lower(%s)'
 PENDING_SERVICE = """SELECT id,number FROM ka.discovery_proposals WHERE session_id=%s AND kind='service' AND status='pending'
-    AND lower(payload->>'name')=lower(%s)"""
+    AND lower(payload->>'name')=lower(%s)
+    FOR UPDATE"""
 
 
 def _names(rows) -> str:
@@ -73,9 +74,12 @@ def _run(conn, config: dict[str, Any]) -> tuple[dict, dict]:
 def _save(conn, session: dict, kind: str, payload: dict, existing: dict | None, *, service_id=None,
           service_proposal_id=None, document_id=None) -> tuple[int, bool]:
     if existing is not None:
-        conn.execute('''UPDATE ka.discovery_proposals SET payload=%s,service_id=%s,service_proposal_id=%s,document_id=%s,
-            revision=revision+1 WHERE id=%s''', (Jsonb(payload), service_id, service_proposal_id, document_id, existing['id']))
-        return existing['number'], True
+        # Re-checked: an administrator may have decided the proposal since it was looked up; a decided one stays as it is.
+        updated = conn.execute('''UPDATE ka.discovery_proposals SET payload=%s,service_id=%s,service_proposal_id=%s,document_id=%s,
+            revision=revision+1 WHERE id=%s AND status='pending' RETURNING id''',
+            (Jsonb(payload), service_id, service_proposal_id, document_id, existing['id'])).fetchone()
+        if updated is not None:
+            return existing['number'], True
     number = conn.execute('SELECT coalesce(max(number),0)+1 AS n FROM ka.discovery_proposals WHERE session_id=%s',
                           (session['id'],)).fetchone()['n']
     conn.execute('''INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload,service_id,
@@ -126,14 +130,15 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
                 service_proposal_id, target = proposal['id'], f'proposed service {about}'
         if service_proposal_id is None:
             column, entry = ('service_id', service_id) if service_id else ('server_id', server['id'])
-            found = conn.execute(f'''SELECT d.id FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
+            found = conn.execute(f'''SELECT d.id,d.revision FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
                 WHERE a.{column}=%s AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1''', (entry, value['title'])).fetchone()
             document_id = found['id'] if found else None
         existing = conn.execute("""SELECT id,number FROM ka.discovery_proposals WHERE session_id=%s AND kind='document'
             AND status='pending' AND lower(payload->>'title')=lower(%s) AND service_id IS NOT DISTINCT FROM %s
-            AND service_proposal_id IS NOT DISTINCT FROM %s""", (session['id'], value['title'], service_id, service_proposal_id)).fetchone()
+            AND service_proposal_id IS NOT DISTINCT FROM %s
+            FOR UPDATE""", (session['id'], value['title'], service_id, service_proposal_id)).fetchone()
         payload = {'title': value['title'], 'description': value['description'], 'markdown': value['markdown'],
-                   'about_service': about}
+                   'about_service': about, 'matched_document_revision': found['revision'] if document_id else None}
         number, replaced = _save(conn, session, 'document', payload, existing, service_id=service_id,
                                  service_proposal_id=service_proposal_id, document_id=document_id)
     what = 'new version of document' if document_id else 'new document'
