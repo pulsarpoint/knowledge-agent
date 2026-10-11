@@ -20,7 +20,7 @@ from knowledge_admin.knowledge_agents.config import model_fits
 from knowledge_admin.operations_store import SSHInput
 from knowledge_admin.profiles_api import PROMPT_LIMIT
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing, enabled_capability_tools
-from knowledge_admin.tools_api import SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
+from knowledge_admin.tools_api import DISCOVERY_ONLY, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -255,6 +255,8 @@ def build_api(app_name, store):
                 for name in [*(value.tools or []), *value.subagent_blocked]:
                     if name not in CATALOG:
                         raise HTTPException(400, UNKNOWN.format(tool=name))
+                    if CATALOG[name].needs == 'discovery':
+                        raise HTTPException(400, DISCOVERY_ONLY)
                     if name == SUBAGENT:
                         raise HTTPException(400, SUBAGENT_SWITCH)
                 actor = store.actor(conn, *request_actor(request))

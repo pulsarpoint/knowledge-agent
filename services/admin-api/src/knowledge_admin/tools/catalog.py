@@ -8,11 +8,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.capabilities import ast_grep, code_graph, code_search, documents, files, inventory, ssh
+from knowledge_admin.capabilities import discovery as discovery_tools
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.shell import client as shell
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
-Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh']
+Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'discovery']
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,51 @@ RUN_SUBAGENT = ('Start a helper for a separate, well-defined part of your work, 
 SUBAGENT = 'run_subagent'
 
 
+ServiceType = Literal['unclassified', 'custom', 'builtin', 'external']
+ServiceRole = Literal['unclassified', 'application', 'proxy', 'web_server', 'database', 'cache', 'message_broker', 'worker', 'other']
+
+
+class Proposal(Arguments):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+
+
+class DeploymentProposal(Proposal):
+    environment: str | None = Field(None, max_length=100, description="One of the server's environments; leave it empty when the server is in exactly one.")
+    runtime: str = Field('', max_length=80, description='How it runs, for example systemd, docker or cron.')
+    runtime_name: str = Field('', max_length=200, description='The unit, container or process name.')
+    port: int | None = Field(None, ge=1, le=65535, description='Its main listening port, if any.')
+    log_location: str = Field('', max_length=1000, description='Where its logs are, for example journalctl -u nginx or /var/log/nginx/.')
+    deployed_version: str = Field('', max_length=200, description='The version that runs.')
+
+
+class ProposeService(Proposal):
+    name: str = Field(min_length=1, max_length=200, description='The service name. A service already recorded with this name is proposed as an update.')
+    service_type: ServiceType = Field('unclassified', description='custom: built by us; builtin: part of the platform or OS; external: run by someone else.')
+    service_role: ServiceRole = Field('unclassified', description='What it does for the system.')
+    description: str = Field('', max_length=4000, description='What it does, in a few sentences.')
+    owner: str = Field('', max_length=200, description='Who runs it, when you can tell.')
+    operations_notes: str = Field('', max_length=10000, description='How to operate it: start, stop, health checks, configuration files, gotchas.')
+    deployment: DeploymentProposal = Field(description='How it runs on this server.')
+    depends_on: list[str] = Field(default_factory=list, max_length=100, description='Names of recorded services it depends on.')
+    built_from: list[str] = Field(default_factory=list, max_length=100, description='Names of recorded code projects it is built from.')
+
+
+class ProposeDocument(Proposal):
+    title: str = Field(min_length=1, max_length=240, description='The document title. A document with this title already attached to the same server or service gets a new version.')
+    markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
+    description: str = Field('', max_length=4000, description='One or two sentences on what the document covers.')
+    about_service: str | None = Field(None, max_length=200, description='The service the document is about (recorded, or proposed earlier in this run); empty: the server.')
+
+
+PROPOSE_SERVICE = ('Propose a service running on this server, with its deployment here, for an administrator to accept '
+                   'or reject. A service already recorded under this name is proposed as an update; proposing the same '
+                   'service again replaces your earlier proposal. If the call is refused, correct what it says and call again.')
+PROPOSE_DOCUMENT = ('Propose a document about this server, or about one of its services (about_service), for an '
+                    'administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same '
+                    'title for the same server or service again replaces your earlier proposal.')
+
+
+
 def _never(config: Mapping[str, Any]) -> bool:
     return False  # offered exactly when its row is on: the switch May start subagents
 
@@ -338,6 +384,10 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
              InventoryName, _call(inventory.get_project_info), None, _never),
     ToolSpec('get_document', 'inventory', 'Read inventory document', 'Read a document attached to an inventory entry.', GET_DOCUMENT,
              InventoryDocument, _call(inventory.get_document), None, _never),
+    ToolSpec('propose_service', 'inventory', 'Propose service', 'Propose a service for review (server discovery runs).',
+             PROPOSE_SERVICE, ProposeService, _call(discovery_tools.propose_service), 'discovery', _never),
+    ToolSpec('propose_document', 'inventory', 'Propose document', 'Propose a document for review (server discovery runs).',
+             PROPOSE_DOCUMENT, ProposeDocument, _call(discovery_tools.propose_document), 'discovery', _never),
     ToolSpec(SUBAGENT, 'agents', 'Start subagents', 'Hand a separate part of the work to a helper that runs in parallel.',
              RUN_SUBAGENT, RunSubagent, _run_subagent, None, _never),
 )}
@@ -345,7 +395,8 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
 NEED_REASONS: dict[str, str] = {
     'files': 'Needs code projects, or documents without "Answer only from documents"',
     'code': 'Needs code projects', 'code_graph': 'Needs code projects', 'documents': 'Needs documents',
-    'grounded': 'Needs "Answer only from documents"', 'ssh': 'Needs SSH servers'}
+    'grounded': 'Needs "Answer only from documents"', 'ssh': 'Needs SSH servers',
+    'discovery': 'Only in server discovery runs'}
 NEED_TABS: dict[str, str] = {'files': 'git', 'code': 'git', 'code_graph': 'git', 'documents': 'documents',
                              'grounded': 'documents', 'ssh': 'ssh'}
 
@@ -365,6 +416,8 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
         return _documents(config)
     if need == 'grounded':
         return _grounded(config)
+    if need == 'discovery':
+        return bool(config.get('discovery'))
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
 
 
@@ -431,7 +484,7 @@ def mcp_notes(config: Mapping[str, Any], servers: list[dict[str, Any]]) -> list[
 
 def catalog_listing() -> list[dict[str, Any]]:
     return [{'name': spec.name, 'group': spec.group, 'label': spec.label, 'summary': spec.summary,
-             'usage': spec.usage, 'needs': spec.needs} for spec in CATALOG.values()]
+             'usage': spec.usage, 'needs': spec.needs} for spec in CATALOG.values() if spec.needs != 'discovery']
 
 
 CAPABILITY_NEEDS: dict[str, tuple[str, ...]] = {

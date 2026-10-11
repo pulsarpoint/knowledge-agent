@@ -1,0 +1,106 @@
+"""propose_service and propose_document: checked and stored as pending proposals of the run."""
+import asyncio
+from uuid import uuid4
+
+import pydantic
+import pytest
+
+from discovery_world import world  # noqa: F401  (fixture)
+from knowledge_admin.capabilities.discovery import NOT_DISCOVERY, resolve_environment
+from knowledge_admin.tools.catalog import CATALOG, catalog_listing
+from test_discovery_runs import config_of, ssh_ready, start
+
+SERVICE = {'name': 'redis', 'service_role': 'cache', 'description': 'Session cache',
+           'deployment': {'runtime': 'systemd', 'runtime_name': 'redis-server', 'port': 6379}}
+
+
+@pytest.fixture
+def run(world):
+    ssh_ready(world)
+    sid = start(world).json()['id']
+    return world, sid, config_of(world, sid)
+
+
+def propose(config, tool, **arguments):
+    spec = CATALOG[tool]
+    return asyncio.run(spec.run({'config': config}, spec.arguments.model_validate(arguments)))
+
+
+def proposals(world, sid):
+    with world.store.connect() as conn:
+        return conn.execute('SELECT * FROM ka.discovery_proposals WHERE session_id=%s ORDER BY number', (sid,)).fetchall()
+
+
+def test_a_new_service_takes_the_servers_only_environment(run):
+    world, sid, config = run
+    assert propose(config, 'propose_service', **SERVICE, depends_on=['nginx'], built_from=['shop']) == 'Proposal 1: new service redis.'
+    [row] = proposals(world, sid)
+    assert row['kind'] == 'service' and row['service_id'] is None and row['status'] == 'pending'
+    deployment = row['payload']['deployment']
+    assert deployment['environment'] == 'Production' and deployment['environment_id'] == str(world.environment)
+    assert deployment['port'] == 6379 and row['payload']['service_role'] == 'cache'
+    assert row['payload']['depends_on'] == [{'id': str(world.nginx), 'name': 'nginx'}]
+    assert row['payload']['built_from'] == [{'id': str(world.shop), 'name': 'Shop'}]
+
+
+def test_an_existing_service_is_an_update_and_a_repeat_replaces_the_pending_proposal(run):
+    world, sid, config = run
+    update = {'name': 'NGINX', 'description': 'Reverse proxy', 'deployment': {'runtime_name': 'nginx', 'deployed_version': '1.24'}}
+    assert propose(config, 'propose_service', **update) == 'Proposal 1: update of service nginx.'
+    assert propose(config, 'propose_service', **{**update, 'owner': 'platform'}) == \
+        'Proposal 1: update of service nginx (replaces your earlier proposal).'
+    [row] = proposals(world, sid)
+    assert row['service_id'] == world.nginx and row['revision'] == 2 and row['payload']['owner'] == 'platform'
+    assert row['payload']['matched_revision'] == 1
+
+
+def test_unknown_names_and_self_dependencies_are_refused_with_the_valid_names(run):
+    world, sid, config = run
+    with pytest.raises(ValueError, match='Unknown services: postgres. Known services: nginx.'):
+        propose(config, 'propose_service', **SERVICE, depends_on=['postgres'])
+    with pytest.raises(ValueError, match='Unknown code projects: api. Known code projects: Shop.'):
+        propose(config, 'propose_service', **SERVICE, built_from=['api'])
+    with pytest.raises(ValueError, match='A service cannot depend on itself.'):
+        propose(config, 'propose_service', **{**SERVICE, 'name': 'nginx'}, depends_on=['nginx'])
+    with pytest.raises(pydantic.ValidationError):
+        propose(config, 'propose_service', **{**SERVICE, 'deployment': {'port': 70000}})
+    assert proposals(world, sid) == []
+
+
+def test_the_environment_rules():
+    production, staging = {'id': uuid4(), 'name': 'Production'}, {'id': uuid4(), 'name': 'Staging'}
+    assert resolve_environment([production], None) == {'environment_id': str(production['id']), 'environment': 'Production'}
+    assert resolve_environment([production, staging], 'staging')['environment'] == 'Staging'
+    with pytest.raises(ValueError, match=r'several environments \(Production, Staging\)'):
+        resolve_environment([production, staging], None)
+    with pytest.raises(ValueError, match="Choose one of this server's environments: Production."):
+        resolve_environment([production], 'qa')
+    with pytest.raises(ValueError, match='in no environment'):
+        resolve_environment([], None)
+    assert resolve_environment([], 'lab') == {'environment_id': None, 'environment': 'lab'}
+
+
+def test_documents_attach_to_the_server_a_service_or_a_proposed_service(run):
+    world, sid, config = run
+    assert propose(config, 'propose_document', title='Web-1 overview', markdown='# web-1') == \
+        'Proposal 1: new version of document "Web-1 overview" about server web-1.'
+    assert propose(config, 'propose_document', title='Runbook', markdown='# nginx', about_service='nginx') == \
+        'Proposal 2: new document "Runbook" about service nginx.'
+    propose(config, 'propose_service', **SERVICE)
+    assert propose(config, 'propose_document', title='Redis', markdown='# redis', about_service='redis') == \
+        'Proposal 4: new document "Redis" about proposed service redis.'
+    with pytest.raises(ValueError, match='No service named mysql. Propose it with propose_service first'):
+        propose(config, 'propose_document', title='MySQL', markdown='# x', about_service='mysql')
+    rows = proposals(world, sid)
+    assert rows[0]['document_id'] is not None and rows[0]['service_id'] is None
+    assert rows[1]['service_id'] == world.nginx and rows[1]['document_id'] is None
+    assert rows[3]['service_proposal_id'] == rows[2]['id']
+
+
+def test_proposal_tools_work_only_in_discovery_runs_and_never_show_on_the_tools_tab(run):
+    world, sid, config = run
+    without = {key: value for key, value in config.items() if key != 'discovery'}
+    with pytest.raises(ValueError, match=NOT_DISCOVERY):
+        propose(without, 'propose_service', **SERVICE)
+    listed = {tool['name'] for tool in catalog_listing()}
+    assert 'propose_service' not in listed and 'get_server_info_basic' in listed

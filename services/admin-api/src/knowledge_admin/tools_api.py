@@ -13,6 +13,7 @@ from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED
 
 STALE = 'The tools changed since you opened them. Reload.'
 GROUNDED = 'Grounded answers need report_not_covered.'
+DISCOVERY_ONLY = 'This tool is only available in server discovery runs.'
 UNKNOWN = 'Unknown tool: {tool}.'
 UNKNOWN_EXPERT = 'Unknown expert: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
@@ -102,6 +103,8 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
+        if spec.needs == 'discovery':
+            continue  # only in discovery runs
         if spec.name == SUBAGENT and row is None:
             continue  # listed only while May start subagents is on
         available = needs_met(spec.needs, current, None)
@@ -183,6 +186,8 @@ def build_api(app_name, store):
             experts = {id for id, expert in agents.items() if expert}
             for choice in value.tools:
                 if choice.tool in CATALOG:
+                    if CATALOG[choice.tool].needs == 'discovery':
+                        raise HTTPException(400, DISCOVERY_ONLY)
                     continue
                 if choice.tool.startswith(ROW_PREFIX):
                     if choice.tool.removeprefix(ROW_PREFIX) not in agents:  # not an agent, or the agent itself
