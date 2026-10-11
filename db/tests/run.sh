@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+tags_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND table_name = 'documentation_prompts' AND column_name = 'tags')")
+[ "$tags_removed" = t ] || { echo 'FAIL: 0096 down left prompt tags' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 links_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.inventory_links') IS NULL AND to_regclass('ka.kg_nodes') IS NOT NULL
         AND to_regclass('ka.service_dependencies') IS NOT NULL")
@@ -205,6 +210,11 @@ links=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.service_dependencies') IS NULL")
 [ "$links" = t ] || { echo 'FAIL: 0095 inventory links missing or the stored graph still there' >&2; exit 1; }
 printf '%s\n' 'PASS: inventory links replace the stored system graph.'
+tags=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND table_name = 'documentation_prompts' AND column_name = 'tags')")
+[ "$tags" = t ] || { echo 'FAIL: 0096 prompt tags missing' >&2; exit 1; }
+printf '%s\n' 'PASS: prompts carry tags.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

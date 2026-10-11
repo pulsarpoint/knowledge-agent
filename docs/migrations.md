@@ -225,3 +225,10 @@ and attachments of hand-drawn nodes are dropped (the documents stay). `kg_nodes`
 `kg_graph_version` and their triggers are dropped. `service_assets` reads the new table and gains `links` (the service's
 `connects_to` links). The down migration refuses while `connects_to` links, link attributes, `built_from` descriptions or attachments exist;
 otherwise it restores the old tables and an empty graph, which the old code's start-up sync refills.
+
+## 0096_prompt_tags
+
+Prompts get `tags` (lowercase letters, digits and `-`, up to 40 characters, at most 10, no duplicates), backfilled as
+`documentation` plus the old `input_kind`. `input_kind` is retired but kept with `DEFAULT 'mixed'`, because the
+per-workspace seed functions still insert it; a BEFORE INSERT trigger tags an untagged insert the same way, so seeded
+prompts of new workspaces are tagged too. The down migration drops the tags, the trigger and the default.
