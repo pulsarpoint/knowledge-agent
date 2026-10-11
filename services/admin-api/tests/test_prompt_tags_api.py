@@ -48,12 +48,12 @@ def test_bad_tags_and_input_kind_are_refused(client):
 
 
 def test_filter_by_tag_and_tags_in_use(client):
-    discovery = make(client, 'Discovery', ['server-discovery', 'ssh'])
-    make(client, 'Another', ['ssh'])
-    filtered = client.get(ENDPOINT, headers=HEADERS, params={'tag': 'server-discovery'}).json()['prompts']
+    discovery = make(client, 'Filtered', ['alpha', 'beta'])
+    make(client, 'Another', ['beta'])
+    filtered = client.get(ENDPOINT, headers=HEADERS, params={'tag': 'alpha'}).json()['prompts']
     assert [row['id'] for row in filtered] == [discovery]
     tags = {row['tag']: row['count'] for row in client.get(f'{ENDPOINT}/tags', headers=HEADERS).json()['tags']}
-    assert tags['ssh'] == 2 and tags['server-discovery'] == 1
+    assert tags['beta'] == 2 and tags['alpha'] == 1
     assert tags['documentation'] >= 1  # the seeded prompts of the test workspace
     ordered = [row['tag'] for row in client.get(f'{ENDPOINT}/tags', headers=HEADERS).json()['tags']]
     assert ordered == sorted(ordered)
@@ -85,9 +85,9 @@ def test_a_whitespace_only_tag_is_refused(client):
 
 
 def test_tags_in_use_count_only_this_projects_prompts(client, store):
-    make(client, 'Mine', ['ssh'])
+    make(client, 'Mine', ['beta'])
     with store.connect() as conn:
         foreign = store.project(conn, 'foreign')
-        conn.execute("INSERT INTO ka.documentation_prompts(project_id,name,tags) VALUES (%s,'Theirs','{ssh,foreign-only}')", (foreign,))
+        conn.execute("INSERT INTO ka.documentation_prompts(project_id,name,tags) VALUES (%s,'Theirs','{beta,foreign-only}')", (foreign,))
     tags = {row['tag']: row['count'] for row in client.get(f'{ENDPOINT}/tags', headers=HEADERS).json()['tags']}
-    assert tags['ssh'] == 1 and 'foreign-only' not in tags
+    assert tags['beta'] == 1 and 'foreign-only' not in tags

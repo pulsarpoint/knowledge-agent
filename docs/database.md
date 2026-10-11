@@ -25,6 +25,7 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `servers` | Host inventory and SSH connection settings |
 | `documents`, `document_versions` | Stable document IDs, canonical Markdown, immutable versions, hashes and source snapshots. `documents.phase_metadata` holds the service phase export layout (`services/<service>/<phase>/`); `document_versions.generation_id` is history without a foreign key since migration 0073 |
 | `document_code_projects`, `document_services`, `document_servers`, `document_deployments` | Current document associations to inventory |
+| `discovery_proposals` | What a server discovery run (an agent session with `purpose = 'discovery'` and a `server_id`) proposes: services and documents, accepted or rejected by an administrator |
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
 | `rag_workspaces`, `rag_collections`, `rag_files`, `rag_file_log`, `rag_chunks`, `rag_vectors` | Global RAG settings; `ka.rag_collections` (the searchable unit: its own search and processing settings; its folders are in `ka.rag_collection_paths`); per-collection file hashes, per-file status (`rag_file_log`), searchable text and cached embeddings |

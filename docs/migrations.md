@@ -232,3 +232,11 @@ Prompts get `tags` (lowercase letters, digits and `-`, up to 40 characters, at m
 `documentation` plus the old `input_kind`. `input_kind` is retired but kept with `DEFAULT 'mixed'`, because the
 per-workspace seed functions still insert it; a BEFORE INSERT trigger tags an untagged insert the same way, so seeded
 prompts of new workspaces are tagged too. The down migration drops the tags, the trigger and the default. Rolling 0096 back drops the tags, and prompts created after the upgrade keep only `input_kind = 'mixed'`.
+
+## 0097_server_discovery
+
+Server discovery runs are agent sessions with `purpose = 'discovery'` and the new `server_id` (set exactly for that
+purpose; deleting the server deletes its runs). `ka.discovery_proposals` holds what a run proposes — services and
+documents — until an administrator accepts or rejects them. Every workspace gets the prompt "Server discovery", tagged
+`server-discovery` and `ssh`. The down migration refuses while discovery runs exist and when the seeded prompt was
+changed; otherwise it removes the prompt, the table and the column.

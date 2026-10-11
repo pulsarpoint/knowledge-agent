@@ -56,6 +56,10 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+discovery_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.discovery_proposals') IS NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'server_id')")
+[ "$discovery_removed" = t ] || { echo 'FAIL: 0097 down left discovery runs' >&2; exit 1; }
 tags_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
         AND table_name = 'documentation_prompts' AND column_name = 'tags')")
@@ -215,6 +219,11 @@ tags=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND table_name = 'documentation_prompts' AND column_name = 'tags')")
 [ "$tags" = t ] || { echo 'FAIL: 0096 prompt tags missing' >&2; exit 1; }
 printf '%s\n' 'PASS: prompts carry tags.'
+discovery=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.discovery_proposals') IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'server_id')")
+[ "$discovery" = t ] || { echo 'FAIL: 0097 discovery runs missing' >&2; exit 1; }
+printf '%s\n' 'PASS: discovery runs and proposals exist.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
