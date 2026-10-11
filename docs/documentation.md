@@ -32,8 +32,9 @@ workflow can clean its derived RAG data.
 
 ## Documentation prompts
 
-`documentation_prompts` holds a name, description, input kind (`code`, `server`,
-`service`, `mixed`), enabled state, revision, active version and version counter.
+`documentation_prompts` holds a name, description, `tags` (lowercase letters, digits and `-`;
+at most 10; the `documentation` tag plus the old kind on existing and seeded prompts),
+enabled state, revision, active version and version counter.
 `documentation_prompt_versions` holds immutable text and its first activation time.
 Changing prompt text creates a new draft; metadata-only edits preserve identical
 latest text. Activation is explicit and atomic under the parent row lock. At most
@@ -82,8 +83,10 @@ role. Mutations also require an attributed user. No credential fields are return
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
-`/documentation/prompts`, `/documentation/prompts/new`,
-`/documentation/prompts/{id}`, `/documentation/generations` and `/documentation/folders`.
+`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts; the old
+`/documentation/prompts…` addresses redirect there), `/documentation/generations` and
+`/documentation/folders`. `input_kind` is retired: the column remains only for the
+per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
 

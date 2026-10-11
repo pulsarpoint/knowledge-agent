@@ -87,7 +87,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             rows = conn.execute(f'''SELECT {', '.join('p.' + column for column in PROMPT_COLUMNS.split(','))},v.version AS active_version,
                 (SELECT count(*) FROM ka.documentation_prompt_versions WHERE prompt_id=p.id) AS version_count
                 FROM ka.documentation_prompts p LEFT JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-                WHERE p.project_id=%s AND (%s::text IS NULL OR %s = ANY(p.tags))
+                WHERE p.project_id=%s AND (%s::text IS NULL OR p.tags @> ARRAY[%s]::text[])
                 ORDER BY lower(p.name),p.id''', (project,tag,tag)).fetchall()
             return {'prompts':rows}
 
@@ -118,7 +118,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         try:
             with db.connect() as conn:
                 project = db.project(conn,app_name)
-                if prompt_id is None:
+                is_new = prompt_id is None
+                if is_new:
                     if value.revision is not None:
                         raise HTTPException(400, 'New prompts cannot reuse a revision')
                     row = conn.execute(f'''INSERT INTO ka.documentation_prompts(project_id,name,description,tags,enabled)
@@ -130,7 +131,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     revision = row['revision']+1
                     conn.execute('''UPDATE ka.documentation_prompts SET name=%s,description=%s,tags=%s,enabled=%s,revision=%s
                         WHERE id=%s''', (value.name,value.description,tags,value.enabled,revision,prompt_id))
-                actor = audit(conn,db,request,project,prompt_id,'documentation_prompt.saved',{'revision':revision,'tags':tags})
+                stored = row['tags'] if is_new else tags
+                actor = audit(conn,db,request,project,prompt_id,'documentation_prompt.saved',{'revision':revision,'tags':stored})
                 latest = conn.execute('SELECT id,content FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC LIMIT 1', (prompt_id,)).fetchone()
                 # Metadata edits do not need another identical draft.
                 version_id = latest['id'] if latest is not None else None

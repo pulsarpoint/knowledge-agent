@@ -11,7 +11,7 @@ export default [
   route("documents/new", "./routes/documentNew.tsx"),
   route("documents/:documentId", "./routes/documentDetail.tsx"),
   route("prompts", "./routes/promptLibrary.tsx"),
-  route("prompts/new", "./routes/promptLibraryEditor.tsx"),
+  route("prompts/new", "./routes/promptLibraryEditor.tsx", { id: "prompt-library-new" }),
   route("prompts/:promptId", "./routes/promptLibraryEditor.tsx"),
   route("documentation/prompts", "./routes/documentationPrompts.tsx"),
   route("documentation/prompts/new", "./routes/documentationPromptNew.tsx"),

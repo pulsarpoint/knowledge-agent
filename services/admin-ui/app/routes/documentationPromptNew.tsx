@@ -1,2 +1,5 @@
-import { Navigate } from "react-router";
-export default function Page() { return <Navigate to="/prompts/new" replace />; }
+import { Navigate, useLocation } from "react-router";
+export default function Page() {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: "/prompts/new", search, hash }} replace />;
+}

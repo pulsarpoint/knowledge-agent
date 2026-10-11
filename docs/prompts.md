@@ -17,5 +17,5 @@ for Mermaid, the diagram is checked before rendering.
 `ka.agent_prompts` / `ka.agent_prompt_versions` tables were removed by migrations `0079_agent_system_prompt` and
 `0080_clone_agents`; the prompt is `ka.agents.system_prompt`.
 
-**Docs → Prompts** (the documentation prompt library) is not an agent's prompt and is unchanged; see
+**Administration → Prompts** (`/prompts`, formerly Docs → Prompts; the old `/documentation/prompts…` addresses redirect) is the tagged prompt library, not an agent's prompt; see
 [documentation](documentation.md).

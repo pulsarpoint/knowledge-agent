@@ -231,4 +231,4 @@ otherwise it restores the old tables and an empty graph, which the old code's st
 Prompts get `tags` (lowercase letters, digits and `-`, up to 40 characters, at most 10, no duplicates), backfilled as
 `documentation` plus the old `input_kind`. `input_kind` is retired but kept with `DEFAULT 'mixed'`, because the
 per-workspace seed functions still insert it; a BEFORE INSERT trigger tags an untagged insert the same way, so seeded
-prompts of new workspaces are tagged too. The down migration drops the tags, the trigger and the default.
+prompts of new workspaces are tagged too. The down migration drops the tags, the trigger and the default. Rolling 0096 back drops the tags, and prompts created after the upgrade keep only `input_kind = 'mixed'`.

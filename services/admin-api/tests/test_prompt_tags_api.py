@@ -62,3 +62,32 @@ def test_filter_by_tag_and_tags_in_use(client):
 def test_a_prompt_without_tags_gets_the_default(client):
     prompt = make(client, 'Plain', [])
     assert client.get(f'{ENDPOINT}/{prompt}', headers=HEADERS).json()['tags'] == ['documentation', 'mixed']
+
+
+def test_the_create_audit_logs_the_stored_tags(client, store):
+    prompt = make(client, 'Audited', [])
+    with store.connect() as conn:
+        details = conn.execute("SELECT details FROM ka.audit_events WHERE resource_id=%s AND action='documentation_prompt.saved'",
+                               (prompt,)).fetchone()['details']
+    assert details['tags'] == ['documentation', 'mixed']
+
+
+def test_updating_to_empty_tags_stores_no_tags(client):
+    prompt = make(client, 'Untag', ['ssh'])
+    saved = client.put(f'{ENDPOINT}/{prompt}', headers=HEADERS, json={'name': 'Untag', 'tags': [], 'content': 'Look around.', 'revision': 1})
+    assert saved.status_code == 200, saved.text
+    assert client.get(f'{ENDPOINT}/{prompt}', headers=HEADERS).json()['tags'] == []
+
+
+def test_a_whitespace_only_tag_is_refused(client):
+    assert message(client.post(ENDPOINT, headers=HEADERS, json={'name': 'X', 'tags': ['   '], 'content': 'c'})) == (
+        400, 'Tags use lowercase letters, digits and -, up to 40 characters.')
+
+
+def test_tags_in_use_count_only_this_projects_prompts(client, store):
+    make(client, 'Mine', ['ssh'])
+    with store.connect() as conn:
+        foreign = store.project(conn, 'foreign')
+        conn.execute("INSERT INTO ka.documentation_prompts(project_id,name,tags) VALUES (%s,'Theirs','{ssh,foreign-only}')", (foreign,))
+    tags = {row['tag']: row['count'] for row in client.get(f'{ENDPOINT}/tags', headers=HEADERS).json()['tags']}
+    assert tags['ssh'] == 1 and 'foreign-only' not in tags
