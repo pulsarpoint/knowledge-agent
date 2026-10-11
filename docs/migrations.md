@@ -239,4 +239,6 @@ Server discovery runs are agent sessions with `purpose = 'discovery'` and the ne
 purpose; deleting the server deletes its runs). `ka.discovery_proposals` holds what a run proposes — services and
 documents — until an administrator accepts or rejects them. Every workspace gets the prompt "Server discovery", tagged
 `server-discovery` and `ssh`. The down migration refuses while discovery runs exist and when the seeded prompt was
-changed; otherwise it removes the prompt, the table and the column.
+changed; otherwise it removes the prompt, the table and the column. A document version may now be `generated` without a
+(retired) generation run, so discovery documents can say where they came from; the down migration refuses while such a
+version exists and restores the old rule.

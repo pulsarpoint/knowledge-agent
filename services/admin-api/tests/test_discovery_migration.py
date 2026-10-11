@@ -6,6 +6,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+from knowledge_admin.documents import DocumentInput, save_document
 from session_rows import a_model
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
@@ -99,3 +100,20 @@ def test_down_refuses_a_customized_discovery_prompt(store):
         with pytest.raises(psycopg.errors.RaiseException, match='customized'):
             run(conn, DOWN)
         conn.rollback()
+
+
+def test_a_generated_version_needs_no_generation_run_and_down_refuses_while_one_exists(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        actor, _ = actor_and_model(conn)
+        saved = save_document(conn, project, actor, DocumentInput(slug='disks', title='Disks', markdown='# Disks'), origin='generated')
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match='without a generation run'):
+            run(conn, DOWN)
+        conn.rollback()
+        conn.execute('DELETE FROM ka.documents WHERE id=%s', (saved['id'],))
+        conn.commit()
+        run(conn, DOWN)
+        run(conn, UP)
+        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND name='Server discovery'",
+                            (project,)).fetchone()['n'] == 1

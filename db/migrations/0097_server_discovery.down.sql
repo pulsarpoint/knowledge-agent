@@ -6,6 +6,11 @@ DO $$ BEGIN
         RAISE EXCEPTION 'Discovery runs exist; delete them (and their proposals) before rollback';
     END IF;
 END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM document_versions WHERE origin = 'generated' AND generation_id IS NULL) THEN
+        RAISE EXCEPTION 'Generated document versions without a generation run exist (server discovery); keep them or change their origin before rollback';
+    END IF;
+END $$;
 LOCK TABLE documentation_prompts, documentation_prompt_versions IN SHARE ROW EXCLUSIVE MODE;
 DO $$ DECLARE p documentation_prompts%ROWTYPE; BEGIN
     FOR p IN SELECT * FROM documentation_prompts
@@ -31,5 +36,8 @@ ALTER TABLE agent_sessions
     DROP COLUMN server_id;
 COMMENT ON COLUMN agent_sessions.purpose IS
     'documents: a Generate documents session (document name, folder, draft); test: an agent Test tab session; event: started by an event handler (Send to agent).';
+ALTER TABLE document_versions
+    DROP CONSTRAINT document_versions_generation_origin,
+    ADD CONSTRAINT document_versions_check1 CHECK ((origin = 'generated') = (generation_id IS NOT NULL));
 
 COMMIT;

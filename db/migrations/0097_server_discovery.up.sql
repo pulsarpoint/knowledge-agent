@@ -80,4 +80,10 @@ CREATE TRIGGER seed_server_discovery AFTER INSERT ON projects
     FOR EACH ROW EXECUTE FUNCTION seed_server_discovery_on_project();
 SELECT seed_server_discovery_prompt(id) FROM projects;
 
+-- Discovery documents are generated without a (retired, 0073) one-shot generation run: generated no longer needs one;
+-- a version that has a generation_id is still generated.
+ALTER TABLE document_versions
+    DROP CONSTRAINT document_versions_check1,
+    ADD CONSTRAINT document_versions_generation_origin CHECK (generation_id IS NULL OR origin = 'generated');
+
 COMMIT;
