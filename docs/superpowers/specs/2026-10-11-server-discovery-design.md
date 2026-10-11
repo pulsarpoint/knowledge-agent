@@ -130,11 +130,15 @@ The final answer is a short report: what was found, what was proposed, what coul
 
 - **New service:** created through the same save logic as the Services form, with the deployment and connections.
 - **Service update:** only the chosen fields change; the deployment on this server in the same environment is updated,
-  or added if missing; missing connections are added (existing ones are kept). If the service's revision changed since
-  the proposal was made → 409 "This service changed since the proposal was made. Review it again."
-- **New document:** saved with origin `generated` and attached to the server, the matched service, or the service
-  created from `service_proposal_id`.
-- **Document matching an existing one:** a new version of that document.
+  or added if missing; missing connections are added (existing ones are kept, including links to archived code
+  projects). If the service's revision changed since the proposal was made → 409 "This service changed since the
+  proposal was made. Review it again." and the proposal is refreshed, so the next accept works.
+- **New document:** saved with origin `generated` in `servers/<server>/` (or `servers/<server>-N/`, then
+  `server-documents/<server>/`, when an existing document blocks that folder) and attached to the server, the matched
+  service, or the service created from `service_proposal_id`.
+- **Document matching an existing one:** a new version of that document, in its own folder. If the document changed
+  since the proposal was made → 409 "This document changed since the proposal was made. Review it again." and the
+  proposal is refreshed.
 - **Document about a pending service proposal:** 400 "Accept the service first."
 - **Reject a proposed new service:** the pending document proposals about it are rejected too. Documents about an
   already recorded service stay and can be accepted on their own.
