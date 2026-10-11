@@ -222,3 +222,24 @@ test.each([['a Test', 'test'], ['an event', 'event']])('%s session opened here g
   </Routes></MemoryRouter>);
   expect(await screen.findByLabelText('URL')).toHaveTextContent('/agents/custom%20agent?view=test&session_id=s1');
 });
+
+test('a discovery session opened here goes to its server run page', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
+    : Response.json({ ...detail, purpose: 'discovery', server_id: 'srv 1' })));
+  function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname}</output>; }
+  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
+    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
+    <Route path="*" element={<Where />} />
+  </Routes></MemoryRouter>);
+  expect(await screen.findByLabelText('URL')).toHaveTextContent('/servers/srv%201/discovery/s1');
+});
+
+test('a documents session stays on the generation page', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
+  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
+    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
+    <Route path="*" element={<output aria-label="URL">elsewhere</output>} />
+  </Routes></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: 'Payments – API reference' })).toBeVisible();
+  expect(screen.queryByLabelText('URL')).toBeNull();
+});

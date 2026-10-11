@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
 import { closeSession, sendMessage, stopSession } from "~/lib/generations";
 import { getProposals, type Proposal } from "~/lib/discovery";
@@ -12,7 +12,6 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-const LIVE = new Set(["starting", "working"]);
 const STATUS: Record<Proposal["status"], string> = { pending: "Pending", accepted: "Accepted", rejected: "Rejected" };
 
 /** One discovery run: the agent's transcript (as Generate documents) and, in the sidebar, its proposals, refreshed
@@ -22,22 +21,37 @@ export default function DiscoveryRunView({ serverId, runId }: { serverId: string
   const { session, setSession } = run;
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [decision, setDecision] = useState<string | null>(null);
+  const [proposalsError, setProposalsError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const { notice: sessionNotice, clear, stopping, sent } = useSessionNotice(session?.status);
   const fill = useFillViewport<HTMLDivElement>();
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try { setProposals((await getProposals(runId, signal)).proposals); }
-    catch (e) { if (!signal?.aborted) run.setError(e instanceof Error ? e.message : "Could not load the proposals."); }
+  // Every load (first, polled, after a decision) shares one request slot: a poll tick is skipped while one is pending, a
+  // newer load replaces an older one, and a response that is no longer the latest is ignored.
+  const inflight = useRef<AbortController | null>(null);
+  const load = useCallback(async (poll = false) => {
+    if (poll && inflight.current) return;
+    inflight.current?.abort();
+    const controller = new AbortController();
+    inflight.current = controller;
+    try {
+      const result = await getProposals(runId, controller.signal);
+      if (inflight.current !== controller) return;
+      setProposals(result.proposals); setProposalsError("");
+    } catch (e) {
+      if (controller.signal.aborted || inflight.current !== controller) return;
+      setProposalsError(e instanceof Error ? e.message : "Could not load the proposals.");
+    } finally { if (inflight.current === controller) inflight.current = null; }
   }, [runId]);
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load, session?.status]);
+  const status = session?.status;
   useEffect(() => {
-    if (!session || !LIVE.has(session.status)) return;
-    const timer = setInterval(() => void load(), 3000);
-    return () => clearInterval(timer);
-  }, [load, session?.status]);
+    void load();
+    const live = status === "starting" || status === "working";
+    const timer = live ? setInterval(() => void load(true), 3000) : undefined;
+    return () => { if (timer) clearInterval(timer); inflight.current?.abort(); inflight.current = null; };
+  }, [load, status]);
 
   async function act(action: () => Promise<void>) {
     setBusy(true); run.setError(""); clear();
@@ -57,12 +71,12 @@ export default function DiscoveryRunView({ serverId, runId }: { serverId: string
         onClick={() => void act(async () => { await closeSession(runId); setSession(value => value && { ...value, status: "closed" }); })}>Close run</Button>}
       sidebar={<section aria-label="Proposals panel" className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Proposals{proposals ? ` · ${pending} pending` : ""}</h2>
-        {notice && <p role="status" className="text-xs">{notice}</p>}
+        {proposalsError && <p role="alert" className="text-xs text-destructive">{proposalsError}</p>}
         {proposals?.length === 0 && <p className="text-xs text-muted-foreground">Proposals appear here as the agent makes them.</p>}
         <ul aria-label="Proposals" className="flex flex-col gap-2">{proposals?.map(item => <li key={item.id} className="flex flex-col gap-1 rounded border p-2">
           <span className="text-sm">{`${item.number} · ${proposalLabel(item)}`}</span>
           <div className="flex items-center justify-between gap-2"><Badge variant={item.status === "pending" ? "secondary" : "outline"}>{STATUS[item.status]}</Badge>
-            <Button size="sm" variant="outline" onClick={() => { setNotice(null); setOpen(item.id); }}>Review</Button></div></li>)}</ul>
+            <Button size="sm" variant="outline" onClick={() => { setDecision(null); setOpen(item.id); }}>Review</Button></div></li>)}</ul>
       </section>}
       answerActions={turn => <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
       empty={<p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}
@@ -71,7 +85,7 @@ export default function DiscoveryRunView({ serverId, runId }: { serverId: string
         onStop: () => void act(async () => { await stopSession(runId); stopping(); }),
         blockedReason: closed ? "This run is closed. Start a new run from the server page." : null,
         placeholder: "For example: also look at the cron jobs" }} />
-    {current && <ProposalSheet key={`${current.id}:${current.revision}`} proposal={current} onClose={() => setOpen(null)}
-      onDecided={note => { setNotice(note); void load(); }} />}
+    {current && <ProposalSheet key={`${current.id}:${current.revision}`} proposal={current} message={decision}
+      onClose={() => { setOpen(null); setDecision(null); }} onMessage={setDecision} onReload={() => void load()} />}
   </div>;
 }

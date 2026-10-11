@@ -1,11 +1,12 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import DiscoveryRunView from "../DiscoveryRunView";
 
+const live = vi.hoisted(() => ({ status: "waiting" }));
 vi.mock("~/lib/useSessionEvents", () => ({
-  useSessionEvents: () => ({ session: { id: "r1", title: "Discovery · web-1", status: "waiting", purpose: "discovery", agent_name: "Ad-hoc agent",
+  useSessionEvents: () => ({ session: { id: "r1", title: "Discovery · web-1", status: live.status, purpose: "discovery", agent_name: "Ad-hoc agent",
     model_name: "GPT", run_resources: {}, turns: 1 }, setSession: vi.fn(), error: "", setError: vi.fn(), events: [], older: "start", loadOlder: vi.fn(), toolCounts: undefined, reconnecting: false }),
   useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
 }));
@@ -35,7 +36,7 @@ function api(routes: Record<string, (body: unknown) => [number, unknown]>) {
   return calls;
 }
 const show = () => render(<MemoryRouter><DiscoveryRunView serverId="s1" runId="r1" /></MemoryRouter>);
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); live.status = "waiting"; });
 
 test("lists proposals; an update shows current against proposed and accepts only the kept fields", async () => {
   const user = userEvent.setup();
@@ -76,4 +77,39 @@ test("a refused decision shows the reason and reloads the proposals", async () =
   await user.click(screen.getByRole("button", { name: "Accept" }));
   expect((await screen.findAllByText(/It is now shown as a new version/)).length).toBeGreaterThan(0);
   await waitFor(() => expect(loads).toBeGreaterThanOrEqual(2));
+});
+
+test("a refused decision whose reload brings a new revision keeps its reason, shown once", async () => {
+  const user = userEvent.setup();
+  let loads = 0;
+  api({ "GET /api/discovery/r1/proposals": () => { loads += 1; return [200, { proposals: [loads === 1 ? document : { ...document, revision: 2, document_id: "d1" }] }]; },
+    "POST /api/discovery/proposals/q2/accept": () => [409, { error: { message: "A document titled Disk layout was added. Review it again." } }] });
+  show();
+  await user.click(await screen.findByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  expect(await screen.findByText("A document titled Disk layout was added. Review it again.")).toBeInTheDocument();
+  await waitFor(() => expect(loads).toBe(2));
+  expect(screen.getByText("A document titled Disk layout was added. Review it again.")).toBeInTheDocument();
+});
+
+const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+test("polling never overlaps a pending load, and nothing loads or resolves after unmount", async () => {
+  vi.useFakeTimers();
+  live.status = "working";
+  let release: (value: Response) => void = () => {};
+  const fetchMock = vi.fn(() => new Promise<Response>(resolve => { release = resolve; }));
+  vi.stubGlobal("fetch", fetchMock);
+  const view = show();
+  await tick(10000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);  // the first load is still pending: every tick was skipped
+  release(new Response(JSON.stringify({ proposals: [document] })));
+  await tick(0);
+  expect(screen.getByText("2 · New document Disk layout")).toBeInTheDocument();
+  await tick(3000);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  view.unmount();
+  release(new Response(JSON.stringify({ proposals: [] })));
+  await tick(10000);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

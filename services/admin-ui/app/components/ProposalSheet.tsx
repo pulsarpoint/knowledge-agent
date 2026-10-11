@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { acceptProposal, rejectProposal, SERVICE_FIELD_LABELS, type Proposal, type ServiceField, type ServiceProposal } from "~/lib/discovery";
@@ -48,30 +48,32 @@ function ServiceDetails({ proposal, kept, onKeep }: { proposal: ServiceProposal;
 }
 
 /** One proposal in a wide side panel, with Accept and Reject while it is pending. */
-export default function ProposalSheet({ proposal, onClose, onDecided }: { proposal: Proposal; onClose: () => void; onDecided: (message: string | null) => void }) {
+export default function ProposalSheet({ proposal, message, onClose, onMessage, onReload }: { proposal: Proposal; message: string | null; onClose: () => void;
+  onMessage: (message: string | null) => void; onReload: () => void }) {
   const [kept, setKept] = useState<ServiceField[]>(proposal.kind === "service" ? proposal.changes ?? [] : []);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const deciding = useRef(false);
   const pending = proposal.status === "pending";
   async function decide(action: "accept" | "reject") {
-    setBusy(true); setError(null);
+    if (deciding.current) return;
+    deciding.current = true; setBusy(true); onMessage(null);
     try {
       if (action === "reject") {
         const result = await rejectProposal(proposal.id, proposal.revision);
-        onDecided(result.rejected_documents ? `Rejected, with ${result.rejected_documents} document proposal${result.rejected_documents === 1 ? "" : "s"} about it.` : null);
+        onMessage(result.rejected_documents ? `Rejected, with ${result.rejected_documents} document proposal${result.rejected_documents === 1 ? "" : "s"} about it.` : null);
       } else {
         const update = proposal.kind === "service" && proposal.current;
         const order = proposal.kind === "service" ? proposal.changes ?? [] : [];
         const result = await acceptProposal(proposal.id, proposal.revision,
           update ? [...kept].sort((a, b) => order.indexOf(a) - order.indexOf(b)) : undefined);
-        onDecided(result.export_error);
+        onMessage(result.export_error);
       }
+      onReload();
     } catch (e) {
       // The reload may turn the proposal into an update (a new revision remounts this sheet): the page keeps the reason.
-      const reason = e instanceof ApiError ? e.message : "The request failed.";
-      setError(reason);
-      onDecided(reason);
-    } finally { setBusy(false); }
+      onMessage(e instanceof ApiError ? e.message : "The request failed.");
+      onReload();
+    } finally { deciding.current = false; setBusy(false); }
   }
   const target = proposal.kind === "document" ? (proposal.service_name ? `About service ${proposal.service_name}` : "About this server") : null;
   return <Sheet open onOpenChange={open => { if (!open && !busy) onClose(); }}>
@@ -80,7 +82,7 @@ export default function ProposalSheet({ proposal, onClose, onDecided }: { propos
         <SheetDescription>{target ?? (proposal.current ? "Untick a change to keep the current value." : "A new service.")}
           {proposal.kind === "document" && proposal.current && ` Replaces version ${proposal.current.version} of “${proposal.current.title}”.`}</SheetDescription></SheetHeader>
       <div className="mt-4 flex flex-col gap-4">
-        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        {message && <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert>}
         {!pending && <p className="text-sm"><Badge variant="outline">{proposal.status === "accepted" ? "Accepted" : "Rejected"}</Badge>
           {proposal.status === "accepted" && proposal.result_id && (proposal.kind === "document"
             ? <> <Link className="underline" to={`/documents/${proposal.result_id}`}>Open document</Link></>
