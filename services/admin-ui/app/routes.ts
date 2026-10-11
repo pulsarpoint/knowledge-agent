@@ -33,6 +33,8 @@ export default [
   route("llm-settings", "./routes/llmSettings.tsx"),
   route("llm-settings/prompts", "./routes/prompts.tsx"),
   route("servers", "./routes/servers.tsx"),
+  route("servers/:serverId", "./routes/server.tsx"),
+  route("servers/:serverId/discovery/:runId", "./routes/discoveryRun.tsx"),
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
   route("jira/auto-pull", "./routes/jiraAutoPull.tsx"),

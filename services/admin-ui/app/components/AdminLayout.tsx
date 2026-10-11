@@ -38,7 +38,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const codeGraphs = pathname === '/code-graphs';
   const services = pathname === `/services`;
   const environments = pathname === "/environments";
-  const servers = pathname === `/servers`;
+  const servers = pathname === `/servers` || pathname.startsWith("/servers/");
   const systemMap = pathname === "/system-map";
   const jiraSettings = pathname === `/jira/settings`;
   const jiraTickets = pathname === `/jira/tickets`;

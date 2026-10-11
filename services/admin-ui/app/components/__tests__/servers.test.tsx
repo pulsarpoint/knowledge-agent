@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import ServersView from "../ServersView";
 import type { ServerAsset } from "../../lib/api";
 
@@ -17,7 +18,7 @@ function setup(servers: ServerAsset[] = [], conflict = false) {
     return new Response(JSON.stringify({ servers }));
   });
   vi.stubGlobal("fetch", fetch);
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   return fetch;
 }
 
@@ -45,7 +46,7 @@ test("confirmed server deletion waits for the API then removes the row", async (
     return new Response(JSON.stringify({ servers: deleted ? [] : [server] }));
   });
   vi.stubGlobal("fetch", fetch);
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "Delete App host" }));
   const dialog = within(screen.getByRole("alertdialog"));
   fireEvent.click(dialog.getByRole("button", { name: "Delete server" }));
@@ -62,7 +63,7 @@ test("a failed deletion keeps the dialog and server available", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => init?.method === "DELETE"
     ? new Response(JSON.stringify({ error: { message: "Remove linked service deployments first" } }), { status: 409 })
     : new Response(JSON.stringify({ servers: [server] }))));
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "Delete App host" }));
   const dialog = within(screen.getByRole("alertdialog"));
   fireEvent.click(dialog.getByRole("button", { name: "Delete server" }));
@@ -139,7 +140,7 @@ test("conflicts retain unsaved input; cancel reloads before reopening", async ()
 test("failed inventory load prevents adding and can be retried", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Database unavailable" } }), { status: 503 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ servers: [] }))));
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   expect(await screen.findByText("Database unavailable")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add server" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -156,7 +157,7 @@ test("Test SSH runs a connection test with the saved server settings and shows t
     return new Response(JSON.stringify({ servers: [{ ...server, ssh_allowed: true }] }));
   });
   vi.stubGlobal("fetch", fetch);
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "Test SSH App host" }));
   expect(await screen.findByText("SSH connected. Host verification is off.")).toBeInTheDocument();
   const [, init] = fetch.mock.calls.find(([url]) => url === "/api/servers/server-1/ssh/test")!;
@@ -169,7 +170,7 @@ test("Test SSH shows why a server cannot connect", async () => {
     if (url === "/api/servers/server-1/ssh") return new Response(JSON.stringify({ id: "server-1", port: 22, username: null, revision: 2, ssh_allowed: true, enabled: false, allow_sudo: false, known_hosts: "", has_private_key: true }));
     return new Response(JSON.stringify({ servers: [{ ...server, ssh_allowed: true }] }));
   }));
-  render(<ServersView />);
+  render(<MemoryRouter><ServersView /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "Test SSH App host" }));
   expect(await screen.findByText(/Set an SSH login user before testing\./)).toBeInTheDocument();
   expect(screen.getByText(/App host: SSH test failed/)).toBeInTheDocument();
@@ -178,4 +179,9 @@ test("Test SSH shows why a server cannot connect", async () => {
 test("Test SSH is unavailable when SSH is not allowed", async () => {
   setup([server]);
   expect(await screen.findByRole("button", { name: "Test SSH App host" })).toBeDisabled();
+});
+
+test("the server name links to the server page", async () => {
+  setup([server]);
+  expect(await screen.findByRole("link", { name: "App host" })).toHaveAttribute("href", "/servers/server-1");
 });

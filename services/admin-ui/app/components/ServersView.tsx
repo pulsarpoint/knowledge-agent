@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { ApiError, deleteServer, getServers, type ServerAsset } from "../lib/api";
 import { getSSH, testSSH } from "../lib/operations";
@@ -83,7 +84,7 @@ export default function ServersView() {
       <Input aria-label="Filter servers" placeholder="Filter by name, hostname, description, or tag…" value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="rounded-lg border"><Table><TableHeader><TableRow><TableHead>Server</TableHead><TableHead>Hostname / IP</TableHead><TableHead className="min-w-40">Tags</TableHead><TableHead>SSH allowed</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
         <TableBody>{matching.map((server) => <TableRow key={server.id}>
-          <TableCell className="max-w-sm whitespace-normal align-top"><p className="break-words font-medium">{server.name}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{server.description || "No description yet"}</p></TableCell>
+          <TableCell className="max-w-sm whitespace-normal align-top"><p className="break-words font-medium"><Link className="underline-offset-4 hover:underline" to={`/servers/${server.id}`}>{server.name}</Link></p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{server.description || "No description yet"}</p></TableCell>
           <TableCell className="max-w-xs whitespace-normal align-top"><span className="break-all font-mono text-sm">{server.hostname}</span></TableCell>
           <TableCell className="max-w-xs whitespace-normal align-top"><div className="flex flex-wrap gap-1">{server.tags.map((tag) => <Badge key={tag} variant="secondary" className="max-w-full whitespace-normal break-all">{tag}</Badge>)}{server.tags.length === 0 && <span className="text-sm text-muted-foreground">No tags</span>}</div></TableCell>
           <TableCell className="align-top"><Badge variant={server.ssh_allowed ? "secondary" : "outline"}>{server.ssh_allowed ? "On" : "Off"}</Badge></TableCell>
