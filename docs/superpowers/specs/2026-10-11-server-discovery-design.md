@@ -30,10 +30,7 @@ only as JSON in the system prompt.
 - `agent_id IS NULL` is allowed for `documents` and `discovery`.
 - New column `server_id uuid REFERENCES ka.servers ON DELETE CASCADE`, with a CHECK: `server_id IS NOT NULL` exactly
   when `purpose = 'discovery'`. The server page lists its runs by it.
-- At most one active discovery session per server when a run starts. "Active" means status `starting` or `working`
-  (a `waiting` run is idle and can still take follow-up messages). Checked under a `FOR UPDATE` lock on the server row
-  when a run starts — not a unique index, because a follow-up to an idle run moves it back to `working` and the worker
-  must not fail on that.
+- A server can have any number of discovery runs, also at the same time (for example with two different prompts).
 - The run's pinned SSH allowlist is exactly that server.
 
 ### `ka.discovery_proposals`
@@ -63,6 +60,12 @@ only as JSON in the system prompt.
   service.
 - A second proposal of the same service (same name) or the same document (same title and target) in the same run
   replaces the first while that one is still pending; once decided, the new one is a new proposal.
+- Matching is repeated when a "new" proposal is accepted, because another run (or a person) may have added the entry
+  meanwhile. If a service of that name now exists, nothing is written: the proposal becomes an update of it (its
+  `service_id` is set) and accept answers 409 "A service named <name> was added since this proposal was made. It is
+  now shown as an update. Review it again." Likewise a document whose title is now attached to the same target becomes
+  a new version of it, with 409 "A document titled <title> was added since this proposal was made. It is now shown as
+  a new version. Review it again."
 
 ## Agent tools
 
@@ -109,8 +112,7 @@ The final answer is a short report: what was found, what was proposed, what coul
 ## API
 
 - `POST /api/servers/{server_id}/discovery` `{prompt, model?, prompt_id?}` → creates the run (400 when the server is not
-  SSH-configured or agent SSH is not allowed, with the reason; 409 "A discovery run is already running on this
-  server."). The agent receives the server's id, name and hostname in its system prompt.
+  SSH-configured or agent SSH is not allowed, with the reason). Several runs on one server may run at once. The agent receives the server's id, name and hostname in its system prompt.
 - `GET /api/servers/{server_id}/discovery` → runs with counts of pending/accepted/rejected proposals.
 - `GET /api/discovery/{session_id}/proposals` → proposals; for service updates also the current values of the matched
   service and its deployment on this server, so the UI can show the comparison.
@@ -164,10 +166,11 @@ credentials redacted. Read-only is an instruction, not enforced; the user guide 
 ## Tests
 
 - Migration: up/down; purpose/server_id CHECK; seed for existing and new workspaces.
-- API: start a run (gating, one active run); proposal tools (validation errors returned to the agent, matching by name
+- API: start a run (gating; two runs on one server at once); proposal tools (validation errors returned to the agent, matching by name
   and title, a repeat replaces a pending proposal, unknown `depends_on`/`built_from`, environment default); accept
   (new service, update with chosen fields, deployment added/updated, connections added, 409 on a changed service, new
-  document attached, new version of a matched document, "Accept the service first"); reject cascade; decided twice
+  document attached, new version of a matched document, "Accept the service first", a "new" service or document that another run added
+  meanwhile turns into an update / new version with 409); reject cascade; decided twice
   → 409; read tools (workspace scope, 100-item cap, unknown hostname, document cap).
 - UI: server page, the button disabled with the reason, start sheet, live proposals panel, update comparison with keep
   checkboxes, accept and reject.
