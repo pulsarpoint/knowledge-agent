@@ -18,7 +18,9 @@ export interface DocumentVersion {
   origin: 'manual' | 'uploaded' | 'generated'; base_version_id: string | null; created_at: string;
 }
 export interface DocumentDetail extends DocumentSummary { current_version: DocumentVersion; versions: Pick<DocumentVersion, 'id' | 'version' | 'title' | 'origin' | 'base_version_id' | 'content_hash' | 'created_at'>[] }
-export interface DocumentationPromptInput { name: string; description: string; input_kind: 'code' | 'server' | 'service' | 'mixed'; enabled: boolean; content: string; revision?: number }
+export const TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const MAX_TAGS = 10;
+export interface DocumentationPromptInput { name: string; description: string; tags: string[]; enabled: boolean; content: string; revision?: number }
 export interface DocumentationPrompt extends Omit<DocumentationPromptInput, 'content' | 'revision'> {
   id: string; revision: number; active_version_id: string | null; active_version: number | null; version_count: number; updated_at: string;
 }
@@ -32,7 +34,9 @@ export const saveDocument = (value: DocumentInput, id?: string) => request<{ id:
   method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
 });
 export const deleteDocument = (id: string, revision: number) => request(`/api/documentation/documents/${id}?revision=${revision}&confirmed=true`, { method: 'DELETE' });
-export const getDocumentationPrompts = (signal?: AbortSignal) => request<{ prompts: DocumentationPrompt[] }>('/api/documentation/prompts', { signal });
+export const getDocumentationPrompts = (signal?: AbortSignal, tag?: string) =>
+  request<{ prompts: DocumentationPrompt[] }>(`/api/documentation/prompts${tag ? `?${new URLSearchParams({ tag })}` : ''}`, { signal });
+export const getPromptTags = (signal?: AbortSignal) => request<{ tags: { tag: string; count: number }[] }>('/api/documentation/prompts/tags', { signal });
 export const getDocumentationPrompt = (id: string, signal?: AbortSignal) => request<DocumentationPromptDetail>(`/api/documentation/prompts/${id}`, { signal });
 export const saveDocumentationPrompt = (value: DocumentationPromptInput, id?: string) => request<{ id: string; revision: number; version_id: string }>(`/api/documentation/prompts${id ? `/${id}` : ''}`, {
   method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),

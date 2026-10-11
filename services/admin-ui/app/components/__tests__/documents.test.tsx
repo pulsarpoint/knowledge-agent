@@ -90,10 +90,10 @@ test('document deletion requires confirmation and Cancel never sends DELETE',asy
 });
 
 test('prompt edits create drafts and active versions cannot be deleted',async () => {
-  const prompt={ id:'prompt-1',name:'Architecture',description:'Analyze code',input_kind:'code',enabled:true,revision:3,active_version_id:'p1',versions:[{ id:'p2',version:2,content:'Draft instructions',activated_at:null,created_at:first.created_at },{ id:'p1',version:1,content:'Active instructions',activated_at:first.created_at,created_at:first.created_at }] };
+  const prompt={ id:'prompt-1',name:'Architecture',description:'Analyze code',tags:['documentation','code'],enabled:true,revision:3,active_version_id:'p1',versions:[{ id:'p2',version:2,content:'Draft instructions',activated_at:null,created_at:first.created_at },{ id:'p1',version:1,content:'Active instructions',activated_at:first.created_at,created_at:first.created_at }] };
   const fetch=vi.fn(async (_input: RequestInfo | URL,init?: RequestInit) => init?.method === 'PUT' ? response({ id:'prompt-1',revision:4,version_id:'p3' }) : response(prompt));
   vi.stubGlobal('fetch',fetch);
-  const router=createMemoryRouter([{ path:'/documentation/prompts/:promptId',element:<DocumentationPromptEditorView /> }],{ initialEntries:['/documentation/prompts/prompt-1'] });
+  const router=createMemoryRouter([{ path:'/prompts/:promptId',element:<DocumentationPromptEditorView /> }],{ initialEntries:['/prompts/prompt-1'] });
   render(<RouterProvider router={router} />);
   await screen.findByLabelText('Name');
   expect(screen.getByRole('button',{ name:'Delete v1' })).toBeDisabled();

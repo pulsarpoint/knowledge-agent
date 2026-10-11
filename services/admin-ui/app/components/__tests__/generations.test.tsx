@@ -30,7 +30,7 @@ test('Docs → Generate documents lists generations with status, agent, tokens a
   expect(within(second).getByText('Not saved')).toBeVisible();
   expect(screen.getByRole('link', { name: 'New' })).toHaveAttribute('href', '/documentation/generations/new');
   const docs = within(screen.getByRole('navigation', { name: 'Docs' }));
-  expect(docs.getAllByRole('link').map(link => link.textContent)).toEqual(['Documents', 'Prompts', 'Generate documents', 'Folders']);
+  expect(docs.getAllByRole('link').map(link => link.textContent)).toEqual(['Documents', 'Generate documents', 'Folders']);
   expect(screen.getByRole('heading', { name: 'Generate documents', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);  // the layout's heading only
 });

@@ -22,7 +22,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.10 MCP servers](#410-mcp-servers)
   - [4.11 Agents](#411-agents)
   - [4.12 Generate documents](#412-generate-documents)
-  - [4.13 Documents and documentation prompts](#413-documents-and-documentation-prompts)
+  - [4.13 Documents](#413-documents)
   - [4.14 Storage](#414-storage)
   - [4.15 Agent runs](#415-agent-runs)
 - [5. End-to-end workflows](#5-end-to-end-workflows)
@@ -154,13 +154,13 @@ General conventions throughout the admin app:
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Skills · MCP servers · Agent runs · Schedules · Events |
+| Administration | Storage · Prompts · Skills · MCP servers · Agent runs · Schedules · Events · Notifications |
 | Agents | All agents |
 | LLM Settings | Models |
 | Jira | Tickets · Auto pull · Settings |
 | Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
-| Docs | Documents · Prompts · Generate documents · Folders |
+| Docs | Documents · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
@@ -541,8 +541,8 @@ and close after 24 idle hours (a session idle for 5 minutes is paused and resume
   replaces your edits.
 - **What to document**: tick **Code**, **Documents**, **Environment**, **Services** and/or **Servers**; each shows its picker. Pick at
   least one item.
-- **Prompt**: **Write my own**, or a saved prompt from Docs → Prompts. **Prompt text** is the first message; editing a saved
-  prompt changes only this run.
+- **Prompt**: **Write my own**, or a saved prompt from Administration → Prompts; **Prompt tag**
+  narrows the list. **Prompt text** is the first message; editing a saved prompt changes only this run.
 - **Document name** and **folder**: the folder defaults to `<first code project>-docs`, or `docs`. Folder names are
   lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
@@ -619,7 +619,7 @@ and run records. Saved documents, their versions and exported files stay, and do
 exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect. Bookmarks of old generations
 (`/documentation/generations/<id>`) open a page that shows "Session not found".
 
-### 4.13 Documents and documentation prompts
+### 4.13 Documents
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
 title/slug/description and filter by linked resources. **Create document** writes one
@@ -642,10 +642,6 @@ a parent folder), each linking to its collection. **Index in RAG → Collections
 RAG's New collection with the folder selected. Opening a folder lists its documents
 (title, code project, last generated), each opening in Documents. Editing a folder
 document keeps it in its folder.
-
-**Prompts** (`/documentation/prompts`) — a library of versioned documentation prompts. Nothing generates with them
-directly: copy one into a documentation agent's prompt. Saving changed text creates a draft version; **Activate vN** makes
-it the active one; inactive versions can be deleted.
 
 ### 4.14 Storage
 
@@ -791,6 +787,16 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
   attached to graph nodes move to the server, environment, service or code project behind the node. Nodes you drew by
   hand (and their attachments) are gone; the documents themselves stay in Docs → Documents.
 
+### 4.21 Prompts
+
+**Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
+lowercase letters, digits and `-`, at most 10 — that features use to find it: Generate documents can filter by tag,
+and the server discovery sheet will offer prompts tagged `server-discovery`. Type a tag and press Enter to add it;
+existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
+inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
+Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
+`service`, `mixed`). Old `/documentation/prompts` addresses open the same page.
+
 ---
 
 ## 5. End-to-end workflows
@@ -810,7 +816,7 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
 1. **LLM Settings**: add and test an Anthropic (or Bedrock Claude) model.
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
-4. **Docs → Prompts**: save a documentation prompt (or write it in the form).
+4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
 5. **Docs → Generate documents → New**: choose the model and the prompt, tick **Services** and pick the service → **Generate**. The agent reads the code projects the service links.
 6. Follow the session, send messages such as "shorten the API section", then **Save document**.
 7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.

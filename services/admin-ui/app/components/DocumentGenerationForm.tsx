@@ -17,6 +17,7 @@ import { Textarea } from '~/components/ui/textarea';
 
 type Kind = 'code' | 'documents' | 'environments' | 'services' | 'servers';
 type Item = { id: string; name: string };
+const ALL_TAGS = '__all__';
 type Data = { models: ModelProfile[]; prompts: DocumentationPrompt[]; items: Record<Kind, Item[]>; folders: string[] };
 const KINDS: { kind: Kind; label: string; legend: string; key: keyof Selection }[] = [
   { kind: 'code', label: 'Code', legend: 'Code projects', key: 'code_project_ids' },
@@ -57,6 +58,7 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
   const [promptChoice, setPromptChoice] = useState(OWN);
   const [prompt, setPrompt] = useState('');
   const [promptEdited, setPromptEdited] = useState(false);
+  const [promptTag, setPromptTag] = useState('');
   const [askPrompt, setAskPrompt] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [folder, setFolder] = useState('docs');
@@ -195,11 +197,17 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
           </FieldSet>}
         </div>)}
       </FieldSet>
+      <Field><FieldLabel htmlFor="generate-prompt-tag">Prompt tag</FieldLabel>
+        <Select value={promptTag || ALL_TAGS} onValueChange={value => setPromptTag(value === ALL_TAGS ? '' : value)}>
+          <SelectTrigger id="generate-prompt-tag"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup><SelectItem value={ALL_TAGS}>All tags</SelectItem>
+            {[...new Set(data.prompts.flatMap(item => item.tags))].sort().map(tag => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
       <Field><FieldLabel htmlFor="generate-prompt">Prompt</FieldLabel>
         <Select value={promptChoice} onValueChange={choosePrompt}>
           <SelectTrigger id="generate-prompt"><SelectValue /></SelectTrigger>
           <SelectContent><SelectGroup><SelectItem value={OWN}>Write my own</SelectItem>
-            {data.prompts.map(item => <SelectItem key={item.id} value={item.id}>{`${item.name} · ${item.input_kind}`}</SelectItem>)}</SelectGroup></SelectContent></Select>
+            {data.prompts.filter(item => !promptTag || item.tags.includes(promptTag) || item.id === promptChoice)
+              .map(item => <SelectItem key={item.id} value={item.id}>{`${item.name}${item.tags.length ? ` · ${item.tags.join(', ')}` : ''}`}</SelectItem>)}</SelectGroup></SelectContent></Select>
         {askPrompt !== null && <Confirm question="Replace your edited prompt?" onKeep={() => setAskPrompt(null)} onReplace={() => void applyPrompt(askPrompt)} />}
       </Field>
       <Field><FieldLabel htmlFor="generate-prompt-text">Prompt text</FieldLabel>

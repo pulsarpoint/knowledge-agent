@@ -1,6 +1,2 @@
-import AdminLayout from '../components/AdminLayout';
-import { DocumentationPromptEditorView } from '../components/DocumentationPromptsView';
-
-export default function Page() {
-  return <AdminLayout><DocumentationPromptEditorView /></AdminLayout>;
-}
+import { Navigate, useParams } from "react-router";
+export default function Page() { const { promptId } = useParams(); return <Navigate to={`/prompts/${promptId ?? ""}`} replace />; }

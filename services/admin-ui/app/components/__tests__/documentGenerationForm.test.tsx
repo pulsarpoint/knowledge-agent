@@ -12,9 +12,9 @@ const MODELS = [
 const bodies: Record<string, unknown> = {
   '/api/llm': { models: MODELS, assignments: {} },
   '/api/documentation/prompts': { prompts: [
-    { id: 'p1', name: 'API reference', input_kind: 'code', enabled: true, active_version_id: 'v1' },
-    { id: 'p2', name: 'Runbook', input_kind: 'service', enabled: true, active_version_id: 'v3' },
-    { id: 'p3', name: 'Draft only', input_kind: 'mixed', enabled: false, active_version_id: null }] },
+    { id: 'p1', name: 'API reference', tags: ['code'], enabled: true, active_version_id: 'v1' },
+    { id: 'p2', name: 'Runbook', tags: ['service', 'runbook'], enabled: true, active_version_id: 'v3' },
+    { id: 'p3', name: 'Draft only', tags: ['mixed', 'draft'], enabled: false, active_version_id: null }] },
   '/api/documentation/prompts/p1': { id: 'p1', active_version_id: 'v1', versions: [
     { id: 'v2', version: 2, content: 'Unactivated draft' }, { id: 'v1', version: 1, content: 'Write an API reference.' }] },
   '/api/documentation/prompts/p2': { id: 'p2', active_version_id: 'v3', versions: [{ id: 'v3', version: 1, content: 'Write a runbook.' }] },
@@ -130,11 +130,11 @@ test('switching prompts never drops edits without asking; Write my own starts em
   await select('Prompt', 'API reference · code');
   await waitFor(() => expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference.'));
   fireEvent.change(screen.getByLabelText('Prompt text'), { target: { value: 'Write an API reference for partners.' } });
-  await select('Prompt', 'Runbook · service');
+  await select('Prompt', 'Runbook · service, runbook');
   expect(screen.getByText('Replace your edited prompt?')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Keep my edits' }));
   expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference for partners.');
-  await select('Prompt', 'Runbook · service');
+  await select('Prompt', 'Runbook · service, runbook');
   fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
   await waitFor(() => expect(screen.getByLabelText('Prompt text')).toHaveValue('Write a runbook.'));
   await select('Prompt', 'Write my own');
@@ -205,8 +205,22 @@ test('a failed prompt load keeps the previous choice and text', async () => {
   setup({ failPrompt: 'p2' });
   await select('Prompt', 'API reference · code');
   await waitFor(() => expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference.'));
-  await select('Prompt', 'Runbook · service');
+  await select('Prompt', 'Runbook · service, runbook');
   expect(await screen.findByText('Prompt is gone')).toBeVisible();
   expect(screen.getByLabelText('Prompt text')).toHaveValue('Write an API reference.');
   expect(screen.getByLabelText('Prompt')).toHaveTextContent('API reference · code');
+});
+
+test('the prompt picker shows tags and filters by tag; tags of unusable prompts are not offered', async () => {
+  setup();
+  fireEvent.click(await screen.findByLabelText('Prompt'));
+  expect((await screen.findAllByRole('option')).map(option => option.textContent)).toEqual(
+    ['Write my own', 'API reference · code', 'Runbook · service, runbook']);
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+  fireEvent.click(await screen.findByLabelText('Prompt tag'));
+  // p3 is disabled, so its tag "draft" (and "mixed") is not offered
+  expect((await screen.findAllByRole('option')).map(option => option.textContent)).toEqual(['All tags', 'code', 'runbook', 'service']);
+  fireEvent.click(await screen.findByRole('option', { name: 'runbook' }));
+  fireEvent.click(await screen.findByLabelText('Prompt'));
+  expect((await screen.findAllByRole('option')).map(option => option.textContent)).toEqual(['Write my own', 'Runbook · service, runbook']);
 });
