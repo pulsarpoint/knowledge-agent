@@ -117,7 +117,7 @@ def _select(extra: str = '') -> str:
 
 
 SUMMARY = _select()
-DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources')
+DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id')
 
 
 def session_detail(conn, project: UUID, session_id: UUID) -> dict:

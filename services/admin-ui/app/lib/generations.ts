@@ -6,7 +6,7 @@ import type { SessionReview } from './testSessions';
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
-export type SessionPurpose = 'documents' | 'test' | 'event';
+export type SessionPurpose = 'documents' | 'test' | 'event' | 'discovery';
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
 export const statusLabels: Record<SessionStatus, string> = {
   starting: 'Starting', working: 'Working', waiting: 'Waiting for you', stopped: 'Stopped', failed: 'Failed', closed: 'Finished',
@@ -24,7 +24,7 @@ export interface SessionDetail extends SessionSummary {
   tool_counts?: ToolCount[];
   /** The id of the last tool_call event the counts include (0: none). */
   tool_counts_through_id?: number;
-  document_name: string | null; draft: string | null; draft_turn: number | null; model_id: string;
+  server_id?: string | null; document_name: string | null; draft: string | null; draft_turn: number | null; model_id: string;
   /** What the session started with. Test sessions: the agent's own system prompt (earlier sessions also hold their
    *  documentation prompt; only sessions saved before migration 0080 may carry `agent_version`). Generate documents
    *  sessions: the user's system prompt, the context they generated or edited, and the saved prompt chosen (null: their own). */

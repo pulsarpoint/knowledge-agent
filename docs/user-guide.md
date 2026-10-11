@@ -15,6 +15,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.3 RAG: collections, processing, settings, search](#43-rag-collections-processing-settings-search)
   - [4.4 Code projects](#44-code-projects)
   - [4.5 Servers](#45-servers)
+    - [Server discovery](#server-discovery)
   - [4.6 Environments](#46-environments)
   - [4.7 Services](#47-services)
   - [4.8 Jira](#48-jira)
@@ -350,6 +351,42 @@ Registering does not connect to anything.
   and GNU `timeout`, and verifies sudo if enabled. Save afterwards.
 
 A server cannot be deleted while service deployments reference it.
+
+A server's name opens its page: details, SSH state, the services deployed on it, its
+documents and its discovery runs. **Connections and documents** there opens the same
+panel as the System map.
+
+#### Server discovery
+
+**Ask agent to collect info** on a server's page starts an agent that logs in over SSH,
+looks around and proposes what it finds: services, how they are deployed on this
+server, connections between services, and documents. Nothing is written to the
+inventory until you accept it. The button needs SSH set up for the server and **SSH
+allowed**; when one is missing, the button says which.
+
+The instructions come from **Administration → Prompts** (tag `server-discovery`; the
+built-in "Server discovery" prompt). You can edit them for this run only. Several runs
+can be active at once.
+
+The run page shows the agent's work (messages, thinking, tool calls) and, in the
+sidebar, its proposals. You can write to the agent while it runs. **Review** opens one
+proposal:
+
+- A **new service** shows its fields.
+- An **update** to an existing service shows the current value against the proposed one,
+  with a **Keep** checkbox per changed field. Untick a field to keep the current value.
+- A **document** shows its text.
+
+**Accept** writes to the inventory: the deployment is added or updated, connections are
+added, and documents are saved as generated documents in `servers/<server>/` and attached.
+**Reject** discards the proposal. Rejecting a service also rejects the documents about it.
+A document about a proposed service can be accepted only after the service is. If
+something was added since the proposal was made, it turns into an update or a new version
+and asks you to look at it again.
+
+The agent is told to use read-only commands, but SSH itself is not read-only: anything
+the login can do, the agent can do. Use a login with only the permissions you want the
+agent to have.
 
 ### 4.6 Environments
 
@@ -948,6 +985,8 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
+| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools, switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
+| Proposal tools | Discovery runs only | Exist only in a server discovery run; they record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |

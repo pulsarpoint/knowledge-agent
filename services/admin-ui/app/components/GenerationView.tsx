@@ -55,6 +55,8 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
   // A Test or event session belongs to its agent's Test tab (an old link, or one from Agent runs).
   if (session.purpose === 'test' || session.purpose === 'event') return <Navigate replace
     to={`/agents/${encodeURIComponent(session.agent_id ?? '')}?view=test&session_id=${encodeURIComponent(session.id)}`} />;
+  if (session.purpose === 'discovery' && session.server_id) return <Navigate replace
+    to={`/servers/${encodeURIComponent(session.server_id)}/discovery/${encodeURIComponent(session.id)}`} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
