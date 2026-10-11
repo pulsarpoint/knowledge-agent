@@ -8,7 +8,7 @@ ALTER TABLE documentation_prompts
     DROP CONSTRAINT documentation_prompts_tags,
     DROP COLUMN tags,
     ALTER COLUMN input_kind DROP DEFAULT;
-DROP FUNCTION documentation_prompt_tags_unique(text[]);
+DROP FUNCTION documentation_prompt_tags_valid(text[]);
 COMMENT ON COLUMN documentation_prompts.input_kind IS NULL;
 
 COMMIT;

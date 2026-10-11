@@ -35,7 +35,8 @@ def test_untagged_inserts_get_tags_and_tagged_ones_keep_theirs(store):
         assert add(conn, project, 'Tagged', tags=['server-discovery'])['tags'] == ['server-discovery']
 
 
-@pytest.mark.parametrize('tags', [['Server'], ['-x'], ['a' * 41], ['has space'], ['a', 'a'], [f't{i}' for i in range(11)]])
+@pytest.mark.parametrize('tags', [['Server'], ['-x'], ['a' * 41], ['has space'], ['a', 'a'], [f't{i}' for i in range(11)],
+                                  ['a,b'], [''], ['a', ''], ['a', None], ['a' * 40 + ',' + 'b' * 40]])
 def test_bad_tags_are_refused(store, tags):
     with pytest.raises(psycopg.errors.CheckViolation), store.connect() as conn:
         add(conn, store.project(conn, 'shop'), f'Bad {uuid4().hex[:6]}', tags=tags)
@@ -51,3 +52,5 @@ def test_down_and_up_backfill_from_input_kind(store):
             VALUES (%s,'Runbook','service') RETURNING id""", (project,)).fetchone()['id']
         run(conn, UP)
         assert conn.execute('SELECT tags FROM ka.documentation_prompts WHERE id=%s', (prompt,)).fetchone()['tags'] == ['documentation', 'service']
+        added = add(conn, project, 'After the round trip', input_kind='server')
+        assert added['tags'] == ['documentation', 'server']
