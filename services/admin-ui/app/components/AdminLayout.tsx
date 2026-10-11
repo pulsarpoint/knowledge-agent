@@ -54,7 +54,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const docsPage = pathname.startsWith('/documents') || pathname.startsWith('/documentation/');
   const promptsPage = pathname === "/prompts" || pathname.startsWith("/prompts/");
   const docsHistory = pathname.startsWith('/documentation/generations');
-  const sessionPage = /^\/documentation\/generations\/(?!new$)[^/]+$/.test(pathname);  // its own heading is the session title
+  const sessionPage = /^\/documentation\/generations\/(?!new$)[^/]+$/.test(pathname) || pathname.startsWith('/servers/');  // its own heading is the session or server title
   const docsFolders = pathname.startsWith('/documentation/folders');
   const runsPage = pathname.startsWith('/activity/runs');
   const schedulesPage = pathname === "/schedules";

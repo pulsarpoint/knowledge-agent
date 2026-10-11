@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "~/lib/api";
 import { DISCOVERY_TAG, runPagePath, startDiscovery } from "~/lib/discovery";
@@ -22,6 +22,7 @@ export default function DiscoverySheet({ serverId, serverName, onClose }: { serv
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const loaded = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -30,15 +31,22 @@ export default function DiscoverySheet({ serverId, serverName, onClose }: { serv
       const usable = settings.models.filter(model => model.enabled && model.api_format !== "embeddings" && codeCompatible(model));
       const ready = found.prompts.filter(item => item.enabled && item.active_version_id);
       setModels(usable); setModelId(usable[0]?.id ?? ""); setPrompts(ready);
-      if (ready[0]) void choose(ready[0].id, controller.signal);
+      if (ready[0]) void choose(ready[0].id);
     }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load models and prompts."); });
-    return () => controller.abort();
+    return () => { controller.abort(); loaded.current++; };
   }, []);
 
-  async function choose(id: string, signal?: AbortSignal) {
-    setPromptId(id);
-    const detail = await getDocumentationPrompt(id, signal);
-    setText(detail.versions.find(version => version.id === detail.active_version_id)?.content ?? "");
+  /** Sets the choice and its text together once the text has loaded; a failure or a stale answer leaves the previous choice. */
+  async function choose(id: string) {
+    const request = ++loaded.current;
+    try {
+      const detail = await getDocumentationPrompt(id);
+      if (request !== loaded.current) return;
+      setText(detail.versions.find(version => version.id === detail.active_version_id)?.content ?? "");
+      setPromptId(id); setError(null);
+    } catch {
+      if (request === loaded.current) setError("Could not load the prompt.");
+    }
   }
   async function start() {
     setBusy(true); setError(null);

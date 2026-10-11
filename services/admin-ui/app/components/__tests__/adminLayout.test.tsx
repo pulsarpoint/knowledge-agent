@@ -68,3 +68,11 @@ test("the Notifications page has its heading", async () => {
   expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("data-active", "true");
   expect(screen.getByRole("heading", { level: 1, name: "Notifications" })).toBeInTheDocument();
 });
+
+test("a server page has its own heading and keeps Servers current in the navigation", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
+  render(<MemoryRouter initialEntries={["/servers/s1"]}><AdminLayout><h1>web-1</h1></AdminLayout></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Servers" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("data-active", "true");
+});

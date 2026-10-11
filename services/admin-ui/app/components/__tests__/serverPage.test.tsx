@@ -73,3 +73,76 @@ test("without a discovery prompt the sheet says how to add one", async () => {
   expect(await screen.findByText("No prompt is tagged server-discovery. Add one in Administration → Prompts, or write the instructions here.")).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Prompt text" })).toHaveValue("");
 });
+
+const apiFail = (message: string, status: number) => new Response(JSON.stringify({ error: { message } }), { status });
+
+test("a missing server says so and links back to Servers", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/discovery") ? new Response(JSON.stringify({ runs: [] })) :
+    url.includes("/api/inventory") ? new Response(JSON.stringify({ documents: [] })) : apiFail("Server not found.", 404)));
+  show();
+  expect(await screen.findByText("Server not found.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("href", "/servers");
+});
+
+test("empty services, documents and runs are explained", async () => {
+  api({ "/api/servers/s1": { ...page(true), deployments: [] }, "/api/servers/s1/discovery": { runs: [] },
+    "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] } });
+  show();
+  expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
+  expect(screen.getByText("No documents are attached to this server.")).toBeInTheDocument();
+  expect(screen.getByText("No discovery runs yet.")).toBeInTheDocument();
+});
+
+const sheetRoutes = (extra: Record<string, unknown>) => ({ "/api/servers/s1": page(true), "/api/servers/s1/discovery": runs,
+  "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] }, "/api/llm": llm, ...extra });
+
+test("a start that the API refuses shows its message and stays on the page", async () => {
+  const user = userEvent.setup();
+  api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": prompts, "/api/documentation/prompts/p1": prompt }));
+  const base = (fetch as unknown as ReturnType<typeof vi.fn>).getMockImplementation()!;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
+    init?.method === "POST" ? apiFail("Set up SSH for this server first.", 409) : base(url, init)));
+  show();
+  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
+  await screen.findByDisplayValue("Explore this server.");
+  await user.click(screen.getByRole("button", { name: "Start" }));
+  expect(await screen.findByText("Set up SSH for this server first.")).toBeInTheDocument();
+  expect(screen.queryByTestId("where")).toBeNull();
+});
+
+test("Start is off when the prompt text is cleared", async () => {
+  const user = userEvent.setup();
+  api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": prompts, "/api/documentation/prompts/p1": prompt }));
+  show();
+  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
+  const text = await screen.findByDisplayValue("Explore this server.");
+  expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
+  await user.clear(text);
+  expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+});
+
+test("switching prompts replaces the text; a failed load keeps the previous choice", async () => {
+  const user = userEvent.setup();
+  const second = { ...prompts.prompts[0], id: "p2", name: "Deep dive", active_version_id: "v2" };
+  const third = { ...prompts.prompts[0], id: "p3", name: "Broken", active_version_id: "v3" };
+  const calls = api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": { prompts: [prompts.prompts[0], second, third] },
+    "/api/documentation/prompts/p1": prompt,
+    "/api/documentation/prompts/p2": { ...second, versions: [{ id: "v2", version: 1, content: "Dig deep.", activated_at: "x", created_at: "x" }] },
+    "POST /api/servers/s1/discovery": { id: "r2" } }));
+  const base = (fetch as unknown as ReturnType<typeof vi.fn>).getMockImplementation()!;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
+    url.endsWith("/prompts/p3") ? apiFail("boom", 500) : base(url, init)));
+  show();
+  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
+  await screen.findByDisplayValue("Explore this server.");
+  await user.click(screen.getByRole("combobox", { name: "Prompt" }));
+  await user.click(await screen.findByRole("option", { name: "Deep dive" }));
+  expect(await screen.findByDisplayValue("Dig deep.")).toBeInTheDocument();
+  await user.click(screen.getByRole("combobox", { name: "Prompt" }));
+  await user.click(await screen.findByRole("option", { name: "Broken" }));
+  expect(await screen.findByText("Could not load the prompt.")).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Prompt text" })).toHaveValue("Dig deep.");
+  await user.click(screen.getByRole("button", { name: "Start" }));
+  await screen.findByTestId("where");
+  expect(calls.find(c => c.method === "POST")!.body).toMatchObject({ prompt: "Dig deep.", prompt_id: "p2" });
+});

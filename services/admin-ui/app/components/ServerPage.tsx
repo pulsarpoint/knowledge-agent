@@ -34,10 +34,13 @@ export default function ServerPage({ serverId }: { serverId: string }) {
     return () => controller.abort();
   }, [serverId, version]);
 
-  if (error) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
-  if (!data) return <Skeleton className="h-60" />;
+  if (!data) return error
+    ? <div className="flex flex-col gap-3"><Link className="self-start text-sm underline" to="/servers">Servers</Link>
+        <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert></div>
+    : <Skeleton className="h-60" />;
   const { server, environments, deployments, discovery } = data;
   return <div className="flex flex-col gap-6">
+    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex flex-col gap-1"><Link className="self-start text-sm underline" to="/servers">Servers</Link>
         <h1 className="break-words text-2xl font-semibold">{server.name}</h1>
