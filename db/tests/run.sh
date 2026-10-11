@@ -60,6 +60,7 @@ discovery_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.discovery_proposals') IS NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'server_id')")
 [ "$discovery_removed" = t ] || { echo 'FAIL: 0097 down left discovery runs' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 tags_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
         AND table_name = 'documentation_prompts' AND column_name = 'tags')")
