@@ -3,7 +3,7 @@ arguments, the capability it needs and the rule that switched it on before tools
 tools/sdk.py turns an entry into an Agents SDK tool."""
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -310,8 +310,8 @@ class ProposeService(Proposal):
     owner: str = Field('', max_length=200, description='Who runs it, when you can tell.')
     operations_notes: str = Field('', max_length=10000, description='How to operate it: start, stop, health checks, configuration files, gotchas.')
     deployment: DeploymentProposal = Field(description='How it runs on this server.')
-    depends_on: list[str] = Field(default_factory=list, max_length=100, description='Names of recorded services it depends on.')
-    built_from: list[str] = Field(default_factory=list, max_length=100, description='Names of recorded code projects it is built from.')
+    depends_on: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=100, description='Names of recorded services it depends on.')
+    built_from: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=100, description='Names of recorded code projects it is built from.')
 
 
 class ProposeDocument(Proposal):

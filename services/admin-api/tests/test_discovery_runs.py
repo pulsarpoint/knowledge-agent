@@ -7,6 +7,7 @@ import pytest
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.discovery import DISCOVERY_FINAL, NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.tools.catalog import effective_tools
+from test_profiles import create, update
 from test_repositories import HEADERS
 
 
@@ -91,3 +92,12 @@ def test_two_runs_on_one_server_can_run_at_once_and_are_listed(world):
     assert [run['id'] for run in runs] == [second, first]
     assert (runs[1]['pending'], runs[1]['accepted'], runs[1]['rejected']) == (1, 0, 1)
     assert runs[1]['status'] == 'working' and runs[0]['model_name'] == 'GPT'
+
+
+def test_a_run_offers_no_experts_so_ssh_stays_on_its_server(world):
+    expert = update(world.client, create(world.client, 'Payments'), expert=True, when_to_use='Payments.', model_id=world.model)
+    assert expert.status_code == 200, expert.text
+    ssh_ready(world)
+    config = config_of(world, start(world).json()['id'])
+    assert config['experts'] == []
+    assert not [item for item in config['tools']['items'] if item['tool'].startswith(('ask_', 'expert:'))]

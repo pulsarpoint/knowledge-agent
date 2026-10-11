@@ -59,6 +59,7 @@ def discovery_config(conn, project: UUID, server: dict, model: dict, session_id:
     (which the proposal tools need), the proposal tools kept from subagents."""
     prompt = DISCOVERY_SYSTEM_PROMPT.format(name=server['name'], hostname=server['hostname'], id=server['id'])
     pinned = ad_hoc_config(conn, project, model=model, system_prompt=prompt, selection=Selection(server_ids=[server['id']]))
+    pinned['experts'] = []  # ad_hoc_config pins every expert; each would reach its own servers
     pinned['project_id'] = str(project)
     pinned['discovery'] = {'session_id': str(session_id), 'server_id': str(server['id'])}
     for item in pinned['tools']['items']:

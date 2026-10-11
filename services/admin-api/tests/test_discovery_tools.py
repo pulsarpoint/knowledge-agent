@@ -104,3 +104,23 @@ def test_proposal_tools_work_only_in_discovery_runs_and_never_show_on_the_tools_
         propose(without, 'propose_service', **SERVICE)
     listed = {tool['name'] for tool in catalog_listing()}
     assert 'propose_service' not in listed and 'get_server_info_basic' in listed
+
+
+def test_repeated_documents_replace_their_pending_proposal_and_servers_and_services_stay_apart(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **SERVICE)
+    assert propose(config, 'propose_document', title='Notes', markdown='# one') == 'Proposal 2: new document "Notes" about server web-1.'
+    assert propose(config, 'propose_document', title='notes', markdown='# two') == \
+        'Proposal 2: new document "notes" about server web-1 (replaces your earlier proposal).'
+    assert propose(config, 'propose_document', title='Notes', markdown='# nginx', about_service='nginx') == \
+        'Proposal 3: new document "Notes" about service nginx.'
+    assert propose(config, 'propose_document', title='Notes', markdown='# nginx 2', about_service='NGINX') == \
+        'Proposal 3: new document "Notes" about service nginx (replaces your earlier proposal).'
+    assert propose(config, 'propose_document', title='Notes', markdown='# redis', about_service='redis') == \
+        'Proposal 4: new document "Notes" about proposed service redis.'
+    assert propose(config, 'propose_document', title='Notes', markdown='# redis 2', about_service='redis') == \
+        'Proposal 4: new document "Notes" about proposed service redis (replaces your earlier proposal).'
+    rows = proposals(world, sid)
+    assert [row['number'] for row in rows] == [1, 2, 3, 4]
+    assert [row['revision'] for row in rows] == [1, 2, 2, 2]
+    assert [row['payload'].get('markdown') for row in rows[1:]] == ['# two', '# nginx 2', '# redis 2']
