@@ -187,7 +187,7 @@ def test_the_list_summarises_the_tools_that_run(store, saved_agent):
     put(client, 'operations', revision, [{'tool': 'read_file', 'mode': 'on', 'usage': None},
                                          {'tool': 'ssh_run', 'mode': 'on', 'usage': None}])
     summary = listed(client)['operations']['tools_summary']
-    assert summary == {'on': 3, 'per_run': 0, 'groups': {'code': 1, 'documents': 0, 'servers': 1, 'mcp': 1, 'agents': 0}}
+    assert summary == {'on': 3, 'per_run': 0, 'groups': {'code': 1, 'documents': 0, 'servers': 1, 'inventory': 0, 'mcp': 1, 'agents': 0}}
 
 
 def offered(store, agent_id, ssh_servers=()) -> set[str]:

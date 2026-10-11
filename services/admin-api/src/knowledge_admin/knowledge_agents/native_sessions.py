@@ -439,6 +439,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
     store = RepositoryStore('', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL'])
     run_record.configure(store, None)
+    from knowledge_admin.capabilities import inventory
+    inventory.configure(store)
     agent_tracing.setup()
 
     async def run() -> None:

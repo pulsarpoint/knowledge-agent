@@ -1,6 +1,6 @@
 import { request } from './api';
 
-export type ToolGroup = 'code' | 'documents' | 'servers' | 'mcp' | 'agents' | 'experts';
+export type ToolGroup = 'code' | 'documents' | 'servers' | 'inventory' | 'mcp' | 'agents' | 'experts';
 export type ToolNeed = 'files' | 'code' | 'code_graph' | 'documents' | 'grounded' | 'ssh';
 export interface AgentTool {
   tool: string; label: string; summary: string; group: ToolGroup; mode: 'on' | 'off' | 'per_run';
@@ -10,7 +10,7 @@ export interface AgentTool {
 export interface AgentTools { revision: number; expert?: boolean; tools: AgentTool[] }
 export interface CatalogTool { name: string; group: ToolGroup; label: string; summary: string; usage: string; needs: ToolNeed | null }
 export interface ToolsSummary { on?: number; per_run?: number; groups?: Partial<Record<ToolGroup, number>> }
-export const TOOL_GROUPS: [ToolGroup, string][] = [['code', 'Code'], ['documents', 'Documents'], ['servers', 'Servers'], ['mcp', 'MCP'], ['agents', 'Agents'], ['experts', 'Experts']];
+export const TOOL_GROUPS: [ToolGroup, string][] = [['code', 'Code'], ['documents', 'Documents'], ['servers', 'Servers'], ['inventory', 'Inventory'], ['mcp', 'MCP'], ['agents', 'Agents'], ['experts', 'Experts']];
 export const NEED_REASONS: Record<ToolNeed, string> = {
   files: 'Needs code projects, or documents without "Answer only from documents"', code: 'Needs code projects',
   code_graph: 'Needs code projects', documents: 'Needs documents', grounded: 'Needs "Answer only from documents"', ssh: 'Needs SSH servers' };
@@ -49,7 +49,7 @@ export function toolNeedMet(need: ToolNeed | null, s: ToolSwitches): boolean {
 /** The tools a new agent gets from its capabilities (the backend's enabled_capability_tools); never run_subagent,
  * which comes with May start subagents. */
 export const impliedTools = (catalog: CatalogTool[], s: ToolSwitches) =>
-  catalog.filter(t => t.group !== 'agents' && t.group !== 'experts' && toolNeedMet(t.needs, s)).map(t => t.name);
+  catalog.filter(t => t.group !== 'agents' && t.group !== 'experts' && t.group !== 'inventory' && toolNeedMet(t.needs, s)).map(t => t.name);
 /** All agents: "7 tools · Code 6 · Servers 1" */
 export function toolsSummaryLabel(summary?: ToolsSummary): string {
   if (!summary) return '—';
