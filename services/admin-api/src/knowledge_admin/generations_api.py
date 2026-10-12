@@ -248,10 +248,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def stop(session_id: UUID, request: Request) -> dict:
         db = database()
         with db.connect() as conn:
-            row = locked(conn, db.project(conn, app_name), session_id)
+            project = db.project(conn, app_name)
+            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
+            row = locked(conn, project, session_id)
             if row['status'] != 'working':
                 raise HTTPException(409, NOTHING_TO_STOP)
-            actor = db.actor(conn, *request_actor(request))
             conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
             discarded = discard(conn, session_id)
             audit(conn, actor, 'generation.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
@@ -283,8 +284,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def close(session_id: UUID, request: Request) -> dict:
         db = database()
         with db.connect() as conn:
-            row = locked(conn, db.project(conn, app_name), session_id)
-            actor = db.actor(conn, *request_actor(request))
+            project = db.project(conn, app_name)
+            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
+            row = locked(conn, project, session_id)
             if row['status'] != 'closed':
                 conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
                     WHERE id=%s""", (session_id,))

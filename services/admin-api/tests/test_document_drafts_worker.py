@@ -150,3 +150,30 @@ def test_save_as_draft_turns_an_old_runs_draft_into_a_document_draft(sessions):
     assert client.post(url + '/document', headers=HEADERS, json={}).json()['draft']['id'] == draft['id']
     assert not (sessions.data / 'generated-documents/payments-api-docs').exists()
     assert client.post(url + '/document', json={}).status_code == 403
+
+
+def test_a_bug_in_the_draft_path_never_fails_the_turn(sessions, monkeypatch, caplog):
+    def broken(*args, **kwargs):
+        raise KeyError('environments')
+    monkeypatch.setattr(document_drafts, 'record_run_sources', broken)  # after the draft row is written
+    sid, run = runner(sessions)
+    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
+    with sessions.store.connect() as conn:
+        row = conn.execute('SELECT status,draft,draft_turn FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
+    assert row == {'status': 'waiting', 'draft': '# Agent text', 'draft_turn': 1}
+    assert drafts_of(sessions, sid) == []  # the savepoint rolled back the draft row too
+    assert 'the document draft was not saved' in caplog.text and "KeyError: 'environments'" in caplog.text
+
+
+def test_reads_of_the_documents_own_text_are_not_sources(sessions):
+    live = document(sessions, 'payments-api-reference', 'payments-api-docs', '# Live text')
+    sid, run = runner(sessions)
+    tool_call(sessions, sid, 1, 1, 'get_document', {'document_id': str(live['id'])})
+    tool_call(sessions, sid, 1, 2, 'read_document',
+              {'collection': 'documents', 'path': 'payments-api-docs/payments-api-reference/README.md'})
+    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
+    [draft] = drafts_of(sessions, sid)
+    assert draft['document_id'] == live['id']
+    detail = sessions.client.get(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS).json()
+    assert [(s['kind'], s['source_version'], s['source_version_id']) for s in detail['sources']] == [
+        ('parent', 1, str(live['version_id']))]

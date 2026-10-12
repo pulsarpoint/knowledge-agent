@@ -392,7 +392,8 @@ def save_run_draft(conn, session_id: UUID, turn: int, actor: UUID | None = None)
         draft = dict(current)
     else:
         slug = document_slug(session['document_name'])
-        # The one folder/slug lookup: create_draft is given its result and does not look again.
+        # The shared lookup. A document found is passed to create_draft, which then does not look again; when none is
+        # found, create_draft looks once more (a document saved meanwhile becomes the draft's target).
         existing = document_named(conn, project, session['folder'], slug)
         snapshot = session['context_snapshot']
         if existing is not None:  # the run revises it: its metadata stays, the text is the run's
@@ -415,8 +416,8 @@ def save_run_draft_safely(conn, session_id: UUID, turn: int) -> None:
     try:
         with conn.transaction():
             save_run_draft(conn, session_id, turn)
-    except (psycopg.Error, ValueError, HTTPException) as exc:
-        logger.warning('Session %s turn %s: the document draft was not saved (%s)', session_id, turn, type(exc).__name__)
+    except Exception:  # any failure, a bug included, rolls back only the savepoint
+        logger.exception('Session %s turn %s: the document draft was not saved', session_id, turn)
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
