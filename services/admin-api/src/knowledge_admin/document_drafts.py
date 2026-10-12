@@ -292,9 +292,10 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
     return saved
 
 
-# The session `s`'s latest open document draft, for session rows and the live session state.
-SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document_id) FROM ka.document_drafts x
-    WHERE x.session_id=s.id AND x.status='open' ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS document_draft"""
+# The session `s`'s latest document draft of any status (open, promoted or discarded), for session rows and the live
+# session state: the run page offers Save as draft only to a run that never had one.
+SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document_id,'status',x.status)
+    FROM ka.document_drafts x WHERE x.session_id=s.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS document_draft"""
 DOCUMENT_TOOLS = ['get_document', 'read_document']
 
 
@@ -407,7 +408,7 @@ def save_run_draft(conn, session_id: UUID, turn: int, actor: UUID | None = None)
         draft = conn.execute('SELECT id,document_id,base_version_id FROM ka.document_drafts WHERE id=%s',
                              (draft_id,)).fetchone()
     record_run_sources(conn, project, draft['id'], draft['document_id'], draft['base_version_id'], session_id, turn)
-    return {'id': draft['id'], 'document_id': draft['document_id']}
+    return {'id': draft['id'], 'document_id': draft['document_id'], 'status': 'open'}
 
 
 def save_run_draft_safely(conn, session_id: UUID, turn: int) -> None:
@@ -545,9 +546,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                  (project, [document_id, value.to_document_id])).fetchone()['n']
             if found != 2:
                 raise HTTPException(404, DOCUMENT_NOT_FOUND)
-            added = conn.execute('''INSERT INTO ka.document_links(project_id,from_document_id,to_document_id,created_by)
-                VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id''',
-                (project, document_id, value.to_document_id, actor)).fetchone()
+            try:
+                added = conn.execute('''INSERT INTO ka.document_links(project_id,from_document_id,to_document_id,created_by)
+                    VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id''',
+                    (project, document_id, value.to_document_id, actor)).fetchone()
+            except psycopg.errors.ForeignKeyViolation:  # either document was deleted after the check above
+                raise HTTPException(404, DOCUMENT_NOT_FOUND) from None
             if added is None:
                 raise HTTPException(409, LINK_TWICE)
             audit(conn, project, actor, 'document.link.added', 'document', document_id,

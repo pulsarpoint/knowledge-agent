@@ -517,3 +517,26 @@ def test_nested_exports_never_share_a_folder_in_either_direction(store, tmp_path
         with pytest.raises(HTTPException) as error:
             save_document(conn, project, None, DocumentInput(slug='q', title='Z', markdown='# Z', revision=1), document_id=doc['id'])
         assert error.value.status_code == 409
+
+
+def test_delete_takes_the_project_lock_first_as_promote_and_create_do(store, tmp_path):
+    """Promote locks the project, then a draft, then the document; delete locks the document, then (cascade) its drafts.
+    Taking the project first serialises delete with them instead of deadlocking."""
+    import threading
+    client = _client(tmp_path, repository_store=store)
+    created = client.post('/api/documentation/documents', headers=HEADERS, json={'slug': 'gone', 'title': 'G', 'markdown': '# G'}).json()
+    outcome = {}
+
+    def delete():
+        outcome['status'] = client.delete('/api/documentation/documents/' + created['id'], headers=HEADERS,
+                                          params={'revision': 1, 'confirmed': True}).status_code
+
+    with store.connect() as conn:
+        conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (store.project(conn, 'shop'),))
+        thread = threading.Thread(target=delete)
+        thread.start()
+        thread.join(1)
+        assert thread.is_alive()  # waits for the project lock
+        assert conn.execute('SELECT 1 FROM ka.documents WHERE id=%s FOR UPDATE NOWAIT', (created['id'],)).fetchone()
+    thread.join(10)
+    assert outcome == {'status': 200}

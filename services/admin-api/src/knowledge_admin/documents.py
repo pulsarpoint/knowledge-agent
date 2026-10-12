@@ -465,6 +465,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with db.connect() as conn:
             project = db.project(conn,app_name)
+            # The project first, as promote and create do: promote locks a draft, then the document; this delete locks
+            # the document, then (cascade) its drafts. Without it the two could deadlock.
+            conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
             row = conn.execute('SELECT revision FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Document not found')

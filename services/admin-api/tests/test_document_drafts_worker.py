@@ -55,14 +55,29 @@ def test_a_documents_turn_creates_its_draft_then_updates_it(sessions):
     run.finish_turn(3, 'failed', 'Broken.', draft='# Lost', usage=None)
     assert drafts_of(sessions, sid)[0]['markdown'] == '# Payments API v2'
     session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
-    assert session['document_draft'] == {'id': str(first['id']), 'document_id': None}
+    assert session['document_draft'] == {'id': str(first['id']), 'document_id': None, 'status': 'open'}
     promoted = sessions.client.post(f"/api/documentation/drafts/{first['id']}/promote", headers=HEADERS, json={'revision': 2})
     assert promoted.status_code == 200, promoted.text
     created = sessions.client.get(f"/api/documentation/documents/{promoted.json()['document_id']}", headers=HEADERS).json()
     assert (created['folder'], created['code_project_ids'], created['current_version']['origin']) == (
         'payments-api-docs', [sessions.repo], 'generated')
     session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
-    assert (session['document_id'], session['document_draft']) == (created['id'], None)
+    # The promoted draft stays the run's document draft, so the run page links the document, not Save as draft.
+    assert (session['document_id'], session['document_draft']) == (
+        created['id'], {'id': str(first['id']), 'document_id': created['id'], 'status': 'promoted'})
+
+
+def test_a_discarded_run_draft_stays_the_runs_document_draft(sessions):
+    sid, run = runner(sessions)
+    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
+    [draft] = drafts_of(sessions, sid)
+    discarded = sessions.client.post(f"/api/documentation/drafts/{draft['id']}/discard", headers=HEADERS,
+                                     json={'revision': draft['revision']})
+    assert discarded.status_code == 200, discarded.text
+    session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
+    assert session['document_draft'] == {'id': str(draft['id']), 'document_id': None, 'status': 'discarded'}
+    listed = sessions.client.get('/api/generations/sessions', headers=HEADERS).json()
+    assert [row['document_draft'] for row in listed['sessions'] if row['id'] == str(sid)] == [session['document_draft']]
 
 
 def test_once_a_person_saves_the_draft_the_next_turn_starts_a_new_one(sessions):
@@ -142,7 +157,7 @@ def test_save_as_draft_turns_an_old_runs_draft_into_a_document_draft(sessions):
     saved = client.post(url + '/document', headers=HEADERS, json={})
     assert saved.status_code == 201, saved.text
     draft = saved.json()['draft']
-    assert draft['document_id'] is None
+    assert (draft['document_id'], draft['status']) == (None, 'open')
     assert client.get(url, headers=HEADERS).json()['document_draft'] == draft
     assert client.get('/api/documentation/documents', headers=HEADERS).json()['total'] == 0  # nothing went live
     detail = client.get(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS).json()

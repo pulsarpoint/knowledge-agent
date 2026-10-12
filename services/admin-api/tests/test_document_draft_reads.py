@@ -81,6 +81,36 @@ def test_links_add_and_remove_dependencies(docs):
     assert audit(docs, docs.runbook)[-2:] == ['document.link.added', 'document.link.removed']
 
 
+def test_a_document_deleted_while_a_link_is_added_answers_not_found(docs, monkeypatch):
+    overview = make_document(docs, 'overview', 'Overview')
+    connect = docs.store.connect
+
+    class Racing:
+        """A connection on which the linked document is deleted (and committed) just before the link is inserted."""
+        def __init__(self):
+            self.conn = connect()
+
+        def __enter__(self):
+            self.conn.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self.conn.__exit__(*exc)
+
+        def execute(self, query, params=None):
+            if query.lstrip().startswith('INSERT INTO ka.document_links'):
+                with connect() as other:
+                    other.execute('DELETE FROM ka.documents WHERE id=%s', (overview,))
+            return self.conn.execute(query, params)
+
+        def __getattr__(self, name):
+            return getattr(self.conn, name)
+
+    monkeypatch.setattr(docs.store, 'connect', Racing)
+    response = docs.client.post(f'{API}/documents/{docs.runbook}/links', headers=HEADERS, json={'to_document_id': overview})
+    assert response.status_code == 404 and response.json()['error']['message'] == 'Document not found'
+
+
 def test_connections_show_what_the_live_version_was_built_from_even_when_a_source_is_gone(docs):
     overview = make_document(docs, 'overview', 'Overview')
     draft = new_draft(docs, document_id=docs.runbook, markdown='# Runbook v2')
