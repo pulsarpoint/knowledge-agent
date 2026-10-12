@@ -28,6 +28,13 @@ def test_get_doc_reads_the_outline_a_section_and_lines(rev):
     assert call(rev, 'get_doc', start_line=15, end_line=17) == '15: ## Restore\n16: \n17: Steps.'
 
 
+def test_get_doc_says_how_long_the_document_is_for_lines_it_does_not_have(rev):
+    for arguments in ({'start_line': 18}, {'start_line': 40, 'end_line': 50}, {'start_line': 10, 'end_line': 9}):
+        assert call(rev, 'get_doc', **arguments) == 'The document has 17 lines.'
+    assert call(rev, 'get_doc', end_line=2) == '1: # Runbook\n2: '
+    assert call(rev, 'get_doc', start_line=17, end_line=99) == '17: Steps.'
+
+
 def test_get_doc_cuts_long_reads_at_50000_characters(rev):
     from drafts_world import save_live
     save_live(rev.docs, rev.docs.runbook, '\n'.join(f'line {n} ' + 'x' * 90 for n in range(1, 1001)))

@@ -48,7 +48,7 @@ The run's **working copy**: its latest draft with `status='open'` and `edited=fa
 
 | Tool | Arguments | Result |
 |---|---|---|
-| `get_doc` | none, or `section` (heading text), or `start_line`/`end_line` | No arguments: title, description, length (characters, lines), the outline (headings with line numbers) and whether it reads a draft or the live version. `section`: that heading's section (to the next heading of the same or higher level), with line numbers. Lines: that range with line numbers. At most 50,000 characters per call; longer results are cut with a note to read on by line range. Unknown heading → the outline with "No heading named …". |
+| `get_doc` | none, or `section` (heading text), or `start_line`/`end_line` | No arguments: title, description, length (characters, lines), the outline (headings with line numbers) and whether it reads a draft or the live version. `section`: that heading's section (to the next heading of the same or higher level), with line numbers. Lines: that range with line numbers (`end_line` alone reads from line 1; a range the document does not have → "The document has N lines."). At most 50,000 characters per call; longer results are cut with a note to read on by line range. Unknown heading → the outline with "No heading named …". |
 | `save_doc` | `markdown`, optional `title`, `description` | Saves the complete text as the run's draft. |
 | `edit_doc` | `old_text` (non-empty), `new_text` (may be empty) | Replaces the one exact occurrence of `old_text` in the working copy and saves the result as the run's draft. Not found → "This text is not in the document. Read it again with get_doc." More than once → "This text appears n times. Include more of the surrounding text." |
 

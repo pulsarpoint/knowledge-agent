@@ -333,7 +333,7 @@ class ProposeDocument(Proposal):
 class GetDoc(Arguments):
     section: str | None = Field(None, max_length=240, description='A heading of the document; returns that section with line numbers.')
     start_line: int | None = Field(None, ge=1, description='First line to read (1-based); alone, reads to the end.')
-    end_line: int | None = Field(None, ge=1, description='Last line to read, inclusive.')
+    end_line: int | None = Field(None, ge=1, description='Last line to read, inclusive; alone, reads from line 1.')
 
 
 class SaveDoc(Proposal):

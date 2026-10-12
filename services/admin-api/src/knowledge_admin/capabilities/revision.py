@@ -24,6 +24,7 @@ PROMOTED = 'Your earlier draft was promoted; this is a new draft based on versio
 DISCARDED = 'Your earlier draft was discarded; this is a new draft based on version {version}.'
 EDITED = 'A person edited your earlier draft; this is a new draft, and get_doc now reads it.'
 SAVED = 'Saved draft ({n} lines).'
+OUT_OF_RANGE = 'The document has {n} lines.'
 MAX_READ = 50_000
 FENCE = re.compile(r'^ {0,3}(```|~~~)')
 HEADING = re.compile(r'^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$')
@@ -99,9 +100,11 @@ def _get_doc(config: dict[str, Any], section: str | None, start_line: int | None
             return NO_HEADING.format(name=section) + '\n\nOutline:\n' + _outline_text(copy['markdown'])
         end = next((h['line'] - 1 for h in headings if h['line'] > found['line'] and h['level'] <= found['level']), len(lines))
         return _numbered(lines[found['line'] - 1:end], found['line'])
-    if start_line is not None:
-        last = min(end_line or len(lines), len(lines))
-        return _numbered(lines[start_line - 1:last], start_line)
+    if start_line is not None or end_line is not None:
+        first, last = start_line or 1, min(end_line or len(lines), len(lines))
+        if first > len(lines) or last < first:
+            return OUT_OF_RANGE.format(n=len(lines))
+        return _numbered(lines[first - 1:last], first)
     reads = 'your draft' if draft else f"the live version {live['version']}"
     return '\n'.join([f"Title: {copy['title']}", f"Description: {copy['description'] or '(none)'}", f'Reads: {reads}',
                       f"Length: {len(lines)} lines, {len(copy['markdown'])} characters", '', 'Outline:',
