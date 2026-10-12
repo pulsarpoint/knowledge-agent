@@ -110,3 +110,35 @@ def test_deleting_the_document_deletes_its_runs(ask):
                                   headers=HEADERS)
     assert deleted.status_code in (200, 204), deleted.text
     assert ask.s.client.get(f"/api/generations/sessions/{session['id']}", headers=HEADERS).status_code == 404
+
+
+@pytest.fixture
+def keyless(ask):
+    """A service deployed only on an enabled, SSH-allowed server that has no SSH key."""
+    server = ask.s.client.post('/api/servers', headers=HEADERS, json={'name': 'bare-1', 'hostname': '10.0.0.9', 'ssh_allowed': True}).json()
+    service = uuid4()
+    with ask.s.store.connect() as conn:
+        project = ask.s.store.project(conn, 'shop')
+        conn.execute("UPDATE ka.servers SET ssh_allowed=true,enabled=true,username='ops' WHERE id=%s", (server['id'],))
+        conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Ledger')", (service, project))
+        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
+            VALUES (%s,%s,%s,'Production','ledger',8080)""", (project, service, server['id']))
+    return SimpleNamespace(server=server, service=str(service))
+
+
+def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless):
+    change = {'resources': {'service_ids': [keyless.service]}}
+    refused = post(ask, **change, tools=['ssh_run'])
+    assert refused.status_code == 400 and refused.json()['error']['message'] == 'ssh_run needs at least one server.'
+    for path in ('/preview', ''):
+        response = post(ask, path, **change, tools=['get_service_info'])
+        assert response.status_code in (200, 201), response.text
+        config = response.json()['config']
+        assert config['ssh']['servers'] == [] and not config['ssh']['enabled']
+        assert keyless.server['id'] not in config['run_resources']['server_ids']
+
+
+def test_options_default_to_the_model_last_used_on_the_document(ask):
+    url = f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}"
+    assert post(ask, model_id=ask.s.gpt).status_code == 201
+    assert ask.s.client.get(url, headers=HEADERS).json()['default_model_id'] == ask.s.gpt

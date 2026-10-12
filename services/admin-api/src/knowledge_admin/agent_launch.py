@@ -146,6 +146,13 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tu
         pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=value.resources)
     except RunResourceError as exc:
         raise HTTPException(400, str(exc)) from None
+    keyed = [server for server in pinned['ssh']['servers'] if server.get('private_key_ref') is not None]
+    if len(keyed) != len(pinned['ssh']['servers']):  # a server a service or environment brought in, without an SSH key
+        pinned['ssh'] = {**pinned['ssh'], 'servers': keyed, 'enabled': pinned['ssh']['enabled'] and bool(keyed)}
+        if 'server_ids' in pinned.get('run_resources', {}):
+            kept = {str(server['id']) for server in keyed}
+            pinned['run_resources'] = {**pinned['run_resources'],
+                                       'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept]}
     for name in value.tools:
         spec = names.get(name)
         if spec is not None and not needs_met(spec.needs, pinned, None):
@@ -182,7 +189,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
             document = target_document(conn, project, document_id)
-            actor = db.actor(conn, *request_actor(request))
+            subject, _ = request_actor(request)  # read-only: a GET does not create the principal
+            actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
+            actor = actor['id'] if actor else None
             models = [{'id': row['id'], 'name': row['name']} for row in conn.execute(
                 'SELECT id,name,provider,api_format,model FROM ka.llm_models WHERE enabled ORDER BY lower(name),id').fetchall()
                 if model_fits(row)]
