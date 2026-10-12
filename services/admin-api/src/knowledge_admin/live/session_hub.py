@@ -13,6 +13,8 @@ import psycopg
 from fastapi.encoders import jsonable_encoder
 from psycopg.rows import dict_row
 
+from knowledge_admin.document_drafts import SESSION_DRAFT
+
 logger = logging.getLogger(__name__)
 
 CHANNEL = 'ka_sessions'
@@ -25,7 +27,8 @@ CONNECT_TIMEOUT = 5
 
 STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.model_calls,s.reasoning_tokens,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
-    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued
+    (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
+    """ + SESSION_DRAFT + """
     FROM ka.agent_sessions s WHERE s.id=%s"""
 EVENTS = """SELECT id,run_key,seq,kind,
     CASE WHEN kind='tool_result' THEN payload - 'output' ELSE payload END AS payload,created_at FROM ka.agent_run_events

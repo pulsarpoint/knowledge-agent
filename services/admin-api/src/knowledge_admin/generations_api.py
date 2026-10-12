@@ -1,5 +1,5 @@
 """Generate documents sessions (an ad-hoc native agent) and Test sessions: create, the form's live context, list,
-detail, send, stop, close, the event stream and saving the draft as a document. Turns run in
+detail, send, stop, close, the event stream and saving the run's draft as a document draft. Turns run in
 agent-session-worker."""
 import asyncio
 import json
@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.session_text import FINAL_ANSWER, close_idle
 from knowledge_admin.data_root import documentation_folder
-from knowledge_admin.documents import SAME_DOCUMENT_NAME, DocumentInput, document_slug, export_args, export_document, export_input, save_document
+from knowledge_admin.document_drafts import SESSION_DRAFT, save_run_draft
+from knowledge_admin.documents import document_slug
 from knowledge_admin.generate_documents import resource_context, subjects
 from knowledge_admin.knowledge_agents.config import AD_HOC_NAME, load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
@@ -89,11 +90,6 @@ def run_folders(config: dict) -> list[dict]:
     return folders
 
 
-class SaveInput(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    update_existing: bool = Field(default=False, strict=True)
-
-
 class MessageInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     text: str = Field(min_length=1, max_length=20000)
@@ -111,7 +107,7 @@ def _select(extra: str = '') -> str:
         s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
         (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
-        s.created_at,s.last_activity_at,s.closed_at{extra}
+        s.created_at,s.last_activity_at,s.closed_at,{SESSION_DRAFT}{extra}
         FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id JOIN ka.llm_models m ON m.id=s.model_id
         LEFT JOIN ka.document_details d ON d.id=s.document_id"""
 
@@ -262,12 +258,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             return {'id': session_id, 'discarded': discarded}
 
     @router.post('/sessions/{session_id}/document', status_code=201)
-    def save(session_id: UUID, value: SaveInput, request: Request) -> dict:
-        """Save the current draft as a version of the session's document in its folder, then export it."""
+    def save(session_id: UUID, request: Request) -> dict:
+        """Save as draft, for runs from before document drafts: the run's draft becomes a document draft (as every
+        finished turn now does by itself). Nothing goes live; a person promotes the draft on its page.
+        Locks the actor, then the session, then (save_run_draft) the draft: promote's order without the project."""
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app_name)
-            session = conn.execute('SELECT * FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
+            actor = db.actor(conn, *request_actor(request))
+            session = conn.execute('SELECT id,purpose,draft,turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
                                    (session_id, project)).fetchone()
             if session is None:
                 raise HTTPException(404, 'Session not found.')
@@ -275,31 +274,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(400, ONLY_DOCUMENTS)
             if not (session['draft'] or '').strip():
                 raise HTTPException(409, 'There is no draft yet. Wait for the agent to finish a turn.')
-            actor = db.actor(conn, *request_actor(request))
-            slug = document_slug(session['document_name'])
-            existing = conn.execute('SELECT id,revision FROM ka.documents WHERE project_id=%s AND folder=%s AND slug=%s',
-                                    (project, session['folder'], slug)).fetchone()
-            if existing is not None and not value.update_existing:
-                raise HTTPException(409, SAME_DOCUMENT_NAME)
-            chosen = [UUID(item) for item in session['context_snapshot']['code_project_ids']]
-            available = {row['id'] for row in conn.execute('''SELECT id FROM ka.repositories
-                WHERE project_id=%s AND id=ANY(%s) AND archived_at IS NULL''', (project, chosen)).fetchall()}
-            linked = [item for item in chosen if item in available]  # an archived project is no longer linked
-            saved = save_document(conn, project, actor, DocumentInput(
-                slug=slug, title=session['document_name'], purpose='code' if chosen else 'explanation',
-                markdown=session['draft'], code_project_ids=linked,
-                revision=existing['revision'] if existing is not None else None),
-                existing['id'] if existing is not None else None, folder=session['folder'])
-            conn.execute('UPDATE ka.agent_sessions SET document_id=%s,last_activity_at=now() WHERE id=%s',
-                         (saved['id'], session_id))
-            audit(conn, actor, 'generation.session.document_saved', 'agent_session',
-                  {'document_id': str(saved['id']), 'revision': saved['revision']}, session_id)
-            try:
-                output, export_error = export_document(**export_args(export_input(conn, saved['id']))), None
-            except (OSError, ValueError):
-                output = None
-                export_error = 'The document was saved. File export failed; retry Export to folder from the document page.'
-        return jsonable_encoder({**saved, 'folder': session['folder'], 'output_folder': output, 'export_error': export_error})
+            draft = save_run_draft(conn, session_id, session['turns'], actor)
+            conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
+            audit(conn, actor, 'generation.session.draft_saved', 'agent_session', {'draft_id': str(draft['id'])}, session_id)
+            return jsonable_encoder({'draft': draft})
 
     @router.post('/sessions/{session_id}/close')
     def close(session_id: UUID, request: Request) -> dict:

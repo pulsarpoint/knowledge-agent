@@ -13,6 +13,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
+from knowledge_admin.document_drafts import save_run_draft_safely
 from knowledge_admin.session_text import close_idle
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
@@ -206,7 +207,8 @@ class SessionRunner:
         with text; a Test or event session never gets a draft. `commit(conn)` runs in the same transaction,
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
-        more messages, so no turn reads that history again."""
+        more messages, so no turn reads that history again. A documents session's new draft is also saved as a document
+        draft (document_drafts) in the same transaction; a failure there loses only the document draft."""
         usage = usage or NO_USAGE
         draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:
@@ -217,12 +219,14 @@ class SessionRunner:
                 draft_turn=CASE WHEN purpose<>'documents' OR %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
-                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id""",
+                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id,purpose""",
                 {'status': status, 'message': message, 'draft': draft, 'turn': number,
                  'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
                  'id': self.id, 'worker': self.worker_id}).fetchone()
             if updated is not None and status == 'waiting' and commit is not None:
                 commit(conn)
+            if updated is not None and draft is not None and updated['purpose'] == 'documents':
+                save_run_draft_safely(conn, self.id, number)  # the turn's draft becomes a document draft
 
     def release(self) -> None:
         with self.store.connect() as conn:
