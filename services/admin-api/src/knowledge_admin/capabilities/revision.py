@@ -73,7 +73,7 @@ def _outline_text(markdown: str) -> str:
 
 def _run(conn, config: dict[str, Any], *, lock: bool) -> tuple[dict, dict]:
     """The run's session (locked for a save) and its document's live version; ValueError when either is gone."""
-    run = config.get('revision')
+    run = config.get('revision_run')
     if not run:
         raise ValueError(NOT_REVISION)
     session = conn.execute("SELECT id,project_id,status,turns,target_document_id FROM ka.agent_sessions WHERE id=%s"

@@ -51,8 +51,8 @@ def test_preview_is_exactly_what_start_pins(ask):
     assert (session['purpose'], session['target_document_id'], session['title']) == (
         'revision', ask.document['id'], 'Add a section on log rotation.')
     pinned = session['config']
-    assert pinned['revision'] == {'session_id': session['id'], 'document_id': ask.document['id']}
-    assert {**preview.json()['config'], 'revision': pinned['revision']} == pinned
+    assert pinned['revision_run'] == {'session_id': session['id'], 'document_id': ask.document['id']}
+    assert {**preview.json()['config'], 'revision_run': pinned['revision_run']} == pinned
     assert preview.json()['first_message'] == ask.body['instruction']
     modes = {item['tool']: item for item in pinned['tools']['items']}
     assert all(modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed'] for name in ('get_doc', 'save_doc', 'edit_doc'))

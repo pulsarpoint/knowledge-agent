@@ -160,9 +160,9 @@ def test_one_line_longer_than_a_read_is_cut_and_the_read_advances(rev):
 def test_a_subagent_of_a_revision_run_is_not_offered_the_document_tools():
     from knowledge_admin.tools.catalog import needs_met
     from test_subagent_config import parent
-    sub = subagent_config({**parent(), 'revision': {'session_id': 's', 'document_id': 'd'}}, ['list_files'], None,
+    sub = subagent_config({**parent(), 'revision_run': {'session_id': 's', 'document_id': 'd'}}, ['list_files'], None,
                           offered=frozenset({'list_files'}), mcp_tools={})
-    assert 'revision' not in sub and not any(needs_met(CATALOG[name].needs, sub, None) for name in REVISION_TOOLS)
+    assert 'revision_run' not in sub and not any(needs_met(CATALOG[name].needs, sub, None) for name in REVISION_TOOLS)
 
 
 def test_a_deadlock_with_a_document_delete_is_retried_once(rev, monkeypatch):
@@ -178,3 +178,20 @@ def test_a_deadlock_with_a_document_delete_is_retried_once(rev, monkeypatch):
     monkeypatch.setattr(revision, '_save_once', flaky)
     assert call(rev, 'save_doc', markdown='# Retried') == 'Saved draft (1 lines).' and len(attempts) == 2
     assert [d['markdown'] for d in run_drafts(rev)] == ['# Retried']
+
+
+def test_only_an_ask_agent_run_meets_the_revision_need(rev, monkeypatch):
+    """A saved agent's config and the ad-hoc base config carry the agent version as 'revision' (an int); only the
+    run's 'revision_run' switch meets the need."""
+    from knowledge_admin.knowledge_agents.config import get_agent_config
+    from knowledge_admin.knowledge_agents.ephemeral import base_config
+    from knowledge_admin.tools.catalog import needs_met
+    monkeypatch.setenv('DATA_ROOT_DIR', '/work/data')
+    monkeypatch.setenv('CODE_ROOT', '/work/data/code')
+    saved = get_agent_config('search', conninfo=rev.docs.store.conninfo)
+    assert isinstance(saved['revision'], int) and not needs_met('revision', saved, None)
+    with rev.docs.store.connect() as conn:
+        ad_hoc = base_config(conn, rev.docs.project, model={'id': 'm'}, system_prompt='x')
+    assert 'revision_run' not in ad_hoc and not needs_met('revision', ad_hoc, None)
+    assert not needs_met('revision', {'revision_run': 'yes'}, None)
+    assert needs_met('revision', rev.config, None)

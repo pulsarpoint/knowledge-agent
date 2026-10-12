@@ -42,7 +42,7 @@ No new tables. Drafts the run writes are `ka.document_drafts` rows with `origin=
 ## Tools (revision runs only)
 
 A new capability module (`capabilities/revision.py`), catalog entries with `needs='revision'` (offered only when the
-pinned configuration has `revision`; never offered to subagents; not listed among the choosable tools).
+pinned configuration has `revision_run` — `{session_id, document_id}`, not the agent version `revision`; never offered to subagents; not listed among the choosable tools).
 
 The run's **working copy**: its latest draft with `status='open'` and `edited=false`; else the document's live version.
 

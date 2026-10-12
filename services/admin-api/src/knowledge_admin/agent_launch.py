@@ -171,7 +171,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tu
             raise HTTPException(400, NO_EXPERT.format(id=expert_id))
     pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
     pinned['project_id'] = str(project)
-    pinned['revision'] = {'session_id': str(session_id) if session_id else None, 'document_id': str(document['id'])}
+    pinned['revision_run'] = {'session_id': str(session_id) if session_id else None, 'document_id': str(document['id'])}
     return jsonable_encoder(pinned), model, document
 
 

@@ -463,7 +463,7 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
     if need == 'discovery':
         return bool(config.get('discovery'))
     if need == 'revision':
-        return bool(config.get('revision'))
+        return isinstance(config.get('revision_run'), dict)
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
 
 

@@ -41,7 +41,7 @@ def rev(docs, monkeypatch):
         conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,purpose,target_document_id,agent_config) VALUES (%s,%s,NULL,%s,%s,'Revise','{}','{}','revision',%s,%s)""",
             (sid, docs.project, actor, a_model(conn, actor), docs.runbook, Jsonb({})))
-    config = {'project_id': str(docs.project), 'revision': {'session_id': str(sid), 'document_id': docs.runbook}}
+    config = {'project_id': str(docs.project), 'revision_run': {'session_id': str(sid), 'document_id': docs.runbook}}
     return SimpleNamespace(docs=docs, sid=sid, config=config)
 
 
