@@ -36,9 +36,11 @@ export function SourceList({ sources, empty }: { sources: DraftSource[]; empty: 
 
 /** One draft: who wrote it and when, the diff against the live version (a draft of a document) and the preview, its
  * sources, and Edit, Promote (a stale draft asks again: Promote anyway) and Discard while it is open. */
-export default function DraftView({ draftId, reloadKey = 0, onEdit, onPromoted, onDiscarded, onLoaded }: {
+export default function DraftView({ draftId, reloadKey = 0, onEdit, onPromoted, onDiscarded, onLoaded, confirm = (run) => run() }: {
   draftId: string; reloadKey?: number; onEdit?: (draft: DraftDetail) => void; onPromoted: (result: PromoteResult) => void;
   onDiscarded: () => void; onLoaded?: (draft: DraftDetail) => void;
+  /** Runs Edit and Promote; the document page asks first when its editor has unsaved changes. */
+  confirm?: (run: () => void) => void;
 }) {
   const [draft, setDraft] = useState<DraftDetail | null>(null);
   const [error, setError] = useState('');
@@ -83,9 +85,9 @@ export default function DraftView({ draftId, reloadKey = 0, onEdit, onPromoted, 
       <div className="flex flex-wrap items-center gap-2">
         {draft.stale && <Badge variant="destructive">stale</Badge>}
         {!open && <Badge variant="outline">{draft.status === 'promoted' ? 'Promoted' : 'Discarded'}</Badge>}
-        {open && onEdit && <Button type="button" variant="outline" disabled={busy} onClick={() => onEdit(draft)}>Edit</Button>}
+        {open && onEdit && <Button type="button" variant="outline" disabled={busy} onClick={() => confirm(() => onEdit(draft))}>Edit</Button>}
         {open && <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmDiscard(true)}>Discard</Button>}
-        {open && <Button type="button" disabled={busy || stale !== ''} onClick={() => void promote(false)}>{busy && <Spinner data-icon="inline-start" />}Promote</Button>}
+        {open && <Button type="button" disabled={busy || stale !== ''} onClick={() => confirm(() => void promote(false))}>{busy && <Spinner data-icon="inline-start" />}Promote</Button>}
       </div>
     </div>
     {stale && <Alert variant="destructive"><AlertDescription className="flex flex-col gap-2"><span>{stale}</span>

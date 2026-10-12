@@ -47,6 +47,9 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
     to={`/servers/${encodeURIComponent(session.server_id)}/discovery/${encodeURIComponent(session.id)}`} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
+  // Save as draft only for a run that never had a document draft; a decided one is not offered again.
+  const documentDraft = session.document_draft;
+  const promotedTo = documentDraft?.status === 'promoted' ? documentDraft.document_id ?? session.document_id : null;
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
   return <div ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col">
     <RunWorkspace run={run} agentName={session.agent_name}
@@ -62,11 +65,14 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
         {!session.draft && <p className="text-xs text-muted-foreground">The draft appears when the agent finishes a turn.</p>}
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={!session.draft} onClick={() => setDraftOpen(true)}>Preview draft</Button>
-          {session.document_draft
-            ? <Button asChild size="sm"><Link to={draftPath(session.document_draft)}>Open draft</Link></Button>
-            : session.draft ? <Button type="button" size="sm" disabled={busy} onClick={() => void saveDraft()}>Save as draft</Button> : null}
+          {documentDraft?.status === 'open'
+            ? <Button asChild size="sm"><Link to={draftPath(documentDraft)}>Open draft</Link></Button>
+            : promotedTo ? <Button asChild size="sm"><Link to={`/documents/${encodeURIComponent(promotedTo)}`}>Open document</Link></Button>
+            : !documentDraft && session.draft ? <Button type="button" size="sm" disabled={busy} onClick={() => void saveDraft()}>Save as draft</Button> : null}
         </div>
-        {session.document_draft && <p className="text-xs text-muted-foreground">Each finished turn updates this draft until someone saves it. Promote it on its page to make it the live document.</p>}
+        {documentDraft?.status === 'open' && <p className="text-xs text-muted-foreground">Each finished turn updates this draft until someone saves it. Promote it on its page to make it the live document.</p>}
+        {documentDraft?.status === 'promoted' && <p className="text-xs text-muted-foreground">The document draft was promoted. The agent's next finished turn starts a new draft.</p>}
+        {documentDraft?.status === 'discarded' && <p className="text-xs text-muted-foreground">The document draft was discarded.</p>}
       </section>}
       answerActions={turn => <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
       empty={<p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}

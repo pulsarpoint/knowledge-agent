@@ -43,7 +43,7 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
     posts.push({ url, body });
     if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
     if (url.endsWith('/stop')) return Response.json({ id: 's1', discarded: 0 }, { status: 202 });
-    if (url.endsWith('/document')) return Response.json({ draft: { id: 'd1', document_id: 'doc' } }, { status: 201 });
+    if (url.endsWith('/document')) return Response.json({ draft: { id: 'd1', document_id: 'doc', status: 'open' } }, { status: 201 });
     return Response.json({ id: 's1' });
   }));
   render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
@@ -241,11 +241,33 @@ test('a documents session stays on the generation page', async () => {
 });
 
 test("a run whose turn wrote a document draft links to it; a new document's draft opens its own page", async () => {
-  const withDraft = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_draft: { id: 'd2', document_id: null } };
+  const withDraft = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_draft: { id: 'd2', document_id: null, status: 'open' } };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(withDraft)));
   render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   const draft = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(await draft.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/d2');
   expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
   expect(draft.getByRole('button', { name: 'Preview draft' })).toBeEnabled();
+});
+
+test('a run whose document draft was promoted links to the document and offers no Save as draft', async () => {
+  const promoted = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_id: 'doc1',
+    document_draft: { id: 'd2', document_id: 'doc1', status: 'promoted' } };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(promoted)));
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  const draft = within(await screen.findByRole('region', { name: 'Draft' }));
+  expect(await draft.findByRole('link', { name: 'Open document' })).toHaveAttribute('href', '/documents/doc1');
+  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(draft.queryByRole('link', { name: 'Open draft' })).toBeNull();
+});
+
+test('a run whose document draft was discarded offers no Save as draft', async () => {
+  const discarded = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1,
+    document_draft: { id: 'd2', document_id: null, status: 'discarded' } };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(discarded)));
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  const draft = within(await screen.findByRole('region', { name: 'Draft' }));
+  expect(await draft.findByText('The document draft was discarded.')).toBeVisible();
+  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(draft.queryByRole('link', { name: 'Open draft' })).toBeNull();
 });

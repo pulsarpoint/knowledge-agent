@@ -650,7 +650,9 @@ Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draf
   finished turn also keeps it as a **document draft** — of the document with the run's name in its folder, or of a new
   document there — and **Open draft** opens it (on the document's Drafts tab, or on the new document's draft page). The
   next turn updates that draft until someone saves it in the editor; after that a turn starts a new draft. Nothing goes
-  live until a person promotes a draft. Runs from before drafts show **Save as draft** instead.
+  live until a person promotes a draft. Once the draft is promoted the run shows **Open document**; a discarded draft
+  shows "The document draft was discarded." — neither offers Save as draft again. Runs from before drafts show
+  **Save as draft** instead.
 - **Close session**.
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
@@ -694,8 +696,10 @@ promotes a draft, or accepts a discovery document proposal.
   document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the
   editor; **Promote** makes it the live version — a stale draft first says "This draft was based on version n; the
   live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
-  removes it from the lists (it stays in the audit history).
-- A new document's draft has its own page; **Promote** creates the document. If a document with that name was created
+  removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
+  first ask "Discard unsaved changes?" (**Keep editing** does nothing).
+- A new document's draft has its own page; **Promote** creates the document and opens it (a failed export is shown
+  there, as after a save). If a document with that name was created
   in the folder meanwhile, the draft becomes a draft of it and asks you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
   live version was built from).

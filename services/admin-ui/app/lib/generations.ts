@@ -38,8 +38,8 @@ export interface SessionDetail extends SessionSummary {
   config?: Record<string, unknown>;
   /** Test sessions: their saved suggestions, oldest first. */
   reviews?: SessionReview[];
-  /** The run's latest open document draft (Generate documents). */
-  document_draft?: { id: string; document_id: string | null } | null;
+  /** The run's latest document draft of any status (Generate documents); null: the run never had one. */
+  document_draft?: { id: string; document_id: string | null; status: 'open' | 'promoted' | 'discarded' } | null;
   inputs: { seq: number; text: string; status: 'queued' | 'delivered' | 'discarded'; turn: number | null; created_at: string }[];
 }
 export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'turns' | 'input_tokens' | 'output_tokens' | 'cached_tokens'
@@ -70,4 +70,4 @@ export const stopSession = (id: string) => request<{ id: string; discarded: numb
 export const closeSession = (id: string) => request<{ id: string }>(`${session(id)}/close`, { method: 'POST' });
 /** Save as draft (runs from before document drafts): the run's draft becomes a document draft; nothing goes live. */
 export const saveSessionDraft = (id: string) =>
-  request<{ draft: { id: string; document_id: string | null } }>(`${session(id)}/document`, json('POST', {}));
+  request<{ draft: NonNullable<SessionDetail['document_draft']> }>(`${session(id)}/document`, json('POST', {}));

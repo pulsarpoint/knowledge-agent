@@ -8,8 +8,10 @@ import { Skeleton } from '~/components/ui/skeleton';
 
 /** The document page's Drafts tab: its open drafts (who wrote each, when, the version it is based on, "stale" when the
  * live version moved on) and the selected one in the draft view. */
-export default function DocumentDrafts({ documentId, selected, onEdit, onPromoted }: {
+export default function DocumentDrafts({ documentId, selected, onEdit, onPromoted, confirm }: {
   documentId: string; selected: string | null; onEdit: (draft: DraftDetail) => void; onPromoted: (result: PromoteResult) => void;
+  /** Runs Edit and Promote, after asking when the editor has unsaved changes. */
+  confirm?: (run: () => void) => void;
 }) {
   const [drafts, setDrafts] = useState<DraftSummary[] | null>(null);
   const [open, setOpen] = useState<string | null>(selected);
@@ -30,7 +32,7 @@ export default function DocumentDrafts({ documentId, selected, onEdit, onPromote
         <span>{draft.title}{draft.stale && <Badge variant="destructive" className="ml-2">stale</Badge>}</span></Button>
       <p className="px-1 text-xs text-muted-foreground"><DraftAuthor draft={draft} />{` · ${new Date(draft.updated_at).toLocaleString()} · based on version ${draft.base_version ?? '?'}`}</p></li>)}</ul>
     <div className="min-w-0">{shown
-      ? <DraftView key={shown} draftId={shown} onEdit={onEdit} onPromoted={onPromoted} onDiscarded={() => { setOpen(null); setLoad((n) => n + 1); }} />
+      ? <DraftView key={shown} draftId={shown} onEdit={onEdit} onPromoted={onPromoted} confirm={confirm} onDiscarded={() => { setOpen(null); setLoad((n) => n + 1); }} />
       : <p className="text-sm text-muted-foreground">Select a draft to compare it with the live version.</p>}</div>
   </div>;
 }

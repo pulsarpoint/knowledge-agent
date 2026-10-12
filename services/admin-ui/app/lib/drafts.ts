@@ -51,3 +51,6 @@ export const removeLink = (documentId: string, toId: string) =>
 /** Where a draft opens: its document's Drafts tab, or the page of a new document's draft. */
 export const draftPath = (draft: { id: string; document_id: string | null }) => draft.document_id
   ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/drafts/${draft.id}`;
+/** What the document page says after a draft was promoted, with the export error when writing the file failed. */
+export const promotedNotice = (result: PromoteResult) =>
+  `Draft promoted to version ${result.revision}.${result.export_error ? ` ${result.export_error}` : ''}`;

@@ -141,6 +141,22 @@ call (a request or command already running cannot be recalled), and comments del
 a message sent after Stop is not delivered to the stopped turn and starts the next one.
 After a failure or a lost worker they go to the next turn. The turn's history is committed in the transaction that records
 the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used (every turn sees the whole conversation).
+Each finished turn also writes the run's document draft in the same transaction (`save_run_draft_safely`, in a
+savepoint: a draft that cannot be saved is logged and never fails the turn). The first finished turn creates the draft — a
+draft of the document the run's folder and name already name, or of a new document there that links the run's code
+projects, environments, services and servers on promote — and later turns update it until a person saves (edits),
+promotes or discards it; the next finished turn then starts a new draft. The draft's sources are recomputed every turn
+from the documents the run read (`get_document`, or `read_document` of an export path), at the version live at the first
+read. Nothing goes live until a person promotes the draft.
+
+`GET /api/generations/sessions` and `GET /api/generations/sessions/{id}` rows, and the live stream's `session` state,
+carry `document_draft`: `{id, document_id, status}` of the run's latest document draft of any status (`open`, `promoted`
+or `discarded`), or null when the run never had one. The run page shows **Open draft** for an open draft, **Open
+document** for a promoted one, and **Save as draft** only for a run with a draft text and no document draft (runs from
+before drafts). `POST /api/generations/sessions/{id}/document` is Save as draft: it turns the run's draft text into a
+document draft (updating the run's open draft no person has saved, if any) and answers 201 `{draft: {id, document_id,
+status}}`; it is audited as `generation.session.draft_saved`. 409 `There is no draft yet. Wait for the agent to finish a
+turn.` when the run has no draft text; 400 for a session that is not a documents run.
 
 `GET /api/generations/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a

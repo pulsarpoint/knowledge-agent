@@ -218,7 +218,7 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
         {name && !documentSlug(name) && <FieldDescription className="text-destructive">Use letters or digits in the name.</FieldDescription>}</Field>
       <Field><FieldLabel htmlFor="generate-folder">Documentation folder</FieldLabel><Input id="generate-folder" list="generate-documentation-folders" maxLength={200} value={folder} onChange={e => { setFolderTouched(true); setFolder(e.target.value); }} />
         <datalist id="generate-documentation-folders">{data.folders.map(item => <option key={item} value={item} />)}</datalist>
-        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `Save document stores it as ${target || '<folder>'}/${documentSlug(name) || '<document>'}/README.md in the generated documents folder.`}</FieldDescription></Field>
+        <FieldDescription className={badFolder ? 'text-destructive' : undefined}>{badFolder || `The result is saved as a draft of ${target || '<folder>'}/${documentSlug(name) || '<document>'}; promote the draft to make it the live document.`}</FieldDescription></Field>
     </fieldset>
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <Button type="submit" className="self-start" disabled={pending || !ready}>{pending ? 'Starting…' : 'Generate'}</Button>

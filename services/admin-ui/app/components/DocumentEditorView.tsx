@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
-import { createDraft, draftPath, updateDraft, type PromoteResult } from '~/lib/drafts';
+import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
 import DocumentConnections from './DocumentConnections';
 import DocumentDrafts from './DocumentDrafts';
 import Markdown from './Markdown';
@@ -45,8 +45,11 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // An action from the Drafts tab (Edit, Promote) waiting for the confirmation that unsaved changes may be lost.
+  const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
   const dirty = JSON.stringify(value) !== JSON.stringify(initial) || tags !== initial.tags.join(', ');
+  const unlessUnsaved = (run: () => void) => { if (dirty) setUnsavedAction({ run }); else run(); };
   const patch = <K extends keyof DocumentInput>(key: K, next: DocumentInput[K]) => setValue((old) => ({ ...old, [key]: next }));
 
   async function save(event: React.FormEvent) {
@@ -144,7 +147,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
           {historical.source_snapshot.code_projects.filter((r) => r.git_commit).map((r) => <p key={r.id} className="mt-2 text-sm">{r.name}: <code className="break-all">{r.git_commit}</code></p>)}
           <Markdown content={historical.markdown} />
         </> : <p className="text-sm text-muted-foreground">Select a version to read it or use it as the starting point for an edit.</p>}</div></div></TabsContent>
-        <TabsContent value="drafts">{document && <DocumentDrafts documentId={document.id} selected={params.get('draft')} onPromoted={onPromoted}
+        <TabsContent value="drafts">{document && <DocumentDrafts documentId={document.id} selected={params.get('draft')} onPromoted={onPromoted} confirm={unlessUnsaved}
           onEdit={(draft) => {
             setValue((old) => ({ ...old, title: draft.title, description: draft.description, purpose: draft.purpose, audience: draft.audience, tags: draft.tags, markdown: draft.markdown }));
             setTags(draft.tags.join(', ')); setEditingDraft({ id: draft.id, revision: draft.revision, title: draft.title }); setTab('write');
@@ -153,6 +156,10 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
         <TabsContent value="connections">{document && <DocumentConnections documentId={document.id} />}</TabsContent>
       </Tabs>
     </fieldset>
+    <AlertDialog open={unsavedAction !== null} onOpenChange={(open) => { if (!open) setUnsavedAction(null); }}><AlertDialogContent><AlertDialogHeader>
+      <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle><AlertDialogDescription>The editor has changes that are not saved. Continuing replaces them; they will be lost.</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction onClick={() => { const action = unsavedAction; setUnsavedAction(null); action?.run(); }}>Discard changes</AlertDialogAction></AlertDialogFooter>
+    </AlertDialogContent></AlertDialog>
     <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete “{document?.title}”?</AlertDialogTitle>
       <AlertDialogDescription>This removes the document, all saved versions, and its resource links. The linked code projects, services, and servers remain. This cannot be undone.</AlertDialogDescription></AlertDialogHeader>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -168,7 +175,9 @@ export default function DocumentEditorView() {
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
-  const [notice, setNotice] = useState('');
+  // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
+  const handed = (useLocation().state as { notice?: unknown } | null)?.notice;
+  const [notice, setNotice] = useState(typeof handed === 'string' ? handed : '');
   useEffect(() => {
     const controller = new AbortController(); setLoaded(null); setError('');
     Promise.all([documentId ? getDocument(documentId, controller.signal) : Promise.resolve(null), getDocumentResources(controller.signal)]).then(([document, resources]) => {
@@ -179,6 +188,6 @@ export default function DocumentEditorView() {
   return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}{error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert> : loaded ?
     <Editor key={`${documentId}-${refresh}`} {...loaded} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
       onDraftSaved={(draftId) => { setNotice('Draft saved.'); setParams({ tab: 'drafts', draft: draftId }, { replace: true }); setRefresh((n) => n + 1); }}
-      onPromoted={(result) => { setNotice(`Draft promoted to version ${result.revision}.${result.export_error ? ` ${result.export_error}` : ''}`);
+      onPromoted={(result) => { setNotice(promotedNotice(result));
         setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); }} /> : <Skeleton className="h-96 w-full" />}</>;
 }

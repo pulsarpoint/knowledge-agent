@@ -148,3 +148,16 @@ test('a failed discard on the list shows why and refreshes the list so a retry w
   await waitFor(() => expect(calls.filter((c) => c.key === 'GET /api/documentation/drafts?new=true')).toHaveLength(2));
   expect(screen.getByText('Changed meanwhile')).toBeInTheDocument();
 });
+
+test("a promote whose export failed hands the export error to the document page", async () => {
+  api({
+    'GET /api/documentation/drafts/d9': () => [200, detail],
+    'POST /api/documentation/drafts/d9/promote': () => [200, { draft: { ...detail, status: 'promoted', document_id: 'doc-9' },
+      document_id: 'doc-9', version_id: 'v1', revision: 1, export_error: 'Saved. Writing the document file failed; use Export to folder to retry.' }],
+  });
+  const router = show('/documents/drafts/d9');
+  fireEvent.click(await screen.findByRole('button', { name: 'Promote' }));
+  await waitFor(() => expect(router.state.location.pathname).toBe('/documents/doc-9'));
+  expect(router.state.location.state).toEqual(
+    { notice: 'Draft promoted to version 1. Saved. Writing the document file failed; use Export to folder to retry.' });
+});
