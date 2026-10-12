@@ -285,7 +285,8 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
         source_title,source_version) SELECT project_id,%s,kind,source_document_id,source_version_id,source_title,
         source_version FROM ka.document_sources WHERE draft_id=%s''', (saved['version_id'], row['id']))
     if row['session_id'] is not None:  # the Generate documents list shows the run's saved document
-        conn.execute('UPDATE ka.agent_sessions SET document_id=%s WHERE id=%s', (saved['id'], row['session_id']))
+        conn.execute("UPDATE ka.agent_sessions SET document_id=%s WHERE id=%s AND purpose='documents'",
+                     (saved['id'], row['session_id']))
     audit(conn, project, actor, 'document.draft.promoted', 'document_draft', row['id'],
           {'document_id': saved['id'], 'version': saved['revision'], 'version_id': saved['version_id'],
            'stale_confirmed': confirm_stale})
@@ -419,6 +420,21 @@ def save_run_draft_safely(conn, session_id: UUID, turn: int) -> None:
             save_run_draft(conn, session_id, turn)
     except Exception:  # any failure, a bug included, rolls back only the savepoint
         logger.exception('Session %s turn %s: the document draft was not saved', session_id, turn)
+
+
+def refresh_run_sources_safely(conn, session_id: UUID, turn: int) -> None:
+    """An Ask agent turn ended: recompute the sources of the run's working draft from every tool call recorded so far
+    (a read recorded after the save that preceded it). In a savepoint; a failure loses only this refresh."""
+    try:
+        with conn.transaction():
+            draft = conn.execute('''SELECT id,project_id,document_id,base_version_id FROM ka.document_drafts
+                WHERE session_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE''',
+                (session_id,)).fetchone()
+            if draft is not None:
+                record_run_sources(conn, draft['project_id'], draft['id'], draft['document_id'], draft['base_version_id'],
+                                   session_id, turn)
+    except Exception:  # any failure, a bug included, rolls back only the savepoint
+        logger.exception('Session %s turn %s: the draft sources were not refreshed', session_id, turn)
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:

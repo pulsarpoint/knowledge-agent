@@ -13,7 +13,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.document_drafts import save_run_draft_safely
+from knowledge_admin.document_drafts import refresh_run_sources_safely, save_run_draft_safely
 from knowledge_admin.session_text import close_idle
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
@@ -208,7 +208,8 @@ class SessionRunner:
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again. A documents session's new draft is also saved as a document
-        draft (document_drafts) in the same transaction; a failure there loses only the document draft."""
+        draft (document_drafts) in the same transaction; a failure there loses only the document draft. An Ask agent
+        session's draft is saved by its tools; the turn only refreshes its sources."""
         usage = usage or NO_USAGE
         draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:
@@ -227,6 +228,8 @@ class SessionRunner:
                 commit(conn)
             if updated is not None and draft is not None and updated['purpose'] == 'documents':
                 save_run_draft_safely(conn, self.id, number)  # the turn's draft becomes a document draft
+            if updated is not None and updated['purpose'] == 'revision':
+                refresh_run_sources_safely(conn, self.id, number)  # the tools saved the draft; reads may come later
 
     def release(self) -> None:
         with self.store.connect() as conn:

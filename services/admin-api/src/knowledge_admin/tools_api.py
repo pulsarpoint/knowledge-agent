@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
-from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, capability_tools,
+from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, RUN_ONLY_NEEDS, capability_tools,
                                            catalog_listing, enabled_capability_tools, needs_met)
 
 STALE = 'The tools changed since you opened them. Reload.'
@@ -103,8 +103,8 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
-        if spec.needs == 'discovery':
-            continue  # only in discovery runs
+        if spec.needs in RUN_ONLY_NEEDS:
+            continue  # only in discovery or Ask agent runs
         if spec.name == SUBAGENT and row is None:
             continue  # listed only while May start subagents is on
         available = needs_met(spec.needs, current, None)
