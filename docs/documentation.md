@@ -70,12 +70,21 @@ role. Mutations also require an attributed user. No credential fields are return
 | API | Behavior |
 | --- | --- |
 | `GET /resources` | Public code-project, service, server and deployment choices |
-| `GET /documents` | List current documents; `q`, `code_project_id`, `service_id`, `server_id`, `deployment_id`; AND across filters; 50 per page with `offset` |
+| `GET /documents` | List current documents; `q`, `code_project_id`, `service_id`, `server_id`, `deployment_id`; AND across filters; 50 per page with `offset`; `has_drafts=true` keeps documents with open drafts; each row has `draft_count` |
 | `POST /documents` | Create document and first version atomically |
-| `GET /documents/{id}` | Metadata, current Markdown version, version summaries |
+| `GET /documents/{id}` | Metadata, current Markdown version, version summaries; versions say `from_draft` |
 | `PUT /documents/{id}` | Save a new complete version with expected `revision` |
 | `GET /documents/{id}/versions/{version_id}` | Read historical Markdown and resource snapshot |
 | `DELETE /documents/{id}` | Expected `revision` and `confirmed=true` required |
+| `POST /drafts` | A draft of a document (`document_id`; text defaults to the live version) or of a new document (`slug`, optional `folder`, `title`, `markdown`, optional `resource_ids`) |
+| `GET /drafts?new=true` | Open drafts of new documents (without `new`: all open drafts) |
+| `GET /drafts/{id}` | A draft with its Markdown, sources, base and live version numbers, `stale` and the live Markdown |
+| `PUT /drafts/{id}` | Save an open draft's text with its `revision` (marks it `edited`) |
+| `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: save as the live version; 409 `STALE_BASE` when the live version moved on |
+| `POST /drafts/{id}/discard` | `{revision}`: discard (kept for audit, never listed) |
+| `GET /documents/{id}/drafts` | Open drafts of a document (no Markdown) |
+| `GET /documents/{id}/connections` | `depends_on`, `used_by` and `built_from` (the live version's sources) |
+| `POST /documents/{id}/links`, `DELETE /documents/{id}/links/{to_id}` | Add or remove a `depends_on` link |
 | `GET, POST /prompts` | List / create analysis prompts; first text is a draft |
 | `GET, PUT /prompts/{id}` | Read / save metadata and changed text as a new draft |
 | `POST /prompts/{id}/versions/{version_id}/activate` | Activate using expected parent `revision` |

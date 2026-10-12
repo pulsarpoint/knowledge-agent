@@ -357,7 +357,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/documents')
     def list_documents(q: str = Query(default='', max_length=200), code_project_id: UUID | None = None,
                        service_id: UUID | None = None, server_id: UUID | None = None,
-                       deployment_id: UUID | None = None, environment_id: UUID | None = None, offset: int = Query(default=0, ge=0)) -> dict:
+                       deployment_id: UUID | None = None, environment_id: UUID | None = None, has_drafts: bool = False, offset: int = Query(default=0, ge=0)) -> dict:
         db = database()
         with db.connect() as conn:
             project = db.project(conn, app_name)
@@ -366,10 +366,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 AND (%s::uuid IS NULL OR %s=ANY(service_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(server_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(deployment_ids))
-                AND (%s::uuid IS NULL OR %s=ANY(environment_ids))'''
-            params = (project,q.strip(),code_project_id,code_project_id,service_id,service_id,server_id,server_id,deployment_id,deployment_id,environment_id,environment_id)
-            rows = conn.execute(f'SELECT * FROM ka.document_details WHERE {where} ORDER BY updated_at DESC,id LIMIT 50 OFFSET %s', (*params,offset)).fetchall()
-            total = conn.execute(f'SELECT count(*) AS n FROM ka.document_details WHERE {where}', params).fetchone()['n']
+                AND (%s::uuid IS NULL OR %s=ANY(environment_ids))
+                AND (NOT %s OR EXISTS (SELECT 1 FROM ka.document_drafts x WHERE x.document_id=d.id AND x.status='open'))'''
+            params = (project,q.strip(),code_project_id,code_project_id,service_id,service_id,server_id,server_id,deployment_id,deployment_id,environment_id,environment_id,has_drafts)
+            rows = conn.execute(f'''SELECT d.*, (SELECT count(*) FROM ka.document_drafts x WHERE x.document_id=d.id
+                AND x.status='open') AS draft_count FROM ka.document_details d WHERE {where}
+                ORDER BY updated_at DESC,id LIMIT 50 OFFSET %s''', (*params,offset)).fetchall()
+            total = conn.execute(f'SELECT count(*) AS n FROM ka.document_details d WHERE {where}', params).fetchone()['n']
             return {'documents': rows, 'total': total}
 
     @router.get('/documents/{document_id}')
@@ -381,8 +384,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row is None:
                 raise HTTPException(404, 'Document not found')
             row['current_version'] = conn.execute('SELECT * FROM ka.document_versions WHERE id=%s', (row['current_version_id'],)).fetchone()
-            row['versions'] = conn.execute('''SELECT id,version,title,origin,base_version_id,content_hash,created_at
-                FROM ka.document_versions WHERE document_id=%s ORDER BY version DESC''', (document_id,)).fetchall()
+            row['versions'] = conn.execute('''SELECT v.id,v.version,v.title,v.origin,v.base_version_id,v.content_hash,v.created_at,
+                EXISTS (SELECT 1 FROM ka.document_drafts x WHERE x.promoted_version_id=v.id) AS from_draft
+                FROM ka.document_versions v WHERE v.document_id=%s ORDER BY v.version DESC''', (document_id,)).fetchall()
             return row
 
     @router.get('/documents/{document_id}/bundle')

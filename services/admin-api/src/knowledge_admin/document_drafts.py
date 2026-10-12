@@ -109,6 +109,29 @@ DETAIL_EXTRA = ''',x.description,x.purpose,x.audience,x.tags,x.markdown,x.resour
     lv.markdown AS live_markdown,lv.title AS document_title'''
 
 
+LINK_SELF = 'A document cannot depend on itself.'
+LINK_TWICE = 'This document already depends on that document.'
+LINK_NOT_FOUND = 'This link does not exist.'
+LINKED = '''SELECT d.id,d.title,d.slug,d.folder,d.version FROM ka.document_links l JOIN ka.document_details d ON d.id=l.{other}
+    WHERE l.{this}=%s AND l.kind='depends_on' ORDER BY lower(d.title),d.id'''
+
+
+class LinkInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    to_document_id: UUID
+
+
+def connections(conn, project: UUID, document_id: UUID) -> dict:
+    """What a document depends on, what depends on it (links people add) and what its live version was built from."""
+    row = conn.execute('SELECT current_version_id FROM ka.documents WHERE id=%s AND project_id=%s',
+                       (document_id, project)).fetchone()
+    if row is None:
+        raise HTTPException(404, DOCUMENT_NOT_FOUND)
+    return {'depends_on': conn.execute(LINKED.format(this='from_document_id', other='to_document_id'), (document_id,)).fetchall(),
+            'used_by': conn.execute(LINKED.format(this='to_document_id', other='from_document_id'), (document_id,)).fetchall(),
+            'built_from': sources_of(conn, 'version_id', row['current_version_id'])}
+
+
 def audit(conn, project, actor, action: str, resource_type: str, resource_id, details: dict) -> None:
     conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
         VALUES (%s,%s,%s,%s,%s,%s)''', (project, actor, action, resource_type, resource_id, Jsonb(jsonable_encoder(details))))
@@ -350,5 +373,67 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             export_error = EXPORT_FAILED
         return jsonable_encoder({'draft': detail, 'document_id': saved['id'], 'version_id': saved['version_id'],
                                  'revision': saved['revision'], 'export_error': export_error})
+
+    @router.get('/drafts')
+    def drafts(new: bool = False) -> dict:
+        """Open drafts, newest first; new=true: only drafts of new documents (the Documents page's New drafts)."""
+        db = database()
+        with db.connect() as conn:
+            rows = conn.execute(SUMMARY.format(extra='') + """ WHERE x.project_id=%s AND x.status='open'
+                AND (NOT %s OR x.document_id IS NULL) ORDER BY x.updated_at DESC,x.id""",
+                (db.project(conn, app_name), new)).fetchall()
+            return jsonable_encoder({'drafts': rows})
+
+    @router.get('/documents/{document_id}/drafts')
+    def drafts_of_document(document_id: UUID) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone() is None:
+                raise HTTPException(404, DOCUMENT_NOT_FOUND)
+            rows = conn.execute(SUMMARY.format(extra='') + """ WHERE x.document_id=%s AND x.status='open'
+                ORDER BY x.updated_at DESC,x.id""", (document_id,)).fetchall()
+            return jsonable_encoder({'drafts': rows})
+
+    @router.get('/documents/{document_id}/connections')
+    def document_connections(document_id: UUID) -> dict:
+        db = database()
+        with db.connect() as conn:
+            return jsonable_encoder(connections(conn, db.project(conn, app_name), document_id))
+
+    @router.post('/documents/{document_id}/links', status_code=201)
+    def add_link(document_id: UUID, value: LinkInput, request: Request) -> dict:
+        if value.to_document_id == document_id:
+            raise HTTPException(400, LINK_SELF)
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            actor = db.actor(conn, *request_actor(request))
+            found = conn.execute('SELECT count(*) AS n FROM ka.documents WHERE project_id=%s AND id=ANY(%s)',
+                                 (project, [document_id, value.to_document_id])).fetchone()['n']
+            if found != 2:
+                raise HTTPException(404, DOCUMENT_NOT_FOUND)
+            added = conn.execute('''INSERT INTO ka.document_links(project_id,from_document_id,to_document_id,created_by)
+                VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id''',
+                (project, document_id, value.to_document_id, actor)).fetchone()
+            if added is None:
+                raise HTTPException(409, LINK_TWICE)
+            audit(conn, project, actor, 'document.link.added', 'document', document_id,
+                  {'to_document_id': value.to_document_id, 'kind': 'depends_on'})
+            return jsonable_encoder(connections(conn, project, document_id))
+
+    @router.delete('/documents/{document_id}/links/{to_document_id}')
+    def remove_link(document_id: UUID, to_document_id: UUID, request: Request) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            actor = db.actor(conn, *request_actor(request))
+            removed = conn.execute('''DELETE FROM ka.document_links WHERE project_id=%s AND from_document_id=%s
+                AND to_document_id=%s AND kind='depends_on' RETURNING id''', (project, document_id, to_document_id)).fetchone()
+            if removed is None:
+                raise HTTPException(404, LINK_NOT_FOUND)
+            audit(conn, project, actor, 'document.link.removed', 'document', document_id,
+                  {'to_document_id': to_document_id, 'kind': 'depends_on'})
+            return jsonable_encoder(connections(conn, project, document_id))
 
     return router
