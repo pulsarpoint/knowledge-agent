@@ -4,6 +4,8 @@ import { ApiError } from "~/lib/api";
 import { acceptProposal, rejectProposal, SERVICE_FIELD_LABELS, type Proposal, type ServiceField, type ServiceProposal } from "~/lib/discovery";
 import Markdown from "./Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -53,6 +55,9 @@ export default function ProposalSheet({ proposal, message, onClose, onMessage, o
   const [kept, setKept] = useState<ServiceField[]>(proposal.kind === "service" ? proposal.changes ?? [] : []);
   const [busy, setBusy] = useState(false);
   const deciding = useRef(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  // Accepting a new version of an existing document replaces its live version: ask first.
+  const replaces = proposal.kind === "document" && proposal.current ? proposal.current : null;
   const pending = proposal.status === "pending";
   // A document about a service proposed in this run is refused until that service is accepted.
   const waiting = pending && proposal.kind === "document" && proposal.service_proposal_status === "pending";
@@ -96,8 +101,14 @@ export default function ProposalSheet({ proposal, message, onClose, onMessage, o
           {waiting && <p className="text-sm text-muted-foreground">{`Accept the service proposal ${proposal.service_name} first.`}</p>}
           {pending && <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={busy} onClick={() => void decide("reject")}>Reject</Button>
-            <Button disabled={busy || waiting} onClick={() => void decide("accept")}>{busy && <Spinner data-icon="inline-start" />}Accept</Button></div>}</div>}
+            <Button disabled={busy || waiting} onClick={() => replaces ? setConfirmReplace(true) : void decide("accept")}>{busy && <Spinner data-icon="inline-start" />}Accept</Button></div>}</div>}
       </div>
     </SheetContent>
+    <AlertDialog open={confirmReplace} onOpenChange={setConfirmReplace}><AlertDialogContent>
+      <AlertDialogHeader><AlertDialogTitle>Replace the live version?</AlertDialogTitle>
+        <AlertDialogDescription>{replaces ? `This replaces the live version ${replaces.version} of “${replaces.title}”. Continue?` : ""}</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={() => { setConfirmReplace(false); void decide("accept"); }}>Continue</AlertDialogAction></AlertDialogFooter>
+    </AlertDialogContent></AlertDialog>
   </Sheet>;
 }

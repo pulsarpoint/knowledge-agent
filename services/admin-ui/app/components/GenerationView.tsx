@@ -1,30 +1,25 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
-import { ApiError } from '~/lib/api';
-import { closeSession, saveSessionDocument, sendMessage, stopSession, type SavedDocument } from '~/lib/generations';
-import { SAME_DOCUMENT_NAME } from '~/lib/documents';
+import { draftPath } from '~/lib/drafts';
+import { closeSession, saveSessionDraft, sendMessage, stopSession } from '~/lib/generations';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
 import Markdown from './Markdown';
 import RunWorkspace from './RunWorkspace';
 import { Alert, AlertDescription } from '~/components/ui/alert';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
 import { Button } from '~/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '~/components/ui/sheet';
 import { Skeleton } from '~/components/ui/skeleton';
 
 /** One Generate documents session on the run workspace: its turns, messages, Stop and Close, and in the sidebar the
- * draft (opened in a wide side panel) with Save document. The page fits the screen; the main pane scrolls on its own. */
+ * draft (opened in a wide side panel) with Open draft. The page fits the screen; the main pane scrolls on its own. */
 export default function GenerationView({ sessionId }: { sessionId: string }) {
   const run = useSessionEvents(sessionId);
   const { session, setSession } = run;
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [draftOpen, setDraftOpen] = useState(false);
-  const [saved, setSaved] = useState<SavedDocument | null>(null);
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
   const fill = useFillViewport<HTMLDivElement>();
 
@@ -39,17 +34,10 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
   });
   const stop = () => act(async () => { await stopSession(sessionId); stopping(); });
   const close = () => act(async () => { await closeSession(sessionId); setSession(current => current && { ...current, status: 'closed' }); });
-  async function save(updateExisting: boolean) {
-    setBusy(true); run.setError(''); clear();
-    try {
-      const result = await saveSessionDocument(sessionId, updateExisting);
-      setConfirming(false); setSaved(result);
-      setSession(current => current && { ...current, document_id: result.id });
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.message === SAME_DOCUMENT_NAME && !updateExisting) setConfirming(true);
-      else { setConfirming(false); run.setError(e instanceof Error ? e.message : 'Could not save the document'); }
-    } finally { setBusy(false); }
-  }
+  const saveDraft = () => act(async () => {
+    const result = await saveSessionDraft(sessionId);
+    setSession(current => current && { ...current, document_draft: result.draft });
+  });
 
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   // A Test or event session belongs to its agent's Test tab (an old link, or one from Agent runs).
@@ -73,10 +61,12 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
         <h2 className="text-sm font-semibold">{draftTitle}</h2>
         {!session.draft && <p className="text-xs text-muted-foreground">The draft appears when the agent finishes a turn.</p>}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" disabled={!session.draft} onClick={() => setDraftOpen(true)}>Open draft</Button>
-          <Button type="button" size="sm" disabled={busy || !session.draft} onClick={() => void save(false)}>Save document</Button>
+          <Button type="button" variant="outline" size="sm" disabled={!session.draft} onClick={() => setDraftOpen(true)}>Preview draft</Button>
+          {session.document_draft
+            ? <Button asChild size="sm"><Link to={draftPath(session.document_draft)}>Open draft</Link></Button>
+            : session.draft ? <Button type="button" size="sm" disabled={busy} onClick={() => void saveDraft()}>Save as draft</Button> : null}
         </div>
-        {saved && <p className="text-xs">Saved as version {saved.revision} in {saved.folder}. <Link className="underline" to={`/documents/${saved.id}`}>Open document</Link>{saved.export_error ? ` ${saved.export_error}` : ''}</p>}
+        {session.document_draft && <p className="text-xs text-muted-foreground">Each finished turn updates this draft until someone saves it. Promote it on its page to make it the live document.</p>}
       </section>}
       answerActions={turn => <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
       empty={<p className="text-sm text-muted-foreground">The agent's messages, thinking and tool calls appear here.</p>}
@@ -85,12 +75,9 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
         placeholder: 'For example: shorten the API section' }} />
     <Sheet open={draftOpen} onOpenChange={setDraftOpen}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
-        <SheetHeader><SheetTitle>{draftTitle}</SheetTitle><SheetDescription>The agent's latest complete document. Save document adds it as a version in {session.folder}.</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>{draftTitle}</SheetTitle><SheetDescription>The agent's latest complete document. It is kept as a document draft; open the draft to compare it with the live version and promote it.</SheetDescription></SheetHeader>
         <div className="mt-4"><Markdown content={session.draft ?? ''} /></div>
       </SheetContent>
     </Sheet>
-    <AlertDialog open={confirming} onOpenChange={setConfirming}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Save a new version?</AlertDialogTitle>
-      <AlertDialogDescription>{`${session.folder} already has a document named “${session.document_name}”. Saving adds a new version of it; earlier versions stay available.`}</AlertDialogDescription></AlertDialogHeader>
-      <AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={e => { e.preventDefault(); void save(true); }}>Save new version</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </div>;
 }

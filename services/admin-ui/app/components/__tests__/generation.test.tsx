@@ -3,7 +3,6 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
 import GenerationView from '../GenerationView';
-import { SAME_DOCUMENT_NAME } from '~/lib/documents';
 
 class Stream extends EventTarget {
   static instances: Stream[] = [];
@@ -14,7 +13,7 @@ class Stream extends EventTarget {
 beforeEach(() => { Stream.instances = []; vi.stubGlobal('EventSource', Stream); });
 afterEach(() => vi.unstubAllGlobals());
 const state = { status: 'starting', status_message: '', turns: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0,
-  model_calls: 0, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null, worker_active: false, queued: 1 };
+  model_calls: 0, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null, document_draft: null, worker_active: false, queued: 1 };
 const detail = { ...state, id: 's1', title: 'Payments – API reference', purpose: 'documents', document_name: 'Payments – API reference',
   folder: 'payments-api-docs', agent_id: 'writer', agent_name: 'Technical writer', model_id: 'claude', model_name: 'Claude on Bedrock',
   document_title: null, run_resources: null,
@@ -44,9 +43,7 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
     posts.push({ url, body });
     if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
     if (url.endsWith('/stop')) return Response.json({ id: 's1', discarded: 0 }, { status: 202 });
-    if (url.endsWith('/document')) return body.update_existing
-      ? Response.json({ id: 'doc', revision: 2, version_id: 'v2', folder: 'payments-api-docs', output_folder: '/work/data/generated-documents/payments-api-docs/payments-api-reference', export_error: null }, { status: 201 })
-      : Response.json({ error: { message: SAME_DOCUMENT_NAME } }, { status: 409 });
+    if (url.endsWith('/document')) return Response.json({ draft: { id: 'd1', document_id: 'doc' } }, { status: 201 });
     return Response.json({ id: 's1' });
   }));
   render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
@@ -67,8 +64,8 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   fireEvent.click(run.getByText('Working · 1 tool call · 0 tokens'));
   expect(run.getByText('/work/data/code/app/main.py')).toBeVisible();
   const draft = within(screen.getByRole('region', { name: 'Draft' }));
-  expect(draft.getByRole('button', { name: 'Save document' })).toBeDisabled();
-  expect(draft.getByRole('button', { name: 'Open draft' })).toBeDisabled();
+  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(draft.getByRole('button', { name: 'Preview draft' })).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Also cover retries.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));  // usable while the agent works
   expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
@@ -87,16 +84,15 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   expect(screen.getByLabelText('Token totals')).toHaveTextContent('In 1,050 · Out 40 · Cached 900');
   expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
   expect(draft.getByRole('heading', { name: 'Draft · turn 1' })).toBeVisible();
-  fireEvent.click(draft.getByRole('button', { name: 'Open draft' }));
+  fireEvent.click(draft.getByRole('button', { name: 'Preview draft' }));
   const sheet = within(screen.getByRole('dialog'));
   expect(sheet.getByTestId('markdown')).toHaveTextContent('# Payments API Retries back off.');
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  fireEvent.click(draft.getByRole('button', { name: 'Save document' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Save new version' }));
-  expect(await screen.findByText(/Saved as version 2 in payments-api-docs/)).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Open document' })).toHaveAttribute('href', '/documents/doc');
-  expect(posts.filter(p => p.url.endsWith('/document')).map(p => p.body)).toEqual([{ update_existing: false }, { update_existing: true }]);
+  fireEvent.click(draft.getByRole('button', { name: 'Save as draft' }));
+  expect(await draft.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/doc?tab=drafts&draft=d1');
+  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(posts.filter(p => p.url.endsWith('/document')).map(p => p.body)).toEqual([{}]);
   fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
   await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/close'));
   act(() => { stream.emit('session', { ...state, status: 'closed', turns: 1, draft: '# Payments API\n\nRetries back off.' }); stream.emit('closed', {}); });
@@ -242,4 +238,14 @@ test('a documents session stays on the generation page', async () => {
   </Routes></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference' })).toBeVisible();
   expect(screen.queryByLabelText('URL')).toBeNull();
+});
+
+test("a run whose turn wrote a document draft links to it; a new document's draft opens its own page", async () => {
+  const withDraft = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_draft: { id: 'd2', document_id: null } };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(withDraft)));
+  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  const draft = within(await screen.findByRole('region', { name: 'Draft' }));
+  expect(await draft.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/d2');
+  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(draft.getByRole('button', { name: 'Preview draft' })).toBeEnabled();
 });

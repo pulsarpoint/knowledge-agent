@@ -375,7 +375,7 @@ proposal:
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,
   with a **Keep** checkbox per changed field. Untick a field to keep the current value.
-- A **document** shows its text.
+- A **document** shows its text. Accepting a new version of an existing document first asks: This replaces the live version n of “title”. Continue?
 
 **Accept** writes to the inventory: the deployment is added or updated, connections are
 added, and new documents are saved as generated documents in `servers/<server>/` (in `servers/<server>-2`, `-3`, ... when the
@@ -646,10 +646,11 @@ Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draf
 - **Stop**: always ends the turn: it is recorded as stopped within about 30 seconds of Stop, and after that it cannot start
   new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
   discarded when the turn is stopped (a message sent after Stop starts the next turn); after a failure or a lost worker they go to the next turn.
-- **Draft**: each finished turn's final answer, as Markdown; **Open draft** shows it in a wide side panel.
-- **Save document**: a versioned document in the folder, linked to the code projects and exported to
-  `GENERATED_DOCS_FOLDER/<folder>/<slug>/README.md`. The same name in the same folder asks **Save a new version?**; the
-  same name in another folder is a separate document. Nothing is saved automatically.
+- **Draft**: each finished turn's final answer, as Markdown; **Preview draft** shows it in a wide side panel. Each
+  finished turn also keeps it as a **document draft** — of the document with the run's name in its folder, or of a new
+  document there — and **Open draft** opens it (on the document's Drafts tab, or on the new document's draft page). The
+  next turn updates that draft until someone saves it in the editor; after that a turn starts a new draft. Nothing goes
+  live until a person promotes a draft. Runs from before drafts show **Save as draft** instead.
 - **Close session**.
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
@@ -677,6 +678,29 @@ agents / People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resou
 (including documented source commits) and **Version history** (**Use version as
 draft**). Actions: **Save new version** (every save is a full immutable version),
 **Export to folder**, **Download document folder** (ZIP), and **Delete**.
+
+#### Drafts and connections
+
+Anything an agent writes is a **draft**; a version goes live only when a person saves it (**Save new version**),
+promotes a draft, or accepts a discovery document proposal.
+
+- The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
+  documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title, folder,
+  written by, updated) with **Open** and **Discard**.
+- **Save draft** (beside **Save new version**) keeps the editor's text as a new draft, or updates the draft you opened
+  with **Edit**. On **Create document** it saves a draft of the new document and opens its page.
+- **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
+  the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
+  document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the
+  editor; **Promote** makes it the live version — a stale draft first says "This draft was based on version n; the
+  live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
+  removes it from the lists (it stays in the audit history).
+- A new document's draft has its own page; **Promote** creates the document. If a document with that name was created
+  in the folder meanwhile, the draft becomes a draft of it and asks you to review it again.
+- **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
+  live version was built from).
+- **Version history** marks versions promoted from a draft ("from draft").
+- Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
 
 Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
 **RAG → Collections**, or turn on Auto-sync, to index what is on disk. **RAG → Search** and the
@@ -865,7 +889,7 @@ Prompts that came with the application are tagged `documentation` plus what they
 3. **Services**: create the service, link the code project.
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
 5. **Docs → Generate documents → New**: choose the model and the prompt, tick **Services** and pick the service → **Generate**. The agent reads the code projects the service links.
-6. Follow the session, send messages such as "shorten the API section", then **Save document**.
+6. Follow the session, send messages such as "shorten the API section", then **Open draft** and **Promote**.
 7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
 ### C. Document deployments and infrastructure
@@ -891,7 +915,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ### F. Make one code project's documentation searchable
 
-1. **Generate documents** → **New** → **Code**: the project → **Generate** → **Save document**.
+1. **Generate documents** → **New** → **Code**: the project → **Generate** → **Open draft**, then **Promote**.
 2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
@@ -900,7 +924,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 1. **Docs → Generate documents → New** → choose the model, what to document and a prompt → **Generate**.
 2. Follow the stream and send a message such as "shorten the API section".
-3. **Save document**.
+3. **Open draft**, then **Promote**.
 4. **Docs → Folders** → **Index in RAG → Collections**.
 
 ---

@@ -38,10 +38,12 @@ export interface SessionDetail extends SessionSummary {
   config?: Record<string, unknown>;
   /** Test sessions: their saved suggestions, oldest first. */
   reviews?: SessionReview[];
+  /** The run's latest open document draft (Generate documents). */
+  document_draft?: { id: string; document_id: string | null } | null;
   inputs: { seq: number; text: string; status: 'queued' | 'delivered' | 'discarded'; turn: number | null; created_at: string }[];
 }
 export type SessionState = Pick<SessionDetail, 'status' | 'status_message' | 'turns' | 'input_tokens' | 'output_tokens' | 'cached_tokens'
-  | 'draft' | 'draft_turn' | 'document_id' | 'worker_active' | 'queued' | 'model_calls' | 'reasoning_tokens'>;
+  | 'draft' | 'draft_turn' | 'document_id' | 'document_draft' | 'worker_active' | 'queued' | 'model_calls' | 'reasoning_tokens'>;
 export interface SessionEvent { id: number; turn: number; seq: number; kind: string; payload: Record<string, unknown>; created_at: string }
 export const DEFAULT_SYSTEM_PROMPT = 'You write technical documentation for software systems. Read the code, documents and servers you were given before you write. Cite evidence as file:line, document path or command. Say what you could not verify.\n\nWhen the document covers several parts (services, code projects, servers), plan the sections first. For each part, ask an expert when its description fits; otherwise start a subagent with run_subagent. Give each a complete task: the section\'s purpose, what to cover, and only that part\'s resources. Write small single-part documents yourself. Combine the answers into one consistent document; check that they agree and resolve or mark conflicts.';
 /** What a generation documents. */
@@ -50,7 +52,6 @@ export interface Selection { code_project_ids: string[]; collection_ids: string[
 export interface SessionInput extends Selection {
   model_id: string; system_prompt: string; context: string; prompt: string; prompt_id: string | null; document_name: string; folder: string;
 }
-export interface SavedDocument { id: string; revision: number; version_id: string; folder: string; output_folder: string | null; export_error: string | null }
 
 const session = (id: string) => `/api/generations/sessions/${encodeURIComponent(id)}`;
 export const createSession = (value: SessionInput) => request<SessionDetail>('/api/generations/sessions', json('POST', value));
@@ -67,5 +68,6 @@ export const getSessionHistory = (id: string, before?: number, signal?: AbortSig
 export const sendMessage = (id: string, text: string) => request<{ seq: number; status: 'queued'; working: boolean }>(`${session(id)}/messages`, json('POST', { text }));
 export const stopSession = (id: string) => request<{ id: string; discarded: number }>(`${session(id)}/stop`, { method: 'POST' });
 export const closeSession = (id: string) => request<{ id: string }>(`${session(id)}/close`, { method: 'POST' });
-export const saveSessionDocument = (id: string, updateExisting: boolean) =>
-  request<SavedDocument>(`${session(id)}/document`, json('POST', { update_existing: updateExisting }));
+/** Save as draft (runs from before document drafts): the run's draft becomes a document draft; nothing goes live. */
+export const saveSessionDraft = (id: string) =>
+  request<{ draft: { id: string; document_id: string | null } }>(`${session(id)}/document`, json('POST', {}));

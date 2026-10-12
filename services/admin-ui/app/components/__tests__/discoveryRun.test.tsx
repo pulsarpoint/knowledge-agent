@@ -138,3 +138,20 @@ test("a document about a service still pending in this run cannot be accepted un
   expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
   expect(screen.getByText("Accept the service proposal nginx first.")).toBeInTheDocument();
 });
+
+test("accepting a new version of a document asks first", async () => {
+  const user = userEvent.setup();
+  const version = { ...document, id: "q3", number: 3, document_id: "doc1", current: { id: "doc1", title: "web-1 overview", version: 3 } };
+  const calls = api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [version] }],
+    "POST /api/discovery/proposals/q3/accept": () => [200, { proposal: { ...version, status: "accepted", result_id: "doc1" }, result_id: "doc1", export_error: null }] });
+  show();
+  await user.click(await screen.findByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(dialog).toHaveTextContent("This replaces the live version 3 of “web-1 overview”. Continue?");
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(calls.some(c => c.key === "POST /api/discovery/proposals/q3/accept")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continue" }));
+  await waitFor(() => expect(calls.find(c => c.key === "POST /api/discovery/proposals/q3/accept")!.body).toEqual({ revision: 1 }));
+});
