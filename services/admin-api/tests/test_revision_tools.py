@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from drafts_world import API, docs, make_document, promote, version_of  # noqa: F401  (docs: fixture rev builds on)
 from knowledge_admin.capabilities.revision import outline
 from knowledge_admin.knowledge_agents import session_worker as shared
+from knowledge_admin.knowledge_agents.subagents import subagent_config
 from knowledge_admin.tools.catalog import CATALOG, REVISION_TOOLS, catalog_listing
 from revision_world import RUNBOOK, call, rev, run_drafts  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -144,3 +145,36 @@ def test_a_revision_turn_never_turns_its_answer_into_a_draft_and_refreshes_sourc
     assert ('read', 'Overview') in [(s['kind'], s['source_title']) for s in detail['sources']]
     with rev.docs.store.connect() as conn:
         assert conn.execute('SELECT draft FROM ka.agent_sessions WHERE id=%s', (rev.sid,)).fetchone()['draft'] is None
+
+
+def test_one_line_longer_than_a_read_is_cut_and_the_read_advances(rev):
+    from drafts_world import save_live
+    save_live(rev.docs, rev.docs.runbook, 'x' * 60_000 + '\nnext line')
+    text = call(rev, 'get_doc', start_line=1)
+    body, note = text.rsplit('\n\n', 1)
+    assert len(body) == 50_000 and body.startswith('1: xxx')
+    assert note == 'Line 1 was cut at 50,000 characters; read on with start_line=2.'
+    assert call(rev, 'get_doc', start_line=2) == '2: next line'
+
+
+def test_a_subagent_of_a_revision_run_is_not_offered_the_document_tools():
+    from knowledge_admin.tools.catalog import needs_met
+    from test_subagent_config import parent
+    sub = subagent_config({**parent(), 'revision': {'session_id': 's', 'document_id': 'd'}}, ['list_files'], None,
+                          offered=frozenset({'list_files'}), mcp_tools={})
+    assert 'revision' not in sub and not any(needs_met(CATALOG[name].needs, sub, None) for name in REVISION_TOOLS)
+
+
+def test_a_deadlock_with_a_document_delete_is_retried_once(rev, monkeypatch):
+    from psycopg import errors
+    from knowledge_admin.capabilities import revision
+    real, attempts = revision._save_once, []
+
+    def flaky(config, change):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise errors.DeadlockDetected('deadlock')
+        return real(config, change)
+    monkeypatch.setattr(revision, '_save_once', flaky)
+    assert call(rev, 'save_doc', markdown='# Retried') == 'Saved draft (1 lines).' and len(attempts) == 2
+    assert [d['markdown'] for d in run_drafts(rev)] == ['# Retried']

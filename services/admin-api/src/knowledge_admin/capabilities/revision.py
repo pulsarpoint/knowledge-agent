@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from psycopg import errors
 from pydantic import BaseModel, ValidationError
 
 from knowledge_admin.capabilities.inventory import connect
@@ -56,6 +57,9 @@ def _numbered(lines: list[str], first: int) -> str:
     out, size = [], 0
     for offset, line in enumerate(lines):
         text = f'{first + offset}: {line}'
+        if not out and len(text) > MAX_READ:  # one line longer than a read: emit its start, so the read always advances
+            return (text[:MAX_READ] + f'\n\nLine {first + offset} was cut at 50,000 characters; '
+                    f'read on with start_line={first + offset + 1}.')
         if size + len(text) + 1 > MAX_READ:
             return '\n'.join(out) + f'\n\nCut at 50,000 characters; read on with start_line={first + offset}.'
         out.append(text)
@@ -106,6 +110,15 @@ def _get_doc(config: dict[str, Any], section: str | None, start_line: int | None
 
 
 def _save(config: dict[str, Any], change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
+    """One save; a deadlock with a concurrent document delete, or the document vanishing mid-save, is retried once
+    from the start in a new transaction (which finds the run or document gone and says so)."""
+    try:
+        return _save_once(config, change)
+    except (errors.DeadlockDetected, errors.ForeignKeyViolation):
+        return _save_once(config, change)
+
+
+def _save_once(config: dict[str, Any], change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
     with connect() as conn:
         session, live = _run(conn, config, lock=True)
         if session['status'] == 'closed':
