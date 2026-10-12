@@ -135,7 +135,7 @@ def _save_once(config: dict[str, Any], change: Callable[[dict[str, Any]], dict[s
             conn.execute('UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
                          (text.title, text.description, text.markdown, current['id']))
             audit(conn, project, None, 'document.draft.updated', 'document_draft', current['id'],
-                  {'session_id': session['id'], 'turn': session['turns'] + 1})
+                  {'session_id': session['id'], 'turn': session['turns']})
             draft_id = current['id']
         else:
             previous = conn.execute('''SELECT status,edited FROM ka.document_drafts WHERE session_id=%s
@@ -148,7 +148,7 @@ def _save_once(config: dict[str, Any], change: Callable[[dict[str, Any]], dict[s
                                     session_id=session['id'])
         base_version = conn.execute('SELECT base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()
         record_run_sources(conn, project, draft_id, document, base_version['base_version_id'], session['id'],
-                           session['turns'] + 1)
+                           session['turns'])
     saved = SAVED.format(n=len(text.markdown.splitlines()))
     return f'{saved} {note}' if note else saved
 

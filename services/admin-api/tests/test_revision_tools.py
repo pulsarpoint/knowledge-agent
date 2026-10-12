@@ -98,15 +98,22 @@ def test_parallel_saves_end_in_one_draft(rev):
 
 
 def test_saves_record_the_documents_the_run_read(rev):
-    other = make_document(rev.docs, 'overview', 'Overview')
+    """Up to the running turn (turn 1 here): a read keyed to a later turn is not the run's yet."""
+    other, later = make_document(rev.docs, 'overview', 'Overview'), make_document(rev.docs, 'later', 'Later')
     with rev.docs.store.connect() as conn:
-        conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-            VALUES (%s,%s,1,'tool_call','ad-hoc',%s)''', (rev.docs.project, f'cc:{rev.sid}:1',
-            Jsonb({'name': 'get_document', 'call_id': 'c1', 'arguments': {'document_id': other}})))
+        for turn, document in ((1, other), (2, later)):
+            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,%s,1,'tool_call','ad-hoc',%s)''', (rev.docs.project, f'cc:{rev.sid}:{turn}',
+                Jsonb({'name': 'get_document', 'call_id': f'c{turn}', 'arguments': {'document_id': document}})))
     call(rev, 'save_doc', markdown='# With sources')
+    call(rev, 'save_doc', markdown='# With sources, again')
     [draft] = run_drafts(rev)
     detail = rev.docs.client.get(f"{API}/drafts/{draft['id']}", headers=HEADERS).json()
     assert [(s['kind'], s['source_title']) for s in detail['sources']] == [('parent', 'Runbook'), ('read', 'Overview')]
+    with rev.docs.store.connect() as conn:
+        audited = conn.execute("""SELECT details FROM ka.audit_events WHERE action='document.draft.updated'
+            AND resource_id=%s""", (draft['id'],)).fetchone()['details']
+    assert audited == {'session_id': str(rev.sid), 'turn': 1}
 
 
 def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
