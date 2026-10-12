@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+drafts_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.document_drafts') IS NULL AND to_regclass('ka.document_sources') IS NULL
+        AND to_regclass('ka.document_links') IS NULL")
+[ "$drafts_removed" = t ] || { echo 'FAIL: 0098 down left document drafts' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 discovery_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.discovery_proposals') IS NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'server_id')")
@@ -225,6 +230,11 @@ discovery=$(docker exec "$test_container" psql -X -U postgres -Atc \
         WHERE table_schema = 'ka' AND table_name = 'agent_sessions' AND column_name = 'server_id')")
 [ "$discovery" = t ] || { echo 'FAIL: 0097 discovery runs missing' >&2; exit 1; }
 printf '%s\n' 'PASS: discovery runs and proposals exist.'
+drafts=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regclass('ka.document_drafts') IS NOT NULL AND to_regclass('ka.document_sources') IS NOT NULL
+        AND to_regclass('ka.document_links') IS NOT NULL")
+[ "$drafts" = t ] || { echo 'FAIL: 0098 document drafts missing' >&2; exit 1; }
+printf '%s\n' 'PASS: document drafts, sources and links exist.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

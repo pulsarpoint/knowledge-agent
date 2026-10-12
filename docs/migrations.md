@@ -242,3 +242,13 @@ documents — until an administrator accepts or rejects them. Every workspace ge
 changed; otherwise it removes the prompt, the table and the column. A document version may now be `generated` without a
 (retired) generation run, so discovery documents can say where they came from; the down migration refuses while such a
 version exists and restores the old rule.
+
+## 0098_document_drafts
+
+`ka.document_drafts` holds unpublished versions of a document (`document_id`, `base_version_id`) or of a new document
+(`slug`, `folder`, `resource_ids` to link on promote): written by a person (`manual`) or a Generate documents run
+(`agent`, `session_id`), promoted to a live version (`promoted_version_id`) or discarded by a person. A decided draft is
+frozen by a trigger. `ka.document_sources` records what a draft or live version was built from (the document it
+revises and the documents its author read, with a title/version snapshot); `ka.document_links` holds the
+`depends_on` links people add. Nothing in `documents`, `document_versions` or `document_details` changes. The down
+migration refuses while open drafts, sources or links exist.
