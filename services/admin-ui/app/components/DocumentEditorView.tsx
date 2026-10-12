@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
+import AskAgentSheet from './AskAgentSheet';
 import DocumentConnections from './DocumentConnections';
 import DocumentDrafts from './DocumentDrafts';
 import Markdown from './Markdown';
@@ -42,6 +43,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
   const [editingDraft, setEditingDraft] = useState<{ id: string; revision: number; title: string } | null>(null);
   const [historical, setHistorical] = useState<DocumentVersion | null>(null);
   const [pending, setPending] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -101,9 +103,11 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
       {document && <Button asChild type="button" variant="outline"><a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a></Button>}
       {document && <Badge variant="secondary">Version {document.version}</Badge>}
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
+      {document && <Button type="button" variant="outline" disabled={pending} onClick={() => setAsking(true)}><Bot data-icon="inline-start" />Ask agent</Button>}
       <Button type="button" variant="outline" disabled={pending || !value.markdown.trim() || !value.title.trim()} onClick={() => void saveDraft()}>Save draft</Button>
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
+    {document && asking && <AskAgentSheet documentId={document.id} documentTitle={document.title} onClose={() => setAsking(false)} />}
     {error && !confirmDelete && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
     {editingDraft && <Alert role="status"><AlertDescription>{`Editing the draft “${editingDraft.title}”. Save draft updates it; Save new version makes this text the live version and leaves the draft as it is.`}</AlertDescription></Alert>}

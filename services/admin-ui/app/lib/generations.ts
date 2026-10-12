@@ -6,7 +6,7 @@ import type { SessionReview } from './testSessions';
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
-export type SessionPurpose = 'documents' | 'test' | 'event' | 'discovery';
+export type SessionPurpose = 'documents' | 'test' | 'event' | 'discovery' | 'revision';
 export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'failed' | 'closed';
 export const statusLabels: Record<SessionStatus, string> = {
   starting: 'Starting', working: 'Working', waiting: 'Waiting for you', stopped: 'Stopped', failed: 'Failed', closed: 'Finished',
@@ -21,6 +21,8 @@ export interface SessionSummary {
   created_at: string; last_activity_at: string; closed_at: string | null;
 }
 export interface SessionDetail extends SessionSummary {
+  /** Ask agent runs: the document they revise. */
+  target_document_id?: string | null;
   tool_counts?: ToolCount[];
   /** The id of the last tool_call event the counts include (0: none). */
   tool_counts_through_id?: number;
