@@ -93,26 +93,32 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
 /** The document's Ask agent settings: loaded with the options, remembered in this browser per document. Null: nothing
  * is loaded (the pane is closed, or a new document). */
 export function useAgentSettings(documentId: string | null) {
-  const [options, setOptions] = useState<AgentOptions | null>(null);
-  const [settings, setSettings] = useState<AgentSettings | null>(null);
-  const [error, setError] = useState('');
+  // The loaded state carries the document it belongs to, so a save never writes one document's settings under another's key.
+  const [loaded, setLoaded] = useState<{ documentId: string; options: AgentOptions; settings: AgentSettings } | null>(null);
+  const [failed, setFailed] = useState<{ documentId: string; message: string } | null>(null);
   useEffect(() => {
+    if (!documentId) return;
     const controller = new AbortController();
-    setOptions(null); setSettings(null); setError('');
-    if (!documentId) return () => controller.abort();
     getAgentOptions(documentId, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       let saved: unknown = null;
       try { saved = JSON.parse(localStorage.getItem(STORAGE(documentId)) ?? 'null'); } catch { saved = null; }
-      setOptions(value); setSettings(restoreSettings(value, saved));
-    }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load the agent options.'); });
+      setFailed(null); setLoaded({ documentId, options: value, settings: restoreSettings(value, saved) });
+    }).catch(e => {
+      if (!controller.signal.aborted) setFailed({ documentId, message: e instanceof Error ? e.message : 'Could not load the agent options.' });
+    });
     return () => controller.abort();
   }, [documentId]);
+  const current = documentId !== null && loaded?.documentId === documentId ? loaded : null;
   useEffect(() => {
-    if (!documentId || !options || !settings) return;
-    try { localStorage.setItem(STORAGE(documentId), JSON.stringify({ v: 1, linked: linkedIds(options), settings })); } catch { /* storage off */ }
-  }, [documentId, options, settings]);
-  return { options, error, settings,
-    update: (patch: Partial<AgentSettings>) => setSettings(current => current && { ...current, ...patch }),
-    replace: (next: AgentSettings) => setSettings(next) };
+    if (!current) return;
+    try { localStorage.setItem(STORAGE(current.documentId), JSON.stringify({ v: 1, linked: linkedIds(current.options), settings: current.settings })); }
+    catch { /* storage off */ }
+  }, [current]);
+  const change = (make: (settings: AgentSettings) => AgentSettings) =>
+    setLoaded(state => state && state.documentId === documentId ? { ...state, settings: make(state.settings) } : state);
+  return { options: current?.options ?? null, settings: current?.settings ?? null,
+    error: documentId !== null && failed?.documentId === documentId ? failed.message : '',
+    update: (patch: Partial<AgentSettings>) => change(settings => ({ ...settings, ...patch })),
+    replace: (next: AgentSettings) => change(() => next) };
 }

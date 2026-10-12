@@ -51,3 +51,25 @@ test('the summary names the model, up to three resources and the tools on', () =
   expect(settingsSummary(options, { ...defaultSettings(options), chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] } }))
     .toBe('Claude · no resources · 1 tool');
 });
+
+test('switching the document never writes the first document\'s settings under the second\'s key', async () => {
+  const { renderHook, waitFor, act } = await import('@testing-library/react');
+  const { useAgentSettings } = await import('../agentSettings');
+  const store = new Map<string, string>();
+  const writes: [string, string][] = [];
+  vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => { writes.push([k, v]); store.set(k, v); }, removeItem: (k: string) => store.delete(k) });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
+    url.includes('document_id=doc-2') ? { ...options, default_model_id: 'm1' } : options), { status: 200 })));
+  const { result, rerender } = renderHook(({ id }) => useAgentSettings(id), { initialProps: { id: 'doc-1' } });
+  await waitFor(() => expect(result.current.settings?.modelId).toBe('m2'));
+  act(() => result.current.update({ systemPrompt: 'Doc one prompt.' }));
+  await waitFor(() => expect(writes.some(([k, v]) => k === 'ask-agent-settings:doc-1' && v.includes('Doc one prompt.'))).toBe(true));
+  rerender({ id: 'doc-2' });
+  expect(result.current.options).toBeNull();
+  expect(result.current.settings).toBeNull();
+  await waitFor(() => expect(result.current.settings?.modelId).toBe('m1'));
+  expect(result.current.settings?.systemPrompt).toBe('You revise carefully.');
+  for (const [key, value] of writes) if (key === 'ask-agent-settings:doc-2') expect(value).not.toContain('Doc one prompt.');
+  vi.unstubAllGlobals();
+});
