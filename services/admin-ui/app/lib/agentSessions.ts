@@ -5,11 +5,13 @@ const json = (method: string, value: unknown) => ({ method, headers: { 'Content-
 
 export interface AgentResource { id: string; name: string; linked: boolean }
 export interface AgentServer extends AgentResource { usable: boolean; reason: string | null }
+/** A service or environment: whether it brings a code project, and a server the run can use. */
+export interface AgentBringer extends AgentResource { brings_code: boolean; brings_servers: boolean }
 export interface AgentTool { name: string; label: string; summary: string; group: string; needs: string | null; requires: string | null }
 export interface AgentOptions {
   models: { id: string; name: string }[]; default_model_id: string | null;
   prompts: { id: string; name: string; content: string }[]; default_prompt: { id: null; name: string; content: string };
-  resources: { servers: AgentServer[]; services: AgentResource[]; environments: AgentResource[]; code_projects: AgentResource[]; collections: AgentResource[] };
+  resources: { servers: AgentServer[]; services: AgentBringer[]; environments: AgentBringer[]; code_projects: AgentResource[]; collections: AgentResource[] };
   tools: AgentTool[]; fixed_tools: { name: string; label: string }[]; experts: { id: string; name: string; when_to_use: string }[];
 }
 export interface AgentResources { server_ids: string[]; service_ids: string[]; environment_ids: string[]; code_project_ids: string[]; collection_ids: string[] }
@@ -32,14 +34,17 @@ export const getDocumentAgentRuns = (documentId: string, signal?: AbortSignal) =
 export const agentRunPath = (documentId: string, runId: string) =>
   `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;
 
-/** Which tool groups apply: a tool shows when what it needs is selected (inventory and other no-need tools always). */
-export function toolApplies(tool: AgentTool, chosen: AgentResources): boolean {
-  const code = chosen.code_project_ids.length > 0 || chosen.service_ids.length > 0 || chosen.environment_ids.length > 0;
+/** Which tools apply: a tool shows when what it needs is selected (inventory and other no-need tools always). A ticked
+ * service or environment counts only for what it brings (a code project; a server the run can use), as Start judges it. */
+export function toolApplies(tool: AgentTool, chosen: AgentResources, resources: AgentOptions['resources']): boolean {
+  const ticked = [...resources.services.filter(item => chosen.service_ids.includes(item.id)),
+    ...resources.environments.filter(item => chosen.environment_ids.includes(item.id))];
+  const code = chosen.code_project_ids.length > 0 || ticked.some(item => item.brings_code);
   switch (tool.needs) {
     case null: return true;
-    case 'ssh': return chosen.server_ids.length > 0 || chosen.service_ids.length > 0 || chosen.environment_ids.length > 0;
+    case 'ssh': return resources.servers.some(item => item.usable && chosen.server_ids.includes(item.id)) || ticked.some(item => item.brings_servers);
     case 'documents': return chosen.collection_ids.length > 0;
-    case 'files': return chosen.code_project_ids.length > 0 || chosen.collection_ids.length > 0;  // matches `requires`: a code project or a collection
+    case 'files': return code || chosen.collection_ids.length > 0;  // matches `requires`: a code project or a collection
     default: return code;  // code, code_graph
   }
 }

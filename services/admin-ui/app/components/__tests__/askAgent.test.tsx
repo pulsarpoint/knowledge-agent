@@ -15,7 +15,8 @@ const options = {
   resources: {
     servers: [{ id: 's1', name: 'web-1', linked: true, usable: true, reason: null },
       { id: 's2', name: 'prod-1', linked: false, usable: false, reason: 'SSH is not set up for this server.' }],
-    services: [{ id: 'v1', name: 'Payments', linked: true }], environments: [], code_projects: [{ id: 'c1', name: 'Shop', linked: false }], collections: [] },
+    services: [{ id: 'v1', name: 'Payments', linked: true, brings_code: false, brings_servers: true },
+      { id: 'v2', name: 'Ledger', linked: false, brings_code: true, brings_servers: false }], environments: [], code_projects: [{ id: 'c1', name: 'Shop', linked: false }], collections: [] },
   tools: [{ name: 'ssh_run', label: 'SSH', summary: 'Run a command', group: 'servers', needs: 'ssh', requires: 'at least one server' },
     { name: 'read_file', label: 'Read file', summary: 'Read a file', group: 'code', needs: 'files', requires: 'a code project or a collection' },
     { name: 'get_service_info', label: 'Service info', summary: 'A service', group: 'inventory', needs: null, requires: null }],
@@ -61,6 +62,18 @@ test('defaults: linked resources ticked, applicable tools ticked, fixed tools sh
   expect(screen.getByRole('switch', { name: 'Allow subagents' })).not.toBeChecked();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Shop' }));
   expect(screen.getByRole('checkbox', { name: 'Read file' })).toBeChecked();
+});
+
+test('a ticked service offers code tools only when it brings a code project, and SSH only when it brings a server', async () => {
+  api({ [OPTIONS]: () => [200, options] });
+  show();
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'web-1' }));  // only Payments ticked: no code, a server
+  expect(screen.queryByRole('checkbox', { name: 'Read file' })).toBeNull();
+  expect(screen.getByRole('checkbox', { name: 'SSH' })).toBeChecked();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Payments' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Ledger' }));  // only Ledger: a code project, no usable server
+  expect(screen.getByRole('checkbox', { name: 'Read file' })).toBeChecked();
+  expect(screen.queryByRole('checkbox', { name: 'SSH' })).toBeNull();
 });
 
 test('Preview shows the JSON and Start opens the run page', async () => {

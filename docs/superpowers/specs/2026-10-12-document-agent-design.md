@@ -82,7 +82,10 @@ Input (`kind` discriminates `target`):
   this document, else the first); prompts tagged `document-revision` with their active text, plus a built-in default
   prompt when none exist; resources: every available server, service, environment, code project and collection, with
   the document's linked ones marked `linked` (the default selection) and servers that cannot be used (SSH not allowed,
-  disabled, no key) marked with the reason; the choosable tools by group with what each needs; the experts.
+  disabled, no key) marked with the reason; services and environments with `brings_code` (they resolve to a code project)
+  and `brings_servers` (to a server that can be used), so the panel offers only the tools Start accepts; the choosable
+  tools by group with what each needs; the experts. Start refuses every chosen tool whose need is not met at once, the
+  messages joined by a space.
 - `POST /agent-sessions/preview` → `{config, first_message}`: the configuration Start would pin (credentials as references
   only) and the first message.
 - `POST /agent-sessions` (201) → the session detail; it inserts the session (`purpose='revision'`, title = the instruction's

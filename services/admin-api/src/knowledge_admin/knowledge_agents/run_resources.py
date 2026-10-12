@@ -123,6 +123,22 @@ def _fresh(conn, project_id, kind: Kind, ids: list[str]) -> dict[str, dict[str, 
     return {str(row['id']): jsonable_encoder(row) for row in rows}
 
 
+def bring(conn, project_id, service_ids: Iterable[str], environment_ids: Iterable[UUID | str] = ()) -> dict[str, list[str]]:
+    """What chosen services and environments bring: an environment its services and servers, a service (chosen or
+    brought) its code projects and the servers it is deployed on. Only code projects not archived and servers with SSH
+    allowed; the ids of what was chosen itself are not repeated in service_ids."""
+    environments = [str(item) for item in environment_ids]
+    brought: dict[str, list[str]] = {'code_project_ids': [], 'server_ids': [], 'service_ids': []}
+    if environments:
+        brought['service_ids'] = _ids(conn.execute(ENVIRONMENT_SERVICES, (project_id, environments)))
+        brought['server_ids'] = _ids(conn.execute(ENVIRONMENT_SERVERS, (project_id, environments)))
+    services = list(dict.fromkeys([*(str(item) for item in service_ids), *brought['service_ids']]))
+    if services:
+        brought['code_project_ids'] = _ids(conn.execute(SERVICE_CODE, (project_id, services)))
+        brought['server_ids'] += _ids(conn.execute(SERVICE_SERVERS, (project_id, services)))
+    return brought
+
+
 def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | None, *,
             environment_ids: Iterable[UUID] = ()) -> dict[str, Any]:
     """The configuration one run uses.
@@ -145,15 +161,7 @@ def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | 
     for kind in KINDS:
         if wanted[kind.key] and not effective[kind.capability]['enabled']:
             raise RunResourceError(NOT_USED.format(what=kind.plural))
-    environments = [str(item) for item in environment_ids]
-    brought: dict[str, list[str]] = {'code_project_ids': [], 'server_ids': [], 'service_ids': []}
-    if environments:
-        brought['service_ids'] = _ids(conn.execute(ENVIRONMENT_SERVICES, (project_id, environments)))
-        brought['server_ids'] = _ids(conn.execute(ENVIRONMENT_SERVERS, (project_id, environments)))
-    services = list(dict.fromkeys([*wanted['service_ids'], *brought['service_ids']]))
-    if services:
-        brought['code_project_ids'] = _ids(conn.execute(SERVICE_CODE, (project_id, services)))
-        brought['server_ids'] += _ids(conn.execute(SERVICE_SERVERS, (project_id, services)))
+    brought = bring(conn, project_id, wanted['service_ids'], environment_ids)
     for kind in KINDS:
         if kind.key in brought and effective[kind.capability]['enabled']:
             extra = brought[kind.key]

@@ -16,7 +16,7 @@ from knowledge_admin.generations_api import NO_MODEL, Selection, session_detail
 from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.experts import offered
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, bring
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.tools.catalog import CATALOG, REVISION_TOOLS, RUN_ONLY_NEEDS, SUBAGENT, needs_met
 
@@ -153,10 +153,10 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tu
             kept = {str(server['id']) for server in keyed}
             pinned['run_resources'] = {**pinned['run_resources'],
                                        'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept]}
-    for name in value.tools:
-        spec = names.get(name)
-        if spec is not None and not needs_met(spec.needs, pinned, None):
-            raise HTTPException(400, NEEDS.format(tool=name, what=REQUIRES[spec.needs]))
+    unmet = [NEEDS.format(tool=name, what=REQUIRES[names[name].needs]) for name in value.tools
+             if name in names and not needs_met(names[name].needs, pinned, None)]
+    if unmet:
+        raise HTTPException(400, ' '.join(unmet))
     chosen = set(value.tools)
     for item in pinned['tools']['items']:
         if item['tool'] in REVISION_TOOLS:
@@ -214,10 +214,22 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 reason = server_reason(row)
                 servers.append({'id': row['id'], 'name': row['name'], 'linked': str(row['id']) in {str(i) for i in document['server_ids'] or []},
                                 'usable': reason is None, 'reason': reason})
+            usable = {str(server['id']) for server in servers if server['usable']}
+
+            def brings(items: list[dict], environments: bool) -> list[dict]:
+                """Whether each service or environment brings a code project, and a server the run can use (as
+                run_resources.resolve and build() narrow them), so the panel offers only tools Start accepts."""
+                for entry in items:
+                    found = bring(conn, project, [] if environments else [entry['id']], [entry['id']] if environments else [])
+                    entry['brings_code'] = bool(found['code_project_ids'])
+                    entry['brings_servers'] = any(item in usable for item in found['server_ids'])
+                return items
             resources = {
                 'servers': servers,
-                'services': listed('SELECT id,name FROM ka.services WHERE project_id=%s ORDER BY lower(name),id', document['service_ids']),
-                'environments': listed('SELECT id,name FROM ka.environments WHERE project_id=%s ORDER BY lower(name),id', document['environment_ids']),
+                'services': brings(listed('SELECT id,name FROM ka.services WHERE project_id=%s ORDER BY lower(name),id',
+                                          document['service_ids']), False),
+                'environments': brings(listed('SELECT id,name FROM ka.environments WHERE project_id=%s ORDER BY lower(name),id',
+                                              document['environment_ids']), True),
                 'code_projects': listed('''SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL
                     ORDER BY lower(name),id''', document['code_project_ids']),
                 'collections': listed('''SELECT id,name FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL

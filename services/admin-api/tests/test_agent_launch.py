@@ -138,6 +138,33 @@ def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless)
         assert keyless.server['id'] not in config['run_resources']['server_ids']
 
 
+def test_options_say_what_each_service_and_environment_brings(ask, keyless):
+    """brings_code: it resolves to a code project; brings_servers: to a server the run can use (enabled, SSH allowed, a
+    key) — so the panel offers only the tools Start accepts."""
+    gateway, staging = uuid4(), uuid4()
+    with ask.s.store.connect() as conn:
+        project = ask.s.store.project(conn, 'shop')
+        conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Gateway')", (gateway, project))
+        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging','gateway',8080)""", (project, gateway, ask.web['id']))
+        conn.execute("INSERT INTO ka.environments(id,project_id,name) VALUES (%s,%s,'Staging')", (staging, project))
+        conn.execute('INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
+                     (project, staging, ask.web['id']))
+    options = ask.s.client.get(f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}", headers=HEADERS).json()
+    flags = {item['name']: (item['brings_code'], item['brings_servers'])
+             for kind in ('services', 'environments') for item in options['resources'][kind]}
+    # Payments: two code projects, deployed only on prod-1 (SSH not set up); Ledger: only bare-1 (no key).
+    assert flags == {'Payments': (True, False), 'Ledger': (False, False), 'Gateway': (False, True),
+                     'Production': (True, False), 'Staging': (False, True)}
+
+
+def test_start_names_every_tool_it_cannot_give_at_once(ask):
+    for path in ('/preview', ''):
+        response = post(ask, path, tools=['read_file', 'ssh_run', 'get_service_info'], resources={})
+        assert response.status_code == 400 and response.json()['error']['message'] == (
+            'read_file needs a code project or a collection. ssh_run needs at least one server.'), response.text
+
+
 def test_options_default_to_the_model_last_used_on_the_document(ask):
     url = f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}"
     assert post(ask, model_id=ask.s.gpt).status_code == 201
