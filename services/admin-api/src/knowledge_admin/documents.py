@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
@@ -27,42 +27,48 @@ GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
 SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
 
 
+def _text(value: str, *, blank: bool = False, strip: bool = True) -> str:
+    if '\x00' in value or (not blank and not value.strip()):
+        raise ValueError('Enter nonempty text without null characters')
+    return value.strip() if strip else value
+
+
+def _tags(values: list[str]) -> list[str]:
+    tags = list(dict.fromkeys(v.strip() for v in values))
+    if any(not v or len(v) > 80 or '\x00' in v for v in tags):
+        raise ValueError('Tags must contain 1–80 characters without null characters')
+    return tags
+
+
+# A document's fields with their limits and text rules, shared by DocumentInput and the drafts' models: no null
+# characters; nonblank except the description; stripped except the Markdown.
+SLUG_PATTERN = r'^[a-z0-9]+(-[a-z0-9]+)*$'
+Slug = Annotated[str, Field(min_length=1, max_length=120, pattern=SLUG_PATTERN), AfterValidator(_text)]
+Title = Annotated[str, Field(min_length=1, max_length=240), AfterValidator(_text)]
+Description = Annotated[str, Field(max_length=4000), AfterValidator(lambda value: _text(value, blank=True))]
+Purpose = Annotated[str, Field(min_length=1, max_length=80), AfterValidator(_text)]
+Audience = Literal['people', 'agents', 'both']
+Tags = Annotated[list[str], Field(max_length=30), AfterValidator(_tags)]
+Markdown = Annotated[str, Field(min_length=1, max_length=1000000), AfterValidator(lambda value: _text(value, strip=False))]
+ResourceIds = Annotated[list[UUID], Field(max_length=100), AfterValidator(lambda values: list(dict.fromkeys(values)))]
+
+
 class DocumentInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    slug: str = Field(min_length=1, max_length=120, pattern=r'^[a-z0-9]+(-[a-z0-9]+)*$')
-    title: str = Field(min_length=1, max_length=240)
-    description: str = Field(default='', max_length=4000)
-    purpose: str = Field(default='explanation', min_length=1, max_length=80)
-    audience: Literal['people', 'agents', 'both'] = 'both'
-    tags: list[str] = Field(default_factory=list, max_length=30)
-    markdown: str = Field(min_length=1, max_length=1000000)
-    code_project_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    service_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    server_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    deployment_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    environment_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    slug: Slug
+    title: Title
+    description: Description = ''
+    purpose: Purpose = 'explanation'
+    audience: Audience = 'both'
+    tags: Tags = Field(default_factory=list)
+    markdown: Markdown
+    code_project_ids: ResourceIds = Field(default_factory=list)
+    service_ids: ResourceIds = Field(default_factory=list)
+    server_ids: ResourceIds = Field(default_factory=list)
+    deployment_ids: ResourceIds = Field(default_factory=list)
+    environment_ids: ResourceIds = Field(default_factory=list)
     source_commits: dict[UUID, GitCommit] | None = Field(default=None, max_length=100)
     revision: int | None = Field(default=None, ge=1, strict=True)
-
-    @field_validator('slug', 'title', 'description', 'purpose', 'markdown')
-    @classmethod
-    def valid_text(cls, value: str, info) -> str:
-        if '\x00' in value or (info.field_name != 'description' and not value.strip()):
-            raise ValueError('Enter nonempty text without null characters')
-        return value if info.field_name == 'markdown' else value.strip()
-
-    @field_validator('tags')
-    @classmethod
-    def valid_tags(cls, values: list[str]) -> list[str]:
-        tags = list(dict.fromkeys(v.strip() for v in values))
-        if any(not v or len(v) > 80 or '\x00' in v for v in tags):
-            raise ValueError('Tags must contain 1–80 characters without null characters')
-        return tags
-
-    @field_validator('code_project_ids', 'service_ids', 'server_ids', 'deployment_ids', 'environment_ids')
-    @classmethod
-    def unique_ids(cls, values: list[UUID]) -> list[UUID]:
-        return list(dict.fromkeys(values))
 
 
 def document_files(markdown: str) -> dict[str, str]:

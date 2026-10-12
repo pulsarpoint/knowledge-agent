@@ -54,8 +54,9 @@ def create_app(cfg: Config, *, server: ServerConfig,
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
-        return JSONResponse(status_code=exc.status_code,
-                            content={"error": {"message": str(exc.detail)}})
+        # A dict detail carries a code the UI recognises beside the message, e.g. {"message": ..., "code": "STALE_BASE"}.
+        error = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        return JSONResponse(status_code=exc.status_code, content={"error": error})
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError):
