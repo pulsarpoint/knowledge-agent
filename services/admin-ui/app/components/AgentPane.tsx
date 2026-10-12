@@ -49,7 +49,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   useEffect(() => { onDraftChange(session?.document_draft ?? null); }, [session?.document_draft?.id, session?.document_draft?.status]);
   useEffect(() => { onRunChange?.(runId); }, [runId]);
 
-  const selected = runId !== null && !run.error;  // a run is chosen (and exists)
+  const selected = runId !== null && !(session === null && run.error);  // a run is chosen (and could be loaded)
   const open = selected && session !== null && session.status !== 'closed';
   const waiting = runs === null || (selected && session === null);  // the run list or the chosen run is still loading
   function pick(id: string | null) { setChosen(true); setRunId(id); setMessage(''); setRefused(''); run.setError(''); clear(); }

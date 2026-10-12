@@ -5,20 +5,25 @@ import { defaultSettings } from '~/lib/agentSettings';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[], loading: new Set<string>() }));
-vi.mock('~/lib/useSessionEvents', () => ({
+vi.mock('~/lib/useSessionEvents', async () => {
+  const { useState } = await import('react');
+  return {
   useSessionEvents: (id: string | null) => {
     live.requested.push(id);
+    const [actionError, setError] = useState('');
     const session = id ? live.sessions[id] ?? null : null;
-    return { session, setSession: vi.fn(), error: id && !session && !live.loading.has(id) ? 'Session not found' : '', setError: vi.fn(), events: [],
+    return { session, setSession: vi.fn(), error: actionError || (id && !session && !live.loading.has(id) ? 'Session not found' : ''), setError, events: [],
       older: 'start', loadOlder: vi.fn(), toolCounts: undefined, reconnecting: false };
   },
   useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
-}));
+  };
+});
 vi.mock('../RunWorkspace', () => ({ default: ({ run, heading, headerActions, empty, composer, compact }: Record<string, any>) => <div data-compact={String(compact)}>
   {heading}{headerActions}{run.error && <p>{run.error}</p>}{empty}
   <label>Message<textarea value={composer.value} onChange={e => composer.onChange(e.target.value)} placeholder={composer.placeholder} /></label>
   {composer.blockedReason && <p>{composer.blockedReason}</p>}
-  <button type="button" onClick={composer.onSend}>Send message</button></div> }));
+  <button type="button" onClick={composer.onSend}>Send message</button>
+  {composer.onStop && <button type="button" onClick={composer.onStop}>Stop</button>}</div> }));
 
 const at = '2026-10-12T10:00:00Z';
 const run = (id: string, status: string, title = `Run ${id}`) => ({ id, title, status, model_name: 'GPT', started_by: null, created_at: at, last_activity_at: at, draft_id: null });
@@ -193,4 +198,22 @@ test('sending before the run list has loaded starts nothing', async () => {
   release();
   await waitFor(() => expect(live.requested.at(-1)).toBeNull());
   expect(within(pane).getByLabelText('Message')).toHaveValue('Too early.');
+});
+
+test('a failed message on an open run keeps the run: the retry goes to it and Stop stays', async () => {
+  live.sessions.r2 = detail('r2', 'waiting');
+  let attempts = 0;
+  const calls = api({ [RUNS]: () => [200, { sessions: [run('r2', 'waiting')] }],
+    'POST /api/generations/sessions/r2/messages': () => (++attempts === 1 ? [500, { error: { message: 'The message could not be sent.' } }] : [202, { working: true }]) });
+  show();
+  const pane = await screen.findByRole('region', { name: 'Ask agent' });
+  await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Also mention cron.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  expect(await within(pane).findByText('The message could not be sent.')).toBeInTheDocument();
+  expect(within(pane).getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+  expect(within(pane).getByLabelText('Message')).toHaveValue('Also mention cron.');
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(attempts).toBe(2));
+  expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
 });
