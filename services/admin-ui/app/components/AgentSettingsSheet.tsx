@@ -1,0 +1,139 @@
+import { useEffect, useState } from 'react';
+import { ApiError } from '~/lib/api';
+import { previewAgentSession, type AgentOptions, type AgentResources } from '~/lib/agentSessions';
+import { BUILT_IN, shownTools, startInput, type AgentSettings } from '~/lib/agentSettings';
+import type { SessionDetail } from '~/lib/generations';
+import { Alert, AlertDescription } from '~/components/ui/alert';
+import { Button } from '~/components/ui/button';
+import { Checkbox } from '~/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '~/components/ui/collapsible';
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '~/components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '~/components/ui/sheet';
+import { Spinner } from '~/components/ui/spinner';
+import { Switch } from '~/components/ui/switch';
+import { Textarea } from '~/components/ui/textarea';
+
+const KINDS: [keyof AgentOptions['resources'], keyof AgentResources, string][] = [
+  ['servers', 'server_ids', 'Servers'], ['services', 'service_ids', 'Services'], ['environments', 'environment_ids', 'Environments'],
+  ['code_projects', 'code_project_ids', 'Code projects'], ['collections', 'collection_ids', 'Collections']];
+const GROUPS: [string, string][] = [['code', 'Code'], ['documents', 'Documents'], ['servers', 'Servers'], ['inventory', 'Inventory']];
+
+/** The Ask agent settings for a document: editable before a conversation starts (Preview shows the JSON the next message
+ * starts with), read-only while a conversation is open (its saved configuration; Start new chat with these settings). */
+export default function AgentSettingsSheet({ open, onOpenChange, documentId, documentTitle, options, settings, onChange,
+  previewMessage, session, onStartNew }: {
+  open: boolean; onOpenChange: (open: boolean) => void; documentId: string; documentTitle: string; options: AgentOptions;
+  settings: AgentSettings; onChange: (patch: Partial<AgentSettings>) => void; previewMessage: string;
+  session: SessionDetail | null; onStartNew: () => void }) {
+  const locked = session !== null && session.status !== 'closed';
+  const [preview, setPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  useEffect(() => { setPreview(null); }, [settings, previewMessage]);  // a changed input makes the preview stale
+  const shown = shownTools(options, settings);
+  const { chosen, off, experts } = settings;
+  const toggle = (key: keyof AgentResources, id: string, on: boolean) =>
+    onChange({ chosen: { ...chosen, [key]: on ? [...chosen[key], id] : chosen[key].filter(item => item !== id) } });
+  const choosePrompt = (key: string) => onChange({ promptKey: key,
+    systemPrompt: key === BUILT_IN ? options.default_prompt.content : options.prompts.find(item => item.id === key)?.content ?? '' });
+  const ready = !busy && !!settings.modelId && !!settings.systemPrompt.trim();
+  async function runPreview() {
+    setBusy(true); setError(null);
+    try {
+      const result = await previewAgentSession(startInput(documentId, options, settings, previewMessage.trim() || '(your next message)'));
+      setPreview(JSON.stringify(result, null, 2));
+    } catch (e) { setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'The request failed.'); }
+    finally { setBusy(false); }
+  }
+
+  return <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }}>
+    <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetHeader><SheetTitle>Agent settings</SheetTitle>
+        <SheetDescription>{locked ? "This conversation's settings. They cannot change while it is open."
+          : `What the agent may use in the next conversation on “${documentTitle}”.`}</SheetDescription></SheetHeader>
+      <FieldGroup className="mt-4">
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        <fieldset disabled={locked} className="flex min-w-0 flex-col gap-6">
+          <Field><FieldLabel htmlFor="settings-model">Model</FieldLabel>
+            <Select value={settings.modelId} onValueChange={modelId => onChange({ modelId })} disabled={locked || options.models.length === 0}>
+              <SelectTrigger id="settings-model" aria-label="Model"><SelectValue placeholder="No models" /></SelectTrigger>
+              <SelectContent><SelectGroup>{options.models.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select>
+            {options.models.length === 0 && <FieldDescription className="text-destructive">Add a model in Models first.</FieldDescription>}</Field>
+          <FieldSet><FieldLegend>Servers and resources</FieldLegend>
+            {KINDS.map(([key, idsKey, label]) => {
+              const items = options.resources[key];
+              if (items.length === 0) return null;
+              return <FieldSet key={key}><FieldLegend variant="label">{label}</FieldLegend>
+                {items.map(item => {
+                  const unusable = 'usable' in item && !item.usable;
+                  const id = `settings-${key}-${item.id}`;
+                  return <Field key={item.id} orientation="horizontal">
+                    <Checkbox id={id} aria-label={item.name} disabled={locked || unusable} checked={chosen[idsKey].includes(item.id)}
+                      onCheckedChange={on => toggle(idsKey, item.id, on === true)} />
+                    <FieldLabel htmlFor={id}>{item.name}</FieldLabel>
+                    {unusable && 'reason' in item && item.reason && <FieldDescription>{item.reason}</FieldDescription>}
+                  </Field>;
+                })}
+              </FieldSet>;
+            })}
+          </FieldSet>
+          <FieldSet><FieldLegend>Tools</FieldLegend>
+            {options.fixed_tools.map(tool => <Field key={tool.name} orientation="horizontal">
+              <Checkbox id={`settings-fixed-${tool.name}`} aria-label={tool.label} checked disabled />
+              <FieldLabel htmlFor={`settings-fixed-${tool.name}`}>{tool.label}</FieldLabel></Field>)}
+            {GROUPS.map(([group, label]) => {
+              const tools = shown.filter(tool => tool.group === group);
+              if (tools.length === 0) return null;
+              return <FieldSet key={group}><FieldLegend variant="label">{label}</FieldLegend>
+                {tools.map(tool => <Field key={tool.name} orientation="horizontal">
+                  <Checkbox id={`settings-tool-${tool.name}`} aria-label={tool.label} disabled={locked} checked={!off.includes(tool.name)}
+                    onCheckedChange={on => onChange({ off: on === true ? off.filter(name => name !== tool.name) : [...off, tool.name] })} />
+                  <FieldLabel htmlFor={`settings-tool-${tool.name}`}>{tool.label}</FieldLabel>
+                  <FieldDescription>{tool.summary}</FieldDescription></Field>)}
+              </FieldSet>;
+            })}
+          </FieldSet>
+          <FieldSet><FieldLegend>Agents</FieldLegend>
+            <Field orientation="horizontal"><Switch id="settings-subagents" aria-label="Allow subagents" disabled={locked} checked={settings.subagents}
+              onCheckedChange={subagents => onChange({ subagents })} />
+              <FieldLabel htmlFor="settings-subagents">Allow subagents</FieldLabel></Field>
+            {options.experts.length === 0 && <FieldDescription>No experts.</FieldDescription>}
+            {options.experts.map(expert => <Field key={expert.id} orientation="horizontal">
+              <Checkbox id={`settings-expert-${expert.id}`} aria-label={expert.name} disabled={locked} checked={experts.includes(expert.id)}
+                onCheckedChange={on => onChange({ experts: on === true ? [...experts, expert.id] : experts.filter(id => id !== expert.id) })} />
+              <FieldLabel htmlFor={`settings-expert-${expert.id}`}>{expert.name}</FieldLabel>
+              <FieldDescription>{expert.when_to_use}</FieldDescription></Field>)}
+          </FieldSet>
+          <Collapsible open={advanced} onOpenChange={setAdvanced}>
+            <CollapsibleTrigger asChild><Button type="button" variant="ghost">Advanced</Button></CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 flex flex-col gap-4">
+              <Field><FieldLabel htmlFor="settings-prompt">Prompt</FieldLabel>
+                <Select value={settings.promptKey} onValueChange={choosePrompt} disabled={locked}>
+                  <SelectTrigger id="settings-prompt" aria-label="Prompt"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectGroup>
+                    {options.prompts.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
+                    <SelectItem value={BUILT_IN}>{options.default_prompt.name}</SelectItem>
+                  </SelectGroup></SelectContent></Select></Field>
+              <Field><FieldLabel htmlFor="settings-system-prompt">System prompt</FieldLabel>
+                <Textarea id="settings-system-prompt" aria-label="System prompt" rows={12} disabled={locked} value={settings.systemPrompt}
+                  onChange={e => onChange({ systemPrompt: e.target.value })} />
+                <FieldDescription>Changes apply to this run only; the prompt in the library stays as it is.</FieldDescription></Field>
+            </CollapsibleContent>
+          </Collapsible>
+        </fieldset>
+        {locked ? <>
+          <pre aria-label="Run configuration" tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(session!.config ?? {}, null, 2)}</pre>
+          <div className="flex justify-end gap-2"><Button type="button" onClick={onStartNew}>Start new chat with these settings</Button></div>
+        </> : <>
+          {preview !== null && <pre aria-label="Configuration preview" tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{preview}</pre>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={!ready} onClick={() => void runPreview()}>{busy && <Spinner data-icon="inline-start" />}Preview</Button>
+            <Button type="button" onClick={() => onOpenChange(false)}>Done</Button>
+          </div>
+        </>}
+      </FieldGroup>
+    </SheetContent>
+  </Sheet>;
+}
