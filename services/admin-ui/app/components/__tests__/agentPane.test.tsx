@@ -4,12 +4,12 @@ import AgentPane from '../AgentPane';
 import { defaultSettings } from '~/lib/agentSettings';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 
-const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
+const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[], loading: new Set<string>() }));
 vi.mock('~/lib/useSessionEvents', () => ({
   useSessionEvents: (id: string | null) => {
     live.requested.push(id);
     const session = id ? live.sessions[id] ?? null : null;
-    return { session, setSession: vi.fn(), error: id && !session ? 'Session not found' : '', setError: vi.fn(), events: [],
+    return { session, setSession: vi.fn(), error: id && !session && !live.loading.has(id) ? 'Session not found' : '', setError: vi.fn(), events: [],
       older: 'start', loadOlder: vi.fn(), toolCounts: undefined, reconnecting: false };
   },
   useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
@@ -45,7 +45,7 @@ function show(props: Partial<Parameters<typeof AgentPane>[0]> = {}) {
     confirmUnsaved={run => run()} onDraftChange={onDraftChange} {...props} /></MemoryRouter>);
   return { onDraftChange };
 }
-afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []; });
+afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []; live.loading.clear(); });
 
 test('no open run: an empty conversation with the settings summary; the first message starts a run', async () => {
   const calls = api({ [RUNS]: () => [200, { sessions: [run('r0', 'closed')] }],
@@ -159,4 +159,38 @@ test('while a run is open, Settings shows the run\'s saved configuration, read-o
   expect(within(sheet).getByRole('checkbox', { name: 'web-1' })).not.toBeChecked();
   expect(within(sheet).getByRole('checkbox', { name: 'Payments' })).not.toBeChecked();
   expect(within(sheet).getByRole('checkbox', { name: 'web-1' })).toBeDisabled();
+});
+
+test('while a started run is still loading, another Send starts nothing', async () => {
+  live.loading.add('r1');  // the session of r1 has not loaded yet (no error either)
+  const calls = api({ [RUNS]: () => [200, { sessions: [] }], 'POST /api/agent-sessions': () => [201, detail('r1', 'starting')] });
+  show();
+  const pane = await screen.findByRole('region', { name: 'Ask agent' });
+  await waitFor(() => expect(within(pane).getByLabelText('Message')).toBeEnabled());
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'First.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(live.requested.at(-1)).toBe('r1'));  // live.sessions.r1 is still unset: the session has not loaded
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Second.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  expect(calls.filter(c => c.key === 'POST /api/agent-sessions')).toHaveLength(1);
+  expect(within(pane).getByLabelText('Message')).toHaveValue('Second.');
+});
+
+test('sending before the run list has loaded starts nothing', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const calls: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}`);
+    await gate;
+    return new Response(JSON.stringify({ sessions: [] }), { status: 200 });
+  }));
+  show();
+  const pane = await screen.findByRole('region', { name: 'Ask agent' });
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Too early.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  expect(calls.filter(c => c.startsWith('POST'))).toHaveLength(0);
+  release();
+  await waitFor(() => expect(live.requested.at(-1)).toBeNull());
+  expect(within(pane).getByLabelText('Message')).toHaveValue('Too early.');
 });

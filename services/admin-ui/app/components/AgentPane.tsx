@@ -25,7 +25,8 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [chosen, setChosen] = useState(initialRunId !== null);  // the person (or the link) picked a run or New chat
   const run = useSessionEvents(runId);
-  const { session } = run;
+  // useSessionEvents resets the session on an id change and fills it after the load: only a session of the selected run counts.
+  const session = run.session?.id === runId ? run.session : null;
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState('');
@@ -48,7 +49,9 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   useEffect(() => { onDraftChange(session?.document_draft ?? null); }, [session?.document_draft?.id, session?.document_draft?.status]);
   useEffect(() => { onRunChange?.(runId); }, [runId]);
 
-  const open = session !== null && session.status !== 'closed';
+  const selected = runId !== null && !run.error;  // a run is chosen (and exists)
+  const open = selected && session !== null && session.status !== 'closed';
+  const waiting = runs === null || (selected && session === null);  // the run list or the chosen run is still loading
   function pick(id: string | null) { setChosen(true); setRunId(id); setMessage(''); setRefused(''); run.setError(''); clear(); }
   async function act(action: () => Promise<void>): Promise<boolean> {
     setBusy(true); run.setError(''); clear();
@@ -58,7 +61,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   }
   async function send() {
     const text = message.trim();
-    if (!text || !settings.options || !settings.settings) return;
+    if (!text || !settings.options || !settings.settings || waiting) return;
     if (open) {
       await act(async () => { const result = await sendMessage(runId!, text); setMessage(''); sent(result.working); });
       return;
@@ -88,8 +91,8 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   return <section aria-label="Ask agent" ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col gap-2">
     <RunWorkspace compact run={run} agentName={session?.agent_name ?? 'Ask agent'} resources="Per run" notice={notice}
       heading={<div className="flex flex-col gap-1">
-        <h2 className="break-words font-semibold">{session?.title ?? 'New conversation'}</h2>
-        {!session && settings.options && settings.settings && <p aria-label="Current settings" className="text-xs text-muted-foreground">
+        <h2 className="break-words font-semibold">{runId === null ? 'New conversation' : session?.title ?? 'Loading the conversation…'}</h2>
+        {runId === null && settings.options && settings.settings && <p aria-label="Current settings" className="text-xs text-muted-foreground">
           {settingsSummary(settings.options, settings.settings)}</p>}
         {refused && <Alert variant="destructive"><AlertDescription>{refused}</AlertDescription></Alert>}
         {settings.error && <Alert variant="destructive"><AlertDescription>{settings.error}</AlertDescription></Alert>}</div>}
@@ -106,7 +109,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
       answerActions={turn => <>{!savedIn(turn) && <span className="text-xs text-muted-foreground">No draft saved in this turn</span>}
         {session && <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}</>}
       empty={<p className="text-sm text-muted-foreground">Ask the agent to change this document.</p>}
-      composer={{ value: message, onChange: setMessage, busy: busy || !settings.settings, label: 'Message',
+      composer={{ value: message, onChange: setMessage, busy: busy || waiting || !settings.settings, label: 'Message',
         placeholder: 'For example: add a section on log rotation', onSend: () => void send(),
         onStop: open ? () => void act(async () => { await stopSession(runId!); stopping(); }) : undefined,
         blockedReason: session?.status === 'closed' ? 'This conversation is closed. Start a New chat.' : null }} />
