@@ -114,6 +114,7 @@ test('the draft bar shows the agent draft; Compare opens it; a stale Promote ask
   await waitFor(() => expect(promoted).toBe(2));
   expect(calls.filter(c => c.key === 'POST /api/documentation/drafts/d1/promote').map(c => c.body.confirm_stale)).toEqual([false, true]);
   expect(await screen.findByText('Draft promoted to version 3.')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Agent draft' })).toBeNull();  // the bar goes at once
   expect(pane.mounts).toBe(1);  // the pane keeps its conversation when a draft is promoted
   fireEvent.click(screen.getByRole('button', { name: 'Agent saved' }));
   fireEvent.click(within(await screen.findByRole('region', { name: 'Agent draft' })).getByRole('button', { name: 'Compare' }));

@@ -225,6 +225,7 @@ export default function DocumentEditorView() {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop);
   };
   const onPromoted = (result: PromoteResult) => { setNotice(promotedNotice(result));
+    setAgentDraft(d => d && d.id === result.draft.id ? { ...d, status: result.draft.status } : d);
     setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); };
   const editor = (current: { document: DocumentDetail | null; resources: DocumentResources }) =>
     <Editor key={`${documentId}-${refresh}`} {...current} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
