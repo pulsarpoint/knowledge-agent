@@ -102,7 +102,7 @@ class Promotion(Decision):
 
 
 # {extra}: more columns; the only placeholder (no other braces in the SQL).
-SUMMARY = '''SELECT x.id,x.document_id,x.slug,x.folder,x.title,x.origin,x.session_id,s.title AS session_title,
+SUMMARY = '''SELECT x.id,x.document_id,x.slug,x.folder,x.title,x.origin,x.session_id,s.title AS session_title,s.purpose AS session_purpose,
     p.email AS author,x.edited,x.status,x.revision,x.base_version_id,bv.version AS base_version,lv.version AS live_version,
     (x.document_id IS NOT NULL AND x.status='open' AND lv.id IS DISTINCT FROM x.base_version_id) AS stale,
     x.created_at,x.updated_at{extra}

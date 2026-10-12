@@ -113,7 +113,7 @@ def _select(extra: str = '') -> str:
 
 
 SUMMARY = _select()
-DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id')
+DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id,s.target_document_id')
 
 
 def session_detail(conn, project: UUID, session_id: UUID) -> dict:
@@ -124,7 +124,7 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
-    if row['purpose'] in ('test', 'event'):  # its pinned configuration (credential references only) and its suggestions
+    if row['purpose'] in ('test', 'event', 'revision'):  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
         row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                                      (session_id,)).fetchone()['agent_config']
         row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
