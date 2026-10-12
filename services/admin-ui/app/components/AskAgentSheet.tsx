@@ -55,6 +55,9 @@ export default function AskAgentSheet({ documentId, documentTitle, onClose }: { 
     return () => controller.abort();
   }, [documentId]);
 
+  // The preview shows what Start would save; any change to an input makes it stale.
+  useEffect(() => { setPreview(null); }, [instruction, modelId, promptKey, systemPrompt, chosen, off, subagents, experts]);
+
   const shown = useMemo(() => options?.tools.filter(tool => toolApplies(tool, chosen)) ?? [], [options, chosen]);
   const value = (): StartInput => ({
     kind: 'revision', target: { document_id: documentId }, instruction: instruction.trim(), model_id: modelId,

@@ -87,3 +87,15 @@ test('a refusal is shown in the sheet', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Start' }));
   expect(await screen.findByText('ssh_run needs at least one server.')).toBeInTheDocument();
 });
+
+test('editing an input removes a stale preview', async () => {
+  api({ [OPTIONS]: () => [200, options],
+    'POST /api/agent-sessions/preview': () => [200, { config: {}, first_message: 'Add log rotation.' }] });
+  show();
+  const instruction = await screen.findByLabelText('Instruction');
+  fireEvent.change(instruction, { target: { value: 'Add log rotation.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  expect(await screen.findByLabelText('Configuration preview')).toBeInTheDocument();
+  fireEvent.change(instruction, { target: { value: 'Something else.' } });
+  await waitFor(() => expect(screen.queryByLabelText('Configuration preview')).toBeNull());
+});
