@@ -252,3 +252,8 @@ frozen by a trigger. `ka.document_sources` records what a draft or live version 
 revises and the documents its author read, with a title/version snapshot); `ka.document_links` holds the
 `depends_on` links people add. Nothing in `documents`, `document_versions` or `document_details` changes. The down
 migration refuses while open drafts, sources or links exist.
+
+## 0099_document_agent
+
+`ka.agent_sessions` gets `purpose = 'revision'` (an Ask agent run on a document, ad hoc like discovery) and
+`target_document_id`, set exactly for those runs; deleting the document deletes its runs (and, as before, its drafts). The down migration refuses while revision runs exist.

@@ -56,6 +56,11 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+agent_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND table_name = 'agent_sessions' AND column_name = 'target_document_id')")
+[ "$agent_removed" = t ] || { echo 'FAIL: 0099 down left Ask agent runs' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 drafts_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regclass('ka.document_drafts') IS NULL AND to_regclass('ka.document_sources') IS NULL
         AND to_regclass('ka.document_links') IS NULL")
@@ -235,6 +240,11 @@ drafts=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND to_regclass('ka.document_links') IS NOT NULL")
 [ "$drafts" = t ] || { echo 'FAIL: 0098 document drafts missing' >&2; exit 1; }
 printf '%s\n' 'PASS: document drafts, sources and links exist.'
+agent=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND table_name = 'agent_sessions' AND column_name = 'target_document_id')")
+[ "$agent" = t ] || { echo 'FAIL: 0099 Ask agent runs missing' >&2; exit 1; }
+printf '%s\n' 'PASS: Ask agent runs name their document.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
