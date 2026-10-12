@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
+import { agentRunPath } from '~/lib/agentSessions';
 import { useAgentSettings } from '~/lib/agentSettings';
 import type { SessionDetail } from '~/lib/generations';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
@@ -64,6 +65,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
   const dirty = JSON.stringify(value) !== JSON.stringify(initial) || tags !== initial.tags.join(', ');
   const unlessUnsaved = (run: () => void) => { if (dirty) setUnsavedAction({ run }); else run(); };
   useEffect(() => { registerConfirm(unlessUnsaved); });
+  useEffect(() => () => registerConfirm(run => run()), []);  // unmounted (reloading): nothing unsaved to ask about
   const patch = <K extends keyof DocumentInput>(key: K, next: DocumentInput[K]) => setValue((old) => ({ ...old, [key]: next }));
 
   async function save(event: React.FormEvent) {
@@ -194,11 +196,13 @@ export default function DocumentEditorView() {
   const [agentOpen, setAgentOpen] = useState(() => runId !== undefined || readPane() === 'open');
   const [width, setWidth] = useState(readWidth);  // the pane's percent, 25-60, default 40
   const [agentDraft, setAgentDraft] = useState<SessionDetail['document_draft'] | null>(null);
+  const [agentVersion, setAgentVersion] = useState('');  // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
   const splitRef = useRef<HTMLDivElement>(null);
   const settings = useAgentSettings(agentOpen && documentId ? documentId : null);  // loads only while the pane is open
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
-  const handed = (useLocation().state as { notice?: unknown } | null)?.notice;
+  const location = useLocation();
+  const handed = (location.state as { notice?: unknown } | null)?.notice;
   const [notice, setNotice] = useState(typeof handed === 'string' ? handed : '');
   useEffect(() => {
     const controller = new AbortController(); setLoaded(null); setError('');
@@ -207,10 +211,18 @@ export default function DocumentEditorView() {
     }).catch((e) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not open document'); });
     return () => controller.abort();
   }, [documentId, refresh]);
+  // A run link followed on this page (the Agent runs tab, a draft's Agent run) opens the pane on that run.
+  useEffect(() => { if (runId !== undefined) setAgentOpen(true); }, [runId]);
+  // The URL follows the pane's run (a reload reopens it), keeping ?tab= and ?draft=.
+  const followRun = (id: string | null) => {
+    if (!documentId) return;
+    const pathname = id ? agentRunPath(documentId, id) : `/documents/${encodeURIComponent(documentId)}`;
+    if (pathname !== location.pathname) navigate({ pathname, search: location.search }, { replace: true });
+  };
   const toggleAgent = () => {
     const next = !agentOpen;
     setAgentOpen(next); write(PANE_KEY, next ? 'open' : 'closed');
-    if (!next) setAgentDraft(null);
+    if (!next) { setAgentDraft(null); if (runId !== undefined) followRun(null); }  // a closed pane keeps no run in the URL
   };
   const resize = (n: number) => { const next = clampWidth(n); setWidth(next); write(WIDTH_KEY, String(next)); };
   const startDrag = (event: ReactPointerEvent) => {
@@ -239,7 +251,7 @@ export default function DocumentEditorView() {
   return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
     <div ref={splitRef} className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
       <div className="min-w-0 lg:flex-1" style={paneTitle !== null ? { flexBasis: `${100 - width}%` } : undefined}>
-        {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
+        {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
         {error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert>
           : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
       </div>
@@ -249,7 +261,8 @@ export default function DocumentEditorView() {
           onPointerDown={startDrag} onKeyDown={e => { if (e.key === 'ArrowLeft') resize(width + 5); if (e.key === 'ArrowRight') resize(width - 5); }} />
         <div className="min-w-0 lg:sticky lg:top-4" style={{ flexBasis: `${width}%` }}>
           <AgentPane key={documentId} documentId={documentId!} documentTitle={paneTitle} settings={settings} initialRunId={runId ?? null}
-            confirmUnsaved={run => confirmRef.current(run)} onDraftChange={setAgentDraft} />
+            confirmUnsaved={run => confirmRef.current(run)} onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }}
+            onRunChange={followRun} />
         </div>
       </>}
     </div></>;

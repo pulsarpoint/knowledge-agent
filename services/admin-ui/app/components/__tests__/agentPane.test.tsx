@@ -46,9 +46,11 @@ const RUNS = 'GET /api/agent-sessions?document_id=doc-1';
 const settingsOf = () => ({ options, error: '', settings: defaultSettings(options), update: vi.fn(), replace: vi.fn() });
 function show(props: Partial<Parameters<typeof AgentPane>[0]> = {}) {
   const onDraftChange = vi.fn();
-  render(<MemoryRouter><AgentPane documentId="doc-1" documentTitle="Runbook" settings={settingsOf()} initialRunId={null}
-    confirmUnsaved={run => run()} onDraftChange={onDraftChange} {...props} /></MemoryRouter>);
-  return { onDraftChange };
+  const settings = settingsOf();
+  const pane = (more: Partial<Parameters<typeof AgentPane>[0]>) => <MemoryRouter><AgentPane documentId="doc-1" documentTitle="Runbook"
+    settings={settings} initialRunId={null} confirmUnsaved={run => run()} onDraftChange={onDraftChange} {...props} {...more} /></MemoryRouter>;
+  const { rerender } = render(pane({}));
+  return { onDraftChange, rerender: (more: Partial<Parameters<typeof AgentPane>[0]>) => rerender(pane(more)) };
 }
 afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []; live.loading.clear(); });
 
@@ -77,7 +79,7 @@ test('the latest open run opens; messages go to it; its draft is reported', asyn
   const { onDraftChange } = show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
-  expect(onDraftChange).toHaveBeenLastCalledWith({ id: 'd-r2', document_id: 'doc-1', status: 'open' });
+  expect(onDraftChange).toHaveBeenLastCalledWith({ id: 'd-r2', document_id: 'doc-1', status: 'open' }, expect.any(String));
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Also mention cron.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(calls.find(c => c.key === 'POST /api/generations/sessions/r2/messages')?.body).toEqual({ text: 'Also mention cron.' }));
@@ -216,4 +218,50 @@ test('a failed message on an open run keeps the run: the retry goes to it and St
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(attempts).toBe(2));
   expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
+});
+
+test('a changed run link opens that run and reports it', async () => {
+  live.sessions.r1 = detail('r1', 'waiting'); live.sessions.r2 = detail('r2', 'waiting');
+  api({ [RUNS]: () => [200, { sessions: [run('r2', 'waiting'), run('r1', 'waiting')] }] });
+  const onRunChange = vi.fn();
+  const { rerender } = show({ initialRunId: 'r1', onRunChange });
+  await waitFor(() => expect(live.requested.at(-1)).toBe('r1'));
+  rerender({ initialRunId: 'r2', onRunChange });
+  await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
+  expect(screen.getByRole('heading', { name: 'Run r2' })).toBeInTheDocument();
+  expect(onRunChange).toHaveBeenLastCalledWith('r2');
+});
+
+test('a run of another document is not shown as this document\'s; New chat still works', async () => {
+  live.sessions.rx = { ...detail('rx', 'waiting'), target_document_id: 'doc-2' };
+  const calls = api({ [RUNS]: () => [200, { sessions: [] }] });
+  const { onDraftChange } = show({ initialRunId: 'rx' });
+  const pane = await screen.findByRole('region', { name: 'Ask agent' });
+  expect(await within(pane).findByText('This run belongs to another document. Start a New chat.')).toBeInTheDocument();
+  expect(within(pane).getAllByRole('alert').some(item => item.textContent?.startsWith('This run belongs to another document.'))).toBe(true);
+  expect(within(pane).getByRole('heading', { name: 'Another document\'s run' })).toBeInTheDocument();
+  expect(within(pane).getByRole('link', { name: 'Open it on its document' })).toHaveAttribute('href', '/documents/doc-2/agent/rx');
+  expect(onDraftChange).toHaveBeenLastCalledWith(null, expect.any(String));
+  expect(onDraftChange).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'd-rx' }), expect.anything());
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Change it.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  fireEvent.click(within(pane).getByRole('button', { name: 'New chat' }));
+  await waitFor(() => expect(live.requested.at(-1)).toBeNull());
+  expect(calls.some(c => c.key.startsWith('POST'))).toBe(false);  // neither a start nor a close of the other document's run
+  expect(within(pane).getByText('Ask the agent to change this document.')).toBeInTheDocument();
+});
+
+test('a failed run list says so, starts nothing, and Retry loads it', async () => {
+  let attempts = 0;
+  const calls = api({ [RUNS]: () => (++attempts === 1 ? [500, { error: { message: 'down' } }] : [200, { sessions: [] }]),
+    'POST /api/agent-sessions': () => [201, detail('r1', 'starting')] });
+  show();
+  const pane = await screen.findByRole('region', { name: 'Ask agent' });
+  expect(await within(pane).findByText(/Could not load this document's runs\./, { selector: 'div,p,span' })).toBeInTheDocument();
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Too early.' } });
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
+  fireEvent.click(within(pane).getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(within(pane).queryByText(/Could not load this document's runs\./)).toBeNull());
+  expect(attempts).toBe(2);
 });

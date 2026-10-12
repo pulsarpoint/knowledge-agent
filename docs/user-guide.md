@@ -713,7 +713,7 @@ rotation; remove the old backup steps") and send it: the agent starts with the c
 part by part and saves its changes as a draft — never the live version. Its replies are a normal conversation: it may
 ask you something first, and you can ask for more changes; each save updates the same draft. A bar above the editor
 shows the agent's draft (Compare opens it with the changes; Promote makes it the live version). A turn that ended
-without a save says so.
+without a save says so. If you edit, promote or discard the draft meanwhile, the agent's next save starts a new draft.
 
 **Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
 the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the tools (reading and

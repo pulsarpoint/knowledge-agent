@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import DocumentEditorView from '../DocumentEditorView';
 
@@ -12,7 +12,8 @@ vi.mock('../AgentPane', async () => {
     return <section aria-label="Ask agent">
       <p>{`run ${props.initialRunId ?? 'none'}`}</p>
       <button type="button" onClick={() => props.confirmUnsaved(() => { pane.props.push({ started: true }); })}>Send message</button>
-      <button type="button" onClick={() => props.onDraftChange({ id: 'd1', document_id: 'doc-1', status: 'open' })}>Agent saved</button>
+      <button type="button" onClick={() => props.onDraftChange({ id: 'd1', document_id: 'doc-1', status: 'open' }, `v${pane.props.length}`)}>Agent saved</button>
+      <button type="button" onClick={() => props.onRunChange(null)}>New chat</button>
     </section>;
   } };
 });
@@ -56,8 +57,9 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   return calls;
 }
 function show(url: string) {
-  const router = createMemoryRouter([{ path: '/documents/:documentId/agent/:runId', element: <DocumentEditorView /> },
-    { path: '/documents/:documentId', element: <DocumentEditorView /> }], { initialEntries: [url] });
+  // as in routes.ts: the run link is a child of the document page
+  const router = createMemoryRouter([{ path: '/documents/:documentId', element: <DocumentEditorView />,
+    children: [{ path: 'agent/:runId', element: null }] }], { initialEntries: [url] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -119,4 +121,55 @@ test('the draft bar shows the agent draft; Compare opens it; a stale Promote ask
   fireEvent.click(screen.getByRole('button', { name: 'Agent saved' }));
   fireEvent.click(within(await screen.findByRole('region', { name: 'Agent draft' })).getByRole('button', { name: 'Compare' }));
   await waitFor(() => expect(router.state.location.search).toBe('?tab=drafts&draft=d1'));
+});
+
+test('a run link followed on the page switches the pane; New chat takes the run out of the URL', async () => {
+  api({ ...base, 'GET /api/documentation/documents/doc-1/drafts': () => [200, { drafts: [] }] });
+  const router = show('/documents/doc-1/agent/r1');
+  expect(await screen.findByText('run r1')).toBeInTheDocument();
+  fireEvent.change(await screen.findByLabelText('Markdown'), { target: { value: '# Edited, not saved' } });
+  await act(() => router.navigate('/documents/doc-1/agent/r2?tab=drafts'));
+  expect(await screen.findByText('run r2')).toBeInTheDocument();
+  expect(pane.mounts).toBe(1);  // the page stays: the pane and the editor's unsaved text
+  expect(screen.getByLabelText('Markdown')).toHaveValue('# Edited, not saved');
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  await waitFor(() => expect(router.state.location.pathname).toBe('/documents/doc-1'));
+  expect(router.state.location.search).toBe('?tab=drafts');
+  expect(screen.getByRole('region', { name: 'Ask agent' })).toBeInTheDocument();
+});
+
+test('a run link opens a closed pane', async () => {
+  api({ ...base, 'GET /api/agent-sessions?document_id=doc-1': () => [200, { sessions: [] }] });
+  const router = show('/documents/doc-1');
+  await screen.findByRole('button', { name: 'Ask agent' });
+  expect(screen.queryByRole('region', { name: 'Ask agent' })).toBeNull();
+  await act(() => router.navigate('/documents/doc-1/agent/r3'));
+  expect(await screen.findByText('run r3')).toBeInTheDocument();
+});
+
+test('Promote sends the draft\'s latest revision after the agent saved into it again', async () => {
+  let revision = 3;
+  const calls = api({ ...base, 'GET /api/documentation/drafts/d1': () => [200, { ...draft, stale: false, revision }],
+    'POST /api/documentation/drafts/d1/promote': body => body.revision === revision
+      ? [200, { draft: { ...draft, status: 'promoted' }, document_id: 'doc-1', version_id: 'v3', revision: 3, export_error: null }]
+      : [409, { error: { message: 'The draft changed.', code: 'CONFLICT' } }],
+    'GET /api/documentation/documents/doc-1/drafts': () => [200, { drafts: [] }] });
+  show('/documents/doc-1/agent/r1');
+  fireEvent.click(await screen.findByRole('button', { name: 'Agent saved' }));
+  const bar = await screen.findByRole('region', { name: 'Agent draft' });
+  await within(bar).findByText('Agent draft · based on version 1');
+  revision = 4;  // the agent saves into the same draft again
+  fireEvent.click(within(bar).getByRole('button', { name: 'Promote' }));
+  expect(await screen.findByText('Draft promoted to version 3.')).toBeInTheDocument();
+  expect(calls.filter(c => c.key === 'POST /api/documentation/drafts/d1/promote').map(c => c.body.revision)).toEqual([4]);
+});
+
+test('the bar reloads the draft after each of the agent\'s turns', async () => {
+  let loads = 0;
+  api({ ...base, 'GET /api/documentation/drafts/d1': () => { loads += 1; return [200, draft]; } });
+  show('/documents/doc-1/agent/r1');
+  fireEvent.click(await screen.findByRole('button', { name: 'Agent saved' }));
+  await waitFor(() => expect(loads).toBe(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Agent saved' }));  // the same draft, a new version
+  await waitFor(() => expect(loads).toBe(2));
 });

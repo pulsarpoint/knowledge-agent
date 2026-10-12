@@ -101,9 +101,8 @@ confirmation and navigation with unsaved edits.
 
 Ask agent runs (agent sessions with purpose `revision`, started through `/api/agent-sessions` from the chat pane on the
 document page; the first message is the instruction, and `/documents/{id}/agent/{run}` opens the page with the pane on
-that run) change a document only
-through the `get_doc`, `save_doc` and `edit_doc` tools, which write the run's draft; Generate documents runs still turn
-their final answer into a draft.
+that run) change a document only through the `get_doc`, `save_doc` and `edit_doc` tools, which write the run's draft;
+Generate documents runs still turn their final answer into a draft.
 
 ## Generate documents
 

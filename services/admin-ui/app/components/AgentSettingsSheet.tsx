@@ -106,23 +106,24 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
               <FieldLabel htmlFor={`settings-expert-${expert.id}`}>{expert.name}</FieldLabel>
               <FieldDescription>{expert.when_to_use}</FieldDescription></Field>)}
           </FieldSet>
-          <Collapsible open={advanced} onOpenChange={setAdvanced}>
-            <CollapsibleTrigger asChild><Button type="button" variant="ghost">Advanced</Button></CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 flex flex-col gap-4">
-              <Field><FieldLabel htmlFor="settings-prompt">Prompt</FieldLabel>
-                <Select value={settings.promptKey} onValueChange={choosePrompt} disabled={locked}>
-                  <SelectTrigger id="settings-prompt" aria-label="Prompt"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectGroup>
-                    {options.prompts.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
-                    <SelectItem value={BUILT_IN}>{options.default_prompt.name}</SelectItem>
-                  </SelectGroup></SelectContent></Select></Field>
-              <Field><FieldLabel htmlFor="settings-system-prompt">System prompt</FieldLabel>
-                <Textarea id="settings-system-prompt" aria-label="System prompt" rows={12} disabled={locked} value={settings.systemPrompt}
-                  onChange={e => onChange({ systemPrompt: e.target.value })} />
-                <FieldDescription>Changes apply to this run only; the prompt in the library stays as it is.</FieldDescription></Field>
-            </CollapsibleContent>
-          </Collapsible>
         </fieldset>
+        {/* Outside the disabled fieldset: a read-only run's prompt can still be expanded (its fields stay disabled). */}
+        <Collapsible open={advanced} onOpenChange={setAdvanced}>
+          <CollapsibleTrigger asChild><Button type="button" variant="ghost">Advanced</Button></CollapsibleTrigger>
+          <CollapsibleContent className="mt-2 flex flex-col gap-4">
+            <Field><FieldLabel htmlFor="settings-prompt">Prompt</FieldLabel>
+              <Select value={settings.promptKey} onValueChange={choosePrompt} disabled={locked}>
+                <SelectTrigger id="settings-prompt" aria-label="Prompt"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectGroup>
+                  {options.prompts.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
+                  <SelectItem value={BUILT_IN}>{options.default_prompt.name}</SelectItem>
+                </SelectGroup></SelectContent></Select></Field>
+            <Field><FieldLabel htmlFor="settings-system-prompt">System prompt</FieldLabel>
+              <Textarea id="settings-system-prompt" aria-label="System prompt" rows={12} disabled={locked} value={settings.systemPrompt}
+                onChange={e => onChange({ systemPrompt: e.target.value })} />
+              <FieldDescription>Changes apply to this run only; the prompt in the library stays as it is.</FieldDescription></Field>
+          </CollapsibleContent>
+        </Collapsible>
         {locked ? <>
           <pre aria-label="Run configuration" tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(session!.config ?? {}, null, 2)}</pre>
           <div className="flex justify-end gap-2"><Button type="button" onClick={onStartNew}>Start new chat with these settings</Button></div>

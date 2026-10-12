@@ -8,9 +8,11 @@ import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
- * Drafts tab with that draft) and Promote (with the stale check: the server's message, then Promote anyway). */
-export default function AgentDraftBar({ draft, confirm, onPromoted }: { draft: NonNullable<SessionDetail['document_draft']>;
-  confirm: (run: () => void) => void; onPromoted: (result: PromoteResult) => void }) {
+ * Drafts tab with that draft) and Promote (with the stale check: the server's message, then Promote anyway). The agent may
+ * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
+ * reads the draft's revision fresh. */
+export default function AgentDraftBar({ draft, version, confirm, onPromoted }: { draft: NonNullable<SessionDetail['document_draft']>;
+  version?: string; confirm: (run: () => void) => void; onPromoted: (result: PromoteResult) => void }) {
   const [, setParams] = useSearchParams();
   const [detail, setDetail] = useState<DraftDetail | null>(null);
   const [stale, setStale] = useState('');
@@ -21,11 +23,15 @@ export default function AgentDraftBar({ draft, confirm, onPromoted }: { draft: N
     getDraft(draft.id, controller.signal).then(d => { if (!controller.signal.aborted) { setDetail(d); setError(''); } })
       .catch(() => { if (!controller.signal.aborted) setError('Could not load the agent draft.'); });
     return () => controller.abort();
-  }, [draft.id, draft.status]);
+  }, [draft.id, draft.status, version]);
   async function promote(confirmStale: boolean) {
     if (!detail) return;
     setBusy(true); setError('');
-    try { onPromoted(await promoteDraft(detail.id, detail.revision, confirmStale)); setStale(''); }
+    try {
+      const fresh = await getDraft(draft.id);  // the agent may have saved again since the bar loaded it
+      setDetail(fresh);
+      onPromoted(await promoteDraft(fresh.id, fresh.revision, confirmStale)); setStale('');
+    }
     catch (e) {
       if (e instanceof ApiError && e.code === STALE_BASE) setStale(e.message);
       else setError(e instanceof Error ? e.message : 'Could not promote the draft.');

@@ -57,3 +57,13 @@ test('read-only for an open run: its saved configuration, and Start new chat wit
   fireEvent.click(screen.getByRole('button', { name: 'Start new chat with these settings' }));
   expect(onStartNew).toHaveBeenCalledOnce();
 });
+
+test('read-only: Advanced still opens and shows the run\'s system prompt, disabled', () => {
+  const session = { id: 'r1', status: 'waiting', config: {} } as unknown as SessionDetail;
+  render(<Harness session={session} />);
+  const advanced = screen.getByRole('button', { name: 'Advanced' });
+  expect(advanced).toBeEnabled();
+  fireEvent.click(advanced);
+  expect(screen.getByRole('textbox', { name: 'System prompt' })).toBeDisabled();
+  expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue('You revise carefully.');
+});
