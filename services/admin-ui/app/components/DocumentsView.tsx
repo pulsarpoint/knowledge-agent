@@ -30,6 +30,7 @@ export default function DocumentsView() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [discardError, setDiscardError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const offset = Number(params.get('offset') || 0);
   useEffect(() => {
@@ -46,9 +47,9 @@ export default function DocumentsView() {
   }
   async function discard() {
     if (!discarding) return;
-    setBusy(true); setError('');
+    setBusy(true); setDiscardError('');
     try { await discardDraft(discarding.id, discarding.revision); setDiscarding(null); setRefresh((n) => n + 1); }
-    catch (e) { setDiscarding(null); setError(e instanceof Error ? e.message : 'Could not discard the draft'); }
+    catch (e) { setDiscarding(null); setDiscardError(e instanceof Error ? e.message : 'Could not discard the draft'); setRefresh((n) => n + 1); }
     finally { setBusy(false); }
   }
   return <div className="flex flex-col gap-6">
@@ -70,7 +71,7 @@ export default function DocumentsView() {
       <div className="flex items-center gap-2 self-end pb-2"><Checkbox id="filter-has-drafts" checked={params.get('has_drafts') === 'true'}
         onCheckedChange={(on) => filter('has_drafts', on === true ? 'true' : '')} /><Label htmlFor="filter-has-drafts">Has drafts</Label></div>
     </div>
-    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+    {(error || discardError) && <Alert variant="destructive"><AlertDescription>{error || discardError}</AlertDescription></Alert>}
     {newDrafts.length > 0 && <section aria-label="New drafts" className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold">New drafts</h2>
       <div className="rounded-lg border"><Table><TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Folder</TableHead><TableHead>Written by</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow></TableHeader><TableBody>

@@ -59,7 +59,7 @@ export default function DraftView({ draftId, reloadKey = 0, onEdit, onPromoted, 
     setBusy(true); setError('');
     try { const result = await promoteDraft(draft.id, draft.revision, confirmStale); setStale(''); onPromoted(result); }
     catch (e) {
-      if (e instanceof ApiError && e.code === STALE_BASE) { setStale(e.message); setView('changes'); }
+      if (e instanceof ApiError && e.code === STALE_BASE) { setStale(e.message); setView('changes'); setLoad((n) => n + 1); }
       else { setStale(''); setError(failure(e, 'Could not promote the draft')); setLoad((n) => n + 1); }
     } finally { setBusy(false); }
   }

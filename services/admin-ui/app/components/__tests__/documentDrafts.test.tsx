@@ -109,3 +109,42 @@ test('a refused promote shows why and reloads the draft, which may now revise an
   expect(await screen.findByRole('link', { name: 'Open it on its document' })).toHaveAttribute('href', '/documents/doc-3?tab=drafts&draft=d9');
   expect(screen.getByRole('tab', { name: 'Changes' })).toBeInTheDocument();
 });
+
+test('a stale promote keeps the warning, reloads the draft and sends confirm_stale on Promote anyway', async () => {
+  const STALE = "This draft was based on version 1; the live version is now 2. Promoting replaces version 2's text.";
+  let reloaded = false;
+  const stale = { ...detail, id: 'd2', document_id: 'doc-1', slug: null, folder: null, base_version: 1, live_version: 1, live_markdown: '# v1', stale: false };
+  const calls = api({
+    'GET /api/documentation/drafts/d2': () => [200, reloaded ? { ...stale, live_version: 2, live_markdown: '# v2 live', stale: true } : stale],
+    'POST /api/documentation/drafts/d2/promote': (body) => {
+      if (body.confirm_stale) return [200, { draft: { ...stale, status: 'promoted' }, document_id: 'doc-1', version_id: 'v3', revision: 3, export_error: null }];
+      reloaded = true; return [409, { error: { message: STALE, code: 'STALE_BASE' } }];
+    },
+  });
+  show('/documents/drafts/d2');
+  fireEvent.click(await screen.findByRole('button', { name: 'Promote' }));
+  expect(await screen.findByText(STALE)).toBeInTheDocument();
+  expect(await screen.findByText('stale')).toBeInTheDocument();
+  expect(screen.getByText('# v2 live', { selector: 'del' })).toBeInTheDocument();
+  expect(screen.getByText(STALE)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Promote anyway' }));
+  await waitFor(() => expect(calls.filter((c) => c.key.endsWith('/promote')).map((c) => c.body))
+    .toEqual([{ revision: 1, confirm_stale: false }, { revision: 1, confirm_stale: true }]));
+});
+
+test('a failed discard on the list shows why and refreshes the list so a retry works', async () => {
+  let fails = true;
+  const calls = api({
+    'GET /api/documentation/documents?': () => [200, { documents: [doc], total: 1 }],
+    'GET /api/documentation/resources': () => [200, resources],
+    'GET /api/documentation/drafts?new=true': () => [200, { drafts: [fails ? newDraft : { ...newDraft, revision: 2 }] }],
+    'POST /api/documentation/drafts/d9/discard': (body) => { fails = false; return body.revision === 1 ? [409, { error: { message: 'Changed meanwhile' } }] : [200, { ...detail, status: 'discarded' }]; },
+  });
+  show('/documents');
+  const section = within(await screen.findByRole('region', { name: 'New drafts' }));
+  fireEvent.click(section.getByRole('button', { name: /Discard/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard draft' }));
+  expect(await screen.findByText('Changed meanwhile')).toBeInTheDocument();
+  await waitFor(() => expect(calls.filter((c) => c.key === 'GET /api/documentation/drafts?new=true')).toHaveLength(2));
+  expect(screen.getByText('Changed meanwhile')).toBeInTheDocument();
+});

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
+import { createDraft, draftPath, updateDraft, type PromoteResult } from '~/lib/drafts';
+import DocumentConnections from './DocumentConnections';
+import DocumentDrafts from './DocumentDrafts';
 import Markdown from './Markdown';
 import DocumentResourceSelection from './DocumentResourceSelection';
 import UnsavedDocumentChanges from './UnsavedDocumentChanges';
@@ -17,7 +20,10 @@ import { Spinner } from '~/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import { Textarea } from '~/components/ui/textarea';
 
-function Editor({ document, resources, onSaved }: { document: DocumentDetail | null; resources: DocumentResources; onSaved: (id: string) => void }) {
+const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections'];
+
+function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { document: DocumentDetail | null; resources: DocumentResources;
+  onSaved: (id: string) => void; onDraftSaved: (draftId: string) => void; onPromoted: (result: PromoteResult) => void }) {
   const navigate = useNavigate();
   const [initial] = useState<DocumentInput>(() => document ? {
     slug: document.slug, title: document.title, description: document.description, purpose: document.purpose, audience: document.audience,
@@ -27,7 +33,13 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
   } : { slug: '', title: '', description: '', purpose: 'explanation', audience: 'both', tags: [], markdown: '', code_project_ids: [], service_ids: [], server_ids: [], deployment_ids: [], environment_ids: [] });
   const [value, setValue] = useState(initial);
   const [tags, setTags] = useState(initial.tags.join(', '));
-  const [tab, setTab] = useState('write');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() => { const wanted = params.get('tab') ?? ''; return document && TABS.includes(wanted) ? wanted : 'write'; });
+  // The URL may change after this editor mounted (Save draft and Promote set ?tab= while the editor reloads).
+  const wantedTab = params.get('tab') ?? '';
+  useEffect(() => { if (document && TABS.includes(wantedTab)) setTab(wantedTab); }, [wantedTab]);
+  // A draft loaded with Edit: Save draft updates it instead of starting a new one.
+  const [editingDraft, setEditingDraft] = useState<{ id: string; revision: number; title: string } | null>(null);
   const [historical, setHistorical] = useState<DocumentVersion | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -43,6 +55,21 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
       const saved = await saveDocument({ ...value, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) }, document?.id);
       leaving.current = true; onSaved(saved.id);
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save document'); }
+    finally { setPending(false); }
+  }
+  async function saveDraft() {
+    setPending(true); setError('');
+    const content = { title: value.title, description: value.description, purpose: value.purpose, audience: value.audience,
+      tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean), markdown: value.markdown };
+    try {
+      if (editingDraft) { const saved = await updateDraft(editingDraft.id, editingDraft.revision, content); leaving.current = true; onDraftSaved(saved.id); }
+      else if (document) { const saved = await createDraft({ document_id: document.id, ...content }); leaving.current = true; onDraftSaved(saved.id); }
+      else {
+        const saved = await createDraft({ slug: value.slug, ...content, resource_ids: { code_project_ids: value.code_project_ids,
+          service_ids: value.service_ids, server_ids: value.server_ids, deployment_ids: value.deployment_ids, environment_ids: value.environment_ids ?? [] } });
+        leaving.current = true; navigate(draftPath(saved));
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save the draft'); }
     finally { setPending(false); }
   }
   async function openVersion(id: string) {
@@ -71,10 +98,12 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
       {document && <Button asChild type="button" variant="outline"><a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a></Button>}
       {document && <Badge variant="secondary">Version {document.version}</Badge>}
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
+      <Button type="button" variant="outline" disabled={pending || !value.markdown.trim() || !value.title.trim()} onClick={() => void saveDraft()}>Save draft</Button>
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
     {error && !confirmDelete && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
+    {editingDraft && <Alert role="status"><AlertDescription>{`Editing the draft “${editingDraft.title}”. Save draft updates it; Save new version makes this text the live version and leaves the draft as it is.`}</AlertDescription></Alert>}
     <fieldset disabled={pending} className="flex min-w-0 flex-col gap-6">
       <FieldGroup className="grid gap-4 sm:grid-cols-2"><Field><FieldLabel htmlFor="doc-title">Title</FieldLabel><Input id="doc-title" required maxLength={240} value={value.title} onChange={(e) => {
         const title = e.target.value;
@@ -89,7 +118,7 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
         </SelectGroup></SelectContent></Select></Field>
         <Field><FieldLabel htmlFor="doc-tags">Tags</FieldLabel><Input id="doc-tags" placeholder="Comma-separated tags" value={tags} onChange={(e) => setTags(e.target.value)} /></Field>
       </FieldGroup>
-      <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="write">Write</TabsTrigger><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="resources">Linked resources</TabsTrigger><TabsTrigger value="history" disabled={!document}>Version history</TabsTrigger></TabsList>
+      <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="write">Write</TabsTrigger><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="resources">Linked resources</TabsTrigger><TabsTrigger value="history" disabled={!document}>Version history</TabsTrigger><TabsTrigger value="drafts" disabled={!document}>Drafts</TabsTrigger><TabsTrigger value="connections" disabled={!document}>Connections</TabsTrigger></TabsList>
         <TabsContent value="write" forceMount className="data-[state=inactive]:hidden"><Field><FieldLabel htmlFor="doc-markdown">Markdown</FieldLabel><Textarea id="doc-markdown" className="min-h-96 font-mono" required maxLength={1000000} value={value.markdown} onChange={(e) => patch('markdown', e.target.value)} />
           <FieldDescription>Every save preserves a complete version and updates the documents collection's folder; refresh the collection to update search.</FieldDescription></Field></TabsContent>
         <TabsContent value="preview"><div className="min-h-96 rounded-lg border p-4">{value.markdown ? <Markdown content={value.markdown} /> : <p className="text-sm text-muted-foreground">Write Markdown to preview the document.</p>}</div></TabsContent>
@@ -101,7 +130,7 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
           </div>}
         </TabsContent>
         <TabsContent value="history"><div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]"><div className="flex flex-col gap-2">{document?.versions.map((version) => <Button key={version.id} type="button" variant={historical?.id === version.id ? 'secondary' : 'outline'} className="h-auto justify-start whitespace-normal py-3 text-left" onClick={() => void openVersion(version.id)}>
-          <span>Version {version.version}{version.id === document.current_version_id ? ' · Current' : ''}<span className="block text-xs font-normal text-muted-foreground">{new Date(version.created_at).toLocaleString()}</span></span>
+          <span>Version {version.version}{version.id === document.current_version_id ? ' · Current' : ''}{version.from_draft ? ' · from draft' : ''}<span className="block text-xs font-normal text-muted-foreground">{new Date(version.created_at).toLocaleString()}</span></span>
         </Button>)}</div><div className="min-w-0 rounded-lg border p-4">{historical ? <>
           <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{historical.title} · v{historical.version}</h2><Button type="button" variant="outline" onClick={() => {
             setValue({ ...value, title: historical.title, description: historical.description, purpose: historical.purpose, audience: historical.audience, tags: historical.tags, markdown: historical.markdown,
@@ -115,6 +144,13 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
           {historical.source_snapshot.code_projects.filter((r) => r.git_commit).map((r) => <p key={r.id} className="mt-2 text-sm">{r.name}: <code className="break-all">{r.git_commit}</code></p>)}
           <Markdown content={historical.markdown} />
         </> : <p className="text-sm text-muted-foreground">Select a version to read it or use it as the starting point for an edit.</p>}</div></div></TabsContent>
+        <TabsContent value="drafts">{document && <DocumentDrafts documentId={document.id} selected={params.get('draft')} onPromoted={onPromoted}
+          onEdit={(draft) => {
+            setValue((old) => ({ ...old, title: draft.title, description: draft.description, purpose: draft.purpose, audience: draft.audience, tags: draft.tags, markdown: draft.markdown }));
+            setTags(draft.tags.join(', ')); setEditingDraft({ id: draft.id, revision: draft.revision, title: draft.title }); setTab('write');
+            setNotice(`Draft “${draft.title}” loaded into the editor.`);
+          }} />}</TabsContent>
+        <TabsContent value="connections">{document && <DocumentConnections documentId={document.id} />}</TabsContent>
       </Tabs>
     </fieldset>
     <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete “{document?.title}”?</AlertDialogTitle>
@@ -128,6 +164,7 @@ function Editor({ document, resources, onSaved }: { document: DocumentDetail | n
 export default function DocumentEditorView() {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const [, setParams] = useSearchParams();
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -140,5 +177,8 @@ export default function DocumentEditorView() {
     return () => controller.abort();
   }, [documentId, refresh]);
   return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}{error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert> : loaded ?
-    <Editor key={`${documentId}-${refresh}`} {...loaded} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }} /> : <Skeleton className="h-96 w-full" />}</>;
+    <Editor key={`${documentId}-${refresh}`} {...loaded} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
+      onDraftSaved={(draftId) => { setNotice('Draft saved.'); setParams({ tab: 'drafts', draft: draftId }, { replace: true }); setRefresh((n) => n + 1); }}
+      onPromoted={(result) => { setNotice(`Draft promoted to version ${result.revision}.${result.export_error ? ` ${result.export_error}` : ''}`);
+        setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); }} /> : <Skeleton className="h-96 w-full" />}</>;
 }

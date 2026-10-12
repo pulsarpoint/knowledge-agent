@@ -22,3 +22,9 @@ test('a change too large to compare is shown as removed then added', () => {
   expect(result.lines.filter((line) => line.kind === 'removed')).toHaveLength(size);
   expect(result.lines.filter((line) => line.kind === 'added')).toHaveLength(size);
 });
+
+test('a side with no lines is all removed or all added without comparing', () => {
+  expect(lineDiff('a\nb', 'a\nb\nc').lines.map((line) => line.kind)).toEqual(['same', 'same', 'added']);
+  expect(lineDiff('a\nb\nc', 'a').lines.map((line) => line.kind)).toEqual(['same', 'removed', 'removed']);
+  expect(lineDiff('x', 'x').lines).toEqual([{ kind: 'same', text: 'x' }]);
+});

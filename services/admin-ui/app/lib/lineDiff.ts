@@ -18,6 +18,7 @@ export function lineDiff(before: string, after: string): { lines: DiffLine[]; ap
     return { lines: [...head, ...x.map(mark('removed')), ...y.map(mark('added')), ...tail], approximate: true };
   }
   const n = x.length, m = y.length;
+  if (n === 0 || m === 0) return { lines: [...head, ...x.map(mark('removed')), ...y.map(mark('added')), ...tail], approximate: false };
   const table = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
