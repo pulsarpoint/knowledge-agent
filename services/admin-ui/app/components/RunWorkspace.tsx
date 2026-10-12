@@ -34,6 +34,8 @@ export interface RunWorkspaceProps {
   empty?: ReactNode;          // the main pane without events
   notice?: string;
   composer: WorkspaceComposer;
+  /** In a side pane: no sidebar column; Run details opens the drawer at every width. */
+  compact?: boolean;
 }
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`;
@@ -118,7 +120,7 @@ function SubagentView({ sub, onBack }: { sub: Subagent; onBack: () => void }) {
  * subagent of the loaded events; selecting one shows its own history in the main pane (the message box still talks to
  * the main agent). */
 export default function RunWorkspace({ run, agentName, resources, heading, headerActions, sidebar, answerActions,
-  empty, notice, composer }: RunWorkspaceProps) {
+  empty, notice, composer, compact = false }: RunWorkspaceProps) {
   const { session, events, older, toolCounts } = run;
   const turns = useMemo(() => groupTurns(events), [events]);
   const [following, setFollowing] = useState(true);
@@ -204,7 +206,7 @@ export default function RunWorkspace({ run, agentName, resources, heading, heade
           {session && <Badge variant={session.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[session.status]}</Badge>}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1">{headerActions}
-          <Button type="button" variant="ghost" size="sm" className="lg:hidden" onClick={() => setDrawer(true)}><PanelRight data-icon="inline-start" />Run details</Button>
+          <Button type="button" variant="ghost" size="sm" className={compact ? undefined : "lg:hidden"} onClick={() => setDrawer(true)}><PanelRight data-icon="inline-start" />Run details</Button>
         </div>
       </div>
       {session && <p aria-label="Token totals" className="text-sm">{`In ${formatTokens(session.input_tokens)} · Out ${formatTokens(session.output_tokens)} · Cached ${formatTokens(session.cached_tokens)}`
@@ -217,7 +219,7 @@ export default function RunWorkspace({ run, agentName, resources, heading, heade
       {run.reconnecting && !closed && <Alert><AlertDescription role="status">Reconnecting…</AlertDescription></Alert>}
       {notice && <Alert><AlertDescription role="status">{notice}</AlertDescription></Alert>}
     </header>
-    <div className="grid min-h-48 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+    <div className={compact ? "grid min-h-48 flex-1 gap-3" : "grid min-h-48 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]"}>
       <section aria-label="Run" className="flex min-h-0 min-w-0 flex-col rounded-lg border">
         <div ref={pane} data-testid="run-scroll" onScroll={scrolled} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
           {!shown && older === 'start' && events.length > 0 && <p className="text-center text-xs text-muted-foreground">Beginning of the session</p>}
@@ -230,7 +232,7 @@ export default function RunWorkspace({ run, agentName, resources, heading, heade
         </div>
         {!following && <div className="shrink-0 border-t p-2 text-center"><Button type="button" size="sm" variant="secondary" onClick={jump}>Jump to latest</Button></div>}
       </section>
-      <aside aria-label="Run sidebar" className="hidden min-h-0 overflow-y-auto rounded-lg border p-3 lg:block">{agents}</aside>
+      {!compact && <aside aria-label="Run sidebar" className="hidden min-h-0 overflow-y-auto rounded-lg border p-3 lg:block">{agents}</aside>}
     </div>
     <form aria-label="Message box" className="flex shrink-0 flex-col gap-2" onSubmit={e => { e.preventDefault(); if (canSend) composer.onSend(); }}>
       <Field><FieldLabel htmlFor={id}>{composer.label ?? 'Message'}</FieldLabel>

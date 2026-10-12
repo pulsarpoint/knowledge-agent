@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { SessionDetail } from './generations';
+import type { Turn } from './turns';
 
 const json = (method: string, value: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
@@ -48,3 +49,9 @@ export function toolApplies(tool: AgentTool, chosen: AgentResources, resources: 
     default: return code;  // code, code_graph
   }
 }
+
+const SAVE_TOOLS = ['save_doc', 'edit_doc'];
+/** Whether the turn saved the document's draft: a save_doc or edit_doc call that did not fail. */
+export const savedIn = (turn: Turn) => turn.work.some(item => item.kind === 'tool' && SAVE_TOOLS.includes(item.name ?? '')
+  && !item.isError && (item.preview ?? '').startsWith('Saved draft'));
+

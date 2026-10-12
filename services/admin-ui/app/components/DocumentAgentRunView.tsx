@@ -4,7 +4,7 @@ import { getDocument } from "~/lib/documents";
 import { getDraft, draftPath, type DraftDetail } from "~/lib/drafts";
 import { closeSession, sendMessage, stopSession } from "~/lib/generations";
 import { runPath } from "~/lib/runs";
-import type { Turn } from "~/lib/turns";
+import { savedIn } from "~/lib/agentSessions";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "~/lib/useSessionEvents";
 import RunWorkspace from "./RunWorkspace";
@@ -14,10 +14,7 @@ import { Button } from "~/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 
-const SAVE_TOOLS = ["save_doc", "edit_doc"];
-/** Whether the turn saved the document's draft: a save_doc or edit_doc call that did not fail. */
-export const savedIn = (turn: Turn) => turn.work.some(item => item.kind === "tool" && SAVE_TOOLS.includes(item.name ?? "")
-  && !item.isError && (item.preview ?? "").startsWith("Saved draft"));
+export { savedIn };
 
 /** One Ask agent run: the transcript (as Generate documents), the document it revises, its draft in the sidebar, Show
  * config (the saved JSON) and Close; a finished turn without a successful save_doc or edit_doc says so. */
