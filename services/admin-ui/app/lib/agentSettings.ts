@@ -55,20 +55,27 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     subagents: settings.subagents === true, experts: strings(settings.experts).filter(id => experts.has(id)) };
 }
 
-/** The settings a run started with, from its saved configuration (for Start new chat with these settings). */
+/** The settings a run started with, from its saved configuration (for Start new chat with these settings), checked
+ * against today's options like restored settings: resources that are gone or not usable, experts that are gone and a
+ * model that is gone are left out (the default model instead). */
 export function settingsFromSession(options: AgentOptions, session: SessionDetail): AgentSettings {
   const config = (session.config ?? {}) as { tools?: { items?: { tool: string; mode: string }[] }; experts?: { id: string }[] };
   const items = config.tools?.items ?? [];
   const choosable = new Set(options.tools.map(tool => tool.name));
+  const experts = new Set(options.experts.map(item => item.id));
   const resources = (session.run_resources ?? {}) as Partial<Record<keyof AgentResources, unknown>>;
   const chosen = { ...EMPTY };
-  for (const [, ids] of KINDS) chosen[ids] = strings(resources[ids]);
+  for (const [key, ids] of KINDS) {
+    const present = new Set(options.resources[key].filter(usable).map(item => item.id));
+    chosen[ids] = strings(resources[ids]).filter(id => present.has(id));
+  }
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
-  return { modelId: session.model_id, promptKey: promptId && options.prompts.some(item => item.id === promptId) ? promptId : BUILT_IN,
+  const modelId = options.models.some(item => item.id === session.model_id) ? session.model_id : defaultSettings(options).modelId;
+  return { modelId, promptKey: promptId && options.prompts.some(item => item.id === promptId) ? promptId : BUILT_IN,
     systemPrompt: session.prompt_snapshot?.system_prompt ?? options.default_prompt.content, chosen,
     off: items.filter(item => choosable.has(item.tool) && item.mode !== 'on').map(item => item.tool),
     subagents: items.some(item => item.tool === 'run_subagent' && item.mode === 'on'),
-    experts: (config.experts ?? []).map(entry => String(entry.id)) };
+    experts: (config.experts ?? []).map(entry => String(entry.id)).filter(id => experts.has(id)) };
 }
 
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>

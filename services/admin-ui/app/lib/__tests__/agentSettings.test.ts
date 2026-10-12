@@ -44,6 +44,16 @@ test('settingsFromSession rebuilds the settings a run started with', () => {
     off: ['read_file'], subagents: true, experts: ['e1'] });
 });
 
+test('settingsFromSession leaves out what today\'s options no longer have or cannot use', () => {
+  const session = { model_id: 'gone-model', prompt_snapshot: { system_prompt: 'Run prompt.', prompt_id: null },
+    run_resources: { server_ids: ['s1', 's2', 's9'], service_ids: ['v1'], environment_ids: [], code_project_ids: ['c9'], collection_ids: [] },
+    config: { tools: { items: [{ tool: 'ssh_run', mode: 'off' }, { tool: 'gone_tool', mode: 'off' }] }, experts: [{ id: 'e1' }, { id: 'e9' }] },
+  } as unknown as SessionDetail;
+  expect(settingsFromSession(options, session)).toEqual({ modelId: 'm2', promptKey: BUILT_IN, systemPrompt: 'Run prompt.',
+    chosen: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: [], collection_ids: [] },
+    off: ['ssh_run'], subagents: false, experts: ['e1'] });
+});
+
 test('the summary names the model, up to three resources and the tools on', () => {
   expect(settingsSummary(options, defaultSettings(options))).toBe('Claude · web-1, Payments · 2 tools');
   const many = { ...defaultSettings(options), chosen: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: ['c1'], collection_ids: [] } };

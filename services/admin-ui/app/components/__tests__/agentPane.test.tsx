@@ -151,7 +151,7 @@ test('the conversation uses the compact workspace', async () => {
 });
 
 test('while a run is open, Settings shows the run\'s saved configuration, read-only', async () => {
-  live.sessions.r2 = { ...detail('r2', 'waiting'), model_id: 'm1', run_resources: { server_ids: ['s2'], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] } };
+  live.sessions.r2 = { ...detail('r2', 'waiting'), model_id: 'm1', run_resources: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: ['c1'], collection_ids: [] } };
   api({ [RUNS]: () => [200, { sessions: [run('r2', 'waiting')] }] });
   const props = settingsOf();
   show({ settings: props });
@@ -159,8 +159,8 @@ test('while a run is open, Settings shows the run\'s saved configuration, read-o
   await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
   fireEvent.click(within(pane).getByRole('button', { name: 'Settings' }));
   const sheet = await screen.findByRole('dialog');
-  // the page's defaults check web-1 and Payments; the run's configuration has prod-1 only
-  expect(within(sheet).getByRole('checkbox', { name: 'prod-1' })).toBeChecked();
+  // the page's defaults check web-1 and Payments; the run's configuration has Shop only
+  expect(within(sheet).getByRole('checkbox', { name: 'Shop' })).toBeChecked();
   expect(within(sheet).getByRole('checkbox', { name: 'web-1' })).not.toBeChecked();
   expect(within(sheet).getByRole('checkbox', { name: 'Payments' })).not.toBeChecked();
   expect(within(sheet).getByRole('checkbox', { name: 'web-1' })).toBeDisabled();
