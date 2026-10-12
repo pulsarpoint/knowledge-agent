@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
+import { useAgentSettings } from '~/lib/agentSettings';
+import type { SessionDetail } from '~/lib/generations';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
-import AskAgentSheet from './AskAgentSheet';
+import AgentDraftBar from './AgentDraftBar';
+import AgentPane from './AgentPane';
 import DocumentAgentRuns from './DocumentAgentRuns';
 import DocumentConnections from './DocumentConnections';
 import DocumentDrafts from './DocumentDrafts';
@@ -24,8 +27,16 @@ import { Textarea } from '~/components/ui/textarea';
 
 const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections', 'agent-runs'];
 
-function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { document: DocumentDetail | null; resources: DocumentResources;
-  onSaved: (id: string) => void; onDraftSaved: (draftId: string) => void; onPromoted: (result: PromoteResult) => void }) {
+const PANE_KEY = 'ask-agent-pane';
+const WIDTH_KEY = 'ask-agent-pane-width';
+const clampWidth = (n: number) => Math.min(60, Math.max(25, Math.round(n)));
+function readPane() { try { return localStorage.getItem(PANE_KEY); } catch { return null; } }
+function readWidth() { try { const n = Number(localStorage.getItem(WIDTH_KEY)); return n ? clampWidth(n) : 40; } catch { return 40; } }
+function write(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* not remembered */ } }
+
+function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentOpen, onToggleAgent, registerConfirm }: { document: DocumentDetail | null; resources: DocumentResources;
+  onSaved: (id: string) => void; onDraftSaved: (draftId: string) => void; onPromoted: (result: PromoteResult) => void;
+  agentOpen: boolean; onToggleAgent: () => void; registerConfirm: (confirm: (run: () => void) => void) => void }) {
   const navigate = useNavigate();
   const [initial] = useState<DocumentInput>(() => document ? {
     slug: document.slug, title: document.title, description: document.description, purpose: document.purpose, audience: document.audience,
@@ -44,7 +55,6 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
   const [editingDraft, setEditingDraft] = useState<{ id: string; revision: number; title: string } | null>(null);
   const [historical, setHistorical] = useState<DocumentVersion | null>(null);
   const [pending, setPending] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -53,6 +63,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
   const leaving = useRef(false);
   const dirty = JSON.stringify(value) !== JSON.stringify(initial) || tags !== initial.tags.join(', ');
   const unlessUnsaved = (run: () => void) => { if (dirty) setUnsavedAction({ run }); else run(); };
+  useEffect(() => { registerConfirm(unlessUnsaved); });
   const patch = <K extends keyof DocumentInput>(key: K, next: DocumentInput[K]) => setValue((old) => ({ ...old, [key]: next }));
 
   async function save(event: React.FormEvent) {
@@ -104,11 +115,10 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
       {document && <Button asChild type="button" variant="outline"><a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a></Button>}
       {document && <Badge variant="secondary">Version {document.version}</Badge>}
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
-      {document && <Button type="button" variant="outline" disabled={pending} onClick={() => unlessUnsaved(() => setAsking(true))}><Bot data-icon="inline-start" />Ask agent</Button>}
+      {document && <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}><Bot data-icon="inline-start" />Ask agent</Button>}
       <Button type="button" variant="outline" disabled={pending || !value.markdown.trim() || !value.title.trim()} onClick={() => void saveDraft()}>Save draft</Button>
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
-    {document && asking && <AskAgentSheet documentId={document.id} documentTitle={document.title} onClose={() => setAsking(false)} />}
     {error && !confirmDelete && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
     {editingDraft && <Alert role="status"><AlertDescription>{`Editing the draft “${editingDraft.title}”. Save draft updates it; Save new version makes this text the live version and leaves the draft as it is.`}</AlertDescription></Alert>}
@@ -175,12 +185,18 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
 }
 
 export default function DocumentEditorView() {
-  const { documentId } = useParams();
+  const { documentId, runId } = useParams();
   const navigate = useNavigate();
   const [, setParams] = useSearchParams();
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [agentOpen, setAgentOpen] = useState(() => runId !== undefined || readPane() === 'open');
+  const [width, setWidth] = useState(readWidth);  // the pane's percent, 25-60, default 40
+  const [agentDraft, setAgentDraft] = useState<SessionDetail['document_draft'] | null>(null);
+  const confirmRef = useRef<(run: () => void) => void>((run) => run());
+  const splitRef = useRef<HTMLDivElement>(null);
+  const settings = useAgentSettings(agentOpen && documentId ? documentId : null);  // loads only while the pane is open
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const handed = (useLocation().state as { notice?: unknown } | null)?.notice;
   const [notice, setNotice] = useState(typeof handed === 'string' ? handed : '');
@@ -191,9 +207,49 @@ export default function DocumentEditorView() {
     }).catch((e) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not open document'); });
     return () => controller.abort();
   }, [documentId, refresh]);
-  return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}{error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert> : loaded ?
-    <Editor key={`${documentId}-${refresh}`} {...loaded} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
+  const toggleAgent = () => {
+    const next = !agentOpen;
+    setAgentOpen(next); write(PANE_KEY, next ? 'open' : 'closed');
+    if (!next) setAgentDraft(null);
+  };
+  const resize = (n: number) => { const next = clampWidth(n); setWidth(next); write(WIDTH_KEY, String(next)); };
+  const startDrag = (event: ReactPointerEvent) => {
+    event.preventDefault();
+    const box = splitRef.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return;
+    const move = (e: PointerEvent) => setWidth(clampWidth(100 - (e.clientX - box.left) / box.width * 100));
+    const stop = (e: PointerEvent) => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop);
+      resize(100 - (e.clientX - box.left) / box.width * 100);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop);
+  };
+  const onPromoted = (result: PromoteResult) => { setNotice(promotedNotice(result));
+    setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); };
+  const editor = (current: { document: DocumentDetail | null; resources: DocumentResources }) =>
+    <Editor key={`${documentId}-${refresh}`} {...current} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
       onDraftSaved={(draftId) => { setNotice('Draft saved.'); setParams({ tab: 'drafts', draft: draftId }, { replace: true }); setRefresh((n) => n + 1); }}
-      onPromoted={(result) => { setNotice(promotedNotice(result));
-        setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); }} /> : <Skeleton className="h-96 w-full" />}</>;
+      onPromoted={onPromoted} agentOpen={agentOpen} onToggleAgent={toggleAgent} registerConfirm={(confirm) => { confirmRef.current = confirm; }} />;
+  // The pane lives outside the editor and is rendered whenever it is open, so it keeps its conversation across the
+  // editor's reload (refresh) and remounts only when the document changes.
+  const [titled, setTitled] = useState<{ id: string; title: string } | null>(null);
+  useEffect(() => { if (loaded?.document) setTitled({ id: loaded.document.id, title: loaded.document.title }); }, [loaded]);
+  const paneTitle = agentOpen && documentId && titled?.id === documentId ? titled.title : null;
+  return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
+    <div ref={splitRef} className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="min-w-0 lg:flex-1" style={paneTitle !== null ? { flexBasis: `${100 - width}%` } : undefined}>
+        {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
+        {error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert>
+          : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
+      </div>
+      {paneTitle !== null && <>
+        <div role="separator" aria-orientation="vertical" aria-label="Resize the agent pane" aria-valuemin={25} aria-valuemax={60}
+          aria-valuenow={width} tabIndex={0} className="hidden w-1.5 cursor-col-resize self-stretch rounded bg-border lg:block"
+          onPointerDown={startDrag} onKeyDown={e => { if (e.key === 'ArrowLeft') resize(width + 5); if (e.key === 'ArrowRight') resize(width - 5); }} />
+        <div className="min-w-0 lg:sticky lg:top-4" style={{ flexBasis: `${width}%` }}>
+          <AgentPane key={documentId} documentId={documentId!} documentTitle={paneTitle} settings={settings} initialRunId={runId ?? null}
+            confirmUnsaved={run => confirmRef.current(run)} onDraftChange={setAgentDraft} />
+        </div>
+      </>}
+    </div></>;
 }

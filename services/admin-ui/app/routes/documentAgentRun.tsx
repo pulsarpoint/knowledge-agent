@@ -1,8 +1,7 @@
-import { useParams } from "react-router";
-import AdminLayout from "../components/AdminLayout";
-import DocumentAgentRunView from "../components/DocumentAgentRunView";
+import AdminLayout from '../components/AdminLayout';
+import DocumentEditorView from '../components/DocumentEditorView';
 
+/** An Ask agent run's link: the document page with the agent pane open on that run. */
 export default function Page() {
-  const { documentId, runId } = useParams();
-  return <AdminLayout><DocumentAgentRunView key={runId} documentId={documentId!} runId={runId!} /></AdminLayout>;
+  return <AdminLayout><DocumentEditorView /></AdminLayout>;
 }
