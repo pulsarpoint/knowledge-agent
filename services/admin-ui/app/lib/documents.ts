@@ -10,14 +10,14 @@ export interface DocumentInput {
 export interface DocumentSummary extends Omit<DocumentInput, 'markdown' | 'revision'> {
   id: string; current_version_id: string; published_version_id: string | null; revision: number;
   version: number; content_hash: string; created_at: string; updated_at: string;
-  folder?: string | null;
+  folder?: string | null; draft_count?: number;
 }
 export interface DocumentVersion {
   id: string; version: number; title: string; description: string; purpose: string; audience: DocumentInput['audience'];
   tags: string[]; markdown: string; content_hash: string; source_snapshot: DocumentResources;
   origin: 'manual' | 'uploaded' | 'generated'; base_version_id: string | null; created_at: string;
 }
-export interface DocumentDetail extends DocumentSummary { current_version: DocumentVersion; versions: Pick<DocumentVersion, 'id' | 'version' | 'title' | 'origin' | 'base_version_id' | 'content_hash' | 'created_at'>[] }
+export interface DocumentDetail extends DocumentSummary { current_version: DocumentVersion; versions: (Pick<DocumentVersion, 'id' | 'version' | 'title' | 'origin' | 'base_version_id' | 'content_hash' | 'created_at'> & { from_draft?: boolean })[] }
 export const TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const MAX_TAGS = 10;
 export interface DocumentationPromptInput { name: string; description: string; tags: string[]; enabled: boolean; content: string; revision?: number }

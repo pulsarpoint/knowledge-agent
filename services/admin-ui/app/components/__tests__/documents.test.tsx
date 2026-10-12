@@ -23,6 +23,7 @@ function setup(url: string, saveStatus=200) {
     if (init?.method === 'DELETE') return response({ id:'doc-1' });
     if (path.endsWith('/resources')) return response(resources);
     if (path.includes('/versions/')) return response(first);
+    if (path.includes('/drafts')) return response({ drafts: [] });
     if (path.includes('/documents?')) return response({ documents:[document],total:1 });
     return response(document);
   });
