@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
+from psycopg import errors
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -22,6 +23,7 @@ from knowledge_admin.tools.catalog import CATALOG, REVISION_TOOLS, RUN_ONLY_NEED
 
 REVISION_TAG = 'document-revision'
 DOCUMENT_NOT_FOUND = 'Document not found'
+DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
 UNKNOWN_TOOL = 'Unknown tool: {names}.'
 NEEDS = '{tool} needs {what}.'
 REQUIRES = {'files': 'a code project or a collection', 'code': 'a code project', 'code_graph': 'a code project',
@@ -262,11 +264,16 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             pinned, model, document = build(conn, project, value, session_id)
             title = value.instruction.splitlines()[0][:TITLE_LENGTH]
             snapshot = {'system_prompt': value.system_prompt, 'prompt_id': value.prompt_id}
-            conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
-                target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
-                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
-                (session_id, project, actor, model['id'], title, document['id'], Jsonb(jsonable_encoder(snapshot)),
-                 Jsonb({'document_id': str(document['id'])}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+            try:
+                conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                    target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
+                    VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
+                    (session_id, project, actor, model['id'], title, document['id'], Jsonb(jsonable_encoder(snapshot)),
+                     Jsonb({'document_id': str(document['id'])}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+            except errors.ForeignKeyViolation as exc:  # the document was deleted after build() read it
+                if exc.diag.constraint_name != DOCUMENT_FOREIGN_KEY:
+                    raise
+                raise HTTPException(404, DOCUMENT_NOT_FOUND) from None
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, value.instruction))
             tools_off = sorted(item['tool'] for item in pinned['tools']['items']

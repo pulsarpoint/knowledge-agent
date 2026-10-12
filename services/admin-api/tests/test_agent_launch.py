@@ -169,3 +169,17 @@ def test_options_default_to_the_model_last_used_on_the_document(ask):
     url = f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}"
     assert post(ask, model_id=ask.s.gpt).status_code == 201
     assert ask.s.client.get(url, headers=HEADERS).json()['default_model_id'] == ask.s.gpt
+
+
+def test_start_says_document_not_found_when_the_document_goes_before_the_insert(ask, monkeypatch):
+    from knowledge_admin import agent_launch
+    real = agent_launch.build
+
+    def build_then_delete(conn, project, value, session_id):
+        built = real(conn, project, value, session_id)
+        with ask.s.store.connect() as other:  # another transaction deletes the document after build() read it
+            other.execute('DELETE FROM ka.documents WHERE id=%s', (ask.document['id'],))
+        return built
+    monkeypatch.setattr(agent_launch, 'build', build_then_delete)
+    response = post(ask)
+    assert response.status_code == 404 and response.json()['error']['message'] == 'Document not found', response.text
