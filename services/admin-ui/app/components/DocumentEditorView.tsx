@@ -104,7 +104,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
       {document && <Button asChild type="button" variant="outline"><a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a></Button>}
       {document && <Badge variant="secondary">Version {document.version}</Badge>}
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
-      {document && <Button type="button" variant="outline" disabled={pending} onClick={() => setAsking(true)}><Bot data-icon="inline-start" />Ask agent</Button>}
+      {document && <Button type="button" variant="outline" disabled={pending} onClick={() => unlessUnsaved(() => setAsking(true))}><Bot data-icon="inline-start" />Ask agent</Button>}
       <Button type="button" variant="outline" disabled={pending || !value.markdown.trim() || !value.title.trim()} onClick={() => void saveDraft()}>Save draft</Button>
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>

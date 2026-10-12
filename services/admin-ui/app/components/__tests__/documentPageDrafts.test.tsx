@@ -191,3 +191,21 @@ test('without unsaved changes, Edit loads the draft at once', async () => {
   expect(await screen.findByLabelText('Markdown')).toHaveValue('# Runbook draft text');
   expect(screen.queryByRole('alertdialog')).toBeNull();
 });
+
+test('with unsaved changes, Ask agent asks first; Keep editing opens nothing, Discard changes opens the sheet', async () => {
+  const OPTIONS = 'GET /api/agent-sessions/options?kind=revision&document_id=doc-1';
+  const options = { models: [], default_model_id: null, prompts: [], default_prompt: { id: null, name: 'Built-in', content: 'x' },
+    resources: { servers: [], services: [], environments: [], code_projects: [], collections: [] }, tools: [], fixed_tools: [], experts: [] };
+  const calls = api({ ...base, [OPTIONS]: () => [200, options] });
+  show('/documents/doc-1');
+  fireEvent.change(await screen.findByLabelText('Markdown'), { target: { value: '# My unsaved text' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask agent' }));
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Keep editing' }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(calls.some((c) => c.key === OPTIONS)).toBe(false);
+  expect(screen.getByLabelText('Markdown')).toHaveValue('# My unsaved text');
+  fireEvent.click(screen.getByRole('button', { name: 'Ask agent' }));
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Discard changes' }));
+  expect(await screen.findByRole('dialog', { name: 'Ask agent' })).toBeInTheDocument();
+  expect(calls.some((c) => c.key === OPTIONS)).toBe(true);
+});
