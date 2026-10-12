@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { DocumentInput } from './documents';
+import type { SessionPurpose } from './generations';
 
 export type DraftOrigin = 'manual' | 'agent';
 export interface DraftSource {
@@ -8,7 +9,7 @@ export interface DraftSource {
 }
 export interface DraftSummary {
   id: string; document_id: string | null; slug: string | null; folder: string | null; title: string; origin: DraftOrigin;
-  session_id: string | null; session_title: string | null; author: string | null; edited: boolean;
+  session_id: string | null; session_purpose?: SessionPurpose | null; session_title: string | null; author: string | null; edited: boolean;
   status: 'open' | 'promoted' | 'discarded'; revision: number; base_version_id: string | null;
   base_version: number | null; live_version: number | null; stale: boolean; created_at: string; updated_at: string;
 }

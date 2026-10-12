@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
+import { agentRunPath } from '~/lib/agentSessions';
 import { discardDraft, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type DraftSource, type DraftSummary, type PromoteResult } from '~/lib/drafts';
 import DiffView from './DiffView';
 import Markdown from './Markdown';
@@ -16,9 +17,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 const failure = (e: unknown, fallback: string) => e instanceof Error ? e.message : fallback;
 
 /** Who wrote a draft: the person, or "Agent run" linking to the run. */
-export function DraftAuthor({ draft }: { draft: Pick<DraftSummary, 'origin' | 'session_id' | 'session_title' | 'author'> }) {
+export function DraftAuthor({ draft }: { draft: Pick<DraftSummary, 'origin' | 'session_id' | 'session_title' | 'author' | 'session_purpose' | 'document_id'> }) {
   if (draft.origin === 'agent') return draft.session_id
-    ? <Link className="underline" title={draft.session_title ?? undefined} to={`/documentation/generations/${encodeURIComponent(draft.session_id)}`}>Agent run</Link>
+    ? <Link className="underline" title={draft.session_title ?? undefined} to={draft.session_purpose === 'revision' && draft.document_id
+      ? agentRunPath(draft.document_id, draft.session_id) : `/documentation/generations/${encodeURIComponent(draft.session_id)}`}>Agent run</Link>
     : <span>Agent run</span>;
   return <span>{draft.author || 'Someone'}</span>;
 }

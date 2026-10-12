@@ -99,6 +99,10 @@ per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
 
+Ask agent runs (agent sessions with purpose `revision`, started through `/api/agent-sessions`) change a document only
+through the `get_doc`, `save_doc` and `edit_doc` tools, which write the run's draft; Generate documents runs still turn
+their final answer into a draft.
+
 ## Generate documents
 
 **Docs → Generate documents** starts a session with an ad-hoc native agent: no `agents` row, no saved agent. The form picks the

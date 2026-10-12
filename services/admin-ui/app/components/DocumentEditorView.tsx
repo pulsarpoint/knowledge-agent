@@ -4,6 +4,7 @@ import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
 import AskAgentSheet from './AskAgentSheet';
+import DocumentAgentRuns from './DocumentAgentRuns';
 import DocumentConnections from './DocumentConnections';
 import DocumentDrafts from './DocumentDrafts';
 import Markdown from './Markdown';
@@ -21,7 +22,7 @@ import { Spinner } from '~/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import { Textarea } from '~/components/ui/textarea';
 
-const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections'];
+const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections', 'agent-runs'];
 
 function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { document: DocumentDetail | null; resources: DocumentResources;
   onSaved: (id: string) => void; onDraftSaved: (draftId: string) => void; onPromoted: (result: PromoteResult) => void }) {
@@ -125,7 +126,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
         </SelectGroup></SelectContent></Select></Field>
         <Field><FieldLabel htmlFor="doc-tags">Tags</FieldLabel><Input id="doc-tags" placeholder="Comma-separated tags" value={tags} onChange={(e) => setTags(e.target.value)} /></Field>
       </FieldGroup>
-      <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="write">Write</TabsTrigger><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="resources">Linked resources</TabsTrigger><TabsTrigger value="history" disabled={!document}>Version history</TabsTrigger><TabsTrigger value="drafts" disabled={!document}>Drafts</TabsTrigger><TabsTrigger value="connections" disabled={!document}>Connections</TabsTrigger></TabsList>
+      <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="write">Write</TabsTrigger><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="resources">Linked resources</TabsTrigger><TabsTrigger value="history" disabled={!document}>Version history</TabsTrigger><TabsTrigger value="drafts" disabled={!document}>Drafts</TabsTrigger><TabsTrigger value="connections" disabled={!document}>Connections</TabsTrigger><TabsTrigger value="agent-runs" disabled={!document}>Agent runs</TabsTrigger></TabsList>
         <TabsContent value="write" forceMount className="data-[state=inactive]:hidden"><Field><FieldLabel htmlFor="doc-markdown">Markdown</FieldLabel><Textarea id="doc-markdown" className="min-h-96 font-mono" required maxLength={1000000} value={value.markdown} onChange={(e) => patch('markdown', e.target.value)} />
           <FieldDescription>Every save preserves a complete version and updates the documents collection's folder; refresh the collection to update search.</FieldDescription></Field></TabsContent>
         <TabsContent value="preview"><div className="min-h-96 rounded-lg border p-4">{value.markdown ? <Markdown content={value.markdown} /> : <p className="text-sm text-muted-foreground">Write Markdown to preview the document.</p>}</div></TabsContent>
@@ -158,6 +159,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted }: { do
             setNotice(`Draft “${draft.title}” loaded into the editor.`);
           }} />}</TabsContent>
         <TabsContent value="connections">{document && <DocumentConnections documentId={document.id} />}</TabsContent>
+        <TabsContent value="agent-runs">{document && <DocumentAgentRuns documentId={document.id} />}</TabsContent>
       </Tabs>
     </fieldset>
     <AlertDialog open={unsavedAction !== null} onOpenChange={(open) => { if (!open) setUnsavedAction(null); }}><AlertDialogContent><AlertDialogHeader>

@@ -706,6 +706,23 @@ promotes a draft, or accepts a discovery document proposal.
 - **Version history** marks versions promoted from a draft ("from draft").
 - Drafts are never exported, searched or shown to agents; deleting a document deletes its drafts and links.
 
+#### Ask agent
+
+**Ask agent** on a document's page starts an agent that changes this document for you. Write what you want
+("Add a section on log rotation; remove the old backup steps"), choose the model, and check the servers and other
+resources it may use: the ones linked to the document are ticked. A server whose SSH is not set up or not allowed
+cannot be chosen. Under **Tools**, untick what the agent must not use (for example SSH, so it only reads what is
+recorded); reading and saving the document are always on. Subagents and experts are off unless you turn them on.
+**Advanced** holds the system prompt (prompts tagged `document-revision` in Prompts, or the built-in one); changes
+apply to this run only. **Preview** shows exactly what the run will start with, as JSON.
+
+The agent reads the document part by part and saves its changes as a draft of the document — never the live version.
+Its replies are a normal conversation: it may ask you something first, and you can ask for more changes; each save
+updates the same draft. The run page shows the draft (Open draft to compare and promote it) and says when a turn
+ended without a save. If you edit, promote or discard the draft meanwhile, the agent's next save starts a new draft.
+The **Agent runs** tab lists the document's runs, open ones first. Deleting the document deletes its runs; their
+drafts are deleted with it.
+
 Documents are searchable through a collection that holds `generated-documents` (`documents` on upgraded installs) (exclude old `v<n>/` folders in its patterns): **Refresh** it in
 **RAG → Collections**, or turn on Auto-sync, to index what is on disk. **RAG → Search** and the
 agents' document search then find them.

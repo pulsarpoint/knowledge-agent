@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
+import { agentRunPath } from '~/lib/agentSessions';
 import { draftPath } from '~/lib/drafts';
 import { closeSession, saveSessionDraft, sendMessage, stopSession } from '~/lib/generations';
 import { runPath } from '~/lib/runs';
@@ -45,6 +46,7 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
     to={`/agents/${encodeURIComponent(session.agent_id ?? '')}?view=test&session_id=${encodeURIComponent(session.id)}`} />;
   if (session.purpose === 'discovery' && session.server_id) return <Navigate replace
     to={`/servers/${encodeURIComponent(session.server_id)}/discovery/${encodeURIComponent(session.id)}`} />;
+  if (session.purpose === 'revision' && session.target_document_id) return <Navigate replace to={agentRunPath(session.target_document_id, session.id)} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
   // Save as draft only for a run that never had a document draft; a decided one is not offered again.
