@@ -13,8 +13,21 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0097_server_discovery.up.sql', '0097_server_discovery.down.sql'
 
 
+LATER = ('0102_discovery_runs.down.sql', '0102_discovery_runs.up.sql')  # rewrites the prompt 0097 seeds
+
+
 def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
+
+
+def down_from_latest(conn):
+    run(conn, LATER[0])
+    run(conn, DOWN)
+
+
+def up_to_latest(conn):
+    run(conn, UP)
+    run(conn, LATER[1])
 
 
 def world(conn, store):
@@ -84,10 +97,10 @@ def test_down_refuses_while_discovery_runs_exist_then_round_trips(store):
         conn.rollback()
         conn.execute('DELETE FROM ka.agent_sessions WHERE id=%s', (sid,))
         conn.commit()
-        run(conn, DOWN)
+        down_from_latest(conn)
         assert conn.execute("SELECT to_regclass('ka.discovery_proposals') IS NULL AS gone").fetchone()['gone']
         assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE name='Server discovery'").fetchone()['n'] == 0
-        run(conn, UP)
+        up_to_latest(conn)
         assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND name='Server discovery'",
                             (project,)).fetchone()['n'] == 1
 
@@ -113,7 +126,7 @@ def test_a_generated_version_needs_no_generation_run_and_down_refuses_while_one_
         conn.rollback()
         conn.execute('DELETE FROM ka.documents WHERE id=%s', (saved['id'],))
         conn.commit()
-        run(conn, DOWN)
-        run(conn, UP)
+        down_from_latest(conn)
+        up_to_latest(conn)
         assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND name='Server discovery'",
                             (project,)).fetchone()['n'] == 1

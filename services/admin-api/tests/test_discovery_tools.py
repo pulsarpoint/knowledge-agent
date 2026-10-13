@@ -97,11 +97,20 @@ def test_documents_attach_to_the_server_a_service_or_a_proposed_service(run):
     assert rows[3]['service_proposal_id'] == rows[2]['id']
 
 
-def test_proposal_tools_work_only_in_discovery_runs_and_never_show_on_the_tools_tab(run):
+def test_proposal_tools_work_only_in_runs_started_from_a_server_and_never_show_on_the_tools_tab(run):
     world, sid, config = run
-    without = {key: value for key, value in config.items() if key != 'discovery'}
+    assert NOT_DISCOVERY == 'The proposal tools work only in a run started from a server.'
     with pytest.raises(ValueError, match=NOT_DISCOVERY):
-        propose(without, 'propose_service', **SERVICE)
+        propose({key: value for key, value in config.items() if key != 'session_id'}, 'propose_service', **SERVICE)
+    with world.store.connect() as conn:  # another kind of run: its session is not a discovery run
+        other = conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+            context_snapshot,purpose,document_name,folder,agent_config)
+            SELECT gen_random_uuid(),project_id,NULL,actor_id,model_id,'Docs','{}','{}','documents','Docs','docs','{}'
+            FROM ka.agent_sessions WHERE id=%s RETURNING id""", (sid,)).fetchone()['id']
+    with pytest.raises(ValueError, match=NOT_DISCOVERY):
+        propose({**config, 'session_id': str(other)}, 'propose_service', **SERVICE)
+    assert proposals(world, sid) == []
+    assert CATALOG['propose_service'].needs == 'started_from_server'
     listed = {tool['name'] for tool in catalog_listing()}
     assert 'propose_service' not in listed and 'get_server_info_basic' in listed
 

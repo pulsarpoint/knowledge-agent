@@ -190,7 +190,7 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
 
 
 @pytest.mark.parametrize('change,message', [
-    ({'started_from': {'new_document': NEW, 'document_id': str(uuid4())}}, 'Choose one starting point: a document or a new document.'),
+    ({'started_from': {'new_document': NEW, 'document_id': str(uuid4())}}, 'Choose one starting point: a document, a new document or a server.'),
     ({'started_from': {'new_document': {**NEW, 'name': '!!!'}}}, 'Use letters or digits in the document name'),
     ({'started_from': {'new_document': {**NEW, 'folder': '../docs'}}}, FOLDER_RULE),
     ({'started_from': {'new_document': {**NEW, 'folder': '/docs'}}}, FOLDER_RULE),

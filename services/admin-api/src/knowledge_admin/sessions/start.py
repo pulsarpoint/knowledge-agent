@@ -9,18 +9,20 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.data_root import documentation_folder
+from knowledge_admin.discovery import readiness, server_row
 from knowledge_admin.documents import document_slug
 
 from knowledge_admin.knowledge_agents.config import get_agent_config, load_model, model_fits, per_run, require_run_resources
-from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
+from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, options as run_options, resolve
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
-from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, SUBAGENT, needs_met
+from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, PROPOSAL_TOOLS, SUBAGENT, needs_met
 
 REVISION_TAG = 'document-revision'
 WRITE_TAG = 'documentation'
-ONE_START = 'Choose one starting point: a document or a new document.'
+DISCOVERY_TAG = 'server-discovery'
+ONE_START = 'Choose one starting point: a document, a new document or a server.'
 ID_OR_NEW = 'Give a document id or a new document.'
 ONE_NEW = 'One new document per run.'
 NOT_THE_START = 'The new document must be the one the run starts from.'
@@ -29,7 +31,9 @@ DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
 UNKNOWN_TOOL = 'Unknown tool: {names}.'
 NEEDS = '{tool} needs {what}.'
 REQUIRES = {'files': 'a code project or a collection', 'code': 'a code project', 'code_graph': 'a code project',
-            'documents': 'a collection', 'ssh': 'at least one server', 'editable_document': 'a document to edit'}
+            'documents': 'a collection', 'ssh': 'at least one server', 'editable_document': 'a document to edit',
+            'started_from_server': 'a run started from a server'}
+SERVER_FACTS = 'Server: {name} (hostname {hostname}, id {id}).'
 NO_EXPERT = 'This expert is not available: {id}.'
 NOT_SET_UP = 'SSH is not set up for this server.'
 NOT_ALLOWED = 'SSH is not allowed for this server.'
@@ -83,10 +87,11 @@ class StartedFrom(BaseModel):
     model_config = ConfigDict(extra='forbid')
     document_id: UUID | None = None
     new_document: NewDocument | None = None
+    server_id: UUID | None = None
 
     @model_validator(mode='after')
     def valid(self):
-        if (self.document_id is None) == (self.new_document is None):
+        if sum(item is not None for item in (self.document_id, self.new_document, self.server_id)) != 1:
             raise ValueError(ONE_START)
         return self
 
@@ -137,9 +142,9 @@ class StartInput(BaseModel):
 
 
 def choosable() -> list:
-    """The tools a person can switch on for a run: not discovery-only, not "Answer only from documents", not
-    run_subagent (its own switch)."""
-    return [spec for spec in CATALOG.values() if spec.needs not in ('discovery', 'grounded') and spec.name != SUBAGENT]
+    """The tools a person can switch on for a run: not "Answer only from documents", not run_subagent (its own
+    switch). The proposal tools work only in a run started from a server (their need says so)."""
+    return [spec for spec in CATALOG.values() if spec.needs != 'grounded' and spec.name != SUBAGENT]
 
 
 def revise_prompt_id(project: UUID) -> UUID:
@@ -150,6 +155,27 @@ def revise_prompt_id(project: UUID) -> UUID:
 def write_prompt_id(project: UUID) -> UUID:
     """The seeded "Write a document" prompt's id (md5(...)::uuid, as its migration seeds it)."""
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:write-document:{project}'.encode()).hexdigest())
+
+
+def discovery_prompt_id(project: UUID) -> UUID:
+    """The seeded "Server discovery" prompt's id (migration 0097: md5(...)::uuid)."""
+    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:server-discovery:{project}'.encode()).hexdigest())
+
+
+def start_server(conn, project: UUID, server_id: UUID) -> dict:
+    """The server a run starts from: it exists in this workspace and SSH is set up and allowed for it."""
+    server = server_row(conn, project, server_id, lock=True)
+    reason = readiness(server)
+    if reason:
+        raise HTTPException(400, reason)
+    return server
+
+
+def server_context(value: 'StartInput', server: dict | None) -> str:
+    """The run's context: the request's, or for a run started from a server the facts about it."""
+    if value.context or server is None:
+        return value.context
+    return SERVER_FACTS.format(name=server['name'], hostname=server['hostname'], id=server['id'])
 
 
 def server_reason(row: dict) -> str | None:
@@ -255,11 +281,19 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
 
 def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
           ) -> tuple[dict, dict, dict | None]:
-    """(pinned configuration, model, started-from document; None for a saved agent or a new document): preview and
-    start share it, so they pin the same configuration except the random `new:` id of a new document."""
+    """(pinned configuration, model, where it starts: the document or the server; None for a saved agent or a new
+    document): preview and start share it, so they pin the same configuration except the random `new:` id of a new
+    document. A run started from a server has SSH to it (added to the chosen servers when missing), reads the services
+    deployed on it (pinned without what they would bring) and records it as `started_from_server`."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
+    server = None
+    selection = value.resources
+    if value.started_from.server_id is not None:
+        server = start_server(conn, project, value.started_from.server_id)
+        if server['id'] not in selection.server_ids:
+            selection = selection.model_copy(update={'server_ids': [*selection.server_ids, server['id']]})
     started = value.started_from.new_document
     entries = list(value.resources.documents)
     new = next((entry.new for entry in entries if entry.new is not None), None)
@@ -277,7 +311,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
     if model is None or not model['enabled'] or not model_fits(model):
         raise HTTPException(400, NO_MODEL)
     for row in conn.execute('SELECT id,name,enabled,ssh_allowed,credential_id FROM ka.servers WHERE project_id=%s AND id=ANY(%s)',
-                            (project, value.resources.server_ids)).fetchall():
+                            (project, selection.server_ids)).fetchall():
         reason = server_reason(row)
         if reason:
             raise HTTPException(400, f"Server {row['name']}: {reason}")
@@ -285,11 +319,17 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
     unknown = [name for name in value.tools if name not in names]
     if unknown:
         raise HTTPException(400, UNKNOWN_TOOL.format(names=', '.join(unknown)))
-    system_prompt = value.system_prompt + (f'\n\n# Context\n\n{value.context}' if value.context else '')
+    context = server_context(value, server)
+    system_prompt = value.system_prompt + (f'\n\n# Context\n\n{context}' if context else '')
     try:
-        pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=value.resources)
+        pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=selection)
     except RunResourceError as exc:
         raise HTTPException(400, str(exc)) from None
+    if server is not None:
+        deployed = conn.execute('SELECT DISTINCT service_id FROM ka.service_deployments WHERE server_id=%s',
+                                (server['id'],)).fetchall()
+        pinned = pin_services(conn, project, pinned, [row['service_id'] for row in deployed])
+        pinned['started_from_server'] = {'id': str(server['id']), 'name': server['name']}
     keyed = [server for server in pinned['ssh']['servers'] if server.get('private_key_ref') is not None]
     if len(keyed) != len(pinned['ssh']['servers']):  # a server a service or environment brought in, without an SSH key
         pinned['ssh'] = {**pinned['ssh'], 'servers': keyed, 'enabled': pinned['ssh']['enabled'] and bool(keyed)}
@@ -308,7 +348,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
             item['mode'] = 'on' if value.subagents else 'off'
         elif item['tool'] in CATALOG:
             item['mode'] = 'on' if item['tool'] in chosen else 'off'
-            if item['tool'] in DOCUMENT_EDIT_TOOLS:
+            if item['tool'] in DOCUMENT_EDIT_TOOLS + PROPOSAL_TOOLS:
                 item['subagent_allowed'] = False
     experts = {entry['id']: entry for entry in pinned['experts']}
     for expert_id in value.expert_ids:
@@ -316,13 +356,16 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
             raise HTTPException(400, NO_EXPERT.format(id=expert_id))
     pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
     pinned['project_id'] = str(project)
-    return jsonable_encoder(pinned), model, target
+    return jsonable_encoder(pinned), model, server if server is not None else target
 
 
-def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, new_document: bool = False) -> dict:
+def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, new_document: bool = False,
+            server_id: UUID | None = None) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
-    tagged documentation), resources (marked linked to the starting document), the choosable tools and experts."""
+    tagged documentation; for a server, server-discovery), resources (marked linked to the starting document or
+    server), the choosable tools (the proposal tools only for a server) and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
+    server = server_row(conn, project, server_id) if server_id is not None else None
 
     def links(key: str) -> list:
         return (document[key] or []) if document else []
@@ -332,6 +375,9 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
     if document_id is not None:
         last = conn.execute('''SELECT model_id FROM ka.agent_sessions WHERE target_document_id=%s AND actor_id=%s
             ORDER BY created_at DESC LIMIT 1''', (document_id, actor)).fetchone()
+    elif server_id is not None:
+        last = conn.execute('''SELECT model_id FROM ka.agent_sessions WHERE server_id=%s AND actor_id=%s
+            ORDER BY created_at DESC LIMIT 1''', (server_id, actor)).fetchone()
     else:
         last = conn.execute('''SELECT model_id FROM ka.agent_sessions WHERE agent_id IS NULL AND actor_id=%s
             ORDER BY created_at DESC LIMIT 1''', (actor,)).fetchone()
@@ -340,8 +386,8 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
     prompts = conn.execute('''SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
         JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
         WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s]::text[] ORDER BY lower(p.name),p.id''',
-        (project, WRITE_TAG if new_document else REVISION_TAG)).fetchall()
-    seeded = write_prompt_id(project) if new_document else revise_prompt_id(project)
+        (project, DISCOVERY_TAG if server else WRITE_TAG if new_document else REVISION_TAG)).fetchall()
+    seeded = discovery_prompt_id(project) if server else write_prompt_id(project) if new_document else revise_prompt_id(project)
     prompt_choice = seeded if any(row['id'] == seeded for row in prompts) else (prompts[0]['id'] if prompts else None)
 
     def listed(query: str, linked_ids) -> list[dict]:
@@ -349,10 +395,10 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
         return [{'id': row['id'], 'name': row['name'], 'linked': str(row['id']) in linked}
                 for row in conn.execute(query, (project,)).fetchall()]
     servers = []
-    linked_servers = {str(i) for i in links('server_ids')}
+    linked_servers = {str(i) for i in links('server_ids')} | ({str(server['id'])} if server else set())
     for row in conn.execute('''SELECT id,name,enabled,ssh_allowed,credential_id FROM ka.servers WHERE project_id=%s
             ORDER BY lower(name),id''', (project,)).fetchall():
-        reason = server_reason(row)
+        reason = readiness(row) if server and row['id'] == server['id'] else server_reason(row)
         servers.append({'id': row['id'], 'name': row['name'], 'linked': str(row['id']) in linked_servers,
                         'usable': reason is None, 'reason': reason})
     usable = {str(server['id']) for server in servers if server['usable']}
@@ -382,7 +428,8 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
         'models': models, 'default_model_id': default_model, 'prompts': prompts, 'default_prompt_id': prompt_choice,
         'resources': resources,
         'tools': [{'name': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
-                   'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None} for spec in choosable()],
+                   'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None}
+                  for spec in choosable() if server or spec.name not in PROPOSAL_TOOLS],
         'experts': experts})
 
 

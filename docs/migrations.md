@@ -271,3 +271,19 @@ whole document) are closed with "Closed by an update; start a new chat."; their 
 prompts tagged `documentation` that people made before this update should tell the agent to write with `save_document`;
 copy the rules from "Write a document". The down migration refuses while the seeded prompt is customized and removes it;
 closed runs stay closed.
+
+## 0102_discovery_runs
+
+A server discovery run is now an ordinary run started from a server (`POST /api/sessions` with
+`started_from.server_id`); the code no longer adds its own system prompt or a final-report rule, so what the agent does
+is the prompt's text. The seeded prompt **Server discovery** gets a version 2 with that text (read what the inventory
+records first, explore with read-only commands with `ssh_run` on the server named in the context, never copy secrets,
+propose with `propose_service` and `propose_document`, correct a refused proposal and call again, finish with a short
+report) and version 2 becomes active, but only when nobody changed the prompt (one version, revision 1). New workspaces
+get the new text as version 1. A customized "Server discovery" prompt, or another prompt tagged `server-discovery`, is
+left alone: add that the server is the one named in the context, to run commands with `ssh_run` on it, and the rule
+"When a proposal is refused, the result says why: correct it and call again." Open discovery runs (pinned with the old
+prompt) are closed with "Closed by an update; start a new chat."; their queued messages are discarded and their
+proposals stay reviewable. `POST /api/servers/{id}/discovery` and `GET /api/servers/{id}/discovery` are removed (use
+`GET /api/sessions?server_id=`). The down migration re-activates version 1 and removes version 2 when version 2 is
+still active and untouched, and restores 0097's seed for new workspaces; closed runs stay closed.

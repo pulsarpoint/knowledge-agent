@@ -1,7 +1,7 @@
-"""What a discovery run's agent proposes for the inventory: services (with their deployment on the run's server) and
-documents. Each call is checked and stored at once as a pending proposal (ka.discovery_proposals) for an administrator
-to accept or reject (discovery.py). A proposal of the same service or document while the earlier one is still pending
-replaces it."""
+"""What a run started from a server (purpose discovery) proposes for the inventory: services (with their deployment on
+the run's server) and documents. Each call is checked and stored at once as a pending proposal (ka.discovery_proposals)
+for an administrator to accept or reject (discovery.py). A proposal of the same service or document while the earlier
+one is still pending replaces it."""
 import asyncio
 from typing import Any
 
@@ -10,8 +10,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.inventory import connect
 
-NOT_DISCOVERY = 'Proposals can only be made in a server discovery run.'
-GONE = 'This discovery run no longer exists.'
+NOT_DISCOVERY = 'The proposal tools work only in a run started from a server.'
 SELF = 'A service cannot depend on itself.'
 SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner', 'operations_notes')
 DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
@@ -59,14 +58,13 @@ def _entries(conn, query: str, project, names: list[str], what: str) -> list[dic
 
 
 def _run(conn, config: dict[str, Any]) -> tuple[dict, dict]:
-    """The run's session, locked so its proposals are numbered and replaced one at a time, and its server."""
-    run = config.get('discovery')
-    if not run:
-        raise ValueError(NOT_DISCOVERY)
+    """The run's session (config['session_id'], set by the worker; a run started from a server), locked so its proposals
+    are numbered and replaced one at a time, and its server."""
+    session_id = config.get('session_id')
     session = conn.execute("""SELECT id,project_id,server_id FROM ka.agent_sessions WHERE id=%s AND purpose='discovery'
-        FOR UPDATE""", (run['session_id'],)).fetchone()
+        FOR UPDATE""", (session_id,)).fetchone() if session_id else None
     if session is None:
-        raise ValueError(GONE)
+        raise ValueError(NOT_DISCOVERY)
     server = conn.execute('SELECT id,name FROM ka.servers WHERE id=%s', (session['server_id'],)).fetchone()
     return session, server
 

@@ -14,7 +14,7 @@ from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.shell import client as shell
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
-Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'discovery', 'editable_document']
+Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'started_from_server', 'editable_document']
 
 
 @dataclass(frozen=True)
@@ -416,10 +416,10 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
              InventoryName, _call(inventory.get_project_info), None, _never),
     ToolSpec('get_document', 'inventory', 'Read document', 'Read a document given to this run or attached to the inventory.',
              GET_DOCUMENT, GetDocument, _call(document_tools.get_document), None, _never),
-    ToolSpec('propose_service', 'inventory', 'Propose service', 'Propose a service for review (server discovery runs).',
-             PROPOSE_SERVICE, ProposeService, _call(discovery_tools.propose_service), 'discovery', _never),
-    ToolSpec('propose_document', 'inventory', 'Propose document', 'Propose a document for review (server discovery runs).',
-             PROPOSE_DOCUMENT, ProposeDocument, _call(discovery_tools.propose_document), 'discovery', _never),
+    ToolSpec('propose_service', 'inventory', 'Propose service', 'Propose a service for review (runs started from a server).',
+             PROPOSE_SERVICE, ProposeService, _call(discovery_tools.propose_service), 'started_from_server', _never),
+    ToolSpec('propose_document', 'inventory', 'Propose document', 'Propose a document for review (runs started from a server).',
+             PROPOSE_DOCUMENT, ProposeDocument, _call(discovery_tools.propose_document), 'started_from_server', _never),
     ToolSpec('save_document', 'documents', 'Save a document', "Save this run's draft of a document it may edit.",
              SAVE_DOCUMENT, SaveDocument, _call(document_tools.save_document), 'editable_document', _never),
     ToolSpec('edit_document', 'documents', 'Edit a document', "Replace one passage in this run's draft of a document.",
@@ -429,12 +429,14 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
 )}
 
 DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
-RUN_ONLY_NEEDS = ('discovery', 'editable_document')  # never chosen for a saved agent: discovery runs only; documents are given per run
+PROPOSAL_TOOLS = ('propose_service', 'propose_document')
+# Never chosen for a saved agent: a run is started from a server, and documents are given, per run.
+RUN_ONLY_NEEDS = ('started_from_server', 'editable_document')
 NEED_REASONS: dict[str, str] = {
     'files': 'Needs code projects, or documents without "Answer only from documents"',
     'code': 'Needs code projects', 'code_graph': 'Needs code projects', 'documents': 'Needs documents',
     'grounded': 'Needs "Answer only from documents"', 'ssh': 'Needs SSH servers',
-    'discovery': 'Only in server discovery runs', 'editable_document': 'Needs a document to edit'}
+    'started_from_server': 'Needs a run started from a server', 'editable_document': 'Needs a document to edit'}
 NEED_TABS: dict[str, str] = {'files': 'git', 'code': 'git', 'code_graph': 'git', 'documents': 'documents',
                              'grounded': 'documents', 'ssh': 'ssh'}
 
@@ -454,8 +456,8 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
         return _documents(config)
     if need == 'grounded':
         return _grounded(config)
-    if need == 'discovery':
-        return bool(config.get('discovery'))
+    if need == 'started_from_server':
+        return bool(config.get('started_from_server'))
     if need == 'editable_document':
         return any(entry.get('editable') for entry in config.get('document_access', []))
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)

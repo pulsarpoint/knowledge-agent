@@ -45,6 +45,18 @@ def _services(conn, project_id) -> list[dict[str, Any]]:
     return services
 
 
+def pin_services(conn, project_id, config: dict[str, Any], service_ids: list[str]) -> dict[str, Any]:
+    """The configuration with these services added to its services as they are, bringing nothing (no code projects,
+    no servers): a run started from a server reads the services deployed on it."""
+    have = {str(item['id']) for item in config['services']['items']}
+    wanted = {str(item) for item in service_ids} - have
+    if not wanted:
+        return config
+    added = [service for service in _services(conn, project_id) if str(service['id']) in wanted]
+    return {**config, 'services': {**config['services'], 'enabled': True,
+                                   'items': [*config['services']['items'], *jsonable_encoder(added)]}}
+
+
 def base_config(conn, project_id, *, model: dict[str, Any], system_prompt: str) -> dict[str, Any]:
     """Everything allowed, before the run's selection narrows it."""
     from knowledge_admin.tools.catalog import CATALOG, SUBAGENT  # the catalog imports config

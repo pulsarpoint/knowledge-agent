@@ -31,6 +31,10 @@ LIST = SUMMARY.replace('FROM ka.agent_sessions s', ''',p.email AS started_by,
          ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS draft_id
         FROM ka.agent_sessions s LEFT JOIN ka.principals p ON p.id=s.actor_id''', 1)
 assert LIST != SUMMARY
+PROPOSAL_COUNTS = ''.join(f""",(SELECT count(*) FROM ka.discovery_proposals dp WHERE dp.session_id=s.id
+        AND dp.status='{status}')::int AS {status}""" for status in ('pending', 'accepted', 'rejected'))
+LIST_WITH_PROPOSALS = LIST.replace(',p.email AS started_by', ',p.email AS started_by' + PROPOSAL_COUNTS, 1)
+assert LIST_WITH_PROPOSALS != LIST
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -58,9 +62,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.get('')
     def sessions(response: Response, purpose: SessionPurpose | None = None, document_id: UUID | None = None,
-                 agent_id: str | None = None, offset: int = Query(0, ge=0)) -> dict:
-        """Runs, newest first: those started from a document (open first, then by activity), of one purpose, or an
-        agent's Test and event sessions."""
+                 agent_id: str | None = None, server_id: UUID | None = None, offset: int = Query(0, ge=0)) -> dict:
+        """Runs, newest first: those started from a document (open first, then by activity), of one purpose, an
+        agent's Test and event sessions, or the runs started from a server (with their proposal counts)."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
@@ -72,15 +76,19 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 where.append('s.purpose=%s'); values.append(purpose)
             if agent_id is not None:
                 where.append("s.agent_id=%s AND s.purpose IN ('test','event')"); values.append(agent_id)
+            if server_id is not None:
+                where.append("s.server_id=%s AND s.purpose='discovery'"); values.append(server_id)
+            query = LIST_WITH_PROPOSALS if server_id is not None else LIST
             order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
-            return {'sessions': conn.execute(f"{LIST} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s OFFSET %s",
+            return {'sessions': conn.execute(f"{query} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s OFFSET %s",
                                              (*values, 100 if document_id or agent_id else 50, offset)).fetchall()}
 
     @router.get('/options')
     def options(request: Request, document_id: UUID | None = Query(None), agent_id: str | None = Query(None),
-                new_document: bool = Query(False)) -> dict:
+                new_document: bool = Query(False), server_id: UUID | None = Query(None)) -> dict:
         db = database()
-        if new_document and (agent_id is not None or document_id is not None):
+        starts = sum((document_id is not None, new_document, server_id is not None))
+        if starts > 1 or (agent_id is not None and (new_document or server_id is not None)):
             raise HTTPException(400, start.ONE_START)
         if agent_id is not None and document_id is not None:
             raise HTTPException(400, 'Choose a document or an agent.')
@@ -89,7 +97,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 return start.agent_options(conn, db.project(conn, app_name), agent_id, db.conninfo)
             subject, _ = request_actor(request)  # read-only: a GET does not create the principal
             actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
-            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document)
+            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document,
+                                 server_id)
 
     @router.post('/preview')
     def preview(value: start.StartInput) -> dict:
@@ -105,10 +114,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             project = db.project(conn, app_name)
             actor = db.actor(conn, *request_actor(request))
             session_id = uuid4()
-            pinned, model, _ = start.build(conn, project, value, session_id, db.conninfo)
+            pinned, model, origin = start.build(conn, project, value, session_id, db.conninfo)
             title = value.message.splitlines()[0][:start.TITLE_LENGTH]
             tools_off = sorted(item['tool'] for item in pinned['tools']['items']
-                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs != 'discovery')
+                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs != 'started_from_server')
             if value.agent_id is not None:
                 snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
                 conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
@@ -120,6 +129,17 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 details = {'agent_id': value.agent_id, 'model_id': model['id'], 'tools_off': tools_off,
                            'expert_ids': [entry['id'] for entry in pinned['experts']],
                            'subagents': value.subagents, 'resources': pinned.get('run_resources')}
+            elif value.started_from.server_id is not None:
+                server_id = value.started_from.server_id
+                snapshot = {'system_prompt': value.system_prompt, 'context': start.server_context(value, origin),
+                            'prompt_id': value.prompt_id}
+                conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                    server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
+                    VALUES (%s,%s,NULL,%s,%s,%s,'discovery',%s,NULL,%s,%s,%s,%s)""",
+                    (session_id, project, actor, model['id'], title, server_id, Jsonb(jsonable_encoder(snapshot)),
+                     Jsonb({'server_id': str(server_id)}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+                details = {'server_id': server_id, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                           'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}
             elif value.started_from.new_document is not None:
                 new = value.started_from.new_document.model_dump()
                 snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
