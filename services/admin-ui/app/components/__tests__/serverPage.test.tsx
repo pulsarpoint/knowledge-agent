@@ -2,7 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import ServerPage from "../ServerPage";
 import { WidePageContext } from "~/lib/widePage";
-import { options } from "~/lib/__tests__/agentOptionsFixture";
+import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
+
+// as the backend offers them for a server: the proposal tools, none that edits a document
+const options = { ...shared, tools: [...shared.tools.filter(tool => tool.needs !== "editable_document"),
+  { name: "propose_service", label: "Propose service", summary: "Propose a service", group: "inventory", needs: "started_from_server", requires: "a run started from a server" },
+  { name: "propose_document", label: "Propose document", summary: "Propose a document", group: "inventory", needs: "started_from_server", requires: "a run started from a server" }] };
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
 vi.mock("~/lib/useSessionEvents", async () => {
@@ -17,9 +22,10 @@ vi.mock("~/lib/useSessionEvents", async () => {
     useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
   };
 });
-vi.mock("../RunWorkspace", () => ({ default: ({ heading, headerActions, empty, composer }: Record<string, any>) => <div>
+vi.mock("../RunWorkspace", () => ({ default: ({ heading, headerActions, empty, composer, answerActions }: Record<string, any>) => <div>
   {heading}{headerActions}{empty}
-  <label>Message<textarea value={composer.value} onChange={e => composer.onChange(e.target.value)} /></label>
+  <div data-testid="answer-actions">{answerActions({ turn: 1, work: [] })}</div>
+  <label>Message<textarea placeholder={composer.placeholder} value={composer.value} onChange={e => composer.onChange(e.target.value)} /></label>
   {composer.blockedReason && <p>{composer.blockedReason}</p>}
   <button type="button" onClick={composer.onSend}>Send message</button></div> }));
 
@@ -104,11 +110,23 @@ test("Ask agent opens the chat and the page goes wide; the first message starts 
   expect(screen.getByTestId("server-split")).toHaveClass("lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]");
   expect(within(pane).getByText("Ask the agent to explore this server.")).toBeInTheDocument();
   await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
+  expect(within(pane).getByLabelText("Message")).toHaveAttribute("placeholder", "For example: check the nginx configuration");
+  expect(within(pane).queryByText("No draft saved in this turn")).toBeNull();
+  // the settings sheet shows the proposal tools on, and no document-editing tool
+  fireEvent.click(within(pane).getByRole("button", { name: "Settings" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("checkbox", { name: "Propose service" })).toBeChecked();
+  expect(within(sheet).getByRole("checkbox", { name: "Propose document" })).toBeChecked();
+  expect(within(sheet).queryByRole("checkbox", { name: "Save a document" })).toBeNull();
+  fireEvent.keyDown(sheet, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Explore it." } });
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
   await waitFor(() => expect(calls.some(c => c.key === "POST /api/sessions")).toBe(true));
   const body = calls.find(c => c.key === "POST /api/sessions")!.body;
   expect(body.started_from).toEqual({ server_id: "s1" });
+  expect(body.tools).toEqual(expect.arrayContaining(["propose_service", "propose_document"]));
+  expect(body.tools).not.toContain("save_document");
   expect(body.message).toBe("Explore it.");
   expect(body.resources.server_ids).toContain("s1");
   // the URL follows the chat's run, and the proposals panel shows above the details
@@ -146,6 +164,7 @@ test("Earlier runs lists the server's runs and opens one", async () => {
   const pane = screen.getByRole("region", { name: "Ask agent" });
   await waitFor(() => expect(live.requested.at(-1)).toBe("r2"));
   fireEvent.keyDown(within(pane).getByRole("button", { name: "Earlier runs" }), { key: "Enter" });
+  expect(await screen.findByRole("menuitem", { name: "Look at the cron jobs · Finished · 1 pending" })).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("menuitem", { name: /Look at the cron jobs/ }));
   await waitFor(() => expect(live.requested.at(-1)).toBe("r1"));
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1/discovery/r1"));

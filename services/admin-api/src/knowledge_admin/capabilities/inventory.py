@@ -51,11 +51,11 @@ def dumps(value: Any) -> str:
 
 SERVER = '''SELECT id,name,hostname,description,tags FROM ka.servers WHERE project_id=%(project)s
     AND (lower(hostname)=lower(%(key)s) OR lower(name)=lower(%(key)s))
-    ORDER BY lower(hostname)=lower(%(key)s) DESC,id LIMIT 1'''
+    ORDER BY lower(hostname)=lower(%(key)s) DESC,id'''
 SERVICE = '''SELECT id,name,service_type,service_role,description,owner,operations_notes FROM ka.services
     WHERE project_id=%s AND lower(name)=lower(%s)'''
 CODE_PROJECT = '''SELECT id,name,remote_url,requested_ref,current_commit FROM ka.repositories
-    WHERE project_id=%s AND archived_at IS NULL AND lower(name)=lower(%s) ORDER BY id LIMIT 1'''
+    WHERE project_id=%s AND archived_at IS NULL AND lower(name)=lower(%s) ORDER BY id'''
 ATTACHED = '''SELECT d.id,d.title,d.description FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
     WHERE a.{column}=%s ORDER BY lower(d.title),d.id LIMIT {limit}'''
 DEPLOYMENTS = '''SELECT s.name AS service,h.name AS server,COALESCE(e.name,d.environment) AS environment,d.runtime,
@@ -77,6 +77,12 @@ def _given(config: dict[str, Any], kind: str, row: dict | None) -> bool:
         return False
 
 
+def _first_given(config: dict[str, Any], kind: str, rows: list[dict]) -> dict | None:
+    """The first matching row the run was given: a hostname or name shared with an entry outside the allowlist does not
+    hide the run's own; None when it was given none of them."""
+    return next((row for row in rows if _given(config, kind, row)), None)
+
+
 def _unavailable(kind: str) -> str:
     return NOT_AVAILABLE.format(kind=KIND_NAMES[kind])
 
@@ -88,8 +94,9 @@ def _documents(conn, column: str, entry_id) -> list[dict]:
 
 def _server_info(config, hostname: str) -> str:
     with connect() as conn:
-        server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if not _given(config, 'server', server):
+        server = _first_given(config, 'server', conn.execute(
+            SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall())
+        if server is None:
             return _unavailable('server')
         environments = [row['name'] for row in conn.execute('''SELECT e.name FROM ka.environment_servers es
             JOIN ka.environments e ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name)''', (server['id'],))]
@@ -101,8 +108,9 @@ def _server_info(config, hostname: str) -> str:
 
 def _server_services(config, hostname: str) -> str:
     with connect() as conn:
-        server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if not _given(config, 'server', server):
+        server = _first_given(config, 'server', conn.execute(
+            SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall())
+        if server is None:
             return _unavailable('server')
         rows = conn.execute(f'''SELECT s.id,s.name,s.service_type,s.service_role,s.description,COALESCE(e.name,d.environment) AS environment,
             d.runtime,d.runtime_name,d.port,d.deployed_version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
@@ -113,8 +121,9 @@ def _server_services(config, hostname: str) -> str:
 
 def _server_docs(config, hostname: str) -> str:
     with connect() as conn:
-        server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if not _given(config, 'server', server):
+        server = _first_given(config, 'server', conn.execute(
+            SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall())
+        if server is None:
             return _unavailable('server')
         return dumps({'server': server['name'], **listed(_documents(conn, 'server_id', server['id']))})
 
@@ -152,8 +161,8 @@ def _service_docs(config, name: str) -> str:
 
 def _project_info(config, name: str) -> str:
     with connect() as conn:
-        code = conn.execute(CODE_PROJECT, (project_of(conn, config), name)).fetchone()
-        if not _given(config, 'code_project', code):
+        code = _first_given(config, 'code_project', conn.execute(CODE_PROJECT, (project_of(conn, config), name)).fetchall())
+        if code is None:
             return _unavailable('code_project')
         services = [row['name'] for row in conn.execute('''SELECT s.name FROM ka.inventory_links l JOIN ka.services s ON s.id=l.from_service_id
             WHERE l.kind='built_from' AND l.to_code_project_id=%s ORDER BY lower(s.name)''', (code['id'],))]

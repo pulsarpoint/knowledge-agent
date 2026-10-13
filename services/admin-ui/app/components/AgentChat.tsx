@@ -158,18 +158,18 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
         {!isNew && <DropdownMenu>
           <DropdownMenuTrigger asChild><Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>Earlier runs</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">{earlier.map(item => <DropdownMenuItem key={item.id} onSelect={() => pick(item.id)}>
-            {`${item.title} · ${statusLabels[item.status]}${item.purpose === 'event' ? ' · Event' : ''}`}</DropdownMenuItem>)}</DropdownMenuContent>
+            {`${item.title} · ${statusLabels[item.status]}${item.purpose === 'event' ? ' · Event' : ''}${scope.kind === 'server' && (item.pending ?? 0) > 0 ? ` · ${item.pending} pending` : ''}`}</DropdownMenuItem>)}</DropdownMenuContent>
         </DropdownMenu>}
         {isAgent && session && <Button type="button" size="sm" variant="outline" disabled={!reviews.length}
           onClick={() => setSuggestions({ open: true, turn: null })}>Suggestions ({reviews.length})</Button>}</>}
-      answerActions={turn => <>{!isAgent && !savedIn(turn) && <span className="text-xs text-muted-foreground">No draft saved in this turn</span>}
+      answerActions={turn => <>{(scope.kind === 'document' || isNew) && !savedIn(turn) && <span className="text-xs text-muted-foreground">No draft saved in this turn</span>}
         {session && <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
         {isAgent && session && <Button type="button" variant="ghost" size="sm" disabled={busy || working}
           onClick={() => setSuggestions({ open: true, turn: turn.turn })}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>}</>}
       empty={<p className="text-sm text-muted-foreground">{isAgent ? 'Send a message to test the agent.' : scope.kind === 'server' ? 'Ask the agent to explore this server.' : isNew ? 'Tell the agent what to write.' : 'Ask the agent to change this document.'}</p>}
       composer={{ value: message, onChange: setMessage, busy: busy || waiting || !settings.settings, label: 'Message',
         placeholder: isAgent ? 'Ask a question or give a task…' : isNew ? 'For example: document the payments API for new developers'
-          : 'For example: add a section on log rotation', onSend: () => void send(),
+          : scope.kind === 'server' ? 'For example: check the nginx configuration' : 'For example: add a section on log rotation', onSend: () => void send(),
         onStop: open ? () => void act(async () => { await stopSession(runId!); stopping(); }) : undefined,
         blockedReason: foreign ? `This run belongs to another ${isAgent ? 'agent' : scope.kind === 'server' ? 'server' : 'document'}. Start a New chat.`
           : session?.status === 'closed' ? 'This conversation is closed. Start a New chat.'

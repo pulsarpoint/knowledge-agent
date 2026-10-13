@@ -179,6 +179,19 @@ def test_a_run_has_only_the_experts_it_chose(world):
     ssh_ready(world)
     config = pinned_of(world, start(world).json()['id'])
     assert config['experts'] == []
+    chosen = start(world, expert_ids=[expert.json()['id']])
+    assert chosen.status_code == 201, chosen.text
+    assert [entry['id'] for entry in pinned_of(world, chosen.json()['id'])['experts']] == [expert.json()['id']]
+
+
+def test_switching_a_proposal_tool_off_is_audited(world):
+    ssh_ready(world)
+    started = start(world, tools=[tool for tool in TOOLS if tool != 'propose_document'])
+    assert started.status_code == 201, started.text
+    with world.store.connect() as conn:
+        details = conn.execute("""SELECT details FROM ka.audit_events WHERE action='agent_run.created'
+            AND resource_id=%s""", (started.json()['id'],)).fetchone()['details']
+    assert 'propose_document' in details['tools_off'] and 'propose_service' not in details['tools_off']
 
 
 def test_the_options_for_a_server(world):
@@ -195,11 +208,13 @@ def test_the_options_for_a_server(world):
     tools = {tool['name']: tool for tool in options['tools']}
     assert {'propose_service', 'propose_document', 'ssh_run'} <= set(tools)
     assert tools['propose_service']['requires'] == 'a run started from a server'
+    assert not {'save_document', 'edit_document'} & set(tools)  # a server run has no document to edit
     ssh_ready(world)
     [server] = world.client.get(f"/api/sessions/options?server_id={world.server['id']}", headers=HEADERS).json()['resources']['servers']
     assert server['usable'] and server['reason'] is None
     elsewhere = world.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
     assert 'propose_service' not in {tool['name'] for tool in elsewhere['tools']}
+    assert {'save_document', 'edit_document'} <= {tool['name'] for tool in elsewhere['tools']}
     both = world.client.get(f"/api/sessions/options?server_id={world.server['id']}&new_document=1", headers=HEADERS)
     assert both.status_code == 400 and both.json()['error']['message'] == ONE_START
     assert world.client.get(f'/api/sessions/options?server_id={uuid4()}', headers=HEADERS).status_code == 404

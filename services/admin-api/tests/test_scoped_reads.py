@@ -138,3 +138,21 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     config = response.json()['config']
     assert config.get('document_access', []) == []
     assert_scoped(config, web_document=ask.document['id'], db=db, project='Payments API')
+
+
+def test_a_shared_hostname_or_name_finds_the_runs_own_entry(world):
+    """A server sharing web-1's hostname and a code project sharing Shop's name, both sorted first: a run given only
+    web-1 and Shop still reads them; a run given neither reads both as missing."""
+    with world.store.connect() as conn:
+        conn.execute("""INSERT INTO ka.servers(id,project_id,name,hostname,username)
+            VALUES ('00000000-0000-0000-0000-000000000001',%s,'web-0','10.0.0.7','ops')""", (world.project,))
+        conn.execute("""INSERT INTO ka.repositories(id,project_id,slug,name,remote_url)
+            VALUES ('00000000-0000-0000-0000-000000000001',%s,'shop-copy','Shop','https://git.example/shop-copy.git')""",
+                     (world.project,))
+    config = {'project_id': str(world.project), 'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}]},
+              'services': {'enabled': True, 'items': []}, 'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]}}
+    assert call(config, 'get_server_info_basic', hostname='10.0.0.7')['name'] == 'web-1'
+    assert call(config, 'get_project_info', name='shop')['remote_url'] == 'https://git.example/shop.git'
+    neither = {**config, 'ssh': {'enabled': True, 'servers': []}, 'code': {'enabled': True, 'projects': []}}
+    assert call(neither, 'get_server_info_basic', hostname='10.0.0.7') == NO_SERVER
+    assert call(neither, 'get_project_info', name='shop') == NO_PROJECT

@@ -125,6 +125,7 @@ export function toolApplies(tool: AgentTool, chosen: AgentResources, resources: 
     case null: return true;
     case 'ssh': return resources.servers.some(item => item.usable && chosen.server_ids.includes(item.id)) || ticked.some(item => item.brings_servers);
     case 'editable_document': return true;  // the Ask agent always gives one
+    case 'started_from_server': return true;  // the backend offers these only for a server scope
     case 'documents': return chosen.collection_ids.length > 0;
     case 'files': return code || chosen.collection_ids.length > 0;  // matches `requires`: a code project or a collection
     default: return code;  // code, code_graph

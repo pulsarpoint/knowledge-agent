@@ -116,8 +116,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             session_id = uuid4()
             pinned, model, origin = start.build(conn, project, value, session_id, db.conninfo)
             title = value.message.splitlines()[0][:start.TITLE_LENGTH]
+            # the proposal tools are offered only for a run started from a server: audited as off only there
+            from_server = value.started_from is not None and value.started_from.server_id is not None
             tools_off = sorted(item['tool'] for item in pinned['tools']['items']
-                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs != 'started_from_server')
+                               if item['tool'] in CATALOG and item['mode'] != 'on'
+                               and (from_server or CATALOG[item['tool']].needs != 'started_from_server'))
             if value.agent_id is not None:
                 snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
                 conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,

@@ -363,7 +363,8 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
             server_id: UUID | None = None) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
     tagged documentation; for a server, server-discovery), resources (marked linked to the starting document or
-    server), the choosable tools (the proposal tools only for a server) and experts."""
+    server), the choosable tools (the proposal tools only for a server; for a server, none that edits a document) and
+    experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
 
@@ -429,7 +430,8 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, n
         'resources': resources,
         'tools': [{'name': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
                    'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None}
-                  for spec in choosable() if server or spec.name not in PROPOSAL_TOOLS],
+                  for spec in choosable()
+                  if (spec.needs != 'editable_document' if server else spec.name not in PROPOSAL_TOOLS)],
         'experts': experts})
 
 
