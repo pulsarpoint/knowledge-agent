@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { savedIn } from "~/lib/agentSessions";
+import { savedIn } from "~/lib/sessions";
 import DocumentAgentRuns from "../DocumentAgentRuns";
 import { DraftAuthor } from "../DraftView";
 import type { Turn } from "~/lib/turns";
@@ -28,7 +28,7 @@ test("savedIn counts only a successful save_doc or edit_doc", () => {
 });
 
 test("the Agent runs tab lists the runs with their drafts", async () => {
-  api({ "GET /api/agent-sessions?document_id=doc-1": () => [200, { sessions: [
+  api({ "GET /api/sessions?document_id=doc-1": () => [200, { sessions: [
     { id: "r2", title: "Remove the old backup steps.", status: "waiting", model_name: "GPT", started_by: "a@b.c", created_at: at, last_activity_at: at, draft_id: "d1" },
     { id: "r1", title: "Add a section on log rotation.", status: "closed", model_name: "Claude", started_by: null, created_at: at, last_activity_at: at, draft_id: null }] }] });
   render(<MemoryRouter><DocumentAgentRuns documentId="doc-1" /></MemoryRouter>);
@@ -40,7 +40,7 @@ test("the Agent runs tab lists the runs with their drafts", async () => {
 });
 
 test("an empty Agent runs tab says how to start one", async () => {
-  api({ "GET /api/agent-sessions?document_id=doc-1": () => [200, { sessions: [] }] });
+  api({ "GET /api/sessions?document_id=doc-1": () => [200, { sessions: [] }] });
   render(<MemoryRouter><DocumentAgentRuns documentId="doc-1" /></MemoryRouter>);
   expect(await screen.findByText("No agent runs yet. Ask agent starts one.")).toBeInTheDocument();
 });

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { compactTokens, groupTurns } from '../turns';
-import type { SessionEvent } from '../generations';
+import type { SessionEvent } from '../sessions';
 
 let next = 0;
 const event = (turn: number, kind: string, payload: Record<string, unknown> = {}): SessionEvent =>

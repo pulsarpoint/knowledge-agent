@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ApiError } from '~/lib/api';
 import { getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from '~/lib/drafts';
-import type { SessionDetail } from '~/lib/generations';
+import type { SessionDetail } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

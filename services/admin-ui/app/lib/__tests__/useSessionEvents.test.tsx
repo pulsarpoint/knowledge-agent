@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { SessionStatus } from '../generations';
+import type { SessionStatus } from '../sessions';
 import { sentNotice, STOPPING, UNAVAILABLE, useSessionEvents, useSessionNotice } from '../useSessionEvents';
 
 class Stream extends EventTarget {
@@ -34,7 +34,7 @@ test('opens with the latest page and streams after its newest event', async () =
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([message(150), message(151)], true) : Response.json(detail)));
   const { result } = renderHook(() => useSessionEvents('s1'));
   const stream = await opened();
-  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=151');
+  expect(stream.url).toBe('/api/sessions/s1/events?after=151');
   expect(ids(result.current.events)).toEqual([150, 151]);
   expect(result.current.older).toBe('more');
   act(() => stream.emit('run_event', message(152)));
@@ -98,7 +98,7 @@ test('live tool counts: earlier pages are never added; one earlier page loads at
   await waitFor(() => expect(result.current.session).not.toBeNull());
   const before = vi.fn();
   act(() => { void result.current.loadOlder(before); void result.current.loadOlder(before); });
-  expect(older.map(item => item.url)).toEqual(['/api/generations/sessions/s1/events/history?before=150&limit=100']);
+  expect(older.map(item => item.url)).toEqual(['/api/sessions/s1/events/history?before=150&limit=100']);
   expect(result.current.older).toBe('loading');
   expect(result.current.toolCounts).toEqual([]);
   unmount();

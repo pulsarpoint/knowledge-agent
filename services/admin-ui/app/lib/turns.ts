@@ -1,4 +1,4 @@
-import type { SessionEvent } from './generations';
+import type { SessionEvent } from './sessions';
 import { SUBAGENT_TOOL } from './tools';
 
 export type TurnStatus = 'working' | 'completed' | 'failed' | 'stopped';

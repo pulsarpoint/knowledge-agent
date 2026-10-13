@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '~/lib/api';
-import { previewAgentSession, type AgentOptions, type AgentResources } from '~/lib/agentSessions';
+import { previewSession, type AgentOptions, type AgentResources } from '~/lib/sessions';
 import { BUILT_IN, shownTools, startInput, type AgentSettings } from '~/lib/agentSettings';
-import type { SessionDetail } from '~/lib/generations';
+import type { SessionDetail } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
@@ -42,7 +42,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
   async function runPreview() {
     setBusy(true); setError(null);
     try {
-      const result = await previewAgentSession(startInput(documentId, options, settings, previewMessage.trim() || '(your next message)'));
+      const result = await previewSession(startInput(documentId, options, settings, previewMessage.trim() || '(your next message)'));
       setPreview(JSON.stringify(result, null, 2));
     } catch (e) { setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'The request failed.'); }
     finally { setBusy(false); }

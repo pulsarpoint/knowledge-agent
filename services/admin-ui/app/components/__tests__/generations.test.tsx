@@ -11,7 +11,7 @@ const row = { id: 's1', title: 'Payments – API reference', agent_id: 'writer',
   created_at: '2026-10-07T10:00:00Z', last_activity_at: '2026-10-07T11:00:00Z', closed_at: null };
 
 test('Docs → Generate documents lists generations with status, agent, tokens and document', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/generations/sessions')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/sessions')
     ? Response.json({ sessions: [row, { ...row, id: 's2', title: 'Jira overview', status: 'closed', document_id: null, document_title: null },
       { ...row, id: 's3', title: 'Native overview', model_name: 'GPT' }] })
     : Response.json({ is_admin: true })));

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { formatTokens, getSessions, statusLabels, type SessionSummary } from '~/lib/generations';
+import { formatTokens, getSessions, statusLabels, type SessionSummary } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -14,7 +14,7 @@ export default function GenerationsView() {
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
-    getSessions(offset, controller.signal).then(result => { if (!controller.signal.aborted) setRows(result.sessions); })
+    getSessions({ purpose: 'documents', offset }, controller.signal).then(result => { if (!controller.signal.aborted) setRows(result.sessions); })
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Could not load generations'); });
     return () => controller.abort();
   }, [offset]);

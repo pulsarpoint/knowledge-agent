@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { agentRunPath, getDocumentAgentRuns, type AgentRunSummary } from "~/lib/agentSessions";
+import { agentRunPath, getSessions, type RunSummary } from "~/lib/sessions";
 import { draftPath } from "~/lib/drafts";
-import { statusLabels } from "~/lib/generations";
+import { statusLabels } from "~/lib/sessions";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
 
 /** The document page's Agent runs tab: the Ask agent runs on this document, open ones first, with their drafts. */
 export default function DocumentAgentRuns({ documentId }: { documentId: string }) {
-  const [runs, setRuns] = useState<AgentRunSummary[] | null>(null);
+  const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    getDocumentAgentRuns(documentId, controller.signal).then(value => { if (!controller.signal.aborted) setRuns(value.sessions); })
+    getSessions({ documentId }, controller.signal).then(value => { if (!controller.signal.aborted) setRuns(value.sessions); })
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load the agent runs"); });
     return () => controller.abort();
   }, [documentId]);

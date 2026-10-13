@@ -40,7 +40,7 @@ const STALE = 'This draft was based on version 1; the live version is now 2.';
 const base: Record<string, (body: any) => [number, unknown]> = {
   'GET /api/documentation/documents/doc-1': () => [200, document],
   'GET /api/documentation/resources': () => [200, resources],
-  'GET /api/agent-sessions/options?kind=revision&document_id=doc-1': () => [200, { models: [], default_model_id: null, prompts: [],
+  'GET /api/sessions/options?document_id=doc-1': () => [200, { models: [], default_model_id: null, prompts: [],
     default_prompt: { id: null, name: 'Built-in', content: 'x' }, resources: { servers: [], services: [], environments: [], code_projects: [], collections: [] },
     tools: [], fixed_tools: [], experts: [] }],
   'GET /api/documentation/drafts/d1': () => [200, draft],
@@ -149,7 +149,7 @@ test('a run link followed on the page switches the pane; New chat takes the run 
 });
 
 test('a run link opens a closed pane', async () => {
-  api({ ...base, 'GET /api/agent-sessions?document_id=doc-1': () => [200, { sessions: [] }] });
+  api({ ...base, 'GET /api/sessions?document_id=doc-1': () => [200, { sessions: [] }] });
   const router = show('/documents/doc-1');
   await screen.findByRole('button', { name: 'Ask agent' });
   expect(screen.queryByRole('region', { name: 'Ask agent' })).toBeNull();

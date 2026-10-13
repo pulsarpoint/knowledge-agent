@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getDiscoveryRuns, getServerPage, runPagePath, type DiscoveryRun, type ServerPageData } from "~/lib/discovery";
-import { statusLabels } from "~/lib/generations";
+import { statusLabels } from "~/lib/sessions";
 import { getAttachments } from "~/lib/inventoryMap";
 import DiscoverySheet from "./DiscoverySheet";
 import EntrySheet from "./EntrySheet";

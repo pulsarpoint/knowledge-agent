@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import AgentSettingsSheet from '../AgentSettingsSheet';
 import { defaultSettings, type AgentSettings } from '~/lib/agentSettings';
-import type { SessionDetail } from '~/lib/generations';
+import type { SessionDetail } from '~/lib/sessions';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 
 afterEach(() => vi.unstubAllGlobals());

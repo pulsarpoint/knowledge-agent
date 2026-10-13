@@ -1,5 +1,5 @@
 import { BUILT_IN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput } from '../agentSettings';
-import type { SessionDetail } from '../generations';
+import type { SessionDetail } from '../sessions';
 import { options } from './agentOptionsFixture';
 
 test('defaults: the default model, the first tagged prompt, the usable linked resources, every tool on', () => {

@@ -34,7 +34,7 @@ test('the session page shows the tools the session used', async () => {
   expect(screen.getByText('Resources: Fixed')).toBeVisible();
 });
 
-test('the session page follows the turn, sends messages, stops, opens and saves the draft and closes', async () => {
+test('the session page follows the turn, sends messages, stops, previews the draft and closes', async () => {
   const posts: { url: string; body?: unknown }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes('/events/history')) return page([]);
@@ -43,14 +43,13 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
     posts.push({ url, body });
     if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
     if (url.endsWith('/stop')) return Response.json({ id: 's1', discarded: 0 }, { status: 202 });
-    if (url.endsWith('/document')) return Response.json({ draft: { id: 'd1', document_id: 'doc', status: 'open' } }, { status: 201 });
     return Response.json({ id: 's1' });
   }));
   render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect((await screen.findAllByText('Starting'))[0]).toBeVisible();
   expect(screen.getByText(/Waiting for the agent session worker/)).toBeVisible();
   const stream = await opened();
-  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=0');
+  expect(stream.url).toBe('/api/sessions/s1/events?after=0');
   act(() => {
     stream.emit('session', { ...state, status: 'working', turns: 1, worker_active: true, queued: 0 });
     stream.emit('run_event', { id: 1, turn: 1, seq: 3, kind: 'input', payload: { task: 'Document the payments API.' } });
@@ -71,7 +70,7 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/stop'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/sessions/s1/stop'));
   expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
   act(() => {
     stream.emit('run_event', { id: 5, turn: 1, seq: 7, kind: 'message', payload: { text: '# Payments API' } });
@@ -89,12 +88,8 @@ test('the session page follows the turn, sends messages, stops, opens and saves 
   expect(sheet.getByTestId('markdown')).toHaveTextContent('# Payments API Retries back off.');
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  fireEvent.click(draft.getByRole('button', { name: 'Save as draft' }));
-  expect(await draft.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/doc?tab=drafts&draft=d1');
-  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
-  expect(posts.filter(p => p.url.endsWith('/document')).map(p => p.body)).toEqual([{}]);
   fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/close'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/sessions/s1/close'));
   act(() => { stream.emit('session', { ...state, status: 'closed', turns: 1, draft: '# Payments API\n\nRetries back off.' }); stream.emit('closed', {}); });
   expect(screen.getAllByText('Finished')[0]).toBeVisible();
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
@@ -112,7 +107,7 @@ test('opening shows the latest page, streams after its newest event and loads ea
   render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Message 151')).toBeVisible();
   const stream = await opened();
-  expect(stream.url).toBe('/api/generations/sessions/s1/events?after=151');
+  expect(stream.url).toBe('/api/sessions/s1/events?after=151');
   expect(screen.queryByText('Beginning of the session')).toBeNull();
   const panel = screen.getByTestId('run-scroll');
   Object.defineProperty(panel, 'scrollHeight', { configurable: true, get: () => panel.querySelectorAll('[data-turn]').length * 100 });
@@ -123,8 +118,8 @@ test('opening shows the latest page, streams after its newest event and loads ea
   expect(screen.getByText('Beginning of the session')).toBeVisible();
   expect(panel.scrollTop).toBe(100);  // the earlier turn went above: what was on screen stays in place
   const history = () => urls.filter(url => url.includes('/events/history'));
-  expect(history()).toEqual(['/api/generations/sessions/s1/events/history?limit=100',
-    '/api/generations/sessions/s1/events/history?before=150&limit=100']);
+  expect(history()).toEqual(['/api/sessions/s1/events/history?limit=100',
+    '/api/sessions/s1/events/history?before=150&limit=100']);
   panel.scrollTop = 0;
   fireEvent.scroll(panel);  // the beginning is reached: nothing more to load
   expect(history()).toHaveLength(2);
@@ -161,9 +156,9 @@ test('a short history fills the main pane by loading earlier pages until it over
     expect(await screen.findByText('Message 90')).toBeVisible();  // 2 + 1 turns do not fill 450px; 5 do
     await act(async () => {});
     expect(urls.filter(url => url.includes('/events/history'))).toEqual([
-      '/api/generations/sessions/s1/events/history?limit=100',
-      '/api/generations/sessions/s1/events/history?before=150&limit=100',
-      '/api/generations/sessions/s1/events/history?before=120&limit=100']);
+      '/api/sessions/s1/events/history?limit=100',
+      '/api/sessions/s1/events/history?before=150&limit=100',
+      '/api/sessions/s1/events/history?before=120&limit=100']);
     expect(screen.queryByText('Beginning of the session')).toBeNull();
   } finally { restore(); }
 });
@@ -171,7 +166,7 @@ test('a short history fills the main pane by loading earlier pages until it over
 test('the session page has one page heading, the session title', async () => {
   const { default: AdminLayout } = await import('../AdminLayout');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : url.startsWith('/api/generations/') ? Response.json(detail) : Response.json({ is_admin: true })));
+    : url.startsWith('/api/sessions/') ? Response.json(detail) : Response.json({ is_admin: true })));
   render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><GenerationView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);

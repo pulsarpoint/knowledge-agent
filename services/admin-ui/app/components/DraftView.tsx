@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { agentRunPath } from '~/lib/agentSessions';
+import { agentRunPath } from '~/lib/sessions';
 import { discardDraft, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type DraftSource, type DraftSummary, type PromoteResult } from '~/lib/drafts';
 import DiffView from './DiffView';
 import Markdown from './Markdown';

@@ -1,5 +1,5 @@
 import { request } from './api';
-import type { SessionDetail, SessionStatus } from './generations';
+import type { SessionDetail, SessionStatus } from './sessions';
 import type { RunResourcesInput } from './profiles';
 
 /** The agent Test tab's sessions (event handlers' sessions are listed too, purpose `event`): created with the first

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Settings2 } from 'lucide-react';
-import { agentRunPath, getDocumentAgentRuns, savedIn, startAgentSession, type AgentRunSummary } from '~/lib/agentSessions';
+import { agentRunPath, getSessions, savedIn, startSession, type RunSummary } from '~/lib/sessions';
 import { settingsFromSession, settingsSummary, startInput, type useAgentSettings } from '~/lib/agentSettings';
-import { closeSession, sendMessage, statusLabels, stopSession, type SessionDetail } from '~/lib/generations';
+import { closeSession, sendMessage, statusLabels, stopSession, type SessionDetail } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
@@ -23,7 +23,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   documentId: string; documentTitle: string; settings: ReturnType<typeof useAgentSettings>; initialRunId: string | null;
   confirmUnsaved: (run: () => void) => void; onDraftChange: (draft: SessionDetail['document_draft'] | null, version: string) => void;
   onRunChange?: (runId: string | null) => void }) {
-  const [runs, setRuns] = useState<AgentRunSummary[] | null>(null);
+  const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [chosen, setChosen] = useState(initialRunId !== null);  // the person (or the link) picked a run or New chat
   const run = useSessionEvents(runId);
@@ -47,7 +47,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
   useEffect(() => {
     const controller = new AbortController();
     setListFailed(false);
-    getDocumentAgentRuns(documentId, controller.signal).then(value => {
+    getSessions({ documentId }, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       setRuns(value.sessions);
       if (!chosen) setRunId(value.sessions.find(item => item.status !== 'closed')?.id ?? null);
@@ -84,7 +84,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
     confirmUnsaved(() => void (async () => {
       setBusy(true); setRefused('');
       try {
-        const started = await startAgentSession(startInput(documentId, options, current, text));
+        const started = await startSession(startInput(documentId, options, current, text));
         pick(started.id); setListed(n => n + 1);
       } catch (e) { setRefused(e instanceof Error ? e.message : 'The run could not start.'); }
       finally { setBusy(false); }

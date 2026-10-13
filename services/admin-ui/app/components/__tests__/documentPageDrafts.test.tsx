@@ -193,7 +193,7 @@ test('without unsaved changes, Edit loads the draft at once', async () => {
 });
 
 test('with unsaved changes, Ask agent opens the pane and keeps the text; only the first message asks', async () => {
-  const OPTIONS = 'GET /api/agent-sessions/options?kind=revision&document_id=doc-1';
+  const OPTIONS = 'GET /api/sessions/options?document_id=doc-1';
   const options = { models: [], default_model_id: null, prompts: [], default_prompt: { id: null, name: 'Built-in', content: 'x' },
     resources: { servers: [], services: [], environments: [], code_projects: [], collections: [] }, tools: [], fixed_tools: [], experts: [] };
   const calls = api({ ...base, [OPTIONS]: () => [200, options] });

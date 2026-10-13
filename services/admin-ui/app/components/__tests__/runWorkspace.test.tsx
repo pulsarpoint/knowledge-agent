@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
 import RunWorkspace, { type RunWorkspaceProps } from '../RunWorkspace';
-import type { SessionDetail, SessionEvent } from '~/lib/generations';
+import type { SessionDetail, SessionEvent } from '~/lib/sessions';
 import type { SessionRun } from '~/lib/useSessionEvents';
 
 const detail: SessionDetail = {

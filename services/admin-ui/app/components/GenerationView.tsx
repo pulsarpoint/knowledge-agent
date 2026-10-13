@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
-import { agentRunPath } from '~/lib/agentSessions';
+import { agentRunPath } from '~/lib/sessions';
 import { draftPath } from '~/lib/drafts';
-import { closeSession, saveSessionDraft, sendMessage, stopSession } from '~/lib/generations';
+import { closeSession, sendMessage, stopSession } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
@@ -35,10 +35,6 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
   });
   const stop = () => act(async () => { await stopSession(sessionId); stopping(); });
   const close = () => act(async () => { await closeSession(sessionId); setSession(current => current && { ...current, status: 'closed' }); });
-  const saveDraft = () => act(async () => {
-    const result = await saveSessionDraft(sessionId);
-    setSession(current => current && { ...current, document_draft: result.draft });
-  });
 
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
   // A Test or event session belongs to its agent's Test tab (an old link, or one from Agent runs).
@@ -49,7 +45,6 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
   if (session.purpose === 'revision' && session.target_document_id) return <Navigate replace to={agentRunPath(session.target_document_id, session.id)} />;
   const closed = session.status === 'closed';
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : 'Draft';
-  // Save as draft only for a run that never had a document draft; a decided one is not offered again.
   const documentDraft = session.document_draft;
   const promotedTo = documentDraft?.status === 'promoted' ? documentDraft.document_id ?? session.document_id : null;
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
@@ -70,7 +65,7 @@ export default function GenerationView({ sessionId }: { sessionId: string }) {
           {documentDraft?.status === 'open'
             ? <Button asChild size="sm"><Link to={draftPath(documentDraft)}>Open draft</Link></Button>
             : promotedTo ? <Button asChild size="sm"><Link to={`/documents/${encodeURIComponent(promotedTo)}`}>Open document</Link></Button>
-            : !documentDraft && session.draft ? <Button type="button" size="sm" disabled={busy} onClick={() => void saveDraft()}>Save as draft</Button> : null}
+            : null}
         </div>
         {documentDraft?.status === 'open' && <p className="text-xs text-muted-foreground">Each finished turn updates this draft until someone saves it. Promote it on its page to make it the live document.</p>}
         {documentDraft?.status === 'promoted' && <p className="text-xs text-muted-foreground">The document draft was promoted. The agent's next finished turn starts a new draft.</p>}

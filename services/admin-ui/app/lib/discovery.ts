@@ -1,5 +1,5 @@
 import { request, type ServerAsset } from './api';
-import type { SessionStatus } from './generations';
+import type { SessionStatus } from './sessions';
 
 export const DISCOVERY_TAG = 'server-discovery';
 export interface ServerDeployment { id: string; service_id: string; service_name: string; environment: string; runtime: string;

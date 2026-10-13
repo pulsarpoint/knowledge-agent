@@ -42,7 +42,7 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   }));
   return calls;
 }
-const RUNS = 'GET /api/agent-sessions?document_id=doc-1';
+const RUNS = 'GET /api/sessions?document_id=doc-1';
 const settingsOf = () => ({ options, error: '', settings: defaultSettings(options), update: vi.fn(), replace: vi.fn() });
 function show(props: Partial<Parameters<typeof AgentPane>[0]> = {}) {
   const onDraftChange = vi.fn();
@@ -56,7 +56,7 @@ afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []
 
 test('no open run: an empty conversation with the settings summary; the first message starts a run', async () => {
   const calls = api({ [RUNS]: () => [200, { sessions: [run('r0', 'closed')] }],
-    'POST /api/agent-sessions': () => { live.sessions.r1 = detail('r1', 'starting'); return [201, detail('r1', 'starting')]; } });
+    'POST /api/sessions': () => { live.sessions.r1 = detail('r1', 'starting'); return [201, detail('r1', 'starting')]; } });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   expect(within(pane).getByText('Ask the agent to change this document.')).toBeInTheDocument();
@@ -64,7 +64,7 @@ test('no open run: an empty conversation with the settings summary; the first me
   expect(within(pane).getByRole('button', { name: 'New chat' })).toBeDisabled();
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Add log rotation.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
-  await waitFor(() => expect(calls.find(c => c.key === 'POST /api/agent-sessions')?.body).toEqual({
+  await waitFor(() => expect(calls.find(c => c.key === 'POST /api/sessions')?.body).toEqual({
     kind: 'revision', target: { document_id: 'doc-1' }, instruction: 'Add log rotation.', model_id: 'm2', prompt_id: 'p1',
     system_prompt: 'You revise carefully.', resources: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: [], collection_ids: [] },
     tools: ['ssh_run', 'get_service_info'], expert_ids: [], subagents: false }));
@@ -75,21 +75,21 @@ test('no open run: an empty conversation with the settings summary; the first me
 test('the latest open run opens; messages go to it; its draft is reported', async () => {
   live.sessions.r2 = detail('r2', 'waiting');
   const calls = api({ [RUNS]: () => [200, { sessions: [run('r2', 'waiting'), run('r1', 'closed')] }],
-    'POST /api/generations/sessions/r2/messages': () => [202, { working: true }] });
+    'POST /api/sessions/r2/messages': () => [202, { working: true }] });
   const { onDraftChange } = show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
   expect(onDraftChange).toHaveBeenLastCalledWith({ id: 'd-r2', document_id: 'doc-1', status: 'open' }, expect.any(String));
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Also mention cron.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
-  await waitFor(() => expect(calls.find(c => c.key === 'POST /api/generations/sessions/r2/messages')?.body).toEqual({ text: 'Also mention cron.' }));
-  expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
+  await waitFor(() => expect(calls.find(c => c.key === 'POST /api/sessions/r2/messages')?.body).toEqual({ text: 'Also mention cron.' }));
+  expect(calls.some(c => c.key === 'POST /api/sessions')).toBe(false);
 });
 
 test('New chat closes the open run; while the agent works it asks first', async () => {
   live.sessions.r2 = detail('r2', 'working');
   const calls = api({ [RUNS]: () => [200, { sessions: [run('r2', 'working')] }],
-    'POST /api/generations/sessions/r2/close': () => [200, { ...detail('r2', 'closed') }] });
+    'POST /api/sessions/r2/close': () => [200, { ...detail('r2', 'closed') }] });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   await waitFor(() => expect(within(pane).getByRole('button', { name: 'New chat' })).toBeEnabled());
@@ -97,17 +97,17 @@ test('New chat closes the open run; while the agent works it asks first', async 
   const dialog = await screen.findByRole('alertdialog', { name: 'Close this conversation?' });
   expect(dialog).toHaveTextContent('The agent is still working. Closing stops it.');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Keep it' }));
-  expect(calls.some(c => c.key === 'POST /api/generations/sessions/r2/close')).toBe(false);
+  expect(calls.some(c => c.key === 'POST /api/sessions/r2/close')).toBe(false);
   fireEvent.click(within(pane).getByRole('button', { name: 'New chat' }));
   fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Close and start new' }));
-  await waitFor(() => expect(calls.some(c => c.key === 'POST /api/generations/sessions/r2/close')).toBe(true));
+  await waitFor(() => expect(calls.some(c => c.key === 'POST /api/sessions/r2/close')).toBe(true));
   await waitFor(() => expect(live.requested.at(-1)).toBeNull());
   expect(within(pane).getByText('Ask the agent to change this document.')).toBeInTheDocument();
 });
 
 test('a refused start keeps the message and marks Settings', async () => {
   api({ [RUNS]: () => [200, { sessions: [] }],
-    'POST /api/agent-sessions': () => [400, { error: { message: 'ssh_run needs at least one server.' } }] });
+    'POST /api/sessions': () => [400, { error: { message: 'ssh_run needs at least one server.' } }] });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Add log rotation.' } });
@@ -170,7 +170,7 @@ test('while a run is open, Settings shows the run\'s saved configuration, read-o
 
 test('while a started run is still loading, another Send starts nothing', async () => {
   live.loading.add('r1');  // the session of r1 has not loaded yet (no error either)
-  const calls = api({ [RUNS]: () => [200, { sessions: [] }], 'POST /api/agent-sessions': () => [201, detail('r1', 'starting')] });
+  const calls = api({ [RUNS]: () => [200, { sessions: [] }], 'POST /api/sessions': () => [201, detail('r1', 'starting')] });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   await waitFor(() => expect(within(pane).getByLabelText('Message')).toBeEnabled());
@@ -179,7 +179,7 @@ test('while a started run is still loading, another Send starts nothing', async 
   await waitFor(() => expect(live.requested.at(-1)).toBe('r1'));  // live.sessions.r1 is still unset: the session has not loaded
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Second.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
-  expect(calls.filter(c => c.key === 'POST /api/agent-sessions')).toHaveLength(1);
+  expect(calls.filter(c => c.key === 'POST /api/sessions')).toHaveLength(1);
   expect(within(pane).getByLabelText('Message')).toHaveValue('Second.');
 });
 
@@ -206,7 +206,7 @@ test('a failed message on an open run keeps the run: the retry goes to it and St
   live.sessions.r2 = detail('r2', 'waiting');
   let attempts = 0;
   const calls = api({ [RUNS]: () => [200, { sessions: [run('r2', 'waiting')] }],
-    'POST /api/generations/sessions/r2/messages': () => (++attempts === 1 ? [500, { error: { message: 'The message could not be sent.' } }] : [202, { working: true }]) });
+    'POST /api/sessions/r2/messages': () => (++attempts === 1 ? [500, { error: { message: 'The message could not be sent.' } }] : [202, { working: true }]) });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   await waitFor(() => expect(live.requested.at(-1)).toBe('r2'));
@@ -217,7 +217,7 @@ test('a failed message on an open run keeps the run: the retry goes to it and St
   expect(within(pane).getByLabelText('Message')).toHaveValue('Also mention cron.');
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(attempts).toBe(2));
-  expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
+  expect(calls.some(c => c.key === 'POST /api/sessions')).toBe(false);
 });
 
 test('a changed run link opens that run and reports it', async () => {
@@ -254,13 +254,13 @@ test('a run of another document is not shown as this document\'s; New chat still
 test('a failed run list says so, starts nothing, and Retry loads it', async () => {
   let attempts = 0;
   const calls = api({ [RUNS]: () => (++attempts === 1 ? [500, { error: { message: 'down' } }] : [200, { sessions: [] }]),
-    'POST /api/agent-sessions': () => [201, detail('r1', 'starting')] });
+    'POST /api/sessions': () => [201, detail('r1', 'starting')] });
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   expect(await within(pane).findByText(/Could not load this document's runs\./, { selector: 'div,p,span' })).toBeInTheDocument();
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Too early.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
-  expect(calls.some(c => c.key === 'POST /api/agent-sessions')).toBe(false);
+  expect(calls.some(c => c.key === 'POST /api/sessions')).toBe(false);
   fireEvent.click(within(pane).getByRole('button', { name: 'Retry' }));
   await waitFor(() => expect(within(pane).queryByText(/Could not load this document's runs\./)).toBeNull());
   expect(attempts).toBe(2);

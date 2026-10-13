@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { closeSession, sendMessage, stopSession } from "~/lib/generations";
+import { closeSession, sendMessage, stopSession } from "~/lib/sessions";
 import { getProposals, type Proposal } from "~/lib/discovery";
 import { runPath } from "~/lib/runs";
 import { useFillViewport } from "~/lib/useFillViewport";

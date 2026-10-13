@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AgentTestView from '../AgentTestView';
 import * as tests from '../../lib/testSessions';
 import * as reviews from '../../lib/reviews';
-import type { SessionDetail } from '../../lib/generations';
+import type { SessionDetail } from '../../lib/sessions';
 import { getAgentConfig, getRunResourceOptions, type RunResourceOptions } from '../../lib/profiles';
 vi.mock('../../lib/testSessions');
 vi.mock('../../lib/reviews');
@@ -72,7 +72,7 @@ it('the first message starts a Test session and opens it; a follow-up goes to th
   expect(screen.getByLabelText('Message')).toHaveValue('');
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'And timeouts?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  await waitFor(() => expect(posts).toContainEqual({ url: '/api/generations/sessions/s1/messages', body: { text: 'And timeouts?' } }));
+  await waitFor(() => expect(posts).toContainEqual({ url: '/api/sessions/s1/messages', body: { text: 'And timeouts?' } }));
   expect(await screen.findByText('Sent. The agent starts a new turn with your message.')).toBeVisible();
   expect(tests.createTestSession).toHaveBeenCalledTimes(1);
 });
@@ -180,7 +180,7 @@ it('blocked reasons: a disabled agent, unsaved changes and a closed session; Clo
   fireEvent.click(screen.getByRole('button', { name: 'Close session' }));
   expect(posts).toEqual([]);
   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Close session' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/api/generations/sessions/s1/close']));
+  await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/api/sessions/s1/close']));
   expect(await screen.findByText('This session is closed. Start a new session to continue.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Close session' })).toBeNull();
 });
@@ -190,7 +190,7 @@ it('Stop asks the working agent to stop', async () => {
   renderPage('?view=test&session_id=s1');
   await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/generations/sessions/s1/stop'));
+  await waitFor(() => expect(posts.map(p => p.url)).toContain('/api/sessions/s1/stop'));
   expect(await screen.findByText('Stopping the current turn…')).toBeVisible();
 });
 

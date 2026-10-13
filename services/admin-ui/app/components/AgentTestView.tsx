@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Pencil, Plus } from 'lucide-react';
-import { closeSession, sendMessage, statusLabels, stopSession } from '../lib/generations';
+import { closeSession, sendMessage, statusLabels, stopSession } from '../lib/sessions';
 import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_KINDS, type RunResourceOptions, type RunResourcesInput } from '../lib/profiles';
 import { runPath } from '../lib/runs';
 import { createTestSession, getTestSessions, reviewTestSession, type SessionReview, type TestSessionSummary } from '../lib/testSessions';

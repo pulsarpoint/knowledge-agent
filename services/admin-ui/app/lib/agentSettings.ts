@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getAgentOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type StartInput } from './agentSessions';
-import type { SessionDetail } from './generations';
+import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type StartInput } from './sessions';
+import type { SessionDetail } from './sessions';
 
 export const BUILT_IN = 'built-in';
 const STORAGE = (documentId: string) => `ask-agent-settings:${documentId}`;
@@ -106,7 +106,7 @@ export function useAgentSettings(documentId: string | null) {
   useEffect(() => {
     if (!documentId) return;
     const controller = new AbortController();
-    getAgentOptions(documentId, controller.signal).then(value => {
+    getSessionOptions(documentId, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       let saved: unknown = null;
       try { saved = JSON.parse(localStorage.getItem(STORAGE(documentId)) ?? 'null'); } catch { saved = null; }

@@ -1,6 +1,6 @@
 import { request } from './api';
 import type { DocumentInput } from './documents';
-import type { SessionPurpose } from './generations';
+import type { SessionPurpose } from './sessions';
 
 export type DraftOrigin = 'manual' | 'agent';
 export interface DraftSource {
