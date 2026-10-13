@@ -262,7 +262,8 @@ export default function DocumentEditorView() {
     <div data-testid="document-split" className={split ? 'grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start' : 'min-w-0'}>
       <div className="min-w-0">
         {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
-        {writing && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => run()} onPromoted={onNewPromoted} />}
+        {writing && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => run()} onPromoted={onNewPromoted}
+          onCompare={d => navigate(draftPath(d))} />}
         {error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert>
           : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
       </div>

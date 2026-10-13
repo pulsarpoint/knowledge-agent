@@ -58,6 +58,7 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
 const wide = { value: false };
 function show() {
   const router = createMemoryRouter([{ path: '/documents/new', element: <DocumentEditorView /> },
+    { path: '/documents/drafts/:draftId', element: <p>draft page</p> },
     { path: '/documents/:documentId', element: <p>document page</p> }], { initialEntries: ['/documents/new'] });
   render(<WidePageContext.Provider value={(on) => { wide.value = on; }}><RouterProvider router={router} /></WidePageContext.Provider>);
   return router;
@@ -135,4 +136,28 @@ test('the agent draft shows above the editor; Promote opens the new document', a
   fireEvent.click(within(bar).getByRole('button', { name: 'Promote' }));
   await waitFor(() => expect(router.state.location.pathname).toBe('/documents/doc-9'));
   expect(calls.find(c => c.key === 'POST /api/documentation/drafts/d9/promote')?.body).toEqual({ revision: 1, confirm_stale: false });
+});
+
+test.each([
+  ['a new document', { document_id: null }, '/documents/drafts/d9', ''],
+  ['an existing document (its title and folder named one)', { document_id: 'doc-1', base_version_id: 'v1', base_version: 1, live_version: 1 },
+    '/documents/doc-1', '?tab=drafts&draft=d9'],
+])('Compare on the New page opens the draft of %s', async (_, shape, pathname, search) => {
+  const shaped = { ...draft, ...shape };
+  api({ ...base,
+    'POST /api/sessions': () => { live.sessions.r1 = detail({ id: 'd9', document_id: shaped.document_id, status: 'open' }); return [201, live.sessions.r1]; },
+    'GET /api/documentation/drafts/d9': () => [200, shaped] });
+  const router = show();
+  const pane = await openPane();
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Payments API' } });
+  fireEvent.change(screen.getByLabelText('Folder'), { target: { value: 'payments' } });
+  fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Write it.' } });
+  await waitFor(() => expect(within(pane).queryByText('Give the document a title and folder first.')).toBeNull());
+  fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
+  const bar = await screen.findByRole('region', { name: 'Agent draft' });
+  fireEvent.click(within(bar).getByRole('button', { name: 'Compare' }));
+  // the typed title and folder are unsaved edits: leaving the page asks first, as any link away does
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' }));
+  await waitFor(() => expect(router.state.location.pathname).toBe(pathname));
+  expect(router.state.location.search).toBe(search);
 });

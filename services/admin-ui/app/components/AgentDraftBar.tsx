@@ -10,9 +10,11 @@ import { Button } from '~/components/ui/button';
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
  * Drafts tab with that draft) and Promote (with the stale check: the server's message, then Promote anyway). The agent may
  * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
- * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. */
-export default function AgentDraftBar({ draft, version, confirm, onPromoted }: { draft: NonNullable<SessionDetail['document_draft']>;
-  version?: string; confirm: (run: () => void) => void; onPromoted: (result: PromoteResult) => void }) {
+ * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. A page without
+ * a Drafts tab (Documents → New) passes `onCompare` to decide where Compare goes. */
+export default function AgentDraftBar({ draft, version, confirm, onPromoted, onCompare }: { draft: NonNullable<SessionDetail['document_draft']>;
+  version?: string; confirm: (run: () => void) => void; onPromoted: (result: PromoteResult) => void;
+  onCompare?: (draft: NonNullable<SessionDetail['document_draft']>) => void }) {
   const [, setParams] = useSearchParams();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<DraftDetail | null>(null);
@@ -45,7 +47,7 @@ export default function AgentDraftBar({ draft, version, confirm, onPromoted }: {
         : `Agent draft · based on version ${detail.base_version ?? '?'}`}</span>
       {detail?.stale && <Badge variant="destructive">stale</Badge>}
       <span className="ml-auto flex gap-2">
-        <Button type="button" size="sm" variant="outline" onClick={() => draft.document_id === null ? navigate(draftPath(draft))
+        <Button type="button" size="sm" variant="outline" onClick={() => onCompare ? onCompare(draft) : draft.document_id === null ? navigate(draftPath(draft))
           : setParams({ tab: 'drafts', draft: draft.id }, { replace: true })}>Compare</Button>
         <Button type="button" size="sm" disabled={busy || !detail || stale !== ''} onClick={() => confirm(() => void promote(false))}>Promote</Button>
       </span>

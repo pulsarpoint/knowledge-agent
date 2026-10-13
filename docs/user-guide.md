@@ -599,8 +599,8 @@ is not set up or not allowed cannot be chosen. The prompts offered are those tag
 document** (Administration → Prompts). It tells the agent to read what it was given, write with `save_document`, change a passage
 with `edit_document`, and never say the document is published. If you write your own prompt, tell the agent to write with
 `save_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
-JSON. By default the agent has all resources, tools and experts, `run_subagent` and every agent offered as an expert
-(`ask_<name>`). Its tools (`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and
+JSON. Nothing is chosen until you tick it; experts (`ask_<name>`) and subagents
+(`run_subagent`) are off; every tool that applies to what you chose is on. Its tools (`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and
 `ssh_run` when servers are chosen) work as in an agent's Test tab.
 
 **The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Test tab: the
@@ -1032,7 +1032,7 @@ and always save trusted host keys.
 | Document | Claim | Actual behavior |
 | --- | --- | --- |
 | README.md | Agent Chat/Test returns `TODO` | Agent **Test** really runs models |
-| docs/documentation.md | One form with two scopes; generations page is history | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
+| docs/documentation.md | One form with two scopes | Workflows: create per service/environment, then run Phases 1–4 and additional documents |
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |
 | docs/architecture.md | Worker serializes jobs per project | The repository worker processes one job at a time overall |

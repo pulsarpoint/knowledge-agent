@@ -116,8 +116,8 @@ from a new document, not both (`GET /api/sessions/options` takes `new_document=1
 collections, environments, services, servers), the tools, the experts, whether subagents are allowed, and the prompts tagged
 `documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
 0101): read what you were given, write the document with `save_document`, change a passage with `edit_document`, and never
-say it is published. Custom prompts tagged `documentation` should tell the agent to write with `save_document`. The
-agent has all resources, tools and experts unless the settings narrow them.
+say it is published. Custom prompts tagged `documentation` should tell the agent to write with `save_document`. No
+resource is chosen until it is ticked; experts and subagents are off; every tool that applies to what was chosen is on.
 
 The agent writes the document only with `save_document(document_id, markdown, title?, description?)` and
 `edit_document(document_id, old_text, new_text)`. Both write the run's draft. The agent's final answer is not turned into a

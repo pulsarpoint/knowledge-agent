@@ -284,7 +284,7 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
     conn.execute('''INSERT INTO ka.document_sources(project_id,version_id,kind,source_document_id,source_version_id,
         source_title,source_version) SELECT project_id,%s,kind,source_document_id,source_version_id,source_title,
         source_version FROM ka.document_sources WHERE draft_id=%s''', (saved['version_id'], row['id']))
-    if row['session_id'] is not None:  # the Generate documents list shows the run's saved document
+    if row['session_id'] is not None:  # a new-document run records the document it wrote
         conn.execute("UPDATE ka.agent_sessions SET document_id=%s WHERE id=%s AND purpose='documents'",
                      (saved['id'], row['session_id']))
     audit(conn, project, actor, 'document.draft.promoted', 'document_draft', row['id'],
@@ -294,7 +294,7 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
 
 
 # The session `s`'s latest document draft of any status (open, promoted or discarded), for session rows and the live
-# session state: every finished turn saves its draft, so a run has one once a turn has finished.
+# session state: a run has one once its agent saved a document with save_document or edit_document.
 SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document_id,'status',x.status)
     FROM ka.document_drafts x WHERE x.session_id=s.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS document_draft"""
 DOCUMENT_TOOLS = ['get_document', 'read_document']

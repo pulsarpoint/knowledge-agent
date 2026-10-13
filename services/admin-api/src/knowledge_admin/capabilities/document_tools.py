@@ -17,7 +17,8 @@ from pydantic import BaseModel, ValidationError
 
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
 from knowledge_admin.capabilities.inventory import connect, project_of
-from knowledge_admin.document_drafts import NEW_DEFAULTS, audit, create_draft, record_run_sources
+from knowledge_admin.document_drafts import (NEW_DEFAULTS, audit, create_draft, document_named, live_content,
+                                             record_run_sources)
 from knowledge_admin.documents import Description, Markdown, Title
 
 NO_SESSION = 'The document tools work only in an agent session.'
@@ -203,32 +204,65 @@ def _save_once(config: dict[str, Any], document_id: str, change: Callable[[dict[
         if live is None:
             raise ValueError(DOCUMENT_GONE)
         current = conn.execute(WORKING + ' FOR UPDATE', (session['id'], document)).fetchone()
-        base = dict(current or live)
-        try:
-            text = DraftText.model_validate(change(base))
-        except ValidationError as exc:
-            raise ValueError(str(exc.errors()[0]['msg']).removeprefix('Value error, ')) from None
+        text = _text(change, dict(current or live))
         note = ''
-        if current is not None:
-            conn.execute('UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
-                         (text.title, text.description, text.markdown, current['id']))
-            audit(conn, project, None, 'document.draft.updated', 'document_draft', current['id'],
-                  {'session_id': session['id'], 'turn': session['turns']})
-            draft_id = current['id']
-        else:
+        if current is None:
             previous = conn.execute('''SELECT status,edited FROM ka.document_drafts WHERE session_id=%s AND document_id=%s
                 ORDER BY created_at DESC,id DESC LIMIT 1''', (session['id'], document)).fetchone()
-            if previous is not None:
-                note = (EDITED if previous['status'] == 'open'
-                        else (PROMOTED if previous['status'] == 'promoted' else DISCARDED).format(version=live['version']))
-            content = {key: live[key] for key in ('purpose', 'audience', 'tags')} | text.model_dump()
-            draft_id = create_draft(conn, project, None, content, origin='agent', document_id=document,
-                                    session_id=session['id'])
-        base_version = conn.execute('SELECT base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()
-        record_run_sources(conn, project, draft_id, document, base_version['base_version_id'], session['id'],
-                           session['turns'])
+            note = _note(previous, live['version'])
+        _write(conn, config, session, current, text, document)
     saved = SAVED.format(n=len(text.markdown.splitlines()))
     return f'{saved} {note}' if note else saved
+
+
+def _text(change: Callable[[dict[str, Any]], dict[str, Any]], base: dict[str, Any]) -> DraftText:
+    try:
+        return DraftText.model_validate(change(base))
+    except ValidationError as exc:
+        raise ValueError(str(exc.errors()[0]['msg']).removeprefix('Value error, ')) from None
+
+
+def _note(previous: dict | None, version: int | None) -> str:
+    """What a save that starts a new draft says about the run's earlier draft of the same document."""
+    if previous is None:
+        return ''
+    if previous['status'] == 'open':
+        return EDITED
+    if version is None:
+        return ''
+    return (PROMOTED if previous['status'] == 'promoted' else DISCARDED).format(version=version)
+
+
+def _run_links(config: dict[str, Any]) -> dict[str, list[str]]:
+    """The resources chosen for the run, as the resource_ids a new document links on promote."""
+    chosen = config.get('run_resources') or {}
+    return {key: [str(item) for item in chosen.get(key, [])]
+            for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')} | {'deployment_ids': []}
+
+
+def _write(conn, config: dict[str, Any], session: dict, current: dict | None, text: DraftText,
+           document: UUID | None, new: dict[str, Any] | None = None) -> None:
+    """Save `text` as the run's draft: update `current`, else create a draft of `document` from its live content (title
+    and description from `text`, which started from it), else (no document) of the new document `new`
+    ({folder, slug}). Then recompute the draft's sources from the run's tool calls."""
+    project = session['project_id']
+    if current is not None:
+        conn.execute('UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
+                     (text.title, text.description, text.markdown, current['id']))
+        audit(conn, project, None, 'document.draft.updated', 'document_draft', current['id'],
+              {'session_id': session['id'], 'turn': session['turns']})
+        draft_id = current['id']
+    elif document is not None:
+        content = {**live_content(conn, project, document), **text.model_dump()}
+        draft_id = create_draft(conn, project, None, content, origin='agent', document_id=document,
+                                session_id=session['id'])
+    else:
+        draft_id = create_draft(conn, project, None, {**NEW_DEFAULTS, **text.model_dump()}, origin='agent',
+                                slug=new['slug'], folder=new['folder'], resources=_run_links(config),
+                                session_id=session['id'])
+    draft = conn.execute('SELECT document_id,base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()
+    record_run_sources(conn, project, draft_id, draft['document_id'], draft['base_version_id'], session['id'],
+                       session['turns'])
 
 
 def _locked_session(conn, config: dict[str, Any]) -> dict:
@@ -242,41 +276,29 @@ def _locked_session(conn, config: dict[str, Any]) -> dict:
 
 
 def _save_new(config: dict[str, Any], entry: dict[str, Any], change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
-    """A save of the run's new document (the caller checked allowed()): the first creates its draft (a draft of an
-    existing document when its folder and slug name one), later ones update that draft."""
+    """A save of the run's new document (the caller checked allowed()): the first creates its draft, later ones update
+    that draft. When the entry's folder and slug name an existing document (also one a person promoted the run's
+    earlier draft into), the first save creates a draft of that document from its live content instead."""
     if not config.get('session_id'):
         raise ValueError(NO_SESSION)
     with connect() as conn:
         session = _locked_session(conn, config)
         project = session['project_id']
         current = _new_document_draft(conn, session['id'], project, entry, lock=True)
+        existing = None if current is not None else document_named(conn, project, entry['folder'], entry['slug'])
+        live = live_content(conn, project, existing['id']) if existing is not None else None
         # markdown None marks the first save: edit_document has nothing to change yet
-        base = dict(current) if current is not None else {'title': entry['title'], 'description': '', 'markdown': None}
-        try:
-            text = DraftText.model_validate(change(base))
-        except ValidationError as exc:
-            raise ValueError(str(exc.errors()[0]['msg']).removeprefix('Value error, ')) from None
+        base = dict(current) if current is not None else {
+            'title': live['title'] if live else entry['title'], 'description': live['description'] if live else '',
+            'markdown': None}
+        text = _text(change, base)
         note = ''
-        if current is not None:
-            conn.execute('UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
-                         (text.title, text.description, text.markdown, current['id']))
-            audit(conn, project, None, 'document.draft.updated', 'document_draft', current['id'],
-                  {'session_id': session['id'], 'turn': session['turns']})
-            draft_id = current['id']
-        else:
+        if current is None:
             previous = _new_document_previous(conn, session['id'], project, entry)
-            draft_id = create_draft(conn, project, None, {**NEW_DEFAULTS, **text.model_dump()}, origin='agent',
-                                    slug=entry['slug'], folder=entry['folder'], session_id=session['id'])
-            if previous is not None:
-                version = conn.execute('''SELECT v.version FROM ka.document_drafts x
-                    JOIN ka.document_versions v ON v.id=x.base_version_id WHERE x.id=%s''', (draft_id,)).fetchone()
-                if previous['status'] == 'open':
-                    note = EDITED
-                elif version is not None:
-                    note = (PROMOTED if previous['status'] == 'promoted' else DISCARDED).format(version=version['version'])
-        draft = conn.execute('SELECT document_id,base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()
-        record_run_sources(conn, project, draft_id, draft['document_id'], draft['base_version_id'], session['id'],
-                           session['turns'])
+            version = conn.execute('SELECT version FROM ka.document_versions WHERE id=%s',
+                                   (existing['current_version_id'],)).fetchone() if existing is not None else None
+            note = _note(previous, version['version'] if version else None)
+        _write(conn, config, session, current, text, existing['id'] if existing is not None else None, entry)
     saved = SAVED.format(n=len(text.markdown.splitlines()))
     return f'{saved} {note}' if note else saved
 
@@ -303,8 +325,9 @@ async def get_document(context, document_id: str, section: str | None = None, st
 async def save_document(context, document_id: str, markdown: str, title: str | None = None,
                         description: str | None = None) -> str:
     def change(base: dict[str, Any]) -> dict[str, Any]:
-        if base['markdown'] is None:  # the first save of a new document
-            return {'title': title or base['title'], 'description': description or '', 'markdown': markdown}
+        if base['markdown'] is None:  # the first save of a new document (or of the existing one its name matched)
+            return {'title': title or base['title'], 'description': base['description'] if description is None else description,
+                    'markdown': markdown}
         return {'title': base['title'] if title is None else title,
                 'description': base['description'] if description is None else description, 'markdown': markdown}
     return await asyncio.to_thread(_save, context['config'], document_id, change)

@@ -61,7 +61,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       headerActions={<Button type="button" variant="outline" size="sm" disabled={busy || closed} onClick={() => void close()}>Close session</Button>}
       sidebar={hasDraft ? <section aria-label="Draft" className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">{draftTitle}</h2>
-                <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {session.draft && <Button type="button" variant="outline" size="sm" onClick={() => setDraftOpen(true)}>Preview draft</Button>}
           {documentDraft?.status === 'open'
             ? <Button asChild size="sm"><Link to={draftPath(documentDraft)}>Open draft</Link></Button>

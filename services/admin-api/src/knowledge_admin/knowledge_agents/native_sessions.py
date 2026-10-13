@@ -1,4 +1,4 @@
-"""Native agents in Generate documents sessions: a turn's SDK lifecycle as the session's run events, and
+"""Native agents in agent sessions (new-document, Ask agent and Test runs): a turn's SDK lifecycle as the session's run events, and
 agent-session-worker, which runs native turns with the agent config pinned when the session started (built by
 POST /api/sessions) through the native runtime (knowledge_admin.agents.agent) and the SDK Session HistorySession.
 Turns have no time or model-call limit: they end with the answer, Stop, Close or a lost lease.

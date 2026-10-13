@@ -256,7 +256,7 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
 def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
           ) -> tuple[dict, dict, dict | None]:
     """(pinned configuration, model, started-from document; None for a saved agent or a new document): preview and
-    start share it, so they cannot differ."""
+    start share it, so they pin the same configuration except the random `new:` id of a new document."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None

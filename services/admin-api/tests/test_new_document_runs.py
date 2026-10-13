@@ -7,7 +7,9 @@ import pytest
 
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.context import NOT_AVAILABLE
+from knowledge_admin.data_root import FOLDER_RULE
 from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -88,21 +90,90 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
     monkeypatch.setattr(inventory, '_store', s.store)
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        saved = save_document(conn, project, None, DocumentInput(slug='payments-api-reference', title='Payments API',
-                                                                 markdown='# Old'), folder='payments-api-docs')
+        saved = save_document(conn, project, None, DocumentInput(
+            slug='payments-api-reference', title='Payments API', description='The public API', purpose='reference',
+            audience='people', tags=['payments'], markdown='# Old'), folder='payments-api-docs')
         document, version = saved['id'], conn.execute('SELECT current_version_id FROM ka.documents WHERE id=%s',
                                                        (saved['id'],)).fetchone()['current_version_id']
     session, config, new_id = started(s)
     run = UUID(session['id'])
     assert call(config, 'get_document', document_id=new_id) == 'Not written yet.'
+    with pytest.raises(ValueError, match='Write the document with save_document first.'):
+        call(config, 'edit_document', document_id=new_id, old_text='Old', new_text='New')
     assert call(config, 'save_document', document_id=new_id, markdown='# New') == 'Saved draft (1 lines).'
     first = {'document_id': UUID(str(document)), 'status': 'open', 'edited': False, 'origin': 'agent', 'markdown': '# New',
-             'title': 'Payments – API reference', 'description': '', 'revision': 1, 'base_version_id': version,
+             'title': 'Payments API', 'description': 'The public API', 'revision': 1, 'base_version_id': version,
              'folder': None, 'slug': None, 'session_id': run}
     assert drafts(s, run) == [first]
+    assert metadata(s, run) == [('reference', 'people', ['payments'])]
     assert call(config, 'save_document', document_id=new_id, markdown='# Newer') == 'Saved draft (1 lines).'
     assert drafts(s, run) == [{**first, 'markdown': '# Newer', 'revision': 2}]
     assert json.loads(call(config, 'get_document', document_id=new_id))['reads'] == 'your draft'
+
+
+def metadata(s, session_id) -> list[tuple]:
+    with s.store.connect() as conn:
+        return [(row['purpose'], row['audience'], row['tags']) for row in conn.execute(
+            'SELECT purpose,audience,tags FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id',
+            (UUID(str(session_id)),)).fetchall()]
+
+
+def promote(s, draft_id) -> dict:
+    draft = s.client.get(f'/api/documentation/drafts/{draft_id}', headers=HEADERS).json()
+    promoted = s.client.post(f'/api/documentation/drafts/{draft_id}/promote', headers=HEADERS,
+                             json={'revision': draft['revision']})
+    assert promoted.status_code == 200, promoted.text
+    return promoted.json()
+
+
+def draft_ids(s, session_id) -> list[UUID]:
+    with s.store.connect() as conn:
+        return [row['id'] for row in conn.execute(
+            'SELECT id FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id', (UUID(str(session_id)),))]
+
+
+def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_document(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    session, config, new_id = started(s)
+    run = UUID(session['id'])
+    assert call(config, 'save_document', document_id=new_id, markdown='# API', title='API reference',
+                description='Endpoints') == 'Saved draft (1 lines).'
+    [draft] = draft_ids(s, run)
+    document = UUID(str(promote(s, draft)['document_id']))
+    with s.store.connect() as conn:  # a person sets its metadata after the promote
+        project = s.store.project(conn, 'shop')
+        live = conn.execute('SELECT revision FROM ka.document_details WHERE id=%s', (document,)).fetchone()
+        save_document(conn, project, None, DocumentInput(
+            slug='payments-api-reference', title='API reference', description='Endpoints', purpose='reference',
+            audience='people', tags=['payments'], markdown='# API', revision=live['revision'],
+            code_project_ids=[s.repo]), document)
+        version = conn.execute('SELECT v.id,v.version FROM ka.documents d JOIN ka.document_versions v '
+                               'ON v.id=d.current_version_id WHERE d.id=%s', (document,)).fetchone()
+    assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (
+        f"Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version {version['version']}.")
+    rows = drafts(s, run)
+    assert [row['status'] for row in rows] == ['promoted', 'open']
+    assert {key: rows[1][key] for key in ('document_id', 'base_version_id', 'title', 'description', 'markdown', 'folder', 'slug')} == {
+        'document_id': document, 'base_version_id': version['id'], 'title': 'API reference', 'description': 'Endpoints',
+        'markdown': '# API v2', 'folder': None, 'slug': None}
+    assert metadata(s, run)[1] == ('reference', 'people', ['payments'])
+    assert json.loads(call(config, 'get_document', document_id=new_id))['markdown'] == '# API v2'
+
+
+def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, resources={
+        'code_project_ids': [s.repo], 'service_ids': [s.service], 'documents': [{'new': NEW, 'editable': True}]}))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    config = {**session['config'], 'session_id': session['id']}
+    new_id = session['config']['document_access'][0]['id']
+    assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
+    [draft] = draft_ids(s, session['id'])
+    created = s.client.get(f"/api/documentation/documents/{promote(s, draft)['document_id']}", headers=HEADERS).json()
+    assert s.repo in created['code_project_ids'] and created['service_ids'] == [s.service]
 
 
 def test_no_other_new_id_can_be_written(sessions, monkeypatch):
@@ -121,6 +192,8 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
 @pytest.mark.parametrize('change,message', [
     ({'started_from': {'new_document': NEW, 'document_id': str(uuid4())}}, 'Choose one starting point: a document or a new document.'),
     ({'started_from': {'new_document': {**NEW, 'name': '!!!'}}}, 'Use letters or digits in the document name'),
+    ({'started_from': {'new_document': {**NEW, 'folder': '../docs'}}}, FOLDER_RULE),
+    ({'started_from': {'new_document': {**NEW, 'folder': '/docs'}}}, FOLDER_RULE),
     ({'resources': {'documents': [{'new': NEW}, {'new': {**NEW, 'name': 'Other'}}]}}, 'One new document per run.'),
     ({'resources': {'documents': [{'new': {**NEW, 'name': 'Other'}}]}}, 'The new document must be the one the run starts from.'),
 ])
@@ -133,3 +206,8 @@ def test_options_for_a_new_document(sessions):
     options = sessions.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
     assert options['resources']['documents'] == [] and all(not item['linked'] for item in options['resources']['services'])
     assert {'save_document', 'edit_document', 'get_document'} <= {tool['name'] for tool in options['tools']}
+
+
+def test_options_for_a_new_document_and_a_document_are_refused(sessions):
+    response = sessions.client.get(f'/api/sessions/options?new_document=1&document_id={uuid4()}', headers=HEADERS)
+    assert response.status_code == 400 and response.json()['error']['message'] == ONE_START

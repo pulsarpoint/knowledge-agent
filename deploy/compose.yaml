@@ -183,7 +183,7 @@ services:
   agent-session-worker:
     build: {context: .., dockerfile: deploy/Dockerfile.admin-api}
     restart: unless-stopped
-    # Generate documents and Test sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
+    # new-document, Ask agent and Test sessions. Like admin-api it reaches RAG, PostgreSQL, MCP servers, model
     # providers and SSH hosts on default and shell-worker on agent-shell; it has no host port.
     networks: [default, agent-shell]
     dns_search: ${DOCKER_DNS_SEARCH:-.}
