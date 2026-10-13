@@ -77,16 +77,16 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.up.sql').read_text(), prepare=False)
         fixture = conn.execute('''SELECT p.*,v.version FROM ka.documentation_prompts p
             JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND NOT ('server-discovery' = ANY(p.tags))''', (existing_project,)).fetchone()
+            WHERE p.project_id=%s AND NOT (p.tags && ARRAY['server-discovery','document-revision'])''', (existing_project,)).fetchone()
         assert fixture['name'] == NAME and fixture['version'] == 1
         conn.execute('SELECT ka.seed_app_docs_prompt(%s)', (existing_project,))
-        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT ('server-discovery' = ANY(tags))").fetchone()['n'] == 2
+        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT (tags && ARRAY['server-discovery','document-revision'])").fetchone()['n'] == 2
         assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='documentation_prompt.seeded'").fetchone()['n'] == 1
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.down.sql').read_text(), prepare=False)
-        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT ('server-discovery' = ANY(tags))", (existing_project,)).fetchone()['n'] == 0
+        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision'])", (existing_project,)).fetchone()['n'] == 0
         assert conn.execute('SELECT count(*) AS n FROM ka.documentation_prompt_versions WHERE prompt_id=%s', (fixture['id'],)).fetchone()['n'] == 0
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.up.sql').read_text(), prepare=False)
-        assert conn.execute("SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT ('server-discovery' = ANY(tags))", (existing_project,)).fetchone()['id'] == fixture['id']
+        assert conn.execute("SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision'])", (existing_project,)).fetchone()['id'] == fixture['id']
     assert client.get(endpoint, headers=HEADERS).json() == before
 
 

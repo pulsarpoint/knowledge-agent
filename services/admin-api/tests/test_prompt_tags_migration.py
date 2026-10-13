@@ -23,7 +23,7 @@ def test_seeded_prompts_of_a_new_workspace_are_tagged(store):
     with store.connect() as conn:
         project = store.project(conn, f'shop-{uuid4().hex[:6]}')  # a new project runs the seed triggers
         rows = conn.execute(
-            "SELECT input_kind,tags FROM ka.documentation_prompts WHERE project_id=%s AND NOT ('server-discovery' = ANY(tags))", (project,)).fetchall()
+            "SELECT input_kind,tags FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision'])", (project,)).fetchall()
     assert rows, 'the seed functions create prompts for a new workspace'
     assert all(row['tags'] == ['documentation', row['input_kind']] for row in rows)
 

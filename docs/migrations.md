@@ -254,3 +254,10 @@ migration refuses while open drafts, sources or links exist.
 
 `ka.agent_sessions` gets `purpose = 'revision'` (an Ask agent run on a document, ad hoc like discovery) and
 `target_document_id`, set exactly for those runs; deleting the document deletes its runs (and, as before, its drafts). The down migration refuses while revision runs exist.
+
+## 0100_sessions_api
+
+Seeds the prompt **Revise a document** (tag `document-revision`) in every workspace and for new ones: the Ask agent's
+editing rules, now ordinary prompt text. Open Ask agent runs (pinned with the old document tools) are closed with "Closed
+by an update; start a new chat."; their queued messages are discarded. `target_document_id` now only records where a run
+was started. The down migration refuses while the seeded prompt is customized and removes it; closed runs stay closed.

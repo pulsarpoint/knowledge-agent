@@ -56,7 +56,7 @@ def test_filter_by_tag_and_tags_in_use(client):
     assert tags['beta'] == 2 and tags['alpha'] == 1
     assert tags['documentation'] >= 1  # the seeded prompts of the test workspace
     ordered = [row['tag'] for row in client.get(f'{ENDPOINT}/tags', headers=HEADERS).json()['tags']]
-    assert ordered == sorted(ordered)
+    assert ordered == sorted(ordered, key=lambda tag: tag.replace('-', ''))  # the database collation ignores hyphens
 
 
 def test_a_prompt_without_tags_gets_the_default(client):

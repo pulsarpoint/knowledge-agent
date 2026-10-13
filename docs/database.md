@@ -43,6 +43,7 @@ plugin and RAG-collection pipeline; they refuse to discard populated legacy data
 The current RAG collections pipeline is unaffected.
 Migration 41 seeds the editable app-docs analysis template with active version 1,
 including when the application workspace is first created after migrations.
+Migration 0100 seeds the "Revise a document" prompt (tag `document-revision`, the Ask agent's editing rules) in every workspace.
 
 ```mermaid
 erDiagram

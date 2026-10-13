@@ -56,6 +56,10 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+revise_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regprocedure('ka.seed_document_revision_prompt(uuid)') IS NULL")
+[ "$revise_removed" = t ] || { echo 'FAIL: 0100 down left the Revise a document seed' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 agent_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
         AND table_name = 'agent_sessions' AND column_name = 'target_document_id')")
@@ -245,6 +249,10 @@ agent=$(docker exec "$test_container" psql -X -U postgres -Atc \
         AND table_name = 'agent_sessions' AND column_name = 'target_document_id')")
 [ "$agent" = t ] || { echo 'FAIL: 0099 Ask agent runs missing' >&2; exit 1; }
 printf '%s\n' 'PASS: Ask agent runs name their document.'
+revise=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regprocedure('ka.seed_document_revision_prompt(uuid)') IS NOT NULL")
+[ "$revise" = t ] || { echo 'FAIL: 0100 Revise a document seed missing' >&2; exit 1; }
+printf '%s\n' 'PASS: the Revise a document prompt is seeded.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
