@@ -1,6 +1,6 @@
 """Starting a session: the options a start panel needs, Preview (exactly what Start pins) and Start. One request shape for
-every ad-hoc run; where it is started from is a label (started_from), and what it may use is pinned in its config. Saved
-agents (agent_id) join in part 2."""
+every run; where it is started from is a label (started_from), and what it may use is pinned in its config. A saved agent
+(agent_id) starts from its own configuration, which the request can only narrow (narrow)."""
 import hashlib
 from uuid import UUID
 
@@ -8,10 +8,10 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from knowledge_admin.knowledge_agents.config import load_model, model_fits
+from knowledge_admin.knowledge_agents.config import get_agent_config, load_model, model_fits, per_run, require_run_resources
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
-from knowledge_admin.knowledge_agents.experts import offered
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError, bring
+from knowledge_admin.knowledge_agents.experts import offered, pin
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, resolve
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, SUBAGENT, needs_met
 
@@ -25,7 +25,12 @@ REQUIRES = {'files': 'a code project or a collection', 'code': 'a code project',
 NO_EXPERT = 'This expert is not available: {id}.'
 NOT_SET_UP = 'SSH is not set up for this server.'
 NOT_ALLOWED = 'SSH is not allowed for this server.'
-NO_SAVED_AGENTS = 'Saved agents start from their Test tab for now.'
+NOT_ITS_TOOL = "{tool} is not one of this agent's tools."
+NO_SUBAGENTS = 'This agent does not allow subagents.'
+OWN_MODEL = 'A saved agent uses its own model and prompt.'
+NO_ENVIRONMENTS = 'A saved agent takes no environments; choose its servers or services.'
+NO_DOCUMENTS = 'A saved agent takes no documents yet.'
+AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
 
 
@@ -49,11 +54,11 @@ class StartInput(BaseModel):
     the run may use (resources, tools, experts, subagents) and where it was started from (a label for lists)."""
     model_config = ConfigDict(extra='forbid')
     agent_id: str | None = None
-    started_from: StartedFrom
+    started_from: StartedFrom | None = None
     message: str = Field(max_length=20000)
-    model_id: UUID
+    model_id: UUID | None = None
     prompt_id: UUID | None = None
-    system_prompt: str = Field(max_length=20000)
+    system_prompt: str = Field(default='', max_length=20000)
     context: str = Field(default='', max_length=20000)
     resources: Resources = Field(default_factory=Resources)
     tools: list[str] = Field(default_factory=list, max_length=100)
@@ -69,8 +74,13 @@ class StartInput(BaseModel):
             setattr(self, name, value.strip())
         if not self.message:
             raise ValueError('Enter a message')
-        if not self.system_prompt:
-            raise ValueError('Enter a system prompt')
+        if self.agent_id is None:
+            if self.started_from is None:
+                raise ValueError('Choose what the agent starts from.')
+            if self.model_id is None:
+                raise ValueError('Choose a model.')
+            if not self.system_prompt:
+                raise ValueError('Enter a system prompt')
         self.tools = list(dict.fromkeys(self.tools))
         self.expert_ids = list(dict.fromkeys(self.expert_ids))
         merged: dict[UUID, bool] = {}
@@ -119,10 +129,78 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
     return access
 
 
-def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tuple[dict, dict, dict]:
-    """(pinned configuration, model, started-from document): preview and start share it, so they cannot differ."""
+def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str) -> tuple[dict, dict]:
+    """A saved agent's configuration for one run, narrowed by the request and never widened: its tools that are on
+    (switch off only), a subset of its experts, subagents only if it allows them, and for a per-run agent a subset of
+    its saved resources. Its model and system prompt are its own."""
+    try:
+        config = get_agent_config(agent_id, conninfo=conninfo)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    model = config['model']
+    if (value.model_id is not None and (model is None or str(value.model_id) != str(model['id']))) \
+            or (value.system_prompt and value.system_prompt != config['system_prompt']['content']) \
+            or value.prompt_id is not None:
+        raise HTTPException(400, OWN_MODEL)
+    if value.resources.environment_ids:
+        raise HTTPException(400, NO_ENVIRONMENTS)
+    if value.resources.documents:
+        raise HTTPException(400, NO_DOCUMENTS)
+    resources = value.resources
+    requested = RunResources(code_project_ids=resources.code_project_ids, collection_ids=resources.collection_ids,
+                             server_ids=resources.server_ids, service_ids=resources.service_ids) \
+        if any((resources.code_project_ids, resources.collection_ids, resources.server_ids, resources.service_ids)) or per_run(config) \
+        else None
+    try:
+        pinned = resolve(conn, project, config, requested)
+        require_run_resources(pinned)
+        if not pinned['enabled']:
+            raise ValueError('Agent is disabled.')
+        if model is None or not model['enabled'] or not model_fits(model):
+            raise ValueError(AGENT_NO_MODEL)
+    except RunResourceError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    pinned = pin(conn, pinned, agent_id)
+    items = {item['tool']: item for item in pinned['tools']['items']}
+    on = {name for name, item in items.items() if item['mode'] == 'on'}
+    added = [name for name in value.tools if name not in on]
+    if added:
+        raise HTTPException(400, ' '.join(NOT_ITS_TOOL.format(tool=name) for name in added))
+    if value.subagents and SUBAGENT not in on:
+        raise HTTPException(400, NO_SUBAGENTS)
+    for name, item in items.items():
+        if name == SUBAGENT:
+            item['mode'] = 'on' if value.subagents else 'off'
+        elif name in CATALOG and name in on and name not in value.tools:
+            item['mode'] = 'off'
+    unmet = [NEEDS.format(tool=name, what=REQUIRES[CATALOG[name].needs]) for name in value.tools
+             if name in CATALOG and CATALOG[name].needs in REQUIRES
+             and not needs_met(CATALOG[name].needs, pinned, pinned['ssh']['servers'])]
+    if unmet:
+        raise HTTPException(400, ' '.join(unmet))
+    experts = {entry['id']: entry for entry in pinned['experts']}
+    for expert_id in value.expert_ids:
+        if str(expert_id) not in experts:
+            raise HTTPException(400, NO_EXPERT.format(id=expert_id))
+    pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
+    if value.context:
+        content = pinned['system_prompt']['content'] + f'\n\n# Context\n\n{value.context}'
+        pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
+    pinned['project_id'] = str(project)
+    return jsonable_encoder(pinned), model
+
+
+def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
+          ) -> tuple[dict, dict, dict | None]:
+    """(pinned configuration, model, started-from document or None for a saved agent): preview and start share it, so
+    they cannot differ."""
     if value.agent_id is not None:
-        raise HTTPException(400, NO_SAVED_AGENTS)
+        pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
+        return pinned, model, None
     target = conn.execute('SELECT id FROM ka.documents WHERE id=%s AND project_id=%s',
                           (value.started_from.document_id, project)).fetchone()
     if target is None:

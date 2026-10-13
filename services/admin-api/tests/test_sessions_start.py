@@ -134,8 +134,8 @@ def test_start_says_document_not_found_when_the_document_goes_before_the_insert(
     from knowledge_admin.sessions import start
     real = start.build
 
-    def build_then_delete(conn, project, value, session_id):
-        built = real(conn, project, value, session_id)
+    def build_then_delete(conn, project, value, session_id, conninfo):
+        built = real(conn, project, value, session_id, conninfo)
         with ask.s.store.connect() as other:  # another transaction deletes the document after build() read it
             other.execute('DELETE FROM ka.documents WHERE id=%s', (ask.document['id'],))
         return built
@@ -144,14 +144,11 @@ def test_start_says_document_not_found_when_the_document_goes_before_the_insert(
     assert response.status_code == 404 and response.json()['error']['message'] == 'Document not found', response.text
 
 
-def test_a_saved_agent_or_no_starting_point_is_refused(ask):
-    for change, status, message in (({'agent_id': 'code'}, 400, 'Saved agents start from their Test tab for now.'),
-                                    ({'started_from': None}, 400, None)):  # validation: the app answers 400
-        for path in ('/preview', ''):
-            response = post(ask, path, **change)
-            assert response.status_code == status, response.text
-            if message:
-                assert response.json()['error']['message'] == message
+def test_no_starting_point_is_refused_for_an_ad_hoc_run(ask):
+    for path in ('/preview', ''):
+        response = post(ask, path, started_from=None)
+        assert response.status_code == 400, response.text
+        assert response.json()['error']['message'].endswith('Choose what the agent starts from.')
 
 
 def test_the_editable_document_must_exist_and_twice_listed_documents_are_one_editable_entry(ask):
