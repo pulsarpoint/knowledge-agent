@@ -43,6 +43,7 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
   // ones this page started.
   const foreign = loaded !== null && (scope.kind === 'document'
     ? loaded.purpose !== 'revision' || loaded.target_document_id !== scope.id
+    : scope.kind === 'server' ? loaded.purpose !== 'discovery' || loaded.server_id !== scope.id
     : scope.kind === 'agent' && (loaded.agent_id !== scope.id || (loaded.purpose !== 'test' && loaded.purpose !== 'event'))) ? loaded : null;
   const session = foreign ? null : loaded;
   const [message, setMessage] = useState('');
@@ -63,7 +64,7 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
     if (scopeId === null) return;  // a new document: no run list
     const controller = new AbortController();
     setListFailed(false);
-    getSessions(scope.kind === 'document' ? { documentId: scopeId } : { agentId: scopeId }, controller.signal).then(value => {
+    getSessions(scope.kind === 'document' ? { documentId: scopeId } : scope.kind === 'server' ? { serverId: scopeId } : { agentId: scopeId }, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       setRuns(value.sessions);
       if (!chosen) setRunId(value.sessions.find(item => item.status !== 'closed')?.id ?? null);
@@ -132,12 +133,13 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
       agentName={session?.agent_name ?? (scope.kind === 'agent' ? scope.name : 'Ask agent')}
       heading={<div className="flex flex-col gap-1">
         <h2 className="break-words font-semibold">{runId === null ? 'New conversation'
-          : foreign ? (isAgent ? 'Another agent\'s run' : 'Another document\'s run')
+          : foreign ? (isAgent ? 'Another agent\'s run' : scope.kind === 'server' ? 'Another server\'s run' : 'Another document\'s run')
           : isNew && session ? `Writing: ${session.folder ?? ''}/${session.document_name ?? ''}` : session?.title ?? 'Loading the conversation…'}</h2>
         {foreign && (isAgent ? <Alert variant="destructive"><AlertDescription>This run belongs to another agent.</AlertDescription></Alert>
+          : scope.kind === 'server' ? <Alert variant="destructive"><AlertDescription>This run does not belong to this server.</AlertDescription></Alert>
           : <Alert variant="destructive"><AlertDescription>This run belongs to another document.{' '}
           {foreign.target_document_id && <Link className="underline" to={agentRunPath(foreign.target_document_id, foreign.id)}>Open it on its document</Link>}</AlertDescription></Alert>)}
-        {listFailed && <Alert variant="destructive"><AlertDescription>{isAgent ? 'Could not load this agent\'s runs.' : 'Could not load this document\'s runs.'}{' '}
+        {listFailed && <Alert variant="destructive"><AlertDescription>{isAgent ? 'Could not load this agent\'s runs.' : scope.kind === 'server' ? 'Could not load this server\'s runs.' : 'Could not load this document\'s runs.'}{' '}
           <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed(n => n + 1)}>Retry</Button></AlertDescription></Alert>}
         {runId === null && settings.options && settings.settings && <p aria-label="Current settings" className="text-xs text-muted-foreground">
           {settingsSummary(settings.options, settings.settings)}</p>}
@@ -159,12 +161,12 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
         {session && <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
         {isAgent && session && <Button type="button" variant="ghost" size="sm" disabled={busy || working}
           onClick={() => setSuggestions({ open: true, turn: turn.turn })}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>}</>}
-      empty={<p className="text-sm text-muted-foreground">{isAgent ? 'Send a message to test the agent.' : isNew ? 'Tell the agent what to write.' : 'Ask the agent to change this document.'}</p>}
+      empty={<p className="text-sm text-muted-foreground">{isAgent ? 'Send a message to test the agent.' : scope.kind === 'server' ? 'Ask the agent to explore this server.' : isNew ? 'Tell the agent what to write.' : 'Ask the agent to change this document.'}</p>}
       composer={{ value: message, onChange: setMessage, busy: busy || waiting || !settings.settings, label: 'Message',
         placeholder: isAgent ? 'Ask a question or give a task…' : isNew ? 'For example: document the payments API for new developers'
           : 'For example: add a section on log rotation', onSend: () => void send(),
         onStop: open ? () => void act(async () => { await stopSession(runId!); stopping(); }) : undefined,
-        blockedReason: foreign ? `This run belongs to another ${isAgent ? 'agent' : 'document'}. Start a New chat.`
+        blockedReason: foreign ? `This run belongs to another ${isAgent ? 'agent' : scope.kind === 'server' ? 'server' : 'document'}. Start a New chat.`
           : session?.status === 'closed' ? 'This conversation is closed. Start a New chat.'
           : !open ? blocked : null }} />
     {settings.options && settings.settings && <AgentSettingsSheet open={sheet} onOpenChange={setSheet} scope={scope} options={settings.options}

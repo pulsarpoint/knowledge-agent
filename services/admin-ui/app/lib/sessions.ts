@@ -16,7 +16,7 @@ export interface SessionReview { id: string; comment: string; suggestion: string
 /** What a chat is about: a document (Ask agent), a saved agent (its Test tab) or a new document (Documents → New: the
  * Title and Folder the editor holds now). */
 export type ChatScope = { kind: 'document'; id: string; title: string } | { kind: 'agent'; id: string; name: string }
-  | { kind: 'new-document'; folder: string; title: string };
+  | { kind: 'new-document'; folder: string; title: string } | { kind: 'server'; id: string; name: string };
 
 export interface SessionFolder { path: string; kind: 'code_project' | 'folder'; name: string; code_project_id?: string }
 export interface SessionSummary {
@@ -73,10 +73,10 @@ const query = (values: Record<string, string | number | undefined>) => {
   const text = params.toString().replace(/\+/g, '%20');
   return text ? `?${text}` : '';
 };
-export const getSessions = (filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; offset?: number }, signal?: AbortSignal) =>
-  request<{ sessions: RunSummary[] }>(`/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, purpose: filter.purpose, offset: filter.offset })}`, { signal });
-export const getSessionOptions = (scope: { documentId?: string; agentId?: string; newDocument?: boolean }, signal?: AbortSignal) =>
-  request<AgentOptions>(`/api/sessions/options${query({ document_id: scope.documentId, agent_id: scope.agentId,
+export const getSessions = (filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; serverId?: string; offset?: number }, signal?: AbortSignal) =>
+  request<{ sessions: RunSummary[] }>(`/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, server_id: filter.serverId, purpose: filter.purpose, offset: filter.offset })}`, { signal });
+export const getSessionOptions = (scope: { documentId?: string; agentId?: string; serverId?: string; newDocument?: boolean }, signal?: AbortSignal) =>
+  request<AgentOptions>(`/api/sessions/options${query({ document_id: scope.documentId, agent_id: scope.agentId, server_id: scope.serverId,
     new_document: scope.newDocument ? 1 : undefined })}`, { signal });
 export const reviewSession = (id: string, comment: string, turn?: number) =>
   request<SessionReview>(`${session(id)}/review`, json('POST', { comment, ...(turn ? { turn } : {}) }));
@@ -105,12 +105,13 @@ export interface AgentResources { server_ids: string[]; service_ids: string[]; e
 /** A document a run writes from scratch: its name and documentation folder. */
 export interface NewDocument { folder: string; name: string }
 export interface StartInput {
-  started_from?: { document_id: string } | { new_document: NewDocument }; agent_id?: string; message: string; model_id?: string;
+  started_from?: { document_id: string } | { new_document: NewDocument } | { server_id: string }; agent_id?: string; message: string; model_id?: string;
   prompt_id?: string | null; system_prompt?: string; context: string;
   resources: AgentResources & { documents: ({ id: string; editable: boolean } | { new: NewDocument; editable: true })[] };
   tools: string[]; expert_ids: string[]; subagents: boolean;
 }
-export type RunSummary = SessionSummary & { started_by: string | null; draft_id: string | null };
+/** A server's discovery runs also carry their proposal counts. */
+export type RunSummary = SessionSummary & { started_by: string | null; draft_id: string | null; pending?: number; accepted?: number; rejected?: number };
 export const agentRunPath = (documentId: string, runId: string) =>
   `/documents/${encodeURIComponent(documentId)}/agent/${encodeURIComponent(runId)}`;
 

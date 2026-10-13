@@ -57,6 +57,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
         <SheetDescription>{locked ? "This conversation's settings. They cannot change while it is open."
           : agent ? 'What the agent may use in the next conversation.'
           : scope.kind === 'new-document' ? `What the agent may use for “${scope.title}”.`
+          : scope.kind === 'server' ? `What the agent may use to explore “${scope.name}”.`
           : `What the agent may use in the next conversation on “${scope.kind === 'document' ? scope.title : ''}”.`}</SheetDescription></SheetHeader>
       <FieldGroup className="mt-4">
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -83,9 +84,10 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
               return <FieldSet key={key}><FieldLegend variant="label">{label}</FieldLegend>
                 {items.map(item => {
                   const unusable = 'usable' in item && !item.usable;
+                  const pinned = scope.kind === 'server' && key === 'servers' && item.id === scope.id;  // the run is about this server
                   const id = `settings-${key}-${item.id}`;
                   return <Field key={item.id} orientation="horizontal">
-                    <Checkbox id={id} aria-label={item.name} disabled={locked || unusable} checked={chosen[idsKey].includes(item.id)}
+                    <Checkbox id={id} aria-label={item.name} disabled={locked || unusable || pinned} checked={pinned || chosen[idsKey].includes(item.id)}
                       onCheckedChange={on => toggle(idsKey, item.id, on === true)} />
                     <FieldLabel htmlFor={id}>{item.name}</FieldLabel>
                     {unusable && 'reason' in item && item.reason && <FieldDescription>{item.reason}</FieldDescription>}

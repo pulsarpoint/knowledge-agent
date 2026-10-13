@@ -5,7 +5,8 @@ import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources,
 export const OWN = 'own';
 /** Where a scope's settings are remembered in this browser: per document, per saved agent, one for every new document. */
 const STORAGE = (scope: ChatScope) => scope.kind === 'document' ? `ask-agent-settings:${scope.id}`
-  : scope.kind === 'agent' ? `agent-settings:agent:${scope.id}` : 'agent-settings:new-document';
+  : scope.kind === 'agent' ? `agent-settings:agent:${scope.id}`
+  : scope.kind === 'server' ? `agent-settings:server:${scope.id}` : 'agent-settings:new-document';
 const KINDS: [keyof AgentOptions['resources'], keyof AgentResources][] = [['servers', 'server_ids'], ['services', 'service_ids'],
   ['environments', 'environment_ids'], ['code_projects', 'code_project_ids'], ['collections', 'collection_ids']];
 const EMPTY: AgentResources = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
@@ -95,6 +96,12 @@ export function startInput(scope: ChatScope, options: AgentOptions, settings: Ag
     return { agent_id: scope.id, message: message.trim(), context: '', tools, expert_ids: settings.experts, subagents: settings.subagents,
       resources: { ...settings.chosen, environment_ids: [], documents: [] } };
   }
+  if (scope.kind === 'server') {  // a discovery run from the server: the server is always among its resources
+    const server_ids = settings.chosen.server_ids.includes(scope.id) ? settings.chosen.server_ids : [...settings.chosen.server_ids, scope.id];
+    return { started_from: { server_id: scope.id }, message: message.trim(), model_id: settings.modelId,
+      prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(), context: '',
+      resources: { ...settings.chosen, server_ids, documents: [] }, tools, expert_ids: settings.experts, subagents: settings.subagents };
+  }
   if (scope.kind === 'new-document') {  // the Title and Folder become the one document the run may write
     const document = { folder: scope.folder.trim(), name: scope.title.trim() };
     return { started_from: { new_document: document }, message: message.trim(), model_id: settings.modelId,
@@ -134,7 +141,8 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
   useEffect(() => {
     if (!key || !kind || !storage) return;
     const controller = new AbortController();
-    const which = kind === 'new-document' ? { newDocument: true } : kind === 'document' ? { documentId: id! } : { agentId: id! };
+    const which = kind === 'new-document' ? { newDocument: true } : kind === 'document' ? { documentId: id! }
+      : kind === 'server' ? { serverId: id! } : { agentId: id! };
     getSessionOptions(which, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       let saved: unknown = null;

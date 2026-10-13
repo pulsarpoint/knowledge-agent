@@ -146,3 +146,13 @@ test('a new document: the start body names it as started_from and as the one edi
       documents: [{ new: { folder: 'payments', name: 'Payments API' }, editable: true }] },
     tools: ['ssh_run', 'save_document', 'get_document', 'get_service_info'], expert_ids: [], subagents: false });
 });
+
+test('the start body for a server: started from it, the server among the resources, no documents, empty context', () => {
+  const settings = { ...defaultSettings(options), chosen: { ...defaultSettings(options).chosen, server_ids: [] } };
+  const body = startInput({ kind: 'server', id: 's9', name: 'web-9' }, options, settings, ' Explore. ');
+  expect(body).toEqual({ started_from: { server_id: 's9' }, message: 'Explore.', model_id: settings.modelId, prompt_id: settings.promptKey,
+    system_prompt: settings.systemPrompt.trim(), context: '',
+    resources: { ...settings.chosen, server_ids: ['s9'], documents: [] },
+    tools: shownTools(options, { ...settings, chosen: { ...settings.chosen, server_ids: [] } }).map(tool => tool.name),
+    expert_ids: [], subagents: false });
+});
