@@ -40,6 +40,7 @@ def test_a_matching_handler_starts_one_ordinary_run(tester):
     detail = t.client.get(f"/api/sessions/{session['id']}", headers=HEADERS).json()
     assert [(i['seq'], i['text']) for i in detail['inputs']] == [(1, 'Triage DEMO-1 (In Progress)')]
     assert detail['config']['id'] == t.agent and detail['purpose'] == 'event'
+    assert detail['title'] == 'Tester · jira.ticket.updated DEMO-1'
     with t.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_tasks').fetchone()['n'] == 0
         audit = conn.execute("""SELECT actor_id,details FROM ka.audit_events WHERE action='agent_run.created'
@@ -131,3 +132,18 @@ def test_an_event_or_handler_deleted_later_leaves_the_run(tester):
         conn.execute('DELETE FROM ka.event_handlers WHERE id=%s', (handler['id'],))
     [session] = sessions(t.store)
     assert (session['handler_id'], session['purpose']) == (None, 'event')
+
+
+def test_a_tool_the_agent_cannot_use_is_left_off(tester):
+    t = tester
+    with t.store.connect() as conn:  # ssh_run on, but SSH is off and no server is usable
+        conn.execute("""INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'ssh_run','on',true)
+            ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on'""", (t.agent,))
+    a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt=PROMPT)
+    first = an_event(t.store)
+    event_processor.run_once(t.store)
+    [handler_run] = runs(t.store, first['id'])
+    [session] = sessions(t.store)
+    assert (handler_run['status'], handler_run['agent_session_id']) == ('succeeded', session['id'])
+    modes = {item['tool']: item['mode'] for item in session['agent_config']['tools']['items']}
+    assert modes['ssh_run'] == 'off'

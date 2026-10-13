@@ -282,6 +282,26 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     return jsonable_encoder(pinned), model
 
 
+def usable_tools(conn, project: UUID, agent_id: str, conninfo: str) -> list[str]:
+    """The agent's tools that are on (as agent_options lists them) whose need its saved configuration meets, judged as
+    narrow judges them (SSH: its enabled, SSH-allowed servers). What a start with everything the agent has on can
+    send: a tool it could not use is left off rather than refused."""
+    try:
+        config = get_agent_config(agent_id, conninfo=conninfo)
+        pinned = resolve(conn, project, config, None)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except RunResourceError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    on = {item['tool'] for item in pinned['tools']['items'] if item['mode'] == 'on'}
+    usable = [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']] \
+        if pinned['ssh']['enabled'] else []
+    return [spec.name for spec in choosable() if spec.name in on and (
+        spec.needs not in REQUIRES or needs_met(spec.needs, pinned, usable if spec.needs == 'ssh' else None))]
+
+
 def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
           ) -> tuple[dict, dict, dict | None]:
     """(pinned configuration, model, where it starts: the document or the server; None for a saved agent or a new
@@ -363,16 +383,16 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
 
 
 def start_run(conn, project: UUID, actor: UUID, value: StartInput, conninfo: str, *, purpose: str | None = None,
-              event_id: int | None = None, handler_id: UUID | None = None) -> UUID:
+              event_id: int | None = None, handler_id: UUID | None = None, title: str | None = None) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
     a new document → documents, a server → discovery, a saved agent → test, or `purpose` for a saved agent, as an
     event handler starts it with its event and handler), its first input, and audit it. POST /api/sessions and the
-    event processor share it."""
-    if value.agent_id is None and (purpose, event_id, handler_id) != (None, None, None):
-        raise ValueError('Only a saved agent run takes a purpose, an event or a handler.')
+    event processor share it. The title is the message's first line unless one is given (an event run's names its event)."""
+    if value.agent_id is None and (purpose, event_id, handler_id, title) != (None, None, None, None):
+        raise ValueError('Only a saved agent run takes a purpose, an event, a handler or a title.')
     session_id = uuid4()
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
-    title = value.message.splitlines()[0][:TITLE_LENGTH]
+    title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
     # the proposal tools are offered only for a run started from a server: audited as off only there
     from_server = value.started_from is not None and value.started_from.server_id is not None
     tools_off = sorted(item['tool'] for item in pinned['tools']['items']

@@ -57,8 +57,9 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
 
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
     """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
-    everything it has on, the rendered prompt as its first message, the handler's creator as actor. One run per event
-    and handler: processing the event again links the run it started before."""
+    everything it has on (a tool it could not use left off), the rendered prompt as its first message, the handler's
+    creator as actor, titled by the event. One run per event and handler: processing the event again links the run it
+    started before."""
     agent = conn.execute('SELECT name,enabled,resources FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
     if agent is None:
         raise HandlerFailed(NO_AGENT)
@@ -75,11 +76,12 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     try:
         offer = start.agent_options(conn, event['project_id'], handler['agent_id'], store.conninfo)
         value = start.StartInput(agent_id=handler['agent_id'], message=prompt,
-                                 tools=[tool['name'] for tool in offer['tools']],
+                                 tools=start.usable_tools(conn, event['project_id'], handler['agent_id'], store.conninfo),
                                  expert_ids=[expert['id'] for expert in offer['experts']],
                                  subagents=offer['agent']['subagents_allowed'])
         session_id = start.start_run(conn, event['project_id'], handler['created_by'], value, store.conninfo,
-                                     purpose='event', event_id=event['id'], handler_id=handler['id'])
+                                     purpose='event', event_id=event['id'], handler_id=handler['id'],
+                                     title=f"{agent['name']} · {event['type']} {event['subject']}")
     except HTTPException as exc:
         raise HandlerFailed(str(exc.detail)) from None
     except ValidationError as exc:  # a rendered prompt longer than a message may be
