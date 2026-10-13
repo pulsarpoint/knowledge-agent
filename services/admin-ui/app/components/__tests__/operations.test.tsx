@@ -5,62 +5,45 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OperationsView from '../OperationsView';
 import ServerSSHForm from '../ServerSSHForm';
 import * as api from '../../lib/operations';
-import { getAgentConfig, getRunResourceOptions, type AgentProfile } from '../../lib/profiles';
-import { getSessionOptions, startSession, type SessionDetail } from '../../lib/sessions';
+import { getAgentConfig, type AgentProfile } from '../../lib/profiles';
+import { getSessionOptions, getSessions, startSession, type SessionDetail } from '../../lib/sessions';
 import { agentOptions } from '../../lib/__tests__/agentScopeFixture';
 vi.mock('../../lib/operations');
 vi.mock('../../lib/profiles');
-vi.mock('../../lib/sessions', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/sessions')>(), startSession: vi.fn(), getSessionOptions: vi.fn() }));
+vi.mock('../../lib/sessions', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/sessions')>(), startSession: vi.fn(), getSessionOptions: vi.fn(), getSessions: vi.fn() }));
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 const server: api.SSHServer = { id: 'server-1', name: 'Staging', hostname: 'staging.internal', port: 22, username: 'operator', revision: 2, ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: 'staging.internal ssh-ed25519 test', has_private_key: true, last_tested_at: null, last_test_error: null };
 const settings: api.OperationsSettings = { revision: 1, instructions: '', server_ids: [], mcp_server_ids: [], skill_ids: [] };
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getOperationsSettings).mockResolvedValue({ settings, configs: [], mcp_servers: [], servers: [server, { ...server, id: 'server-2', name: 'Disabled', ssh_allowed: false }], skills: [{ id: 'skill-1', name: 'service-checks', description: 'Verify services', enabled: true }] });
-  vi.mocked(getRunResourceOptions).mockResolvedValue({ resources: 'fixed' });
   vi.mocked(api.getSSH).mockResolvedValue(server);
   vi.mocked(getAgentConfig).mockResolvedValue({ id: 'operations', system_prompt: { content: 'Use the saved system prompt.', version: 2 }, ssh: { enabled: true, servers: [] } });
+  vi.mocked(getSessionOptions).mockResolvedValue(agentOptions);
+  vi.mocked(getSessions).mockResolvedValue({ sessions: [] });
 });
 describe('Operations configuration', () => {
-  it('previews saved config and the current prompt without running a task', async () => {
+  it('the Test tab is the shared agent chat; nothing runs without a message', async () => {
     render(<MemoryRouter><OperationsView view="test" agentId="custom-agent" /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Test' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Show config' })).toBeNull();
+    await waitFor(() => expect(getSessions).toHaveBeenCalledWith({ agentId: 'custom-agent' }, expect.anything()));
     expect(getAgentConfig).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.\nDo not restart it.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-    const preview = await screen.findByLabelText('Agent configuration');
-    expect(getAgentConfig).toHaveBeenCalledWith('custom-agent');
-    expect(JSON.parse(preview.textContent!)).toMatchObject({
-      prompt: 'Inspect service status.\nDo not restart it.',
-      config: { system_prompt: { content: 'Use the saved system prompt.', version: 2 } },
-    });
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
     expect(startSession).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Updated task' } });
-    expect(getAgentConfig).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText('Agent configuration')).not.toBeInTheDocument();
-    vi.mocked(getAgentConfig).mockResolvedValue({ system_prompt: { content: 'New active prompt', version: 3 } });
-    fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-    expect(await screen.findByLabelText('Agent configuration')).toHaveTextContent('New active prompt');
   });
 
-  it('allows preview for disabled agents and empty tasks, and handles loading failures', async () => {
-    vi.mocked(getAgentConfig).mockRejectedValueOnce(new Error('Administration database unavailable'));
+  it('a disabled agent cannot start a task', async () => {
     render(<MemoryRouter><OperationsView view="test" available={false} /></MemoryRouter>);
-    fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-    expect(await screen.findByText('Administration database unavailable')).toBeVisible();
-    expect(screen.queryByLabelText('Agent configuration')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Show config' }));
-    expect(JSON.parse((await screen.findByLabelText('Agent configuration')).textContent!).prompt).toBe('');
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+    expect(await screen.findByText('This agent is disabled. Enable it in General to run a task.')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
-  it('does not preview unsaved configuration', async () => {
+  it('unsaved configuration blocks a task', async () => {
     render(<MemoryRouter><OperationsView view="test" unsavedProfile /></MemoryRouter>);
     await screen.findByText('Save or discard changes in the configuration tabs before starting a task.');
-    expect(screen.getByRole('button', { name: 'Show config' })).toBeDisabled();
     expect(getAgentConfig).not.toHaveBeenCalled();
   });
 
@@ -70,9 +53,9 @@ describe('Operations configuration', () => {
     vi.mocked(api.getOperationsSettings).mockResolvedValue(data);
     render(<MemoryRouter><OperationsView view="test" /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
-    expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled());
     expect(screen.queryByText(/Enable the agent/)).toBeNull();
     expect(startSession).not.toHaveBeenCalled();
   });
@@ -83,12 +66,12 @@ describe('Operations configuration', () => {
     data.servers = [{ ...server, ssh_allowed: state !== 'SSH disabled', enabled: state !== 'no credentials' }];
     vi.mocked(api.getOperationsSettings).mockResolvedValue(data);
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Session not found.' } }, { status: 404 })));
-    vi.mocked(getSessionOptions).mockResolvedValue(agentOptions);
     vi.mocked(startSession).mockResolvedValue({ id: 'new-session' } as SessionDetail);
     render(<MemoryRouter><OperationsView view="test" agentId="specific-agent" profile={{ model_id: null } as AgentProfile} /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await waitFor(() => expect(startSession).toHaveBeenCalledWith(expect.objectContaining({ agent_id: 'specific-agent', message: 'Inspect service status.' })));
     expect(screen.getByLabelText('Message')).toHaveValue('');
     vi.unstubAllGlobals();
@@ -179,7 +162,7 @@ describe('Operations configuration', () => {
     expect(screen.queryByRole('textbox', { name: 'Instructions' })).not.toBeInTheDocument();
     expect(screen.getByText('Save or discard changes in the configuration tabs before starting a task.')).toBeVisible();
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect disk usage.' } });
-    expect(screen.getByRole('button', { name: 'Run task' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
     view.rerender(<MemoryRouter><OperationsView view="settings" /></MemoryRouter>);
     expect(screen.getByRole('textbox', { name: 'Instructions' })).toHaveValue('Preserve this runbook.');
     expect(api.saveOperationsSettings).not.toHaveBeenCalled();
@@ -189,7 +172,7 @@ describe('Operations configuration', () => {
     render(<MemoryRouter><OperationsView view="settings" /></MemoryRouter>);
     await screen.findByLabelText('Instructions');
     expect(screen.queryByRole('switch', { name: 'Enable server operations agent' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Run task' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Allow Disabled' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Staging' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Use service-checks' }));

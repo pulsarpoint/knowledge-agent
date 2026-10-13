@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import AgentPane from '../AgentPane';
+import AgentChat from '../AgentChat';
 import { defaultSettings } from '~/lib/agentSettings';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 
@@ -44,13 +44,13 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
 }
 const RUNS = 'GET /api/sessions?document_id=doc-1';
 const settingsOf = () => ({ options, error: '', settings: defaultSettings(options), update: vi.fn(), replace: vi.fn() });
-function show(props: Partial<Parameters<typeof AgentPane>[0]> = {}) {
+function show(props: Partial<Parameters<typeof AgentChat>[0]> = {}) {
   const onDraftChange = vi.fn();
   const settings = settingsOf();
-  const pane = (more: Partial<Parameters<typeof AgentPane>[0]>) => <MemoryRouter><AgentPane documentId="doc-1" documentTitle="Runbook"
+  const pane = (more: Partial<Parameters<typeof AgentChat>[0]>) => <MemoryRouter><AgentChat scope={{ kind: 'document', id: 'doc-1', title: 'Runbook' }}
     settings={settings} initialRunId={null} confirmUnsaved={run => run()} onDraftChange={onDraftChange} {...props} {...more} /></MemoryRouter>;
   const { rerender } = render(pane({}));
-  return { onDraftChange, rerender: (more: Partial<Parameters<typeof AgentPane>[0]>) => rerender(pane(more)) };
+  return { onDraftChange, rerender: (more: Partial<Parameters<typeof AgentChat>[0]>) => rerender(pane(more)) };
 }
 afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []; live.loading.clear(); });
 

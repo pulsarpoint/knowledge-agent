@@ -8,7 +8,7 @@ import { useWidePage } from '~/lib/widePage';
 import type { SessionDetail } from '~/lib/sessions';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
 import AgentDraftBar from './AgentDraftBar';
-import AgentPane from './AgentPane';
+import AgentChat from './AgentChat';
 import DocumentAgentRuns from './DocumentAgentRuns';
 import DocumentConnections from './DocumentConnections';
 import DocumentDrafts from './DocumentDrafts';
@@ -242,7 +242,7 @@ export default function DocumentEditorView() {
           : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
       </div>
       {paneTitle !== null && <div className="min-w-0 lg:sticky lg:top-4">
-        <AgentPane key={documentId} documentId={documentId!} documentTitle={paneTitle} settings={settings} initialRunId={runId ?? null}
+        <AgentChat key={documentId} scope={{ kind: 'document', id: documentId!, title: paneTitle }} settings={settings} initialRunId={runId ?? null}
           confirmUnsaved={run => confirmRef.current(run)} onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }}
           onRunChange={followRun} />
       </div>}
