@@ -360,7 +360,9 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
 - Header and per-turn model calls are not shown for sessions started before native sessions.
 - `POST /api/agents/{id}/runs` and the other `/api/agents/{id}/runs*` routes are gone, as are
   `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
-  `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/sessions`.
+  `POST /api/sessions` with `agent_id` and the other session routes under `/api/sessions`. The later
+  `POST` and `GET /api/agents/{id}/sessions` and `…/{session_id}/review` are gone too: use `POST /api/sessions`,
+  `GET /api/sessions?agent_id=…` and `POST /api/sessions/{id}/review`.
 - Rolling back 0081 deletes the Test sessions (their run records stay) and restores the old Test chat tables empty;
   the Test chats deleted by the upgrade do not come back.
 

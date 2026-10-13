@@ -5,20 +5,28 @@ The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions` w
 between model calls, Stop with a 30-second grace, closing after 24 hours without activity, the worker's concurrency
 limit, no per-turn time limit, no 300-second limit).
 
-- `POST /api/agents/{id}/sessions` `{ "message": "...", "run_resources": {...}? }` creates a Test session: the agent's
-  current configuration (a per-run agent's narrowed to `run_resources`; a fixed agent given resources is refused) is
+- `POST /api/sessions` with `agent_id` and `message` creates a Test session: the agent's current configuration is
   pinned in `agent_config` with credential references only, the title is the first 200 characters of the message, and
-  the message is queued as input 1 (201 with the session). A disabled agent, an agent without an enabled model
-  (`Select an enabled model in this agent’s General tab.`) and resources outside the selection are refused. A saved
-  credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
-- `GET /api/agents/{id}/sessions` lists the agent's Test sessions and the event sessions handlers started before 0090
-  (with `purpose`), newest first.
+  the message is queued as input 1 (201 with the session). A disabled agent and an agent without an enabled model
+  (`Select an enabled model in this agent’s General tab.`) are refused. A saved credential that cannot be decrypted
+  does not refuse the start: the first turn fails with the worker's message.
+- **A Test run can only narrow the saved agent.** The request can list the tools it keeps (`tools`; the others are
+  switched off), choose some of the agent's experts (`expert_ids`), turn subagents off (`subagents: false`) and, for a
+  per-run agent, choose from its saved resources (`resources`). Nothing can be added. The model and prompt are the
+  agent's own: change them in General, or clone the agent to try another prompt. Refused: "{tool} is not one of this
+  agent's tools.", "This agent does not allow subagents.", "A saved agent uses its own model and prompt.", "A saved
+  agent takes no environments; choose its servers or services.", "A saved agent takes no documents yet." and resources
+  outside the agent's selection. A fixed agent given resources is refused.
+- `GET /api/sessions/options?agent_id=…` says what may be narrowed (tools, experts, whether subagents are allowed, a
+  per-run agent's resources) and gives the agent's model and prompt as facts. `POST /api/sessions/preview` with the
+  same body shows the pinned configuration without starting a run.
+- `GET /api/sessions?agent_id=…` lists the agent's Test sessions and its event sessions (with `purpose`), newest first.
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
-  `GET /api/sessions` lists runs (filters `purpose`, `document_id`, `offset`); `GET /api/sessions/options` and
-  `POST /api/sessions/preview` describe and preview an ad-hoc run, and `POST /api/sessions` starts it (Ask agent uses
-  it). Starting a saved agent there is refused for now: "Saved agents start from their Test tab for now."
+  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `offset`); `GET /api/sessions/options` and
+  `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent and the
+  agent's Test tab use it).
 - Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
   when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
@@ -40,7 +48,7 @@ limit, no per-turn time limit, no 300-second limit).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
   `event_session` for the pre-0090 event sessions); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
-- `POST /api/agents/{id}/sessions/{session_id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions;
+- `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored

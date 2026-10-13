@@ -124,9 +124,10 @@ This is the application configuration accepted by `agent()` in the same module.
 It is **not** a dictionary to unpack directly into the native Agents SDK:
 the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
-`POST /api/agents/{id}/sessions` with `{ "message": "...", "run_resources": {...}? }`, which pins this saved
-configuration (credential references only) in a Test session (`ka.agent_sessions`, `purpose = 'test'`) that
-`agent-session-worker` runs; the Test tab then uses the session routes under `/api/generations/sessions`. Runs and safe
+`POST /api/sessions` with `agent_id` and `message` (it may only narrow the agent: tools, experts, subagents, a
+per-run agent's resources), which pins this saved configuration (credential references only) in a Test session
+(`ka.agent_sessions`, `purpose = 'test'`) that `agent-session-worker` runs; the Test tab then uses the other session
+routes under `/api/sessions`. Runs and safe
 activity are retained in PostgreSQL; full SDK traces go to Phoenix.
 
 The first message creates a session. Follow-ups continue its Agents SDK conversation
@@ -138,10 +139,9 @@ See [session and review endpoints](../../docs/agents.md) for the API contract.
 The tuning reviewer receives full configuration, the whole stored conversation,
 and administrator feedback. It proposes changes without applying them.
 
-The agent's **Test → Show config** button displays this saved configuration along
-with the current test prompt. It reads `GET /api/agents/{agent_id}/config`, an
-admin-only endpoint with caching disabled. Previewing does not create a run or
-send the task to a model.
+The agent's **Test → Settings → Preview** shows the configuration a run would pin
+(`POST /api/sessions/preview`). Previewing does not create a run or send the task to a model.
+`GET /api/agents/{agent_id}/config` returns the saved configuration; it is admin-only with caching disabled.
 
 ## Running a configured agent with the Agents SDK
 

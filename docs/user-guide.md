@@ -510,16 +510,22 @@ An agent has one configuration: what its tabs show is what runs. A conversation 
 
 **Experiment on a clone.** Open the agent's header menu (*Actions for <name>*) or the **Clone <name>** button in the All agents list and choose **Clone agent**: the clone has the same configuration, references the same saved SSH credentials, starts without history and shows *Clone of <original>*. Change and test the clone, then **Apply to <original>**: the dialog lists the changed sections, and everything except name, description and enabled is replaced. Apply is refused while the original is working or when the original changed since you opened the dialog; if the comparison fails, **Compare again**. Afterwards **Delete this clone** removes the clone (its dialog lists the test chats and other history deleted with it), or keep it as an alternative.
 
-**Test tab.** Type a message and **Run task**: it starts a Test session, which the agent session worker runs (the URL
-keeps `session_id`). The workspace shows your message, a collapsed **Worked** block (thinking, tool calls with their
-results, comments you sent while it worked) and the answer with its cited sources; the header shows the tokens, model
-calls and tools used, and the sidebar **Agents in this run** the agent's status (on a narrow screen open **Run
-details**). **Send message** works while the agent works (your comment reaches it at its next step); **Stop** ends the
-current turn. Header: **History** (this agent's Test sessions), **Show config** (the configuration pinned for this
-session, or the current one before the first message; secrets as references), **New session**, **Close session**.
-Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** → **Suggest improvements**, which runs a reviewer that proposes
-prompt and instruction changes; the sidebar's **Suggestions (n)** lists them, and **Review and apply** opens them for
-editing, then **Apply to this agent** or **Apply to a new clone**.
+**Test tab.** The Test tab is the same chat as **Ask agent**. Type a message and send it: it starts a Test run, which the
+agent session worker runs (the URL keeps `session_id`). The workspace shows your message, a collapsed **Worked** block
+(thinking, tool calls with their results, comments you sent while it worked) and the answer with its cited sources; the
+header shows the tokens, model calls and tools used, and the sidebar **Agents in this run** the agent's status (on a
+narrow screen open **Run details**). **Send message** works while the agent works (your comment reaches it at its next
+step); **Stop** ends the current turn.
+
+**Settings** opens a sheet. A Test run can only narrow the saved agent; nothing can be added. The model and prompt are
+shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can untick tools,
+choose some of the agent's experts, turn off **Allow subagents** (shown when the agent allows them) and, for a per-run
+agent, choose from its resources (a fixed agent shows "This agent's resources are fixed."). **Preview** shows the
+configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
+**New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
+badge) to reopen them. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
+**Suggest improvements**, which runs a reviewer that proposes prompt and instruction changes; **Suggestions (n)** lists
+them, and **Review and apply** opens them for editing, then **Apply to this agent** or **Apply to a new clone**.
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
@@ -551,7 +557,7 @@ opening one shows that call's record, including the expert's own subagents.
 In the wizard, a hand-picked tool
 list wins over the "all tools" default.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, the line **Resources: …** (with **Choose resources**) appears before the first message only and opens **Resources for this run**, one list per kind the agent uses; the choice is kept for the session and shown in the header and in **Show config**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, **Settings** lists the agent's resources, one list per kind the agent uses, and you choose from them for the run; the choice is kept for the session and shown in the header and in **Preview**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: message ≤ 20,000 characters; a Test session's turns have no time
 limit (they end with the answer, **Stop**, **Close session** or a lost worker), and a session closes after 24 hours
