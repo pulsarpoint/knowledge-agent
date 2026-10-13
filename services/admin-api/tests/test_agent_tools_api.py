@@ -84,7 +84,7 @@ def test_put_replaces_the_tools_and_enforces_the_save_rules(store, saved_agent):
         assert refused.json()['error']['message'] == (message or MCP_NOT_SELECTED.format(tool=tool))
     hidden = put(client, 'operations', body['revision'], [{'tool': 'propose_service', 'mode': 'on', 'usage': None}])
     assert hidden.status_code == 400 and hidden.json()['error']['message'] == DISCOVERY_ONLY
-    revision_only = put(client, 'operations', body['revision'], [{'tool': 'get_doc', 'mode': 'on', 'usage': None}])
+    revision_only = put(client, 'operations', body['revision'], [{'tool': 'save_document', 'mode': 'on', 'usage': None}])
     assert revision_only.status_code == 400 and revision_only.json()['error']['message'] == DISCOVERY_ONLY
     assert 'propose_service' not in tools
     assert put(client, 'operations', body['revision'], [{'tool': 'read_file', 'mode': 'per_run', 'usage': None}]).status_code == 400  # validation: 400 in this app
@@ -183,7 +183,7 @@ def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     assert refused.status_code == 400 and refused.json()['error']['message'] == UNKNOWN.format(tool='grep')
     only = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Hidden', tools=['propose_document']))
     assert only.status_code == 400 and only.json()['error']['message'] == DISCOVERY_ONLY
-    revision_only = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Doc', tools=['get_doc']))
+    revision_only = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Doc', tools=['save_document']))
     assert revision_only.status_code == 400 and revision_only.json()['error']['message'] == DISCOVERY_ONLY
     empty = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
         'Empty', repositories_enabled=True, tools=[])).json()

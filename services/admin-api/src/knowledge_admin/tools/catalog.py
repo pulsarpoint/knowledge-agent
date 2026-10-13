@@ -9,12 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.capabilities import ast_grep, code_graph, code_search, documents, files, inventory, ssh
 from knowledge_admin.capabilities import discovery as discovery_tools
-from knowledge_admin.capabilities import revision as revision_tools
+from knowledge_admin.capabilities import document_tools
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.shell import client as shell
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
-Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'discovery', 'revision']
+Need = Literal['files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'discovery', 'editable_document']
 
 
 @dataclass(frozen=True)
@@ -83,8 +83,11 @@ class InventoryName(Arguments):
     name: str = Field(min_length=1, max_length=200, description='The name as recorded in the inventory (any letter case).')
 
 
-class InventoryDocument(Arguments):
-    document_id: str = Field(min_length=1, max_length=64, description='A document id from get_server_docs, get_service_docs, get_service_info or get_project_info.')
+class GetDocument(Arguments):
+    document_id: str = Field(min_length=1, max_length=64, description='A document id: one given to this run, or one from get_server_docs, get_service_docs, get_service_info or get_project_info.')
+    section: str | None = Field(None, max_length=240, description='A heading of the document; returns that section with line numbers.')
+    start_line: int | None = Field(None, ge=1, description='First line to read (1-based); alone, reads to the end.')
+    end_line: int | None = Field(None, ge=1, description='Last line to read, inclusive; alone, reads from line 1.')
 
 
 class ShellRun(Arguments):
@@ -277,7 +280,7 @@ GET_SERVER_DOCS = 'The documents attached to a server: id, title and a short des
 GET_SERVICE_INFO = "A service's recorded fields, deployments, connections (depends on, built from, connects to) and attached documents.\n\n" + INVENTORY
 GET_SERVICE_DOCS = 'The documents attached to a service: id, title and a short description. Read one with get_document.\n\n' + INVENTORY
 GET_PROJECT_INFO = 'A code project, the services built from it and its attached documents.\n\n' + INVENTORY
-GET_DOCUMENT = 'The current text of a document attached to a server, service, environment or code project (up to 50,000 characters).\n\n' + INVENTORY
+GET_DOCUMENT = 'A document: without section or lines, its outline and text as JSON (text up to 50,000 characters); with section or start_line/end_line, those lines with numbers. Reads this run\'s draft of the document when it has one.\n\n' + INVENTORY
 
 RUN_SUBAGENT = ('Start a helper for a separate, well-defined part of your work, such as exploring one project or '
                 'checking one question. Give it a complete task, because it does not see this conversation. Give it '
@@ -330,23 +333,19 @@ class ProposeDocument(Proposal):
     about_service: str | None = Field(None, max_length=200, description='The service the document is about (recorded, or proposed earlier in this run); empty: the server.')
 
 
-class GetDoc(Arguments):
-    section: str | None = Field(None, max_length=240, description='A heading of the document; returns that section with line numbers.')
-    start_line: int | None = Field(None, ge=1, description='First line to read (1-based); alone, reads to the end.')
-    end_line: int | None = Field(None, ge=1, description='Last line to read, inclusive; alone, reads from line 1.')
-
-
-class SaveDoc(Proposal):
+class SaveDocument(Proposal):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)  # config is inherited: switch stripping off explicitly
 
+    document_id: str = Field(min_length=1, max_length=64, description='The id of a document given to this run to edit.')
     markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
     title: str | None = Field(None, min_length=1, max_length=240, description='A new title; omit it to keep the title.')
     description: str | None = Field(None, max_length=4000, description='A new description; omit it to keep it.')
 
 
-class EditDoc(Proposal):
+class EditDocument(Proposal):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)
 
+    document_id: str = Field(min_length=1, max_length=64, description='The id of a document given to this run to edit.')
     old_text: str = Field(min_length=1, max_length=200_000, description='The exact passage to replace; it must occur exactly once.')
     new_text: str = Field(max_length=1_000_000, description='The text that replaces it; empty removes the passage.')
 
@@ -356,13 +355,10 @@ PROPOSE_SERVICE = ('Propose a service running on this server, with its deploymen
 PROPOSE_DOCUMENT = ('Propose a document about this server, or about one of its services (about_service), for an '
                     'administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same '
                     'title for the same server or service again replaces your earlier proposal.')
-GET_DOC = ('Read the document you revise. Without arguments: its title, length and outline (headings with line '
-           'numbers). With section: that section. With start_line (and end_line): those lines. At most 50,000 '
-           'characters per call.')
-SAVE_DOC = ('Save the complete document as your draft (optionally a new title or description). A person reviews the '
-            'draft and decides whether it becomes the live version.')
-EDIT_DOC = ('Replace one exact passage of the document (old_text, which must occur exactly once) with new_text, and '
-            'save the result as your draft. An empty new_text removes the passage.')
+SAVE_DOCUMENT = ('Save your draft of the document with this id: the complete text (optionally a new title or description). '
+                 'A person reviews the draft and decides whether it becomes the live version.')
+EDIT_DOCUMENT = ('Replace one exact passage of the document with this id (old_text, which must occur exactly once) with '
+                 'new_text, and save the result as your draft. An empty new_text removes the passage.')
 
 
 
@@ -418,29 +414,27 @@ CATALOG: dict[str, ToolSpec] = {spec.name: spec for spec in (
              InventoryName, _call(inventory.get_service_docs), None, _never),
     ToolSpec('get_project_info', 'inventory', 'Code project info', 'A code project and the services built from it.', GET_PROJECT_INFO,
              InventoryName, _call(inventory.get_project_info), None, _never),
-    ToolSpec('get_document', 'inventory', 'Read inventory document', 'Read a document attached to an inventory entry.', GET_DOCUMENT,
-             InventoryDocument, _call(inventory.get_document), None, _never),
+    ToolSpec('get_document', 'inventory', 'Read document', 'Read a document given to this run or attached to the inventory.',
+             GET_DOCUMENT, GetDocument, _call(document_tools.get_document), None, _never),
     ToolSpec('propose_service', 'inventory', 'Propose service', 'Propose a service for review (server discovery runs).',
              PROPOSE_SERVICE, ProposeService, _call(discovery_tools.propose_service), 'discovery', _never),
     ToolSpec('propose_document', 'inventory', 'Propose document', 'Propose a document for review (server discovery runs).',
              PROPOSE_DOCUMENT, ProposeDocument, _call(discovery_tools.propose_document), 'discovery', _never),
-    ToolSpec('get_doc', 'documents', 'Read the document', 'Read the document an Ask agent run revises.', GET_DOC,
-             GetDoc, _call(revision_tools.get_doc), 'revision', _never),
-    ToolSpec('save_doc', 'documents', 'Save the document', "Save the run's draft of the document.", SAVE_DOC,
-             SaveDoc, _call(revision_tools.save_doc), 'revision', _never),
-    ToolSpec('edit_doc', 'documents', 'Edit the document', "Replace one passage in the run's draft.", EDIT_DOC,
-             EditDoc, _call(revision_tools.edit_doc), 'revision', _never),
+    ToolSpec('save_document', 'documents', 'Save a document', "Save this run's draft of a document it may edit.",
+             SAVE_DOCUMENT, SaveDocument, _call(document_tools.save_document), 'editable_document', _never),
+    ToolSpec('edit_document', 'documents', 'Edit a document', "Replace one passage in this run's draft of a document.",
+             EDIT_DOCUMENT, EditDocument, _call(document_tools.edit_document), 'editable_document', _never),
     ToolSpec(SUBAGENT, 'agents', 'Start subagents', 'Hand a separate part of the work to a helper that runs in parallel.',
              RUN_SUBAGENT, RunSubagent, _run_subagent, None, _never),
 )}
 
-REVISION_TOOLS = ('get_doc', 'save_doc', 'edit_doc')
-RUN_ONLY_NEEDS = ('discovery', 'revision')  # tools that exist only in one kind of run, never chosen for an agent
+DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
+RUN_ONLY_NEEDS = ('discovery', 'editable_document')  # never chosen for a saved agent: discovery runs only; documents are given per run
 NEED_REASONS: dict[str, str] = {
     'files': 'Needs code projects, or documents without "Answer only from documents"',
     'code': 'Needs code projects', 'code_graph': 'Needs code projects', 'documents': 'Needs documents',
     'grounded': 'Needs "Answer only from documents"', 'ssh': 'Needs SSH servers',
-    'discovery': 'Only in server discovery runs', 'revision': 'Only in Ask agent runs'}
+    'discovery': 'Only in server discovery runs', 'editable_document': 'Needs a document to edit'}
 NEED_TABS: dict[str, str] = {'files': 'git', 'code': 'git', 'code_graph': 'git', 'documents': 'documents',
                              'grounded': 'documents', 'ssh': 'ssh'}
 
@@ -462,8 +456,8 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
         return _grounded(config)
     if need == 'discovery':
         return bool(config.get('discovery'))
-    if need == 'revision':
-        return isinstance(config.get('revision_run'), dict)
+    if need == 'editable_document':
+        return any(entry.get('editable') for entry in config.get('document_access', []))
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
 
 

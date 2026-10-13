@@ -10,9 +10,7 @@ from knowledge_admin.capabilities.context import RunContext
 
 MAX_ITEMS = 100
 SHORT = 300
-MAX_MARKDOWN = 50_000
 UNAVAILABLE = 'The inventory is not available in this run.'
-NO_DOCUMENT = 'No inventory document with this id.'
 _store = None
 
 
@@ -154,21 +152,6 @@ def _project_info(config, name: str) -> str:
     return dumps({**code, 'services': services, 'documents': [{'id': row['id'], 'title': row['title']} for row in documents]})
 
 
-def _document(config, document_id: str) -> str:
-    try:
-        wanted = UUID(document_id)
-    except ValueError:
-        return NO_DOCUMENT
-    with connect() as conn:
-        row = conn.execute('''SELECT d.id,v.title,v.markdown FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
-            WHERE d.id=%s AND d.project_id=%s AND EXISTS (SELECT 1 FROM ka.inventory_documents a WHERE a.document_id=d.id)''',
-            (wanted, project_of(conn, config))).fetchone()
-    if row is None:
-        return NO_DOCUMENT
-    return dumps({'id': row['id'], 'title': row['title'], 'markdown': row['markdown'][:MAX_MARKDOWN],
-                  'truncated': len(row['markdown']) > MAX_MARKDOWN})
-
-
 async def get_server_info_basic(context: RunContext, hostname: str) -> str:
     return await asyncio.to_thread(_server_info, context['config'], hostname)
 
@@ -192,6 +175,3 @@ async def get_service_docs(context: RunContext, name: str) -> str:
 async def get_project_info(context: RunContext, name: str) -> str:
     return await asyncio.to_thread(_project_info, context['config'], name)
 
-
-async def get_document(context: RunContext, document_id: str) -> str:
-    return await asyncio.to_thread(_document, context['config'], document_id)

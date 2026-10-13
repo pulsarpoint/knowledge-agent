@@ -1,6 +1,6 @@
 """One way to start an ad-hoc agent session: /agent-sessions — the options a start panel needs, Preview (exactly what
 Start pins), Start and the sessions about something. Kinds: revision (Ask agent on a document: the document tools
-get_doc, save_doc and edit_doc, the chosen resources and tools, experts and subagents only when chosen). Generate
+get_document, save_document and edit_document, the chosen resources and tools, experts and subagents only when chosen). Generate
 documents and server discovery keep their own endpoints until they move here."""
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -12,15 +12,16 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.capabilities.revision import outline
+from knowledge_admin.capabilities.document_tools import outline
 from knowledge_admin.generations_api import NO_MODEL, Selection, session_detail
 from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.experts import offered
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, bring
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.tools.catalog import CATALOG, REVISION_TOOLS, RUN_ONLY_NEEDS, SUBAGENT, needs_met
+from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, RUN_ONLY_NEEDS, SUBAGENT, needs_met
 
+FIXED_TOOLS = ('get_document', *DOCUMENT_EDIT_TOOLS)
 REVISION_TAG = 'document-revision'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
@@ -36,9 +37,9 @@ DEFAULT_REVISION_PROMPT = '''You revise one technical document at a person's req
 you change before you change them, and check facts against the servers, code and documents you were given. Keep the
 document's structure and voice; change only what the request asks for. Never include passwords, keys or tokens.'''
 RULES = '''Rules:
-- Read the document with get_doc: without arguments for its outline, with section for one section, with start_line
+- Read the document with get_document: without arguments for its outline, with section for one section, with start_line
   and end_line for lines.
-- Change the document only with edit_doc (one exact passage) or save_doc (the complete text). Each save updates your
+- Change the document only with edit_document (one exact passage) or save_document (the complete text). Each save updates your
   draft; a person reviews it and decides whether it becomes the live version. Never say the change is live.
 - When the request is unclear, ask in plain chat before you change the document.
 - When you are done, say in a few sentences what you changed.'''
@@ -140,7 +141,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tu
         if reason:
             raise HTTPException(400, f"Server {row['name']}: {reason}")
     names = {spec.name: spec for spec in choosable()}
-    unknown = [name for name in value.tools if name not in names and name not in REVISION_TOOLS]
+    unknown = [name for name in value.tools if name not in names and name not in FIXED_TOOLS]
     if unknown:
         raise HTTPException(400, UNKNOWN_TOOL.format(names=', '.join(unknown)))
     system_prompt = f'{value.system_prompt}\n\n{revision_context(conn, document)}'
@@ -161,7 +162,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None) -> tu
         raise HTTPException(400, ' '.join(unmet))
     chosen = set(value.tools)
     for item in pinned['tools']['items']:
-        if item['tool'] in REVISION_TOOLS:
+        if item['tool'] in FIXED_TOOLS:
             item.update(mode='on', subagent_allowed=False)
         elif item['tool'] == SUBAGENT:
             item['mode'] = 'on' if value.subagents else 'off'
@@ -244,7 +245,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             'resources': resources,
             'tools': [{'name': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
                        'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None} for spec in choosable()],
-            'fixed_tools': [{'name': name, 'label': CATALOG[name].label} for name in REVISION_TOOLS],
+            'fixed_tools': [{'name': name, 'label': CATALOG[name].label} for name in FIXED_TOOLS],
             'experts': experts})
 
     @router.post('/preview')

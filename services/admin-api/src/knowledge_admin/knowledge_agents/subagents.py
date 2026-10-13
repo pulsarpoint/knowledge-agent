@@ -163,7 +163,8 @@ def subagent_config(config: Mapping[str, Any], tools: list[str], resources: Mapp
     catalog, mcp = _given_tools(config, tools, offered, mcp_tools)
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
-    sub.pop('revision_run', None)  # the document tools are never given to a subagent
+    sub.pop('revision_run', None)
+    sub.pop('document_access', None)  # the document tools are never given to a subagent
     sub['experts'] = []  # a subagent never calls experts
     if resources is not None:
         _narrow(sub, resources)

@@ -4,7 +4,7 @@ import json
 from uuid import uuid4
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.capabilities import inventory
+from knowledge_admin.capabilities import document_tools, inventory
 from knowledge_admin.tools.catalog import CATALOG, implied_tools, tools_summary
 
 TOOLS = ('get_server_info_basic', 'get_server_services', 'get_server_docs', 'get_service_info', 'get_service_docs',
@@ -56,11 +56,11 @@ def test_get_document_reads_attached_documents_only_and_caps_them(world, monkeyp
     doc_id = call(world, 'get_server_docs', hostname='web-1')['items'][0]['id']
     document = call(world, 'get_document', document_id=doc_id)
     assert document['title'] == 'web-1 overview' and document['markdown'].startswith('# web-1 overview')
-    monkeypatch.setattr(inventory, 'MAX_MARKDOWN', 5)
+    monkeypatch.setattr(document_tools, 'MAX_MARKDOWN', 5)
     capped = call(world, 'get_document', document_id=doc_id)
     assert capped['markdown'] == '# web' and capped['truncated']
-    assert call(world, 'get_document', document_id=str(uuid4())) == 'No inventory document with this id.'
-    assert call(world, 'get_document', document_id='not-an-id') == 'No inventory document with this id.'
+    assert call(world, 'get_document', document_id=str(uuid4())) == 'This document is not available in this run.'
+    assert call(world, 'get_document', document_id='not-an-id') == 'This document is not available in this run.'
 
 
 def test_lists_stop_at_100(world):
