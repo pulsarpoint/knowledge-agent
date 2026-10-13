@@ -1,9 +1,7 @@
-"""A Generate documents run's finished turns write a document draft: created, then updated until a person saves it;
-aimed at the document with the run's name and folder, or a new one; its sources are the documents the run read."""
+"""A finished turn refreshes the sources of the run's working drafts: the documents the run read, at the version it read."""
 import json
 from uuid import UUID
 
-import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin import document_drafts
@@ -40,73 +38,6 @@ def document(sessions, slug: str, folder: str | None, markdown: str) -> dict:
                              DocumentInput(slug=slug, title=slug.replace('-', ' ').title(), markdown=markdown), folder=folder)
 
 
-def test_a_documents_turn_creates_its_draft_then_updates_it(sessions):
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Payments API v1', usage=None)
-    [first] = drafts_of(sessions, sid)
-    assert (first['document_id'], first['slug'], first['folder'], first['title'], first['purpose'], first['origin'],
-            first['markdown']) == (None, 'payments-api-reference', 'payments-api-docs', 'Payments – API reference', 'code',
-                                   'agent', '# Payments API v1')
-    assert first['resource_ids'] == {'code_project_ids': [sessions.repo], 'environment_ids': [sessions.environment],
-                                     'service_ids': [sessions.service], 'server_ids': [], 'deployment_ids': []}
-    run.finish_turn(2, 'waiting', '', draft='# Payments API v2', usage=None)
-    [second] = drafts_of(sessions, sid)
-    assert (second['id'], second['markdown'], second['revision']) == (first['id'], '# Payments API v2', 2)
-    run.finish_turn(3, 'failed', 'Broken.', draft='# Lost', usage=None)
-    assert drafts_of(sessions, sid)[0]['markdown'] == '# Payments API v2'
-    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
-    assert session['document_draft'] == {'id': str(first['id']), 'document_id': None, 'status': 'open'}
-    promoted = sessions.client.post(f"/api/documentation/drafts/{first['id']}/promote", headers=HEADERS, json={'revision': 2})
-    assert promoted.status_code == 200, promoted.text
-    created = sessions.client.get(f"/api/documentation/documents/{promoted.json()['document_id']}", headers=HEADERS).json()
-    assert (created['folder'], created['code_project_ids'], created['current_version']['origin']) == (
-        'payments-api-docs', [sessions.repo], 'generated')
-    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
-    # The promoted draft stays the run's document draft, so the run page links the document, not Save as draft.
-    assert (session['document_id'], session['document_draft']) == (
-        created['id'], {'id': str(first['id']), 'document_id': created['id'], 'status': 'promoted'})
-
-
-def test_a_discarded_run_draft_stays_the_runs_document_draft(sessions):
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    [draft] = drafts_of(sessions, sid)
-    discarded = sessions.client.post(f"/api/documentation/drafts/{draft['id']}/discard", headers=HEADERS,
-                                     json={'revision': draft['revision']})
-    assert discarded.status_code == 200, discarded.text
-    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
-    assert session['document_draft'] == {'id': str(draft['id']), 'document_id': None, 'status': 'discarded'}
-    listed = sessions.client.get('/api/sessions?purpose=documents', headers=HEADERS).json()
-    assert [row['document_draft'] for row in listed['sessions'] if row['id'] == str(sid)] == [session['document_draft']]
-
-
-def test_once_a_person_saves_the_draft_the_next_turn_starts_a_new_one(sessions):
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    [draft] = drafts_of(sessions, sid)
-    edited = sessions.client.put(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS, json={
-        'revision': draft['revision'], 'title': draft['title'], 'markdown': '# Agent text, corrected by a person'})
-    assert edited.status_code == 200, edited.text
-    run.finish_turn(2, 'waiting', '', draft='# Agent text v2', usage=None)
-    kept, new = drafts_of(sessions, sid)
-    assert (kept['markdown'], kept['edited']) == ('# Agent text, corrected by a person', True)
-    assert (new['markdown'], new['edited'], new['origin']) == ('# Agent text v2', False, 'agent')
-    run.finish_turn(3, 'waiting', '', draft='# Agent text v3', usage=None)
-    assert [item['markdown'] for item in drafts_of(sessions, sid)] == ['# Agent text, corrected by a person', '# Agent text v3']
-
-
-def test_the_draft_revises_the_document_with_the_runs_name_and_folder(sessions):
-    live = document(sessions, 'payments-api-reference', 'payments-api-docs', '# Live text')
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    [draft] = drafts_of(sessions, sid)
-    assert (draft['document_id'], draft['base_version_id'], draft['slug'], draft['folder'], draft['title']) == (
-        live['id'], live['version_id'], None, None, 'Payments Api Reference')
-    detail = sessions.client.get(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS).json()
-    assert [(s['kind'], s['source_version']) for s in detail['sources']] == [('parent', 1)]
-    assert (detail['live_markdown'], detail['markdown']) == ('# Live text', '# Agent text')
-
-
 def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions):
     alpha = document(sessions, 'alpha', 'team', '# Alpha v1')
     document(sessions, 'beta', None, '# Beta')
@@ -122,51 +53,15 @@ def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions)
     with sessions.store.connect() as conn:  # alpha changes after the run read it
         save_document(conn, sessions.store.project(conn, 'shop'), None,
                       DocumentInput(slug='alpha', title='Alpha', markdown='# Alpha v2', revision=1), alpha['id'])
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
+    with sessions.store.connect() as conn:  # the draft the run's save_document tool wrote
+        document_drafts.create_draft(conn, sessions.store.project(conn, 'shop'), None, {**document_drafts.NEW_DEFAULTS,
+            'title': 'Payments', 'markdown': '# Agent text'}, origin='agent', slug='payments', folder='team', session_id=sid)
+    run.finish_turn(1, 'waiting', '', usage=None)
     [draft] = drafts_of(sessions, sid)
     url = f"/api/documentation/drafts/{draft['id']}"
     read = lambda: sorted((s['kind'], s['source_title'], s['source_version'])
                           for s in sessions.client.get(url, headers=HEADERS).json()['sources'])
     assert read() == [('read', 'Alpha', 1), ('read', 'Beta', 1), ('read', 'Gamma', 1)]
     tool_call(sessions, sid, 2, 1, 'get_document', {'document_id': str(alpha['id'])})  # read again, now at v2
-    run.finish_turn(2, 'waiting', '', draft='# Agent text v2', usage=None)
+    run.finish_turn(2, 'waiting', '', usage=None)
     assert read() == [('read', 'Alpha', 1), ('read', 'Beta', 1), ('read', 'Gamma', 1)]  # recomputed; first read kept
-
-
-def test_a_document_draft_that_cannot_be_saved_never_fails_the_turn(sessions, monkeypatch):
-    def broken(*args, **kwargs):
-        raise psycopg.errors.CheckViolation('broken')
-    monkeypatch.setattr(document_drafts, 'save_run_draft', broken)  # Review focus 4
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    with sessions.store.connect() as conn:
-        row = conn.execute('SELECT status,draft,draft_turn FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
-    assert row == {'status': 'waiting', 'draft': '# Agent text', 'draft_turn': 1}
-    assert drafts_of(sessions, sid) == []
-
-
-def test_a_bug_in_the_draft_path_never_fails_the_turn(sessions, monkeypatch, caplog):
-    def broken(*args, **kwargs):
-        raise KeyError('environments')
-    monkeypatch.setattr(document_drafts, 'record_run_sources', broken)  # after the draft row is written
-    sid, run = runner(sessions)
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    with sessions.store.connect() as conn:
-        row = conn.execute('SELECT status,draft,draft_turn FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
-    assert row == {'status': 'waiting', 'draft': '# Agent text', 'draft_turn': 1}
-    assert drafts_of(sessions, sid) == []  # the savepoint rolled back the draft row too
-    assert 'the document draft was not saved' in caplog.text and "KeyError: 'environments'" in caplog.text
-
-
-def test_reads_of_the_documents_own_text_are_not_sources(sessions):
-    live = document(sessions, 'payments-api-reference', 'payments-api-docs', '# Live text')
-    sid, run = runner(sessions)
-    tool_call(sessions, sid, 1, 1, 'get_document', {'document_id': str(live['id'])})
-    tool_call(sessions, sid, 1, 2, 'read_document',
-              {'collection': 'documents', 'path': 'payments-api-docs/payments-api-reference/README.md'})
-    run.finish_turn(1, 'waiting', '', draft='# Agent text', usage=None)
-    [draft] = drafts_of(sessions, sid)
-    assert draft['document_id'] == live['id']
-    detail = sessions.client.get(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS).json()
-    assert [(s['kind'], s['source_version'], s['source_version_id']) for s in detail['sources']] == [
-        ('parent', 1, str(live['version_id']))]

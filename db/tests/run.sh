@@ -56,6 +56,10 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+write_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regprocedure('ka.seed_write_document_prompt(uuid)') IS NULL")
+[ "$write_removed" = t ] || { echo 'FAIL: 0101 down left the Write a document seed' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 revise_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regprocedure('ka.seed_document_revision_prompt(uuid)') IS NULL")
 [ "$revise_removed" = t ] || { echo 'FAIL: 0100 down left the Revise a document seed' >&2; exit 1; }
@@ -253,6 +257,10 @@ revise=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT to_regprocedure('ka.seed_document_revision_prompt(uuid)') IS NOT NULL")
 [ "$revise" = t ] || { echo 'FAIL: 0100 Revise a document seed missing' >&2; exit 1; }
 printf '%s\n' 'PASS: the Revise a document prompt is seeded.'
+write=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT to_regprocedure('ka.seed_write_document_prompt(uuid)') IS NOT NULL")
+[ "$write" = t ] || { echo 'FAIL: 0101 Write a document seed missing' >&2; exit 1; }
+printf '%s\n' 'PASS: the Write a document prompt is seeded.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;

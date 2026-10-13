@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
 from knowledge_admin.documents import (Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
-                                       Title, document_slug, export_args, export_document, export_input, save_document)
+                                       Title, export_args, export_document, export_input, save_document)
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -300,15 +300,6 @@ SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document
 DOCUMENT_TOOLS = ['get_document', 'read_document']
 
 
-def run_resources(snapshot: dict) -> dict:
-    """A Generate documents run's selection (its context snapshot) as the resource_ids a new document links on promote."""
-    return {'code_project_ids': [str(item) for item in snapshot.get('code_project_ids', [])],
-            'environment_ids': [str(item['id']) for item in snapshot.get('environments', [])],
-            'service_ids': [str(item['id']) for item in snapshot.get('services', [])],
-            'server_ids': [str(item['id']) for item in snapshot.get('servers', [])],
-            'deployment_ids': []}
-
-
 def call_arguments(payload: dict) -> dict:
     """A recorded tool call's arguments. A native session records them as an object (its recorder parses the SDK's
     JSON string); a JSON string is parsed too. Anything else: no arguments."""
@@ -369,57 +360,6 @@ def record_run_sources(conn, project: UUID, draft_id: UUID, document_id: UUID | 
         conn.execute('''INSERT INTO ka.document_sources(project_id,draft_id,kind,source_document_id,source_version_id,
             source_title,source_version) VALUES (%s,%s,'read',%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
             (project, draft_id, found['id'], version['id'], version['title'], version['version']))
-
-
-def save_run_draft(conn, session_id: UUID, turn: int, actor: UUID | None = None) -> dict | None:
-    """A documents run's draft (agent_sessions.draft) as a document draft: update the run's latest open draft no person
-    has saved, or create one — a draft of the document at the run's folder and name, or of a new document there. Its
-    sources are recomputed from the run's tool calls. None when the run has no draft.
-
-    The caller holds the session row (the turn's UPDATE); this locks only the run's
-    draft after it, the order promote takes them in (project, actor, session, draft). It never locks ka.projects or
-    ka.documents rows, which promote locks before the session."""
-    session = conn.execute('''SELECT id,project_id,purpose,document_name,folder,draft,context_snapshot
-        FROM ka.agent_sessions WHERE id=%s''', (session_id,)).fetchone()
-    if session is None or session['purpose'] != 'documents' or not (session['draft'] or '').strip():
-        return None
-    project = session['project_id']
-    current = conn.execute('''SELECT id,document_id,base_version_id FROM ka.document_drafts WHERE session_id=%s
-        AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE''', (session_id,)).fetchone()
-    if current is not None:
-        conn.execute('UPDATE ka.document_drafts SET markdown=%s,revision=revision+1 WHERE id=%s',
-                     (session['draft'], current['id']))
-        audit(conn, project, actor, 'document.draft.updated', 'document_draft', current['id'],
-              {'session_id': session_id, 'turn': turn})
-        draft = dict(current)
-    else:
-        slug = document_slug(session['document_name'])
-        # The shared lookup. A document found is passed to create_draft, which then does not look again; when none is
-        # found, create_draft looks once more (a document saved meanwhile becomes the draft's target).
-        existing = document_named(conn, project, session['folder'], slug)
-        snapshot = session['context_snapshot']
-        if existing is not None:  # the run revises it: its metadata stays, the text is the run's
-            content = {**live_content(conn, project, existing['id']), 'markdown': session['draft']}
-        else:
-            content = {**NEW_DEFAULTS, 'title': session['document_name'], 'markdown': session['draft'],
-                       'purpose': 'code' if snapshot.get('code_project_ids') else 'explanation'}
-        draft_id = create_draft(conn, project, actor, content, origin='agent',
-                                document_id=existing['id'] if existing else None, slug=slug, folder=session['folder'],
-                                resources=run_resources(snapshot), session_id=session_id)
-        draft = conn.execute('SELECT id,document_id,base_version_id FROM ka.document_drafts WHERE id=%s',
-                             (draft_id,)).fetchone()
-    record_run_sources(conn, project, draft['id'], draft['document_id'], draft['base_version_id'], session_id, turn)
-    return {'id': draft['id'], 'document_id': draft['document_id'], 'status': 'open'}
-
-
-def save_run_draft_safely(conn, session_id: UUID, turn: int) -> None:
-    """save_run_draft inside the turn's transaction, in a savepoint: a failure loses only the document draft, never the
-    turn (its run draft, tokens and history)."""
-    try:
-        with conn.transaction():
-            save_run_draft(conn, session_id, turn)
-    except Exception:  # any failure, a bug included, rolls back only the savepoint
-        logger.exception('Session %s turn %s: the document draft was not saved', session_id, turn)
 
 
 def refresh_run_sources_safely(conn, session_id: UUID, turn: int) -> None:

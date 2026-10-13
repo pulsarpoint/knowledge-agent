@@ -91,7 +91,7 @@ def test_generate_documents_pins_every_expert_and_offers_run_subagent(sessions):
     s = sessions
     first = expert(s.client, 'Payments', model_id=s.claude)
     second = expert(s.client, 'Billing', model_id=s.claude)
-    session = start(s)
+    session = start(s, expert_ids=[second['id'], first['id']], subagents=True)
     with s.store.connect() as conn:
         pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                               (session['id'],)).fetchone()['agent_config']

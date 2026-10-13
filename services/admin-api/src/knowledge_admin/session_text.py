@@ -1,8 +1,6 @@
-"""Session text: the final-answer rule, the agent's system prompt and idle closing (admin-api and worker)."""
+"""Session text: the agent's system prompt and idle closing (admin-api and worker)."""
 from typing import Any
 
-FINAL_ANSWER = ('When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. '
-                'After each later message, reply again with the complete updated document.')
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 
 

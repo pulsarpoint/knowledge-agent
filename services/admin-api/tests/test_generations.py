@@ -1,6 +1,7 @@
 """Generate documents sessions (an ad-hoc native agent): creation, the context, queued messages, Stop, Close and idle
 closing."""
 import json
+import re
 import threading
 import time
 from types import SimpleNamespace
@@ -10,8 +11,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.sessions import api as sessions_api
-from knowledge_admin.session_text import FINAL_ANSWER, IDLE_CLOSED
-from knowledge_admin.generations_api import NOTHING_CHOSEN
+from knowledge_admin.session_text import IDLE_CLOSED
 from knowledge_admin.sessions.rows import NO_MODEL
 from session_rows import add_test_session
 from test_api import _client
@@ -61,7 +61,7 @@ def sessions(store, tmp_path, monkeypatch):
             runtime_name,port) VALUES (%s,%s,%s,'Production',%s,'payments-api',8080)""", (project, service, server['id'], environment))
     body = {'model_id': gpt, 'code_project_ids': [str(repo)], 'environment_ids': [str(environment)],
             'service_ids': [str(service)], 'server_ids': [], 'system_prompt': ' You document systems. ',
-            'context': '# What you are documenting\n\nPayments', 'prompt': ' Write the API reference. ',
+            'prompt': ' Write the API reference. ',
             'document_name': 'Payments – API reference', 'folder': 'payments-api-docs'}
     return SimpleNamespace(client=client, store=store, body=body, agent=agent, claude=claude, gpt=gpt, repo=str(repo),
                            worker=str(worker), environment=str(environment), service=str(service), server=server, data=data)
@@ -75,66 +75,40 @@ def live(sessions):
         yield client.app.state.session_hub
 
 
+SELECTION = ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'collection_ids')
+
+
+def post(sessions, **change):
+    """Start a new-document run as the Generate documents form did: `sessions.body` (the form's keys) as POST /api/sessions.
+    `expert_ids` and `subagents` pass through when given. The run is offered every tool the options list; a tool whose need the selection does not meet (the start refuses it
+    by name) is left out and the start repeated, so one body works for every selection."""
+    form = {**sessions.body, **change}
+    new = {'folder': form['folder'], 'name': form['document_name']}
+    body = {'started_from': {'new_document': new}, 'message': form['prompt'], 'model_id': form['model_id'],
+            'system_prompt': form['system_prompt'], 'prompt_id': form.get('prompt_id'),
+            **{key: form[key] for key in ('expert_ids', 'subagents') if key in form},
+            'resources': {**{key: form[key] for key in SELECTION if key in form}, 'documents': [{'new': new, 'editable': True}]}}
+    options = sessions.client.get('/api/sessions/options?new_document=1', headers=HEADERS).json()
+    tools = [tool['name'] for tool in options['tools']]
+    while True:
+        response = sessions.client.post('/api/sessions', headers=HEADERS, json={**body, 'tools': tools})
+        refusal = response.json().get('error', {}).get('message', '') if response.status_code == 400 else ''
+        unmet = {word for word in re.findall(r'(\w+) needs ', refusal) if word in tools}
+        if not unmet:
+            return response
+        tools = [tool for tool in tools if tool not in unmet]
+
+
 def start(sessions, **change) -> dict:
-    response = sessions.client.post('/api/generations/sessions', headers=HEADERS, json={**sessions.body, **change})
+    response = post(sessions, **change)
     assert response.status_code == 201, response.text
     return response.json()
 
 
 def refused(sessions, **change) -> str:
-    response = sessions.client.post('/api/generations/sessions', headers=HEADERS, json={**sessions.body, **change})
+    response = post(sessions, **change)
     assert response.status_code == 400, response.text
     return response.json()['error']['message']
-
-
-def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context_and_selection(sessions):
-    s = sessions
-    session = start(s, prompt_id=None)
-    app, worker = f'{s.data}/code/app', f'{s.data}/code/worker'
-    assert (session['agent_id'], session['agent_name'], session['model_name']) == (None, 'Ad-hoc agent', 'GPT')
-    assert 'runtime' not in session and 'cost_usd' not in session
-    assert (session['title'], session['folder'], session['status']) == ('Payments – API reference', 'payments-api-docs', 'starting')
-    assert session['prompt_snapshot'] == {'system_prompt': 'You document systems.',
-                                          'context': '# What you are documenting\n\nPayments', 'prompt_id': None}
-    assert session['context_snapshot']['code_project_ids'] == [s.repo]  # Save document links the chosen projects
-    assert [f['path'] for f in session['context_snapshot']['folders']] == [app, worker]  # chosen, then brought
-    assert session['inputs'][0]['text'] == f'Write the API reference.\n\n{FINAL_ANSWER}'
-    assert session['run_resources']['service_ids'] == [s.service]
-    [first] = session['inputs']
-    assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
-    detail = s.client.get(f"/api/sessions/{session['id']}", headers=HEADERS).json()
-    for shown in (session, detail):  # a documentation session's pinned config and history stay private
-        assert shown['purpose'] == 'documents'
-        for hidden in ('config', 'reviews', 'agent_config', 'history'):
-            assert hidden not in shown
-        serialized = json.dumps(shown)
-        for secret in ('api_key_ref', 'private_key_ref', 'bearer_token_ref', 'bedrock-secret-token', 'private_key',
-                       'credential'):
-            assert secret not in serialized
-    with s.store.connect() as conn:
-        row = conn.execute('SELECT agent_id,agent_config FROM ka.agent_sessions WHERE id=%s', (session['id'],)).fetchone()
-        audit = conn.execute("SELECT action,details FROM ka.audit_events WHERE resource_id=%s", (session['id'],)).fetchone()
-        assert conn.execute('SELECT count(*) AS n FROM ka.agents WHERE id=%s', ('ad-hoc',)).fetchone()['n'] == 0
-    assert row['agent_id'] is None
-    assert row['agent_config']['system_prompt']['content'] == 'You document systems.\n\n# What you are documenting\n\nPayments'
-    assert audit['action'] == 'generation.session.created'
-    assert audit['details'] == {'ephemeral': True, 'model_id': s.gpt, 'prompt_id': None}
-    no_context = start(s, context='  ')
-    with s.store.connect() as conn:
-        pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (no_context['id'],)).fetchone()
-    assert pinned['agent_config']['system_prompt']['content'] == 'You document systems.'
-    listed = s.client.get('/api/sessions?purpose=documents', headers=HEADERS).json()['sessions']
-    assert {row['agent_name'] for row in listed} == {'Ad-hoc agent'}
-
-
-def test_the_context_endpoint_describes_the_selection(sessions):
-    s = sessions
-    response = s.client.post('/api/generations/context', headers=HEADERS, json={'service_ids': [s.service]})
-    assert response.status_code == 200, response.text
-    assert response.json()['text'].startswith('# What you are documenting\n\n## Services\n- Payments — deployed on prod-1')
-    assert s.client.post('/api/generations/context', headers=HEADERS, json={}).json() == {'text': ''}
-    assert s.client.post('/api/generations/context', headers=HEADERS,
-                         json={'server_ids': [str(uuid4())]}).status_code == 400
 
 
 def test_ad_hoc_sessions_refuse_what_cannot_run(sessions):
@@ -150,26 +124,8 @@ def test_ad_hoc_sessions_refuse_what_cannot_run(sessions):
     with s.store.connect() as conn:
         conn.execute('UPDATE ka.llm_models SET enabled=true WHERE id=%s', (s.gpt,))
     # prod-1 has no SSH connection: brought by Production it is left out, chosen directly it is refused by name.
-    assert refused(s, server_ids=[s.server['id']]) == 'Server prod-1 is not available: it was removed, archived or disabled.'
+    assert refused(s, server_ids=[s.server['id']]) == 'Server prod-1: SSH is not set up for this server.'
     with s.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
-
-
-@pytest.mark.parametrize('change, status', [
-    ({'model_id': 'not-a-uuid'}, 400), ({'agent_id': 'search'}, 400), ({'instructions': 'x'}, 400),
-    ({'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}, 400),
-    ({'code_project_ids': ['not-a-uuid']}, 400), ({'code_project_ids': [str(uuid4())]}, 400),
-    ({'environment_ids': [str(uuid4())]}, 400), ({'service_ids': [str(uuid4())]}, 400), ({'server_ids': [str(uuid4())]}, 400),
-    ({'folder': 'Payments'}, 400), ({'folder': 'services/x'}, 400), ({'folder': '../docs'}, 400),
-    ({'document_name': '– –'}, 400), ({'system_prompt': '  '}, 400), ({'system_prompt': 'x' * 20001}, 400),
-    ({'prompt': ''}, 400), ({'prompt': 'a\x00b'}, 400), ({'prompt': 'x' * 100001}, 400),
-    ({'context': 'x' * 100001}, 400), ({'context': 'a\x00b'}, 400), ({'prompt_id': 'nope'}, 400)])
-def test_session_input_is_validated(sessions, change, status):
-    response = sessions.client.post('/api/generations/sessions', headers=HEADERS, json={**sessions.body, **change})
-    assert response.status_code == status, response.text
-    if change == {'code_project_ids': [], 'environment_ids': [], 'service_ids': [], 'server_ids': []}:
-        assert NOTHING_CHOSEN in response.json()['error']['message']
-    with sessions.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == 0
 
 
@@ -366,3 +322,8 @@ def test_the_generation_api_moved(sessions):
     assert client.get('/api/sessions?purpose=documents', headers=HEADERS).status_code == 200
     assert client.get("/api/claude-code/sessions", headers=HEADERS).status_code == 404
     assert client.post("/api/claude-code/context", headers=HEADERS, json={}).status_code == 404
+
+
+def test_the_generate_documents_form_api_is_gone(sessions):
+    for path in ('/api/generations/sessions', '/api/generations/context'):
+        assert sessions.client.post(path, headers=HEADERS, json=sessions.body).status_code in (404, 405)

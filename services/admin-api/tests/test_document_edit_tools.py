@@ -153,7 +153,7 @@ def test_a_turn_refreshes_the_sources_of_every_draft_the_run_wrote(rev):
             VALUES (%s,%s,1,'tool_call','ad-hoc',%s)''', (rev.docs.project, f'cc:{rev.sid}:1',
             Jsonb({'name': 'get_document', 'call_id': 'c1', 'arguments': json.dumps({'document_id': third})})))
     [row] = [r for r in shared.claim(rev.docs.store, 'worker-1', [], 4) if r['id'] == rev.sid]
-    shared.SessionRunner(rev.docs.store, row).finish_turn(1, 'waiting', '', draft='# The final answer', usage=None)
+    shared.SessionRunner(rev.docs.store, row).finish_turn(1, 'waiting', '', usage=None)
     drafts = run_drafts(rev)
     assert [d['markdown'] for d in drafts] == ['# Saved by the tool', '# Overview saved']
     for draft in drafts:

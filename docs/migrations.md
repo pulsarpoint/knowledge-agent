@@ -261,3 +261,13 @@ Seeds the prompt **Revise a document** (tag `document-revision`) in every worksp
 editing rules, now ordinary prompt text. Open Ask agent runs (pinned with the old document tools) are closed with "Closed
 by an update; start a new chat."; their queued messages are discarded. `target_document_id` now only records where a run
 was started. Prompts tagged `document-revision` that people made before this update no longer get the editing rules and document outline appended by code; copy the rules from "Revise a document" into them. The down migration refuses while the seeded prompt is customized and removes it; closed runs stay closed.
+
+## 0101_write_documents
+
+Seeds the prompt **Write a document** (tags `documentation` and `new-document`) in every workspace and for new ones: how an
+agent writes a new document (read what it was given, write with `save_document`, change a passage with `edit_document`,
+never say it is published) is now ordinary prompt text. Open Generate documents runs (they were told to answer with the
+whole document) are closed with "Closed by an update; start a new chat."; their queued messages are discarded. Custom
+prompts tagged `documentation` that people made before this update should tell the agent to write with `save_document`;
+copy the rules from "Write a document". The down migration refuses while the seeded prompt is customized and removes it;
+closed runs stay closed.

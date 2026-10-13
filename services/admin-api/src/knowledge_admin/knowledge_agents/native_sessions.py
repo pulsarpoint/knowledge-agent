@@ -1,6 +1,6 @@
 """Native agents in Generate documents sessions: a turn's SDK lifecycle as the session's run events, and
 agent-session-worker, which runs native turns with the agent config pinned when the session started (built by
-generations_api.create_session) through the native runtime (knowledge_admin.agents.agent) and the SDK Session HistorySession.
+POST /api/sessions) through the native runtime (knowledge_admin.agents.agent) and the SDK Session HistorySession.
 Turns have no time or model-call limit: they end with the answer, Stop, Close or a lost lease.
 Messages sent while a turn runs reach its next model call. Credentials are decrypted here, per turn, and redacted from
 events, the draft, status messages and history."""
@@ -370,8 +370,7 @@ class NativeRunner(shared.SessionRunner):
             # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             # usage=None: every model call already added its tokens (add_usage)
-            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit,
-                                    draft=answer)
+            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit)
         finally:
             if history is not None:
                 history.drop()

@@ -13,7 +13,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.document_drafts import refresh_run_sources_safely, save_run_draft_safely
+from knowledge_admin.document_drafts import refresh_run_sources_safely
 from knowledge_admin.session_text import close_idle
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
@@ -201,33 +201,26 @@ class SessionRunner:
                 FROM ka.agent_sessions WHERE id=%s''', (self.worker_id, self.id)).fetchone()
         return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None or not row['owned']
 
-    def finish_turn(self, number: int, status: str, message: str, *, draft: str, usage: dict[str, Any] | None,
+    def finish_turn(self, number: int, status: str, message: str, *, usage: dict[str, Any] | None,
                     commit: Callable[[Any], None] | None = None) -> None:
-        """Record the turn's outcome. The draft (already cleaned) replaces the previous one only after a successful turn
-        with text; a Test or event session never gets a draft. `commit(conn)` runs in the same transaction,
+        """Record the turn's outcome. `commit(conn)` runs in the same transaction,
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
-        more messages, so no turn reads that history again. A documents session's new draft is also saved as a document
-        draft (document_drafts) in the same transaction; a failure there loses only the document draft. Drafts the
-        document tools saved get their sources refreshed."""
+        more messages, so no turn reads that history again. Drafts the document tools saved get their
+        sources refreshed."""
         usage = usage or NO_USAGE
-        draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:
             updated = conn.execute("""UPDATE ka.agent_sessions SET
                 status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
                 status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
-                draft=CASE WHEN purpose<>'documents' THEN draft ELSE coalesce(%(draft)s::text, draft) END,
-                draft_turn=CASE WHEN purpose<>'documents' OR %(draft)s::text IS NULL THEN draft_turn ELSE %(turn)s END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
-                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id,purpose""",
-                {'status': status, 'message': message, 'draft': draft, 'turn': number,
+                stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id""",
+                {'status': status, 'message': message,
                  'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
                  'id': self.id, 'worker': self.worker_id}).fetchone()
             if updated is not None and status == 'waiting' and commit is not None:
                 commit(conn)
-            if updated is not None and draft is not None and updated['purpose'] == 'documents':
-                save_run_draft_safely(conn, self.id, number)  # the turn's draft becomes a document draft
             if updated is not None:
                 refresh_run_sources_safely(conn, self.id, number)  # drafts the tools saved; reads may come later
 

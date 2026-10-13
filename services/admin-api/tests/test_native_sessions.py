@@ -73,7 +73,7 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
         serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=2,
                                                             poll=0.02))
         first = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        assert (first['draft'], first['draft_turn'], first['worker_id']) == ('# Payments API', 1, 'native-1')
+        assert first['worker_id'] == 'native-1'
         await post(sessions, url + '/messages', {'text': 'Shorten it.'})
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 2)
         await post(sessions, url + '/close')
@@ -94,14 +94,14 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
     row = session_row(store, sid)
     assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'],
-            row['cached_tokens']) == ('closed', '# Payments API\n\nShort.', 2, 270, 48, 40)
+            row['cached_tokens']) == ('closed', None, None, 270, 48, 40)  # the answer is no longer kept as a draft
     assert row['history'] == [*second['history'], {'role': 'user', 'content': 'Shorten it.'},
                               {'role': 'assistant', 'content': '# Payments API\n\nShort.'}]
     recorded = events(store, sid)
     turn1 = [e for e in recorded if e['run_key'] == f'cc:{sid}:1']
     assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
                                           'message', 'usage', 'end']
-    assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Payments – API reference', 'agent': 'Ad-hoc agent',
+    assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Write the API reference.', 'agent': 'Ad-hoc agent',
                                    'turn': 1}
     assert turn1[1]['payload'] == {'task': first['task']}  # no empty history from agent()'s own run record
     assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
@@ -145,7 +145,7 @@ def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     failed, stopped = asyncio.run(scenario())
     assert failed['status_message'] == FAILED and stopped['status_message'] == shared.STOPPED
     row = session_row(store, sid)
-    assert (row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens']) == ('# Draft one', 1, 20, 7)
+    assert (row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens']) == (None, None, 20, 7)
     turn1 = [{'role': 'user', 'content': fake.calls[0]['task']}, {'role': 'assistant', 'content': '# Draft one'}]
     assert row['history'] == turn1  # the later turns' buffered items were dropped
     assert [c['history'] for c in fake.calls[1:]] == [turn1, turn1]
@@ -172,7 +172,7 @@ def test_a_grounding_failure_still_finishes_the_turn_as_waiting_with_its_answer(
         return done
 
     done = asyncio.run(scenario())
-    assert (done['draft'], done['draft_turn'], done['status_message']) == ('# Payments API', 1, '')
+    assert (done['draft'], done['draft_turn'], done['status_message']) == (None, None, '')
     [end] = [e['payload'] for e in events(store, sid) if e['kind'] == 'end']
     assert end == {'status': 'completed'}  # no grounding, the turn still ends
     assert 'grounding' in caplog.text and KEY not in caplog.text
@@ -537,7 +537,7 @@ def test_no_credential_reaches_events_history_the_draft_or_the_status(native, ca
     row = session_row(store, sid)
     stored = json.dumps(events(store, sid)) + json.dumps([row, config_error, other], default=str) + caplog.text
     assert KEY not in stored and '\\u0000' not in stored
-    assert row['draft'] == '# Keys [redacted]' and row['history'][-1] == {'role': 'assistant', 'content': '# Keys [redacted]'}
+    assert row['draft'] is None and row['history'][-1] == {'role': 'assistant', 'content': '# Keys [redacted]'}
     assert config_error['status_message'] == 'Agent folder is unavailable: /work/[redacted]'
     assert other['status_message'] == ('Agent execution failed (RuntimeError). Check the model connection and agent '
                                        'resources.')
@@ -652,7 +652,7 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
         await asyncio.wait_for(serving, 5)
 
     asyncio.run(scenario())
-    assert session_row(store, sid)['draft'] == '# Draft'
+    assert session_row(store, sid)['draft'] is None  # the answer is history, not a draft
     with store.connect() as conn:
         agents = conn.execute('SELECT DISTINCT agent_id FROM ka.agent_run_events WHERE starts_with(run_key,%s)',
                               (f'cc:{sid}:',)).fetchall()

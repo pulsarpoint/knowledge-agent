@@ -16,22 +16,22 @@ def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     committed = []
 
     def commit(conn):  # sees the turn's own update: one transaction
-        committed.append(conn.execute('SELECT status,draft FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone())
+        committed.append(conn.execute('SELECT status FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone())
 
-    runner.finish_turn(1, 'failed', 'Broken.', draft='# Lost', usage=None, commit=commit)
-    runner.finish_turn(2, 'stopped', shared.STOPPED, draft='# Lost', usage=None, commit=commit)
+    runner.finish_turn(1, 'failed', 'Broken.', usage=None, commit=commit)
+    runner.finish_turn(2, 'stopped', shared.STOPPED, usage=None, commit=commit)
     assert committed == []
-    runner.finish_turn(3, 'waiting', '', draft='# Kept', commit=commit,
+    runner.finish_turn(3, 'waiting', '', commit=commit,
                        usage={'input_tokens': 3, 'output_tokens': 2, 'cached_tokens': 1})
-    assert committed == [{'status': 'waiting', 'draft': '# Kept'}]
+    assert committed == [{'status': 'waiting'}]
     with store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET worker_id='other' WHERE id=%s", (sid,))
-    runner.finish_turn(4, 'waiting', '', draft='# Not mine', usage=None, commit=commit)
+    runner.finish_turn(4, 'waiting', '', usage=None, commit=commit)
     assert len(committed) == 1  # a runner that lost the session writes nothing
     with store.connect() as conn:
-        final = conn.execute('SELECT draft,draft_turn,input_tokens,cached_tokens FROM ka.agent_sessions WHERE id=%s',
+        final = conn.execute('SELECT input_tokens,cached_tokens FROM ka.agent_sessions WHERE id=%s',
                              (sid,)).fetchone()
-    assert final == {'draft': '# Kept', 'draft_turn': 3, 'input_tokens': 3, 'cached_tokens': 1}
+    assert final == {'input_tokens': 3, 'cached_tokens': 1}
 
 
 def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(sessions):
