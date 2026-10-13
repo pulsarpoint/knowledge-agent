@@ -111,12 +111,14 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
 }
 
 /** The Ask agent settings of a document or the Test settings of a saved agent: loaded with the options, remembered in
- * this browser per scope. Null: nothing is loaded (the pane is closed, or a new document). */
-export function useAgentSettings(scope: ChatScope | null) {
+ * this browser per scope. Null: nothing is loaded (the pane is closed, or a new document). A changed revision (a saved
+ * agent's) reloads the options. */
+export function useAgentSettings(scope: ChatScope | null, revision?: number) {
   const kind = scope?.kind ?? null;
   const id = scope?.id ?? null;
   // The loaded state carries the scope it belongs to, so a save never writes one scope's settings under another's key.
-  const key = kind && id ? `${kind}:${id}` : null;
+  // A saved agent's new revision loads its options again (remembered settings of the old revision are dropped).
+  const key = kind && id ? `${kind}:${id}${revision === undefined ? '' : `@${revision}`}` : null;
   const [loaded, setLoaded] = useState<{ key: string; kind: ChatScope['kind']; id: string; options: AgentOptions; settings: AgentSettings } | null>(null);
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   useEffect(() => {

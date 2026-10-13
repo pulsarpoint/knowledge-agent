@@ -7,10 +7,10 @@ import AgentChat from './AgentChat';
 /** The agent Test tab: the shared agent chat for this saved agent, full width. The first message starts a run of the
  * agent (narrowed by the settings sheet); the run is kept in the URL (?view=test&session_id=…). Settings load only while
  * the tab is shown; the chat mounts the first time it is. */
-export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, onAgentChanged }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number; onAgentChanged?: () => void }) {
+export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision, onAgentChanged }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number; onAgentChanged?: () => void }) {
   const [params, setParams] = useSearchParams();
   const scope: ChatScope = { kind: 'agent', id: agentId, name: agentName };
-  const settings = useAgentSettings(active ? scope : null);
+  const settings = useAgentSettings(active ? scope : null, revision);
   const [seen, setSeen] = useState(active);
   // The run the chat shows, with the agent it belongs to (a run reported for another agent never reaches this one's URL).
   const [shown, setShown] = useState<{ agentId: string; id: string | null }>({ agentId, id: params.get('session_id') });

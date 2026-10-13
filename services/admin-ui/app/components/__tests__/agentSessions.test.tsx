@@ -31,13 +31,13 @@ const turn1 = [
 const review = { id: 'review-1', comment: 'Be shorter', suggestion: 'Answer in one line.', response_turn: 1, created_at: at };
 
 /** The API for agent "ops": its options, its runs, a start and the run r1 (or another run). */
-function serve({ runs = [], run = finishedRun }: { runs?: RunSummary[]; run?: SessionDetail } = {}) {
+function serve({ runs = [], run = finishedRun, options = () => agentOptions }: { runs?: RunSummary[]; run?: SessionDetail; options?: () => unknown } = {}) {
   const calls: { key: string; body: any }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${url}`;
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ key, body });
-    if (key === 'GET /api/sessions/options?agent_id=ops') return Response.json(agentOptions);
+    if (key === 'GET /api/sessions/options?agent_id=ops') return Response.json(options());
     if (key === 'GET /api/sessions?agent_id=ops') return Response.json({ sessions: runs });
     if (key === 'POST /api/sessions') return Response.json(run, { status: 201 });
     if (key === `POST /api/sessions/${run.id}/review`) return Response.json(review, { status: 201 });
@@ -49,12 +49,12 @@ function serve({ runs = [], run = finishedRun }: { runs?: RunSummary[]; run?: Se
   }));
   return calls;
 }
-type Props = { available?: boolean; ready?: boolean; dirty?: boolean; sessionId?: string; onAgentChanged?: () => void };
+type Props = { available?: boolean; ready?: boolean; dirty?: boolean; sessionId?: string; revision?: number; onAgentChanged?: () => void };
 function Page(props: Props) {
   const location = useLocation();
   return <><output aria-label="URL">{location.search}</output>
     <AgentTestView agentId="ops" agentName="Operations" available={props.available ?? true} ready={props.ready ?? true}
-      dirty={props.dirty ?? false} active revision={3} onAgentChanged={props.onAgentChanged} /></>;
+      dirty={props.dirty ?? false} active revision={props.revision ?? 3} onAgentChanged={props.onAgentChanged} /></>;
 }
 const renderTestTab = (props: Props = {}) =>
   render(<MemoryRouter initialEntries={[props.sessionId ? `?view=test&session_id=${props.sessionId}` : '?view=test']}><Page {...props} /></MemoryRouter>);
@@ -162,4 +162,19 @@ test('New chat closes the open run and starts an empty conversation', async () =
   await waitFor(() => expect(calls.map(c => c.key)).toContain('POST /api/sessions/r1/close'));
   await waitFor(() => expect(screen.getByLabelText('URL')).not.toHaveTextContent('session_id'));
   expect(await screen.findByText('Send a message to test the agent.')).toBeVisible();
+});
+
+test('a new revision of the agent loads its options again and drops the remembered settings', async () => {
+  const stored = 'agent-settings:agent:ops';
+  localStorage.setItem(stored, JSON.stringify({ v: 2, revision: 3, linked: [], settings: { chosen: {}, off: [], subagents: false, experts: [] } }));
+  let revision = 3;
+  const calls = serve({ options: () => ({ ...agentOptions, agent: { ...agentOptions.agent!, revision } }) });
+  const view = renderTestTab();
+  await waitFor(() => expect(JSON.parse(localStorage.getItem(stored)!)).toMatchObject({ revision: 3, settings: { experts: [] } }));
+  revision = 4;
+  view.rerender(<MemoryRouter initialEntries={['?view=test']}><Page revision={4} /></MemoryRouter>);
+  await waitFor(() => expect(calls.filter(c => c.key === 'GET /api/sessions/options?agent_id=ops')).toHaveLength(2));
+  await waitFor(() => expect(JSON.parse(localStorage.getItem(stored)!)).toMatchObject({ revision: 4, settings: { experts: ['e1'] } }));
+  await sendWhenReady('Check disk');
+  await waitFor(() => expect(calls.find(c => c.key === 'POST /api/sessions')?.body).toMatchObject({ agent_id: 'ops', expert_ids: ['e1'] }));
 });
