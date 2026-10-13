@@ -93,7 +93,7 @@ def test_document_search_uses_only_the_given_collections(rag, folders):
 
 def test_ssh_reaches_only_the_given_servers(folders):
     context = run_context(folders, servers=['host'])
-    assert 'This server is not available to this agent.' in invoke(ssh_run, context, server_id='elsewhere', command='uptime')
+    assert 'This server is not available in this run.' in invoke(ssh_run, context, server_id='elsewhere', command='uptime')
 
 
 def test_the_prompt_says_the_run_got_only_these_resources(folders):

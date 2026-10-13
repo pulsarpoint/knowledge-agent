@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import asyncssh
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin.capabilities.context import NOT_AVAILABLE, RunContext, allowed, require_given
 
 
 class SSHError(Exception):
@@ -166,9 +166,9 @@ async def ssh_run(context: RunContext, server_id: str, command: str,
     if not config['enabled'] or not config['ssh']['enabled']:
         raise ValueError('SSH is disabled for this agent.')
     require_given(config, 'ssh')
-    server = next((item for item in config['ssh']['servers'] if item['id'] == server_id), None)
-    if server is None or not server['enabled'] or not server['ssh_allowed']:
-        raise ValueError('This server is not available to this agent.')
+    server = allowed(config, 'server', server_id)
+    if not server['enabled'] or not server['ssh_allowed']:
+        raise ValueError(NOT_AVAILABLE.format(kind='server'))
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
     reference = server['private_key_ref']

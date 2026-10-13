@@ -46,3 +46,19 @@ def require_given(config: dict[str, Any], kind: str) -> None:
              'files': not code and not collections}
     if empty[kind]:
         raise ValueError(NOTHING_GIVEN[kind])
+
+
+NOT_AVAILABLE = 'This {kind} is not available in this run.'
+ACCESS = {
+    'server': lambda config: config['ssh']['servers'] if config['ssh']['enabled'] else [],
+    'document': lambda config: config.get('document_access', []),
+}
+
+
+def allowed(config: dict[str, Any], kind: str, item_id: str, *, write: bool = False) -> dict[str, Any]:
+    """The pinned entry of one resource this run may use: the run's allowlist, fixed when it started. Every tool that
+    takes a resource id checks it here; anything else — and, with write, an entry that is not editable — is refused."""
+    entry = next((item for item in ACCESS[kind](config) if str(item['id']) == str(item_id)), None)
+    if entry is None or (write and not entry.get('editable')):
+        raise ValueError(NOT_AVAILABLE.format(kind=kind))
+    return entry
