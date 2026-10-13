@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { agentRunPath } from '~/lib/sessions';
+import { agentRunPath, sessionPath } from '~/lib/sessions';
 import { discardDraft, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type DraftSource, type DraftSummary, type PromoteResult } from '~/lib/drafts';
 import DiffView from './DiffView';
 import Markdown from './Markdown';
@@ -20,7 +20,7 @@ const failure = (e: unknown, fallback: string) => e instanceof Error ? e.message
 export function DraftAuthor({ draft }: { draft: Pick<DraftSummary, 'origin' | 'session_id' | 'session_title' | 'author' | 'session_purpose' | 'document_id'> }) {
   if (draft.origin === 'agent') return draft.session_id
     ? <Link className="underline" title={draft.session_title ?? undefined} to={draft.session_purpose === 'revision' && draft.document_id
-      ? agentRunPath(draft.document_id, draft.session_id) : `/documentation/generations/${encodeURIComponent(draft.session_id)}`}>Agent run</Link>
+      ? agentRunPath(draft.document_id, draft.session_id) : sessionPath(draft.session_id)}>Agent run</Link>
     : <span>Agent run</span>;
   return <span>{draft.author || 'Someone'}</span>;
 }

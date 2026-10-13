@@ -87,7 +87,7 @@ test('a stale draft shows the diff against the live version and promotes only on
   const view = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(view.getByText('# Runbook draft text', { selector: 'ins' })).toBeInTheDocument();
   expect(view.getByText('# Runbook v2 live', { selector: 'del' })).toBeInTheDocument();
-  expect(view.getByRole('link', { name: 'Agent run' })).toHaveAttribute('href', '/documentation/generations/s1');
+  expect(view.getByRole('link', { name: 'Agent run' })).toHaveAttribute('href', '/sessions/s1');
   fireEvent.click(view.getByRole('button', { name: 'Promote' }));
   expect(await view.findByText(STALE)).toBeInTheDocument();
   fireEvent.click(view.getByRole('button', { name: 'Promote anyway' }));

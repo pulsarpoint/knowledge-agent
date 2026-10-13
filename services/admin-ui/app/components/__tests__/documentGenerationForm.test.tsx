@@ -49,7 +49,7 @@ function setup({ models = MODELS, hold = false, error = '', failPrompt = '', con
   }));
   render(<MemoryRouter initialEntries={['/documentation/generations/new']}><Routes>
     <Route path="/documentation/generations/new" element={<NewGeneration />} />
-    <Route path="/documentation/generations/:sessionId" element={<div>Session page</div>} />
+    <Route path="/sessions/:sessionId" element={<div>Session page</div>} />
   </Routes></MemoryRouter>);
   return { posts, held, contextText };
 }

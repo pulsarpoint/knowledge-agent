@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { formatTokens, getSessions, statusLabels, type SessionSummary } from '~/lib/sessions';
+import { formatTokens, getSessions, sessionPath, statusLabels, type SessionSummary } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -25,7 +25,7 @@ export default function GenerationsView() {
     {rows === null ? <Skeleton className="h-40" /> : <Table><TableHeader><TableRow><TableHead>Generation</TableHead><TableHead>Status</TableHead><TableHead>Agent</TableHead>
       <TableHead>Tokens</TableHead><TableHead>Document</TableHead><TableHead>Last activity</TableHead></TableRow></TableHeader><TableBody>
       {rows.map(row => <TableRow key={row.id}>
-        <TableCell><Link className="underline" to={`/documentation/generations/${row.id}`}>{row.title}</Link><p className="text-xs text-muted-foreground">{row.folder}/</p></TableCell>
+        <TableCell><Link className="underline" to={sessionPath(row.id)}>{row.title}</Link><p className="text-xs text-muted-foreground">{row.folder}/</p></TableCell>
         <TableCell><Badge variant={row.status === 'failed' ? 'destructive' : 'secondary'}>{statusLabels[row.status]}</Badge></TableCell>
         <TableCell><span>{row.agent_name}</span><p className="text-xs text-muted-foreground">{row.model_name}</p></TableCell>
         <TableCell>{`${formatTokens(row.input_tokens)} in · ${formatTokens(row.output_tokens)} out`}</TableCell>

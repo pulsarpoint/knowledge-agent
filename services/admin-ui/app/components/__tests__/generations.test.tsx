@@ -17,7 +17,7 @@ test('Docs → Generate documents lists generations with status, agent, tokens a
     : Response.json({ is_admin: true })));
   render(<MemoryRouter initialEntries={['/documentation/generations']}><AdminLayout><GenerationsView /></AdminLayout></MemoryRouter>);
   const first = (await screen.findByRole('link', { name: 'Payments – API reference' })).closest('tr')!;
-  expect(within(first).getByRole('link', { name: 'Payments – API reference' })).toHaveAttribute('href', '/documentation/generations/s1');
+  expect(within(first).getByRole('link', { name: 'Payments – API reference' })).toHaveAttribute('href', '/sessions/s1');
   expect(within(first).getByText('Waiting for you')).toBeVisible();
   expect(within(first).getByText('Technical writer')).toBeVisible();
   expect(within(first).getByText('Claude on Bedrock')).toBeVisible();

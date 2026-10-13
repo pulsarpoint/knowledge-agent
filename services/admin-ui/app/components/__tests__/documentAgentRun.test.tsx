@@ -50,5 +50,5 @@ test("a draft written by an Ask agent run links to its run page", () => {
   const { rerender } = render(<MemoryRouter><DraftAuthor draft={{ ...base, session_purpose: "revision" }} /></MemoryRouter>);
   expect(screen.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/documents/doc-1/agent/s1");
   rerender(<MemoryRouter><DraftAuthor draft={{ ...base, session_purpose: "documents" }} /></MemoryRouter>);
-  expect(screen.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/documentation/generations/s1");
+  expect(screen.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
 });

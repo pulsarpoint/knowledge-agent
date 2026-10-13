@@ -55,7 +55,7 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   const section = within(screen.getByRole('region', { name: 'New drafts' }));
   expect(section.getByRole('link', { name: 'Disk layout' })).toHaveAttribute('href', '/documents/drafts/d9');
   expect(section.getByText('servers/web-1')).toBeInTheDocument();
-  expect(section.getByRole('link', { name: 'Agent run' })).toHaveAttribute('href', '/documentation/generations/s1');
+  expect(section.getByRole('link', { name: 'Agent run' })).toHaveAttribute('href', '/sessions/s1');
   fireEvent.click(screen.getByRole('checkbox', { name: 'Has drafts' }));
   await waitFor(() => expect(calls.some((c) => c.key === 'GET /api/documentation/documents?has_drafts=true')).toBe(true));
   fireEvent.click(section.getByRole('button', { name: 'Discard Disk layout' }));

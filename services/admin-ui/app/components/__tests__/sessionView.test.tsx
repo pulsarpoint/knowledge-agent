@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
-import GenerationView from '../GenerationView';
+import SessionView from '../SessionView';
 
 class Stream extends EventTarget {
   static instances: Stream[] = [];
@@ -29,7 +29,7 @@ const opened = () => waitFor(() => { expect(Stream.instances).toHaveLength(1); r
 
 test('the session page shows the tools the session used', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByLabelText('Tools used')).toHaveTextContent('Read 5 · Grep 2');
   expect(screen.getByText('Resources: Fixed')).toBeVisible();
 });
@@ -45,7 +45,7 @@ test('the session page follows the turn, sends messages, stops, previews the dra
     if (url.endsWith('/stop')) return Response.json({ id: 's1', discarded: 0 }, { status: 202 });
     return Response.json({ id: 's1' });
   }));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   expect((await screen.findAllByText('Starting'))[0]).toBeVisible();
   expect(screen.getByText(/Waiting for the agent session worker/)).toBeVisible();
   const stream = await opened();
@@ -104,7 +104,7 @@ test('opening shows the latest page, streams after its newest event and loads ea
     if (url.endsWith('/events/history?limit=100')) return page([answer(150), answer(151)], true);
     return Response.json({ ...detail, status: 'waiting', turns: 151, queued: 0 });
   }));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Message 151')).toBeVisible();
   const stream = await opened();
   expect(stream.url).toBe('/api/sessions/s1/events?after=151');
@@ -152,7 +152,7 @@ test('a short history fills the main pane by loading earlier pages until it over
       if (url.endsWith('?limit=100')) return page([answer(150), answer(151)], true);
       return Response.json({ ...detail, status: 'waiting', turns: 151, queued: 0 });
     }));
-    render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+    render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
     expect(await screen.findByText('Message 90')).toBeVisible();  // 2 + 1 turns do not fill 450px; 5 do
     await act(async () => {});
     expect(urls.filter(url => url.includes('/events/history'))).toEqual([
@@ -167,10 +167,10 @@ test('the session page has one page heading, the session title', async () => {
   const { default: AdminLayout } = await import('../AdminLayout');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
     : url.startsWith('/api/sessions/') ? Response.json(detail) : Response.json({ is_admin: true })));
-  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><AdminLayout><GenerationView sessionId="s1" /></AdminLayout></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/sessions/s1']}><AdminLayout><SessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-  expect(screen.getAllByRole('link', { name: 'Generate documents' }).map(link => link.getAttribute('href'))).toEqual(['/documentation/generations', '/documentation/generations']);
+  expect(screen.getByRole('link', { name: 'Generate documents' })).toHaveAttribute('href', '/documentation/generations');
 });
 
 test('a native session waits for the agent session worker, and a comment to a working one reaches it at its next step', async () => {
@@ -180,11 +180,11 @@ test('a native session waits for the agent session worker, and a comment to a wo
     if (url.endsWith('/messages')) return Response.json({ seq: 2, status: 'queued', working: true }, { status: 202 });
     return Response.json(working ? { ...detail, status: 'working', worker_active: true } : { ...detail });
   }));
-  const view = render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  const view = render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByText('Waiting for the agent session worker. The session starts when the worker is running.')).toBeVisible();
   view.unmount();
   working = true;
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   const box = await screen.findByLabelText('Message');
   expect(box).toBeEnabled();
   fireEvent.change(box, { target: { value: 'Also cover retries' } });
@@ -197,48 +197,16 @@ test('the session page fills the screen below the app header, so the message box
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ top: 100 } as DOMRect));
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 });
   try {
-    render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+    render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
     const box = await screen.findByRole('form', { name: 'Message box' });
     expect(box.closest<HTMLElement>('[style]')?.style.height).toBe('576px');  // 700 - 100 - 24 (the main padding)
   } finally { vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore(); }
 });
 
-test.each([['a Test', 'test'], ['an event', 'event']])('%s session opened here goes to its agent Test tab', async (_, purpose) => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : Response.json({ ...detail, purpose, agent_id: 'custom agent' })));
-  function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname + location.search}</output>; }
-  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
-    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
-    <Route path="*" element={<Where />} />
-  </Routes></MemoryRouter>);
-  expect(await screen.findByLabelText('URL')).toHaveTextContent('/agents/custom%20agent?view=test&session_id=s1');
-});
-
-test('a discovery session opened here goes to its server run page', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([])
-    : Response.json({ ...detail, purpose: 'discovery', server_id: 'srv 1' })));
-  function Where() { const location = useLocation(); return <output aria-label="URL">{location.pathname}</output>; }
-  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
-    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
-    <Route path="*" element={<Where />} />
-  </Routes></MemoryRouter>);
-  expect(await screen.findByLabelText('URL')).toHaveTextContent('/servers/srv%201/discovery/s1');
-});
-
-test('a documents session stays on the generation page', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(detail)));
-  render(<MemoryRouter initialEntries={['/documentation/generations/s1']}><Routes>
-    <Route path="/documentation/generations/:id" element={<GenerationView sessionId="s1" />} />
-    <Route path="*" element={<output aria-label="URL">elsewhere</output>} />
-  </Routes></MemoryRouter>);
-  expect(await screen.findByRole('heading', { name: 'Payments – API reference' })).toBeVisible();
-  expect(screen.queryByLabelText('URL')).toBeNull();
-});
-
 test("a run whose turn wrote a document draft links to it; a new document's draft opens its own page", async () => {
   const withDraft = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_draft: { id: 'd2', document_id: null, status: 'open' } };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(withDraft)));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   const draft = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(await draft.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/d2');
   expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
@@ -249,7 +217,7 @@ test('a run whose document draft was promoted links to the document and offers n
   const promoted = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1, document_id: 'doc1',
     document_draft: { id: 'd2', document_id: 'doc1', status: 'promoted' } };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(promoted)));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   const draft = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(await draft.findByRole('link', { name: 'Open document' })).toHaveAttribute('href', '/documents/doc1');
   expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
@@ -260,9 +228,49 @@ test('a run whose document draft was discarded offers no Save as draft', async (
   const discarded = { ...detail, status: 'waiting', turns: 1, draft: '# Payments API', draft_turn: 1,
     document_draft: { id: 'd2', document_id: null, status: 'discarded' } };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page([]) : Response.json(discarded)));
-  render(<MemoryRouter><GenerationView sessionId="s1" /></MemoryRouter>);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   const draft = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(await draft.findByText('The document draft was discarded.')).toBeVisible();
   expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
   expect(draft.queryByRole('link', { name: 'Open draft' })).toBeNull();
+});
+
+const serve = (session: unknown, events: unknown[] = []) =>
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/events/history') ? page(events) : Response.json(session)));
+const toolCall = (name: string) => ({ id: 1, turn: 1, seq: 1, kind: 'tool_call', payload: { name, call_id: 'c1', summary: 'x' } });
+const toolResult = (name: string, preview: string, is_error = false) =>
+  ({ id: 2, turn: 1, seq: 2, kind: 'tool_result', payload: { name, call_id: 'c1', preview, is_error } });
+
+test('a document run shows where it started, with no Save as draft', async () => {
+  serve({ ...detail, purpose: 'revision', target_document_id: 'doc-1', draft: null, document_draft: null });
+  render(<MemoryRouter initialEntries={['/sessions/s1']}><Routes><Route path="/sessions/:id" element={<SessionView sessionId="s1" />} /></Routes></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: detail.title })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'the document' })).toHaveAttribute('href', '/documents/doc-1/agent/s1');
+  expect(screen.queryByRole('button', { name: 'Save as draft' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Draft' })).toBeNull();
+});
+
+test('a Generate documents run shows its draft and opens the document draft', async () => {
+  serve({ ...detail, purpose: 'documents', draft: '# Draft', draft_turn: 1, document_draft: { id: 'x1', document_id: null, status: 'open' } });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/x1');
+});
+
+test('a Test run is shown here, not redirected, and links to its agent', async () => {
+  serve({ ...detail, purpose: 'test', agent_id: 'code', draft: null });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'the agent' })).toHaveAttribute('href', '/agents/code?view=test&session_id=s1');
+});
+
+test('a discovery run links to its server', async () => {
+  serve({ ...detail, purpose: 'discovery', server_id: 'srv 1', agent_id: null });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'the server' })).toHaveAttribute('href', '/servers/srv%201/discovery/s1');
+});
+
+test('a refused tool call shows as an error on that call', async () => {
+  serve({ ...detail, purpose: 'revision', target_document_id: 'doc-1' }, [toolCall('save_document'),
+    toolResult('save_document', 'This document is not available in this run.', true)]);
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByText(/not available in this run/)).toBeInTheDocument();
 });

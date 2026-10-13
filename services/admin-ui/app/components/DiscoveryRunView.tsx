@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { closeSession, sendMessage, stopSession } from "~/lib/sessions";
+import { closeSession, sendMessage, sessionPath, stopSession } from "~/lib/sessions";
 import { getProposals, type Proposal } from "~/lib/discovery";
 import { runPath } from "~/lib/runs";
 import { useFillViewport } from "~/lib/useFillViewport";
@@ -58,7 +58,7 @@ export default function DiscoveryRunView({ serverId, runId }: { serverId: string
     try { await action(); } catch (e) { run.setError(e instanceof Error ? e.message : "The request failed"); } finally { setBusy(false); }
   }
   if (!session) return run.error ? <Alert variant="destructive"><AlertDescription>{run.error}</AlertDescription></Alert> : <Skeleton className="h-60" />;
-  if (session.purpose !== "discovery") return <Navigate replace to={`/documentation/generations/${encodeURIComponent(runId)}`} />;
+  if (session.purpose !== "discovery") return <Navigate replace to={sessionPath(runId)} />;
   const closed = session.status === "closed";
   const current = proposals?.find(item => item.id === open) ?? null;
   const pending = proposals?.filter(item => item.status === "pending").length ?? 0;

@@ -15,7 +15,7 @@ export default [
   route("prompts/:promptId", "./routes/promptLibraryEditor.tsx"),
   route("documentation/generations", "./routes/documentationGenerations.tsx"),
   route("documentation/generations/new", "./routes/documentationGenerationNew.tsx"),
-  route("documentation/generations/:sessionId", "./routes/documentationGeneration.tsx"),
+  route("sessions/:sessionId", "./routes/session.tsx"),
   route("documentation/folders", "./routes/documentationFolders.tsx"),
   route("documentation/folders/*", "./routes/documentationFolder.tsx"),
   route("services", "./routes/services.tsx"),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError, getEnvironments, getServers, getServices } from '~/lib/api';
 import { createSession, DEFAULT_SYSTEM_PROMPT, getGenerationContext, type Selection } from '~/lib/generations';
+import { sessionPath } from '~/lib/sessions';
 import { getCodeProjects } from '~/lib/codeProjects';
 import { defaultFolder, documentSlug, folderError, getDocumentationFolders, getDocumentationPrompt, getDocumentationPrompts, type DocumentationPrompt } from '~/lib/documents';
 import { codeCompatible, getLlmSettings, type ModelProfile } from '~/lib/llm';
@@ -228,5 +229,5 @@ export default function DocumentGenerationForm({ onCreated }: { onCreated: (id: 
 /** Docs → Generate documents → New; Generate opens the session. */
 export function NewGeneration() {
   const navigate = useNavigate();
-  return <DocumentGenerationForm onCreated={id => navigate(`/documentation/generations/${id}`)} />;
+  return <DocumentGenerationForm onCreated={id => navigate(sessionPath(id))} />;
 }
