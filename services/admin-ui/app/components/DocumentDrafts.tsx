@@ -24,7 +24,7 @@ export default function DocumentDrafts({ documentId, selected, onEdit, onPromote
     return () => controller.abort();
   }, [documentId, load]);
   if (!drafts) return error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : <Skeleton className="h-48 w-full" />;
-  if (drafts.length === 0) return <p className="text-sm text-muted-foreground">No open drafts. Save draft keeps the editor's text as a draft; Generate documents runs write drafts too.</p>;
+  if (drafts.length === 0) return <p className="text-sm text-muted-foreground">No open drafts. Save draft keeps the editor's text as a draft; agent runs write drafts too.</p>;
   const shown = drafts.some((draft) => draft.id === open) ? open : null;
   return <div className="grid gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
     <ul aria-label="Drafts" className="flex flex-col gap-2">{drafts.map((draft) => <li key={draft.id} className="flex flex-col gap-1">

@@ -36,7 +36,7 @@ export default function DocumentationFoldersView() {
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     {ragError && <Alert><AlertDescription>{`RAG collections unavailable: ${ragError}`}</AlertDescription></Alert>}
     {data === null ? (!error && <Skeleton className="h-40" />) : data.folders.length === 0
-      ? <p>No documentation folders yet. Generate a code project document into a folder in Docs → Generate documents.</p>
+      ? <p>No documentation folders yet. Write a code project document into a folder with an agent from Documents → New.</p>
       : <Table><TableHeader><TableRow><TableHead>Folder</TableHead><TableHead>Documents</TableHead><TableHead>Code projects</TableHead><TableHead>Last generated</TableHead><TableHead>RAG collections</TableHead><TableHead>Index</TableHead></TableRow></TableHeader><TableBody>
         {data.folders.map(row => {
           const found = row.source_path && collections ? including(collections, row.source_path) : [];

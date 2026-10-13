@@ -13,8 +13,6 @@ export default [
   route("prompts", "./routes/promptLibrary.tsx"),
   route("prompts/new", "./routes/promptLibraryEditor.tsx", { id: "prompt-library-new" }),
   route("prompts/:promptId", "./routes/promptLibraryEditor.tsx"),
-  route("documentation/generations", "./routes/documentationGenerations.tsx"),
-  route("documentation/generations/new", "./routes/documentationGenerationNew.tsx"),
   route("sessions/:sessionId", "./routes/session.tsx"),
   route("documentation/folders", "./routes/documentationFolders.tsx"),
   route("documentation/folders/*", "./routes/documentationFolder.tsx"),

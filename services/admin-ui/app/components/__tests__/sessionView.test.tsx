@@ -62,9 +62,7 @@ test('the session page follows the turn, sends messages, stops, previews the dra
   expect(await run.findByLabelText('Your message')).toHaveTextContent('Document the payments API.');
   fireEvent.click(run.getByText('Working · 1 tool call · 0 tokens'));
   expect(run.getByText('/work/data/code/app/main.py')).toBeVisible();
-  const draft = within(screen.getByRole('region', { name: 'Draft' }));
-  expect(draft.queryByRole('button', { name: 'Save as draft' })).toBeNull();
-  expect(draft.getByRole('button', { name: 'Preview draft' })).toBeDisabled();
+  expect(screen.queryByRole('region', { name: 'Draft' })).toBeNull();  // no draft yet
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Also cover retries.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));  // usable while the agent works
   expect(await screen.findByText('Queued. Your comment reaches the agent at its next step.')).toBeVisible();
@@ -82,6 +80,7 @@ test('the session page follows the turn, sends messages, stops, previews the dra
   expect(screen.queryByText('Stopping the current turn…')).toBeNull();  // the status changed: the notice is stale
   expect(screen.getByLabelText('Token totals')).toHaveTextContent('In 1,050 · Out 40 · Cached 900');
   expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+  const draft = within(await screen.findByRole('region', { name: 'Draft' }));
   expect(draft.getByRole('heading', { name: 'Draft · turn 1' })).toBeVisible();
   fireEvent.click(draft.getByRole('button', { name: 'Preview draft' }));
   const sheet = within(screen.getByRole('dialog'));
@@ -170,7 +169,8 @@ test('the session page has one page heading, the session title', async () => {
   render(<MemoryRouter initialEntries={['/sessions/s1']}><AdminLayout><SessionView sessionId="s1" /></AdminLayout></MemoryRouter>);
   expect(await screen.findByRole('heading', { name: 'Payments – API reference', level: 1 })).toBeVisible();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-  expect(screen.getByRole('link', { name: 'Generate documents' })).toHaveAttribute('href', '/documentation/generations');
+  expect(screen.getByText(/Started from the new document Payments – API reference/)).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Generate documents' })).toBeNull();
 });
 
 test('a native session waits for the agent session worker, and a comment to a working one reaches it at its next step', async () => {
@@ -250,7 +250,26 @@ test('a document run shows where it started, with no Save as draft', async () =>
   expect(screen.queryByRole('region', { name: 'Draft' })).toBeNull();
 });
 
-test('a Generate documents run shows its draft and opens the document draft', async () => {
+test('a revision run with an open document draft shows Open draft', async () => {
+  serve({ ...detail, purpose: 'revision', target_document_id: 'doc-1', draft: null, document_draft: { id: 'x2', document_id: 'doc-1', status: 'open' } });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/doc-1?tab=drafts&draft=x2');
+  expect(screen.queryByRole('button', { name: 'Preview draft' })).toBeNull();
+});
+
+test('a new-document run without final-answer text shows Open draft from its document draft', async () => {
+  serve({ ...detail, purpose: 'documents', draft: null, document_draft: { id: 'x3', document_id: null, status: 'open' } });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/x3');
+});
+
+test('a promoted new-document run opens the document', async () => {
+  serve({ ...detail, purpose: 'documents', draft: null, document_id: 'doc-9', document_draft: { id: 'x4', document_id: null, status: 'promoted' } });
+  render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
+  expect(await screen.findByRole('link', { name: 'Open document' })).toHaveAttribute('href', '/documents/doc-9');
+});
+
+test('an old run with final-answer text still offers Preview draft and opens the document draft', async () => {
   serve({ ...detail, purpose: 'documents', draft: '# Draft', draft_turn: 1, document_draft: { id: 'x1', document_id: null, status: 'open' } });
   render(<MemoryRouter><SessionView sessionId="s1" /></MemoryRouter>);
   expect(await screen.findByRole('link', { name: 'Open draft' })).toHaveAttribute('href', '/documents/drafts/x1');
