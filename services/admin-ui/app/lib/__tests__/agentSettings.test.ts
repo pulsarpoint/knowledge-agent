@@ -1,6 +1,9 @@
 import { OWN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput } from '../agentSettings';
 import type { SessionDetail } from '../sessions';
 import { options } from './agentOptionsFixture';
+import { agentOptions } from './agentScopeFixture';
+
+const doc = (title = 'Runbook') => ({ kind: 'document' as const, id: 'doc-1', title });
 
 test('defaults: the default model, the first tagged prompt, the usable linked resources, every tool on', () => {
   const settings = defaultSettings(options);
@@ -12,12 +15,12 @@ test('defaults: the default model, the first tagged prompt, the usable linked re
 
 test('startInput sends only the shown tools that are on', () => {
   const settings = { ...defaultSettings(options), off: ['get_service_info', 'get_document', 'save_document'] };
-  expect(startInput('doc-1', 'Runbook', options, settings, 'x').tools).toEqual(['ssh_run']);
-  expect(startInput('doc-1', 'Runbook', options, { ...settings, promptKey: OWN }, 'x').prompt_id).toBeNull();
+  expect(startInput(doc(), options, settings, 'x').tools).toEqual(['ssh_run']);
+  expect(startInput(doc(), options, { ...settings, promptKey: OWN }, 'x').prompt_id).toBeNull();
 });
 
 test('the start body gives the document as an editable resource and the context names it', () => {
-  const body = startInput('doc-1', 'Runbook', options, defaultSettings(options), '  Add a section.  ');
+  const body = startInput(doc(), options, defaultSettings(options), '  Add a section.  ');
   expect(body).toMatchObject({ started_from: { document_id: 'doc-1' }, message: 'Add a section.', prompt_id: 'p2',
     system_prompt: options.prompts[1].content, context: 'Document: Runbook (id doc-1)' });
   expect(body.resources.documents).toEqual([{ id: 'doc-1', editable: true }]);
@@ -86,7 +89,7 @@ test('switching the document never writes the first document\'s settings under t
     setItem: (k: string, v: string) => { writes.push([k, v]); store.set(k, v); }, removeItem: (k: string) => store.delete(k) });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
     url.includes('doc-2') ? { ...options, default_model_id: 'm1' } : options), { status: 200 })));
-  const { result, rerender } = renderHook(({ id }) => useAgentSettings(id), { initialProps: { id: 'doc-1' } });
+  const { result, rerender } = renderHook(({ id }) => useAgentSettings({ kind: 'document', id, title: '' }), { initialProps: { id: 'doc-1' } });
   await waitFor(() => expect(result.current.settings?.modelId).toBe('m2'));
   act(() => result.current.update({ systemPrompt: 'Doc one prompt.' }));
   await waitFor(() => expect(writes.some(([k, v]) => k === 'ask-agent-settings:doc-1' && v.includes('Doc one prompt.'))).toBe(true));
@@ -97,4 +100,22 @@ test('switching the document never writes the first document\'s settings under t
   expect(result.current.settings?.systemPrompt).toBe(options.prompts[1].content);
   for (const [key, value] of writes) if (key === 'ask-agent-settings:doc-2') expect(value).not.toContain('Doc one prompt.');
   vi.unstubAllGlobals();
+});
+
+test('a saved agent starts with its own configuration and only narrows it', () => {
+  const settings = { ...defaultSettings(agentOptions), chosen: { ...defaultSettings(agentOptions).chosen, server_ids: ['s1'] }, off: ['read_file'] };
+  const body = startInput({ kind: 'agent', id: 'ops', name: 'Operations' }, agentOptions, settings, ' Check disk ');
+  expect(body).toEqual({ agent_id: 'ops', message: 'Check disk', context: '', tools: ['ssh_run'], expert_ids: ['e1'], subagents: true,
+    resources: { server_ids: ['s1'], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [], documents: [] } });
+});
+
+test('a saved agent defaults: its model and prompt, nothing chosen', () => {
+  expect(defaultSettings(agentOptions)).toEqual({ modelId: 'm1', promptKey: OWN, systemPrompt: 'You operate servers.',
+    chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] }, off: [], subagents: true, experts: ['e1'] });
+});
+
+test('settings saved for an older revision of the agent are dropped', () => {
+  const saved = { v: 2, revision: 2, linked: [], settings: { ...defaultSettings(agentOptions), off: ['ssh_run'] } };
+  expect(restoreSettings(agentOptions, saved)).toEqual(defaultSettings(agentOptions));
+  expect(restoreSettings(agentOptions, { ...saved, revision: 3 }).off).toEqual(['ssh_run']);
 });

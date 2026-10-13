@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../lib/api';
 import { applyReview, getReviewSource, type InstructionChanges, type ReviewSource } from '../lib/reviews';
-import type { SessionReview } from '../lib/testSessions';
+import type { SessionReview } from '../lib/sessions';
 import Markdown from './Markdown';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';

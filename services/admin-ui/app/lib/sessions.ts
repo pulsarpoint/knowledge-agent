@@ -1,7 +1,6 @@
 import { request } from './api';
 import type { ToolCount } from './runs';
 import type { RunResourcesInput } from './profiles';
-import type { SessionReview } from './testSessions';
 import type { Turn } from './turns';
 
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
@@ -12,6 +11,11 @@ export type SessionStatus = 'starting' | 'working' | 'waiting' | 'stopped' | 'fa
 export const statusLabels: Record<SessionStatus, string> = {
   starting: 'Starting', working: 'Working', waiting: 'Waiting for you', stopped: 'Stopped', failed: 'Failed', closed: 'Finished',
 };
+/** A tuning suggestion; `response_turn` is the answer the feedback was about (none: the whole session). */
+export interface SessionReview { id: string; comment: string; suggestion: string; response_turn?: number | null; created_at: string; changes?: unknown }
+/** What a chat is about: a document (Ask agent) or a saved agent (its Test tab). */
+export type ChatScope = { kind: 'document'; id: string; title: string } | { kind: 'agent'; id: string; name: string };
+
 export interface SessionFolder { path: string; kind: 'code_project' | 'folder'; name: string; code_project_id?: string }
 export interface SessionSummary {
   id: string; title: string; agent_id: string | null; agent_name: string; model_name: string; status: SessionStatus; status_message: string;
@@ -67,10 +71,12 @@ const query = (values: Record<string, string | number | undefined>) => {
   const text = params.toString().replace(/\+/g, '%20');
   return text ? `?${text}` : '';
 };
-export const getSessions = (filter: { purpose?: SessionPurpose; documentId?: string; offset?: number }, signal?: AbortSignal) =>
-  request<{ sessions: RunSummary[] }>(`/api/sessions${query({ document_id: filter.documentId, purpose: filter.purpose, offset: filter.offset })}`, { signal });
-export const getSessionOptions = (documentId: string | null, signal?: AbortSignal) =>
-  request<AgentOptions>(`/api/sessions/options${query({ document_id: documentId ?? undefined })}`, { signal });
+export const getSessions = (filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; offset?: number }, signal?: AbortSignal) =>
+  request<{ sessions: RunSummary[] }>(`/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, purpose: filter.purpose, offset: filter.offset })}`, { signal });
+export const getSessionOptions = (scope: { documentId?: string; agentId?: string }, signal?: AbortSignal) =>
+  request<AgentOptions>(`/api/sessions/options${query({ document_id: scope.documentId, agent_id: scope.agentId })}`, { signal });
+export const reviewSession = (id: string, comment: string, turn?: number) =>
+  request<SessionReview>(`${session(id)}/review`, json('POST', { comment, ...(turn ? { turn } : {}) }));
 export const previewSession = (value: StartInput) =>
   request<{ config: Record<string, unknown>; first_message: string }>('/api/sessions/preview', json('POST', value));
 export const startSession = (value: StartInput) => request<SessionDetail>('/api/sessions', json('POST', value));
@@ -83,6 +89,9 @@ export interface AgentServer extends AgentResource { usable: boolean; reason: st
 export interface AgentBringer extends AgentResource { brings_code: boolean; brings_servers: boolean }
 export interface AgentTool { name: string; label: string; summary: string; group: string; needs: string | null; requires: string | null }
 export interface AgentOptions {
+  /** Set when the options are for a saved agent. */
+  agent?: { id: string; name: string; revision: number; model: { id: string; name: string } | null; system_prompt: string;
+    resources_fixed: boolean; subagents_allowed: boolean };
   models: { id: string; name: string }[]; default_model_id: string | null;
   prompts: { id: string; name: string; content: string }[]; default_prompt_id: string | null;
   resources: { servers: AgentServer[]; services: AgentBringer[]; environments: AgentBringer[]; code_projects: AgentResource[]; collections: AgentResource[];
@@ -91,7 +100,7 @@ export interface AgentOptions {
 }
 export interface AgentResources { server_ids: string[]; service_ids: string[]; environment_ids: string[]; code_project_ids: string[]; collection_ids: string[] }
 export interface StartInput {
-  started_from: { document_id: string }; message: string; model_id: string; prompt_id: string | null; system_prompt: string; context: string;
+  started_from?: { document_id: string }; agent_id?: string; message: string; model_id?: string; prompt_id?: string | null; system_prompt?: string; context: string;
   resources: AgentResources & { documents: { id: string; editable: boolean }[] }; tools: string[]; expert_ids: string[]; subagents: boolean;
 }
 export type RunSummary = SessionSummary & { started_by: string | null; draft_id: string | null };

@@ -83,7 +83,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
     confirmUnsaved(() => void (async () => {
       setBusy(true); setRefused('');
       try {
-        const started = await startSession(startInput(documentId, documentTitle, options, current, text));
+        const started = await startSession(startInput({ kind: 'document', id: documentId, title: documentTitle }, options, current, text));
         pick(started.id); setListed(n => n + 1);
       } catch (e) { setRefused(e instanceof Error ? e.message : 'The run could not start.'); }
       finally { setBusy(false); }

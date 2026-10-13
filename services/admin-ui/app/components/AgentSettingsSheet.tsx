@@ -41,7 +41,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
   async function runPreview() {
     setBusy(true); setError(null);
     try {
-      const result = await previewSession(startInput(documentId, documentTitle, options, settings, previewMessage.trim() || '(your next message)'));
+      const result = await previewSession(startInput({ kind: 'document', id: documentId, title: documentTitle }, options, settings, previewMessage.trim() || '(your next message)'));
       setPreview(JSON.stringify(result, null, 2));
     } catch (e) { setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'The request failed.'); }
     finally { setBusy(false); }

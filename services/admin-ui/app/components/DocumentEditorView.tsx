@@ -195,7 +195,7 @@ export default function DocumentEditorView() {
   const [agentDraft, setAgentDraft] = useState<SessionDetail['document_draft'] | null>(null);
   const [agentVersion, setAgentVersion] = useState('');  // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
-  const settings = useAgentSettings(agentOpen && documentId ? documentId : null);  // loads only while the pane is open
+  const settings = useAgentSettings(agentOpen && documentId ? { kind: 'document', id: documentId, title: '' } : null);  // loads only while the pane is open
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const location = useLocation();
   const handed = (location.state as { notice?: unknown } | null)?.notice;

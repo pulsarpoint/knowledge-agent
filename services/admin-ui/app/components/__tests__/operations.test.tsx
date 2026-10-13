@@ -6,11 +6,11 @@ import OperationsView from '../OperationsView';
 import ServerSSHForm from '../ServerSSHForm';
 import * as api from '../../lib/operations';
 import { getAgentConfig, getRunResourceOptions, type AgentProfile } from '../../lib/profiles';
-import { createTestSession } from '../../lib/testSessions';
-import type { SessionDetail } from '../../lib/sessions';
+import { getSessionOptions, startSession, type SessionDetail } from '../../lib/sessions';
+import { agentOptions } from '../../lib/__tests__/agentScopeFixture';
 vi.mock('../../lib/operations');
 vi.mock('../../lib/profiles');
-vi.mock('../../lib/testSessions');
+vi.mock('../../lib/sessions', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/sessions')>(), startSession: vi.fn(), getSessionOptions: vi.fn() }));
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 const server: api.SSHServer = { id: 'server-1', name: 'Staging', hostname: 'staging.internal', port: 22, username: 'operator', revision: 2, ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: 'staging.internal ssh-ed25519 test', has_private_key: true, last_tested_at: null, last_test_error: null };
 const settings: api.OperationsSettings = { revision: 1, instructions: '', server_ids: [], mcp_server_ids: [], skill_ids: [] };
@@ -34,7 +34,7 @@ describe('Operations configuration', () => {
       prompt: 'Inspect service status.\nDo not restart it.',
       config: { system_prompt: { content: 'Use the saved system prompt.', version: 2 } },
     });
-    expect(createTestSession).not.toHaveBeenCalled();
+    expect(startSession).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Updated task' } });
     expect(getAgentConfig).toHaveBeenCalledTimes(1);
@@ -74,7 +74,7 @@ describe('Operations configuration', () => {
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
     expect(screen.getByRole('button', { name: 'Run task' })).toBeEnabled();
     expect(screen.queryByText(/Enable the agent/)).toBeNull();
-    expect(createTestSession).not.toHaveBeenCalled();
+    expect(startSession).not.toHaveBeenCalled();
   });
 
   it.each(['no selection', 'SSH disabled', 'no credentials'])('starts the selected agent without imposing SSH prerequisites: %s', async state => {
@@ -83,12 +83,13 @@ describe('Operations configuration', () => {
     data.servers = [{ ...server, ssh_allowed: state !== 'SSH disabled', enabled: state !== 'no credentials' }];
     vi.mocked(api.getOperationsSettings).mockResolvedValue(data);
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Session not found.' } }, { status: 404 })));
-    vi.mocked(createTestSession).mockResolvedValue({ id: 'new-session' } as SessionDetail);
+    vi.mocked(getSessionOptions).mockResolvedValue(agentOptions);
+    vi.mocked(startSession).mockResolvedValue({ id: 'new-session' } as SessionDetail);
     render(<MemoryRouter><OperationsView view="test" agentId="specific-agent" profile={{ model_id: null } as AgentProfile} /></MemoryRouter>);
     await waitFor(() => expect(screen.queryByText('Loading agent configuration…')).not.toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Inspect service status.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run task' }));
-    await waitFor(() => expect(createTestSession).toHaveBeenCalledWith('specific-agent', 'Inspect service status.', undefined));
+    await waitFor(() => expect(startSession).toHaveBeenCalledWith(expect.objectContaining({ agent_id: 'specific-agent', message: 'Inspect service status.' })));
     expect(screen.getByLabelText('Message')).toHaveValue('');
     vi.unstubAllGlobals();
   });
@@ -385,5 +386,5 @@ it('allows configuring a server before enabling the agent SSH capability', async
   await screen.findByText('Server configuration saved. New runs use its resolved instructions and skills.');
   expect(api.saveOperationsServerConfig).toHaveBeenCalledWith(server.id, expect.objectContaining({ instructions: 'Check the deployment logs.' }), 'code');
   expect(screen.getByText(/SSH access is off for this agent/)).toBeVisible();
-  expect(createTestSession).not.toHaveBeenCalled();
+  expect(startSession).not.toHaveBeenCalled();
 });

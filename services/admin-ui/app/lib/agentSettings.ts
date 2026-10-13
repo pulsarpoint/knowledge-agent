@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type SessionDetail, type StartInput } from './sessions';
+import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type ChatScope, type SessionDetail, type StartInput } from './sessions';
 
 /** The prompt choice for "my own text, no library prompt". */
 export const OWN = 'own';
-const STORAGE = (documentId: string) => `ask-agent-settings:${documentId}`;
+const STORAGE = (scope: { kind: ChatScope['kind']; id: string }) =>
+  scope.kind === 'document' ? `ask-agent-settings:${scope.id}` : `agent-settings:agent:${scope.id}`;
 const KINDS: [keyof AgentOptions['resources'], keyof AgentResources][] = [['servers', 'server_ids'], ['services', 'service_ids'],
   ['environments', 'environment_ids'], ['code_projects', 'code_project_ids'], ['collections', 'collection_ids']];
 const EMPTY: AgentResources = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
@@ -20,6 +21,10 @@ const linkedIds = (options: AgentOptions) => KINDS.flatMap(([key]) => options.re
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 export function defaultSettings(options: AgentOptions): AgentSettings {
+  if (options.agent) {  // a saved agent: its own model and prompt; a per-run agent starts with nothing chosen
+    return { modelId: options.agent.model?.id ?? options.default_model_id ?? '', promptKey: OWN, systemPrompt: options.agent.system_prompt,
+      chosen: { ...EMPTY }, off: [], subagents: options.agent.subagents_allowed, experts: options.experts.map(item => item.id) };
+  }
   const first = options.prompts.find(item => item.id === options.default_prompt_id) ?? options.prompts[0];
   const chosen = { ...EMPTY };
   for (const [key, ids] of KINDS) chosen[ids] = options.resources[key].filter(item => item.linked && usable(item)).map(item => item.id);
@@ -32,8 +37,9 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
 export function restoreSettings(options: AgentOptions, saved: unknown): AgentSettings {
   const base = defaultSettings(options);
   if (!saved || typeof saved !== 'object') return base;
-  const { v, linked, settings } = saved as { v?: unknown; linked?: unknown; settings?: Record<string, unknown> };
+  const { v, revision, linked, settings } = saved as { v?: unknown; revision?: unknown; linked?: unknown; settings?: Record<string, unknown> };
   if (v !== 2 || !settings || typeof settings !== 'object') return base;
+  if (options.agent && revision !== options.agent.revision) return base;  // the agent changed since the save
   const models = new Set(options.models.map(item => item.id));
   const prompts = new Set(options.prompts.map(item => item.id));
   const tools = new Set(options.tools.map(item => item.name));
@@ -81,13 +87,17 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
   options.tools.filter(tool => toolApplies(tool, settings.chosen, options.resources));
 
-export function startInput(documentId: string, documentTitle: string, options: AgentOptions, settings: AgentSettings, message: string): StartInput {
-  return { started_from: { document_id: documentId }, message: message.trim(), model_id: settings.modelId,
+export function startInput(scope: ChatScope, options: AgentOptions, settings: AgentSettings, message: string): StartInput {
+  const tools = shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name);
+  if (scope.kind === 'agent') {  // a saved agent keeps its own model and prompt; the run only narrows it
+    return { agent_id: scope.id, message: message.trim(), context: '', tools, expert_ids: settings.experts, subagents: settings.subagents,
+      resources: { ...settings.chosen, environment_ids: [], documents: [] } };
+  }
+  return { started_from: { document_id: scope.id }, message: message.trim(), model_id: settings.modelId,
     prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(),
-    context: `Document: ${documentTitle} (id ${documentId})`,
+    context: `Document: ${scope.title} (id ${scope.id})`,
     resources: { ...settings.chosen, documents: options.resources.documents.map(item => ({ id: item.id, editable: item.editable })) },
-    tools: shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name),
-    expert_ids: settings.experts, subagents: settings.subagents };
+    tools, expert_ids: settings.experts, subagents: settings.subagents };
 }
 
 /** "Claude · web-1, Payments · 2 tools": the model, up to three chosen resources (+n more) and the tools on. */
@@ -99,35 +109,40 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
   return `${model} · ${resources} · ${on} tool${on === 1 ? '' : 's'}`;
 }
 
-/** The document's Ask agent settings: loaded with the options, remembered in this browser per document. Null: nothing
- * is loaded (the pane is closed, or a new document). */
-export function useAgentSettings(documentId: string | null) {
-  // The loaded state carries the document it belongs to, so a save never writes one document's settings under another's key.
-  const [loaded, setLoaded] = useState<{ documentId: string; options: AgentOptions; settings: AgentSettings } | null>(null);
-  const [failed, setFailed] = useState<{ documentId: string; message: string } | null>(null);
+/** The Ask agent settings of a document or the Test settings of a saved agent: loaded with the options, remembered in
+ * this browser per scope. Null: nothing is loaded (the pane is closed, or a new document). */
+export function useAgentSettings(scope: ChatScope | null) {
+  const kind = scope?.kind ?? null;
+  const id = scope?.id ?? null;
+  // The loaded state carries the scope it belongs to, so a save never writes one scope's settings under another's key.
+  const key = kind && id ? `${kind}:${id}` : null;
+  const [loaded, setLoaded] = useState<{ key: string; kind: ChatScope['kind']; id: string; options: AgentOptions; settings: AgentSettings } | null>(null);
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   useEffect(() => {
-    if (!documentId) return;
+    if (!key || !kind || !id) return;
     const controller = new AbortController();
-    getSessionOptions(documentId, controller.signal).then(value => {
+    getSessionOptions(kind === 'document' ? { documentId: id } : { agentId: id }, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       let saved: unknown = null;
-      try { saved = JSON.parse(localStorage.getItem(STORAGE(documentId)) ?? 'null'); } catch { saved = null; }
-      setFailed(null); setLoaded({ documentId, options: value, settings: restoreSettings(value, saved) });
+      try { saved = JSON.parse(localStorage.getItem(STORAGE({ kind, id })) ?? 'null'); } catch { saved = null; }
+      setFailed(null); setLoaded({ key, kind, id, options: value, settings: restoreSettings(value, saved) });
     }).catch(e => {
-      if (!controller.signal.aborted) setFailed({ documentId, message: e instanceof Error ? e.message : 'Could not load the agent options.' });
+      if (!controller.signal.aborted) setFailed({ key, message: e instanceof Error ? e.message : 'Could not load the agent options.' });
     });
     return () => controller.abort();
-  }, [documentId]);
-  const current = documentId !== null && loaded?.documentId === documentId ? loaded : null;
+  }, [key, kind, id]);
+  const current = key !== null && loaded?.key === key ? loaded : null;
   useEffect(() => {
     if (!current) return;
-    try { localStorage.setItem(STORAGE(current.documentId), JSON.stringify({ v: 2, linked: linkedIds(current.options), settings: current.settings })); }
-    catch { /* storage off */ }
+    try {
+      localStorage.setItem(STORAGE(current), JSON.stringify({ v: 2, ...(current.options.agent ? { revision: current.options.agent.revision } : {}),
+        linked: linkedIds(current.options), settings: current.settings }));
+    } catch { /* storage off */ }
   }, [current]);
   const change = (make: (settings: AgentSettings) => AgentSettings) =>
-    setLoaded(state => state && state.documentId === documentId ? { ...state, settings: make(state.settings) } : state);
+    setLoaded(state => state && state.key === key ? { ...state, settings: make(state.settings) } : state);
   return { options: current?.options ?? null, settings: current?.settings ?? null,
-    error: documentId !== null && failed?.documentId === documentId ? failed.message : '',
+    error: key !== null && failed?.key === key ? failed.message : '',
     update: (patch: Partial<AgentSettings>) => change(settings => ({ ...settings, ...patch })),
     replace: (next: AgentSettings) => change(() => next) };
 }

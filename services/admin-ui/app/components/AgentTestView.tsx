@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Code2, Copy, History, MessageSquarePlus, Pencil, Plus } from 'lucide-react';
-import { closeSession, sendMessage, statusLabels, stopSession } from '../lib/sessions';
+import { closeSession, getSessionOptions, getSessions, reviewSession, sendMessage, startSession, statusLabels, stopSession, type RunSummary, type SessionDetail, type SessionReview } from '../lib/sessions';
+import { defaultSettings, startInput } from '../lib/agentSettings';
 import { getAgentConfig, getRunResourceOptions, NO_RUN_RESOURCES, RUN_RESOURCE_KINDS, type RunResourceOptions, type RunResourcesInput } from '../lib/profiles';
 import { runPath } from '../lib/runs';
-import { createTestSession, getTestSessions, reviewTestSession, type SessionReview, type TestSessionSummary } from '../lib/testSessions';
 import type { Turn } from '../lib/turns';
 import { useFillViewport } from '../lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '../lib/useSessionEvents';
@@ -36,6 +36,14 @@ type Panel = 'history' | 'config' | 'feedback' | 'resources' | null;
 /** The agent Test tab: Test sessions on the run workspace. The first message creates a session with the agent's
  * current configuration (a per-run agent's narrowed to the resources chosen on the Resources line), pinned for the
  * whole session; the agent session worker runs it. History, Show config, feedback with Suggestions, Review and apply. */
+// Temporary: Task 5 rewrites this tab on the saved-agent settings; until then a test session starts through /api/sessions.
+async function createTestSession(agentId: string, message: string, runResources?: RunResourcesInput): Promise<SessionDetail> {
+  const options = await getSessionOptions({ agentId });
+  const base = defaultSettings(options);
+  const settings = { ...base, chosen: { ...base.chosen, ...(runResources ?? {}) } };
+  return startSession(startInput({ kind: 'agent', id: agentId, name: options.agent?.name ?? agentId }, options, settings, message));
+}
+
 export default function AgentTestView({ agentId, agentName, available, ready, dirty, active, revision, onAgentChanged }: { agentId: string; agentName: string; available: boolean; ready: boolean; dirty: boolean; active: boolean; revision?: number; onAgentChanged?: () => void }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -52,7 +60,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   const [feedbackTurn, setFeedbackTurn] = useState<number | null>(null);
   const [applying, setApplying] = useState<SessionReview | null>(null);
   const [closing, setClosing] = useState(false);
-  const [history, setHistory] = useState<TestSessionSummary[] | null>(null);
+  const [history, setHistory] = useState<RunSummary[] | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configError, setConfigError] = useState('');
@@ -90,7 +98,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
   useEffect(() => {
     if (panel !== 'history') return;
     let live = true; setHistory(null); setHistoryError('');
-    getTestSessions(agentId).then(value => { if (live) setHistory(value.sessions); })
+    getSessions({ agentId }).then(value => { if (live) setHistory(value.sessions); })
       .catch(reason => { if (live) setHistoryError(reason instanceof Error ? reason.message : 'Could not load the sessions.'); });
     return () => { live = false; };
   }, [panel, agentId]);
@@ -200,7 +208,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
             : history === null ? <p role="status"><Spinner />Loading sessions…</p>
             : history.length ? history.map(saved => <div key={saved.id} className="flex items-center justify-between gap-3">
               <div className="min-w-0">{saved.purpose === 'event' && <Badge variant="outline">Event</Badge>}<p className="break-words text-sm">{saved.title}</p>
-                <p className="text-xs text-muted-foreground">{statusLabels[saved.status]} · {saved.actor_email} · {new Date(saved.created_at).toLocaleString()}</p></div>
+                <p className="text-xs text-muted-foreground">{statusLabels[saved.status]} · {saved.started_by} · {new Date(saved.created_at).toLocaleString()}</p></div>
               <Button variant="outline" size="sm" onClick={() => selectSession(saved.id)}>Open session</Button>
             </div>) : <p className="text-sm text-muted-foreground">No Test sessions yet.</p>)}
           {panel === 'resources' && <div className="flex flex-col gap-4">
@@ -221,7 +229,7 @@ export default function AgentTestView({ agentId, agentName, available, ready, di
           {panel === 'feedback' && <>
             {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
             {feedbackTurn !== null && session && <form onSubmit={event => { event.preventDefault(); if (comment.trim() && !busy && !working) void act(async () => {
-              const review = await reviewTestSession(agentId, session.id, comment, feedbackTurn);
+              const review = await reviewSession(session.id, comment, feedbackTurn);
               setSession(current => current && { ...current, reviews: [...(current.reviews ?? []), review] }); setComment('');
             }); }}>
               <FieldGroup><Field><FieldLabel htmlFor="agent-feedback">Your feedback</FieldLabel>
