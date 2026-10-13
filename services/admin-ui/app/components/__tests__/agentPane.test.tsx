@@ -60,14 +60,15 @@ test('no open run: an empty conversation with the settings summary; the first me
   show();
   const pane = await screen.findByRole('region', { name: 'Ask agent' });
   expect(within(pane).getByText('Ask the agent to change this document.')).toBeInTheDocument();
-  expect(within(pane).getByLabelText('Current settings')).toHaveTextContent('Claude · web-1, Payments · 2 tools');
+  expect(within(pane).getByLabelText('Current settings')).toHaveTextContent('Claude · web-1, Payments · 4 tools');
   expect(within(pane).getByRole('button', { name: 'New chat' })).toBeDisabled();
   fireEvent.change(within(pane).getByLabelText('Message'), { target: { value: 'Add log rotation.' } });
   fireEvent.click(within(pane).getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(calls.find(c => c.key === 'POST /api/sessions')?.body).toEqual({
-    kind: 'revision', target: { document_id: 'doc-1' }, instruction: 'Add log rotation.', model_id: 'm2', prompt_id: 'p1',
-    system_prompt: 'You revise carefully.', resources: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: [], collection_ids: [] },
-    tools: ['ssh_run', 'get_service_info'], expert_ids: [], subagents: false }));
+    started_from: { document_id: 'doc-1' }, message: 'Add log rotation.', model_id: 'm2', prompt_id: 'p2',
+    system_prompt: options.prompts[1].content, context: 'Document: Runbook (id doc-1)',
+    resources: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: [], collection_ids: [], documents: [{ id: 'doc-1', editable: true }] },
+    tools: ['ssh_run', 'save_document', 'get_document', 'get_service_info'], expert_ids: [], subagents: false }));
   await waitFor(() => expect(live.requested.at(-1)).toBe('r1'));
   expect(within(pane).getByLabelText('Message')).toHaveValue('');
 });

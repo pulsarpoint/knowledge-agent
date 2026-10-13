@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type StartInput } from './sessions';
-import type { SessionDetail } from './sessions';
+import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type SessionDetail, type StartInput } from './sessions';
 
-export const BUILT_IN = 'built-in';
+/** The prompt choice for "my own text, no library prompt". */
+export const OWN = 'own';
 const STORAGE = (documentId: string) => `ask-agent-settings:${documentId}`;
 const KINDS: [keyof AgentOptions['resources'], keyof AgentResources][] = [['servers', 'server_ids'], ['services', 'service_ids'],
   ['environments', 'environment_ids'], ['code_projects', 'code_project_ids'], ['collections', 'collection_ids']];
@@ -20,11 +20,11 @@ const linkedIds = (options: AgentOptions) => KINDS.flatMap(([key]) => options.re
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 export function defaultSettings(options: AgentOptions): AgentSettings {
-  const first = options.prompts[0];
+  const first = options.prompts.find(item => item.id === options.default_prompt_id) ?? options.prompts[0];
   const chosen = { ...EMPTY };
   for (const [key, ids] of KINDS) chosen[ids] = options.resources[key].filter(item => item.linked && usable(item)).map(item => item.id);
-  return { modelId: options.default_model_id ?? options.models[0]?.id ?? '', promptKey: first ? first.id : BUILT_IN,
-    systemPrompt: first ? first.content : options.default_prompt.content, chosen, off: [], subagents: false, experts: [] };
+  return { modelId: options.default_model_id ?? options.models[0]?.id ?? '', promptKey: first ? first.id : OWN,
+    systemPrompt: first ? first.content : '', chosen, off: [], subagents: false, experts: [] };
 }
 
 /** Saved settings checked against today's options: ids that no longer exist are dropped; resources start again from the
@@ -33,7 +33,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
   const base = defaultSettings(options);
   if (!saved || typeof saved !== 'object') return base;
   const { v, linked, settings } = saved as { v?: unknown; linked?: unknown; settings?: Record<string, unknown> };
-  if (v !== 1 || !settings || typeof settings !== 'object') return base;
+  if (v !== 2 || !settings || typeof settings !== 'object') return base;
   const models = new Set(options.models.map(item => item.id));
   const prompts = new Set(options.prompts.map(item => item.id));
   const tools = new Set(options.tools.map(item => item.name));
@@ -48,7 +48,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     }
   }
   const modelId = typeof settings.modelId === 'string' && models.has(settings.modelId) ? settings.modelId : base.modelId;
-  const promptKey = typeof settings.promptKey === 'string' && (settings.promptKey === BUILT_IN || prompts.has(settings.promptKey))
+  const promptKey = typeof settings.promptKey === 'string' && (settings.promptKey === OWN || prompts.has(settings.promptKey))
     ? settings.promptKey : base.promptKey;
   const systemPrompt = typeof settings.systemPrompt === 'string' && settings.systemPrompt.trim() ? settings.systemPrompt : base.systemPrompt;
   return { modelId, promptKey, systemPrompt, chosen, off: strings(settings.off).filter(name => tools.has(name)),
@@ -71,8 +71,8 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   }
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
   const modelId = options.models.some(item => item.id === session.model_id) ? session.model_id : defaultSettings(options).modelId;
-  return { modelId, promptKey: promptId && options.prompts.some(item => item.id === promptId) ? promptId : BUILT_IN,
-    systemPrompt: session.prompt_snapshot?.system_prompt ?? options.default_prompt.content, chosen,
+  return { modelId, promptKey: promptId && options.prompts.some(item => item.id === promptId) ? promptId : OWN,
+    systemPrompt: session.prompt_snapshot?.system_prompt ?? defaultSettings(options).systemPrompt, chosen,
     off: items.filter(item => choosable.has(item.tool) && item.mode !== 'on').map(item => item.tool),
     subagents: items.some(item => item.tool === 'run_subagent' && item.mode === 'on'),
     experts: (config.experts ?? []).map(entry => String(entry.id)).filter(id => experts.has(id)) };
@@ -81,10 +81,12 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
   options.tools.filter(tool => toolApplies(tool, settings.chosen, options.resources));
 
-export function startInput(documentId: string, options: AgentOptions, settings: AgentSettings, instruction: string): StartInput {
-  return { kind: 'revision', target: { document_id: documentId }, instruction: instruction.trim(), model_id: settings.modelId,
-    prompt_id: settings.promptKey === BUILT_IN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(),
-    resources: settings.chosen, tools: shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name),
+export function startInput(documentId: string, documentTitle: string, options: AgentOptions, settings: AgentSettings, message: string): StartInput {
+  return { started_from: { document_id: documentId }, message: message.trim(), model_id: settings.modelId,
+    prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(),
+    context: `Document: ${documentTitle} (id ${documentId})`,
+    resources: { ...settings.chosen, documents: options.resources.documents.map(item => ({ id: item.id, editable: item.editable })) },
+    tools: shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name),
     expert_ids: settings.experts, subagents: settings.subagents };
 }
 
@@ -119,7 +121,7 @@ export function useAgentSettings(documentId: string | null) {
   const current = documentId !== null && loaded?.documentId === documentId ? loaded : null;
   useEffect(() => {
     if (!current) return;
-    try { localStorage.setItem(STORAGE(current.documentId), JSON.stringify({ v: 1, linked: linkedIds(current.options), settings: current.settings })); }
+    try { localStorage.setItem(STORAGE(current.documentId), JSON.stringify({ v: 2, linked: linkedIds(current.options), settings: current.settings })); }
     catch { /* storage off */ }
   }, [current]);
   const change = (make: (settings: AgentSettings) => AgentSettings) =>

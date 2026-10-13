@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '~/lib/api';
-import { previewSession, type AgentOptions, type AgentResources } from '~/lib/sessions';
-import { BUILT_IN, shownTools, startInput, type AgentSettings } from '~/lib/agentSettings';
-import type { SessionDetail } from '~/lib/sessions';
+import { previewSession, type AgentOptions, type AgentResources, type SessionDetail } from '~/lib/sessions';
+import { OWN, shownTools, startInput, type AgentSettings } from '~/lib/agentSettings';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
@@ -37,12 +36,12 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
   const toggle = (key: keyof AgentResources, id: string, on: boolean) =>
     onChange({ chosen: { ...chosen, [key]: on ? [...chosen[key], id] : chosen[key].filter(item => item !== id) } });
   const choosePrompt = (key: string) => onChange({ promptKey: key,
-    systemPrompt: key === BUILT_IN ? options.default_prompt.content : options.prompts.find(item => item.id === key)?.content ?? '' });
+    systemPrompt: key === OWN ? settings.systemPrompt : options.prompts.find(item => item.id === key)?.content ?? '' });
   const ready = !busy && !!settings.modelId && !!settings.systemPrompt.trim();
   async function runPreview() {
     setBusy(true); setError(null);
     try {
-      const result = await previewSession(startInput(documentId, options, settings, previewMessage.trim() || '(your next message)'));
+      const result = await previewSession(startInput(documentId, documentTitle, options, settings, previewMessage.trim() || '(your next message)'));
       setPreview(JSON.stringify(result, null, 2));
     } catch (e) { setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'The request failed.'); }
     finally { setBusy(false); }
@@ -62,6 +61,12 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
               <SelectContent><SelectGroup>{options.models.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select>
             {options.models.length === 0 && <FieldDescription className="text-destructive">Add a model in Models first.</FieldDescription>}</Field>
           <FieldSet><FieldLegend>Servers and resources</FieldLegend>
+            {options.resources.documents.length > 0 && <FieldSet><FieldLegend variant="label">Documents</FieldLegend>
+              {options.resources.documents.map(item => <Field key={item.id} orientation="horizontal">
+                <Checkbox id={`settings-document-${item.id}`} aria-label={item.name} checked disabled />
+                <FieldLabel htmlFor={`settings-document-${item.id}`}>{item.name}</FieldLabel>
+                <FieldDescription>{item.editable ? 'The agent may change it (as a draft).' : 'Read only.'}</FieldDescription></Field>)}
+            </FieldSet>}
             {KINDS.map(([key, idsKey, label]) => {
               const items = options.resources[key];
               if (items.length === 0) return null;
@@ -80,9 +85,6 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
             })}
           </FieldSet>
           <FieldSet><FieldLegend>Tools</FieldLegend>
-            {options.fixed_tools.map(tool => <Field key={tool.name} orientation="horizontal">
-              <Checkbox id={`settings-fixed-${tool.name}`} aria-label={tool.label} checked disabled />
-              <FieldLabel htmlFor={`settings-fixed-${tool.name}`}>{tool.label}</FieldLabel></Field>)}
             {GROUPS.map(([group, label]) => {
               const tools = shown.filter(tool => tool.group === group);
               if (tools.length === 0) return null;
@@ -116,7 +118,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, documentId, doc
                 <SelectTrigger id="settings-prompt" aria-label="Prompt"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectGroup>
                   {options.prompts.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
-                  <SelectItem value={BUILT_IN}>{options.default_prompt.name}</SelectItem>
+                  <SelectItem value={OWN}>Own prompt</SelectItem>
                 </SelectGroup></SelectContent></Select></Field>
             <Field><FieldLabel htmlFor="settings-system-prompt">System prompt</FieldLabel>
               <Textarea id="settings-system-prompt" aria-label="System prompt" rows={12} disabled={locked} value={settings.systemPrompt}

@@ -23,12 +23,22 @@ test('editable: linked resources ticked, unusable server disabled, a newly apply
   expect(screen.getByRole('checkbox', { name: 'web-1' })).toBeChecked();
   expect(screen.getByRole('checkbox', { name: 'prod-1' })).toBeDisabled();
   expect(screen.getByText('SSH is not set up for this server.')).toBeInTheDocument();
-  expect(screen.getByRole('checkbox', { name: 'Read the document' })).toBeDisabled();
+  expect(screen.getByRole('checkbox', { name: 'Save a document' })).toBeChecked();
   expect(screen.queryByRole('checkbox', { name: 'Read file' })).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Shop' }));
   expect(screen.getByRole('checkbox', { name: 'Read file' })).toBeChecked();
   fireEvent.click(screen.getByRole('checkbox', { name: 'SSH' }));
   expect(JSON.parse(screen.getByLabelText('Settings state').textContent!).off).toEqual(['ssh_run']);
+});
+
+test('the document is a checked, disabled resource, and the prompt list ends with Own prompt', () => {
+  render(<Harness />);
+  expect(screen.getByRole('checkbox', { name: 'Runbook' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Runbook' })).toBeDisabled();
+  expect(screen.getByText('The agent may change it (as a draft).')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Prompt' }));
+  expect(screen.getAllByRole('option').map(item => item.textContent)).toEqual(['Careful reviser', 'Revise a document', 'Own prompt']);
 });
 
 test('Preview sends the message box text, or a placeholder when it is empty', async () => {
@@ -40,10 +50,10 @@ test('Preview sends the message box text, or a placeholder when it is empty', as
   const { rerender } = render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
   expect((await screen.findByLabelText('Configuration preview')).textContent).toContain('"name": "Claude"');
-  expect((bodies[0] as { instruction: string }).instruction).toBe('(your next message)');
+  expect((bodies[0] as { message: string }).message).toBe('(your next message)');
   rerender(<Harness message="Add log rotation." />);
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-  await waitFor(() => expect((bodies[1] as { instruction: string }).instruction).toBe('Add log rotation.'));
+  await waitFor(() => expect((bodies[1] as { message: string }).message).toBe('Add log rotation.'));
 });
 
 test('read-only for an open run: its saved configuration, and Start new chat with these settings', () => {
@@ -65,5 +75,5 @@ test('read-only: Advanced still opens and shows the run\'s system prompt, disabl
   expect(advanced).toBeEnabled();
   fireEvent.click(advanced);
   expect(screen.getByRole('textbox', { name: 'System prompt' })).toBeDisabled();
-  expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue('You revise carefully.');
+  expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue('Read with get_document. Change with edit_document or save_document.');
 });

@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Settings2 } from 'lucide-react';
-import { agentRunPath, getSessions, savedIn, startSession, type RunSummary } from '~/lib/sessions';
+import { agentRunPath, closeSession, getSessions, savedIn, sendMessage, startSession, statusLabels, stopSession, type RunSummary, type SessionDetail } from '~/lib/sessions';
 import { settingsFromSession, settingsSummary, startInput, type useAgentSettings } from '~/lib/agentSettings';
-import { closeSession, sendMessage, statusLabels, stopSession, type SessionDetail } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
@@ -84,7 +83,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
     confirmUnsaved(() => void (async () => {
       setBusy(true); setRefused('');
       try {
-        const started = await startSession(startInput(documentId, options, current, text));
+        const started = await startSession(startInput(documentId, documentTitle, options, current, text));
         pick(started.id); setListed(n => n + 1);
       } catch (e) { setRefused(e instanceof Error ? e.message : 'The run could not start.'); }
       finally { setBusy(false); }

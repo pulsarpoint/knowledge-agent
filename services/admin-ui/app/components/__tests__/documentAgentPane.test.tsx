@@ -41,8 +41,8 @@ const base: Record<string, (body: any) => [number, unknown]> = {
   'GET /api/documentation/documents/doc-1': () => [200, document],
   'GET /api/documentation/resources': () => [200, resources],
   'GET /api/sessions/options?document_id=doc-1': () => [200, { models: [], default_model_id: null, prompts: [],
-    default_prompt: { id: null, name: 'Built-in', content: 'x' }, resources: { servers: [], services: [], environments: [], code_projects: [], collections: [] },
-    tools: [], fixed_tools: [], experts: [] }],
+    default_prompt_id: null, resources: { servers: [], services: [], environments: [], code_projects: [], collections: [], documents: [] },
+    tools: [], experts: [] }],
   'GET /api/documentation/drafts/d1': () => [200, draft],
 };
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
