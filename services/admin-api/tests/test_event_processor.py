@@ -1,5 +1,5 @@
 """The event processor: each pending event goes once through the enabled handlers of its project; emitted events join
-the chain and are processed on a later pass; failures are recorded and nothing is retried."""
+the chain and are processed on a later pass; failures are recorded and nothing is retried. Send to agent: test_event_runs."""
 import threading
 from uuid import uuid4
 
@@ -8,7 +8,6 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin import event_processor
-from test_test_sessions import tester  # noqa: F401  (fixture)
 
 
 def an_event(store, project=None, **values) -> dict:
@@ -108,66 +107,6 @@ def test_a_claimed_event_is_not_processed_by_another_worker(store):
     with store.connect() as holder:
         assert holder.execute(event_processor.CLAIM).fetchone() is not None  # held until this block ends
         assert event_processor.run_once(store) is False
-
-
-def test_send_to_agent_queues_one_task(tester):
-    t = tester
-    handler = a_handler(t.store, action='agent', emit=None, agent_id=t.agent,
-                        prompt='Triage {{ event.subject }} ({{ event.payload.status }})')
-    first = an_event(t.store)
-    assert event_processor.run_once(t.store) is True
-    [run] = runs(t.store, first['id'])
-    key = f"agent-task:{first['id']}:{handler['id']}"
-    assert (run['status'], run['message'], run['agent_task_id'], run['agent_session_id']) == (
-        'succeeded', 'Queued for Tester.', key, None)
-    with t.store.connect() as conn:
-        task = conn.execute('SELECT * FROM ka.agent_tasks WHERE id=%s', (key,)).fetchone()
-        sessions = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
-    assert (task['status'], task['attempts'], task['agent_id'], task['agent_name'], task['prompt'], task['title'],
-            task['event_id'], task['handler_id'], task['project_id']) == (
-        'queued', 0, t.agent, 'Tester', 'Triage DEMO-1 (In Progress)', 'Tester · jira.ticket.updated DEMO-1',
-        first['id'], handler['id'], first['project_id'])
-    assert sessions == 0  # no interactive session any more
-    assert event(t.store, first['id'])['status'] == 'processed'
-
-
-def test_processing_an_event_again_queues_no_second_task(tester):
-    t = tester
-    a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt='Triage {{ event.subject }}')
-    first = an_event(t.store)
-    event_processor.run_once(t.store)
-    with t.store.connect() as conn:  # as if the first pass had been rolled back after queueing
-        conn.execute("UPDATE ka.events SET status='pending',processed_at=NULL WHERE id=%s", (first['id'],))
-    event_processor.run_once(t.store)
-    with t.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_tasks').fetchone()['n'] == 1
-    assert [run['status'] for run in runs(t.store, first['id'])] == ['succeeded', 'succeeded']
-
-
-@pytest.mark.parametrize('change, message', [
-    ('UPDATE ka.agents SET enabled=false WHERE id=%s', 'Agent is disabled.'),
-    ("UPDATE ka.agents SET resources='per_run' WHERE id=%s",
-     'This agent gets its resources per run; handlers can only send to agents with fixed resources.')])
-def test_an_unusable_agent_fails_the_run(tester, change, message):
-    t = tester
-    a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt='Triage {{ event.subject }}')
-    with t.store.connect() as conn:
-        conn.execute(change, (t.agent,))
-    first = an_event(t.store)
-    event_processor.run_once(t.store)
-    [run] = runs(t.store, first['id'])
-    assert (run['status'], run['message'], run['agent_task_id']) == ('failed', message, None)
-    assert event(t.store, first['id'])['status'] == 'failed'
-    with t.store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_tasks').fetchone()['n'] == 0
-
-
-def test_a_missing_agent_fails_the_run(store):
-    a_handler(store, action='agent', emit=None, agent_id='gone', prompt='Triage {{ event.subject }}')
-    first = an_event(store)
-    event_processor.run_once(store)
-    [run] = runs(store, first['id'])
-    assert (run['status'], run['message']) == ('failed', event_processor.NO_AGENT)
 
 
 def test_the_loop_survives_errors_and_stops(store, monkeypatch):

@@ -1,11 +1,10 @@
-"""The saved-agent start used by event handlers (start_session, built on sessions.start.narrow), and the tuning review
-(Suggest improvements) of a Test or event session. Starting from the Test tab, listing, detail, messages, Stop, Close, the
-event history and stream are the session API in sessions/api.py."""
+"""The tuning review (Suggest improvements) of a Test or event session. Starting a run (sessions.start.start_run),
+listing, detail, messages, Stop, Close, the event history and stream are the session API in sessions/api.py."""
 import asyncio
 import copy
 import json
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import psycopg
 from agents import ModelBehaviorError
@@ -18,17 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agents import agent, load_credentials
-from knowledge_admin.session_text import agent_system_prompt
-from knowledge_admin.knowledge_agents.config import get_agent_config, per_run
-from knowledge_admin.knowledge_agents.experts import offered
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from knowledge_admin.knowledge_agents.session_worker import run_key
-from knowledge_admin.sessions.start import REQUIRES, Resources, StartInput, narrow
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, needs_met
 
 NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 SESSION_NOT_FOUND = 'Session not found.'
-NO_SUBJECTS = {'folders': [], 'code_project_ids': []}  # a Test session documents nothing and opens no folder
 
 NOT_A_TEST = 'Suggestions are for Test and event sessions only.'
 CONVERSATIONS = ('test', 'event')  # sessions shown and reviewed in the agent's Test tab
@@ -36,56 +28,6 @@ REVIEW_BUSY = 'Wait for the agent to finish before asking for suggestions.'
 NO_TURNS = 'Run at least one message before requesting tuning suggestions.'
 NO_RESPONSE = 'Response not found in this session.'
 REVIEW_SECONDS = 240
-
-
-class SessionRefused(ValueError):
-    """Why an agent session cannot start; `status` is the HTTP status the Test tab answers with."""
-
-    def __init__(self, status: int, message: str):
-        super().__init__(message)
-        self.status = status
-
-
-def start_session(conn, project: UUID, agent_id: str, actor: UUID, message: str, *, purpose: str = 'test',
-                  run_resources: RunResources | None = None, title: str | None = None, conninfo: str = '') -> UUID:
-    """Start an agent session with the agent's current configuration pinned (a per-run agent's narrowed to
-    `run_resources`); `message` becomes input 1 and agent-session-worker runs it. Used by event handlers (purpose
-    'event', with the handler's creator as actor): it sends everything the agent has on to `narrow`."""
-    try:
-        config = get_agent_config(agent_id, conninfo=conninfo)
-    except LookupError as exc:
-        raise SessionRefused(404, str(exc)) from None
-    except ValueError as exc:
-        raise SessionRefused(409, str(exc)) from None
-    items = config['tools']['items']
-    on = {item['tool'] for item in items if item['mode'] == 'on'}
-    resources = Resources(**run_resources.model_dump()) if run_resources is not None else Resources()
-    try:
-        # A tool whose requirement the run does not meet (a per-run agent started without servers) stays off, as it
-        # could not be used; narrow refuses a tool it cannot give.
-        probe = resolve(conn, project, config, run_resources)
-        tools = [name for name in on if name in CATALOG and name != SUBAGENT and (
-            CATALOG[name].needs not in REQUIRES or needs_met(CATALOG[name].needs, probe, probe['ssh']['servers']))]
-        value = StartInput(agent_id=agent_id, message=message, tools=tools, subagents=SUBAGENT in on,
-                           expert_ids=[UUID(entry['id']) for entry in offered(conn, agent_id)], resources=resources)
-        pinned, model = narrow(conn, project, agent_id, value, conninfo)
-    except RunResourceError as exc:
-        raise SessionRefused(400, str(exc)) from None
-    except ValidationError as exc:
-        raise SessionRefused(400, str(exc)) from None
-    except HTTPException as exc:
-        raise SessionRefused(exc.status_code, str(exc.detail)) from None
-    session_id = uuid4()
-    # The worker decrypts per turn: the pinned config holds credential references only.
-    conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
-        context_snapshot,purpose,agent_config,run_resources)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (session_id, project, agent_id, actor, model['id'], (title or message)[:200],
-         Jsonb({'system_prompt': agent_system_prompt(pinned)}), Jsonb(NO_SUBJECTS), purpose,
-         Jsonb(pinned), Jsonb(pinned['run_resources']) if per_run(config) else None))
-    conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
-                 (session_id, actor, message))
-    return session_id
 
 
 TUNING_PROMPT = """Review an agent's Test session to help its administrator tune the agent.

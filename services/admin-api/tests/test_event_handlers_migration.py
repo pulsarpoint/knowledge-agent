@@ -24,9 +24,11 @@ def test_a_new_event_is_pending_and_its_own_root(store):
 
 def test_existing_events_are_processed_by_the_migration(store):
     with store.connect() as conn:
+        run(conn, '0103_event_runs.down.sql')  # 0103 references event_handlers
         run(conn, '0089_event_handlers.down.sql')
         old = an_event(conn)
         run(conn, '0089_event_handlers.up.sql')
+        run(conn, '0103_event_runs.up.sql')
         row = conn.execute('SELECT status,processed_at,created_at,root_id FROM ka.events WHERE id=%s', (old['id'],)).fetchone()
     assert (row['status'], row['processed_at'], row['root_id']) == ('processed', row['created_at'], old['id'])
 
@@ -94,8 +96,10 @@ def test_down_and_up(store):
         root = an_event(conn)
         an_event(conn, project=root['project_id'], source='handler', handler_id=uuid4(), parent_id=root['id'],
                  root_id=root['id'], depth=1)
+        run(conn, '0103_event_runs.down.sql')  # 0103 references event_handlers
         run(conn, '0089_event_handlers.down.sql')
         assert conn.execute("SELECT to_regclass('ka.event_handlers') IS NULL AS gone").fetchone()['gone']
         assert conn.execute("SELECT count(*) AS n FROM ka.events").fetchone()['n'] == 1  # handler events are deleted
         run(conn, '0089_event_handlers.up.sql')
+        run(conn, '0103_event_runs.up.sql')
         assert conn.execute("SELECT to_regclass('ka.events_pending') IS NOT NULL AS found").fetchone()['found']

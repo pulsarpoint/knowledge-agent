@@ -36,6 +36,7 @@ def test_dedupe_key_is_unique_per_project(store):
 def test_down_and_up(store):
     with store.connect() as conn:
         an_event(conn)
+        conn.execute((MIGRATIONS / '0103_event_runs.down.sql').read_text(), prepare=False)  # 0103 references events
         conn.execute((MIGRATIONS / '0091_manual_events.down.sql').read_text(), prepare=False)  # 0091 widens the source check
         conn.execute((MIGRATIONS / '0090_agent_tasks_notifications.down.sql').read_text(), prepare=False)  # 0090 references events
         conn.execute((MIGRATIONS / '0089_event_handlers.down.sql').read_text(), prepare=False)  # 0089 builds on 0088
@@ -46,3 +47,4 @@ def test_down_and_up(store):
         conn.execute((MIGRATIONS / '0089_event_handlers.up.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0090_agent_tasks_notifications.up.sql').read_text(), prepare=False)
         conn.execute((MIGRATIONS / '0091_manual_events.up.sql').read_text(), prepare=False)
+        conn.execute((MIGRATIONS / '0103_event_runs.up.sql').read_text(), prepare=False)

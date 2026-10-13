@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
+from psycopg import errors
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.data_root import documentation_folder
@@ -16,6 +18,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, options as run_options, resolve
+from knowledge_admin.session_text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, PROPOSAL_TOOLS, SUBAGENT, needs_met
 
@@ -357,6 +360,76 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
     pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
     pinned['project_id'] = str(project)
     return jsonable_encoder(pinned), model, server if server is not None else target
+
+
+def start_run(conn, project: UUID, actor: UUID, value: StartInput, conninfo: str, *, purpose: str | None = None,
+              event_id: int | None = None, handler_id: UUID | None = None) -> UUID:
+    """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
+    a new document → documents, a server → discovery, a saved agent → test, or `purpose` for a saved agent, as an
+    event handler starts it with its event and handler), its first input, and audit it. POST /api/sessions and the
+    event processor share it."""
+    if value.agent_id is None and (purpose, event_id, handler_id) != (None, None, None):
+        raise ValueError('Only a saved agent run takes a purpose, an event or a handler.')
+    session_id = uuid4()
+    pinned, model, origin = build(conn, project, value, session_id, conninfo)
+    title = value.message.splitlines()[0][:TITLE_LENGTH]
+    # the proposal tools are offered only for a run started from a server: audited as off only there
+    from_server = value.started_from is not None and value.started_from.server_id is not None
+    tools_off = sorted(item['tool'] for item in pinned['tools']['items']
+                       if item['tool'] in CATALOG and item['mode'] != 'on'
+                       and (from_server or CATALOG[item['tool']].needs != 'started_from_server'))
+    if value.agent_id is not None:
+        snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
+        conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources,event_id,handler_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s)""",
+            (session_id, project, value.agent_id, actor, model['id'], title, purpose or 'test', Jsonb(snapshot),
+             Jsonb({'folders': [], 'code_project_ids': []}), Jsonb(pinned),
+             Jsonb(pinned['run_resources']) if per_run(pinned) else None, event_id, handler_id))
+        details = {'agent_id': value.agent_id, 'model_id': model['id'], 'tools_off': tools_off,
+                   'expert_ids': [entry['id'] for entry in pinned['experts']],
+                   'subagents': value.subagents, 'resources': pinned.get('run_resources')}
+    elif value.started_from.server_id is not None:
+        server_id = value.started_from.server_id
+        snapshot = {'system_prompt': value.system_prompt, 'context': server_context(value, origin),
+                    'prompt_id': value.prompt_id}
+        conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
+            VALUES (%s,%s,NULL,%s,%s,%s,'discovery',%s,NULL,%s,%s,%s,%s)""",
+            (session_id, project, actor, model['id'], title, server_id, Jsonb(jsonable_encoder(snapshot)),
+             Jsonb({'server_id': str(server_id)}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+        details = {'server_id': server_id, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                   'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}
+    elif value.started_from.new_document is not None:
+        new = value.started_from.new_document.model_dump()
+        snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
+        conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config,run_resources)
+            VALUES (%s,%s,NULL,%s,%s,%s,'documents',NULL,%s,%s,%s,%s,%s,%s)""",
+            (session_id, project, actor, model['id'], title, new['folder'], new['name'],
+             Jsonb(jsonable_encoder(snapshot)), Jsonb({'new_document': new}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+        details = {'new_document': new, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                   'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}
+    else:
+        document_id = value.started_from.document_id
+        snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
+        try:
+            conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
+                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
+                (session_id, project, actor, model['id'], title, document_id, Jsonb(jsonable_encoder(snapshot)),
+                 Jsonb({'document_id': str(document_id)}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+        except errors.ForeignKeyViolation as exc:  # the document was deleted after build() read it
+            if exc.diag.constraint_name != DOCUMENT_FOREIGN_KEY:
+                raise
+            raise HTTPException(404, DOCUMENT_NOT_FOUND) from None
+        details = {'document_id': document_id, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                   'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}
+    conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                 (session_id, actor, value.message))
+    conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+        VALUES (%s,%s,'agent_run.created','agent_session',%s,%s)''', (project, actor, session_id, Jsonb(jsonable_encoder(details))))
+    return session_id
 
 
 def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, new_document: bool = False,

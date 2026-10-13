@@ -3,16 +3,19 @@ repository-worker claims one event at a time (FOR UPDATE SKIP LOCKED, so several
 runs each matching handler's action in a savepoint, records one run per handler and marks the event processed — or
 failed when a handler failed. Emitted events enter as pending and are processed on a later pass. Nothing is retried:
 an event that cannot be processed at all is logged and marked failed, so it never blocks the queue. Send to agent
-queues an agent task (agent_tasks.py runs it in agent-session-worker)."""
+starts an ordinary agent run (sessions.start.start_run; agent-session-worker runs it)."""
 import logging
 import threading
 
 import psycopg
+from fastapi import HTTPException
 from psycopg.types.json import Jsonb
+from pydantic import ValidationError
 
 from knowledge_admin import event_matching, event_templates
 from knowledge_admin.event_handlers_api import PER_RUN
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.sessions import start
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +55,10 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     return f"Emitted {new['type']}.", {'emitted_event_id': row['id']}
 
 
-def task_id(event: dict, handler: dict) -> str:
-    """One task per event and handler: processing the event again queues nothing new."""
-    return f"agent-task:{event['id']}:{handler['id']}"
-
-
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
-    """Queue the agent call for agent-session-worker (agent_tasks.py); the answer goes to Notifications."""
+    """Start an ordinary run of the handler's agent (purpose event) through the sessions start: the saved agent with
+    everything it has on, the rendered prompt as its first message, the handler's creator as actor. One run per event
+    and handler: processing the event again links the run it started before."""
     agent = conn.execute('SELECT name,enabled,resources FROM ka.agents WHERE id=%s', (handler['agent_id'],)).fetchone()
     if agent is None:
         raise HandlerFailed(NO_AGENT)
@@ -67,12 +67,24 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     if agent['resources'] != 'fixed':
         raise HandlerFailed(PER_RUN)
     prompt = event_templates.render_prompt(handler['prompt'], event)
-    key = task_id(event, handler)
-    title = f"{agent['name']} · {event['type']} {event['subject']}"[:500]
-    conn.execute("""INSERT INTO ka.agent_tasks(id,project_id,agent_id,agent_name,title,prompt,event_id,handler_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING""",
-        (key, event['project_id'], handler['agent_id'], agent['name'], title, prompt, event['id'], handler['id']))
-    return f"Queued for {agent['name']}.", {'agent_task_id': key}
+    started = f"Started a run of {agent['name']}."
+    row = conn.execute('SELECT id FROM ka.agent_sessions WHERE event_id=%s AND handler_id=%s',
+                       (event['id'], handler['id'])).fetchone()
+    if row is not None:
+        return started, {'agent_session_id': row['id']}
+    try:
+        offer = start.agent_options(conn, event['project_id'], handler['agent_id'], store.conninfo)
+        value = start.StartInput(agent_id=handler['agent_id'], message=prompt,
+                                 tools=[tool['name'] for tool in offer['tools']],
+                                 expert_ids=[expert['id'] for expert in offer['experts']],
+                                 subagents=offer['agent']['subagents_allowed'])
+        session_id = start.start_run(conn, event['project_id'], handler['created_by'], value, store.conninfo,
+                                     purpose='event', event_id=event['id'], handler_id=handler['id'])
+    except HTTPException as exc:
+        raise HandlerFailed(str(exc.detail)) from None
+    except ValidationError as exc:  # a rendered prompt longer than a message may be
+        raise HandlerFailed('; '.join(error['msg'] for error in exc.errors())) from None
+    return started, {'agent_session_id': session_id}
 
 
 ACTIONS = {'emit': emit, 'agent': send}
