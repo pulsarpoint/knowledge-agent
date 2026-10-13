@@ -17,7 +17,7 @@ def started(t, message='Triage DEMO-1', **options):
 def test_an_event_session_starts_like_a_test_session(tester):
     t = tester
     session_id = started(t, purpose='event', title='jira.ticket.created DEMO-1')
-    detail = t.client.get(f'/api/generations/sessions/{session_id}', headers=HEADERS).json()
+    detail = t.client.get(f'/api/sessions/{session_id}', headers=HEADERS).json()
     assert (detail['purpose'], detail['status'], detail['title'], detail['agent_id']) == (
         'event', 'starting', 'jira.ticket.created DEMO-1', t.agent)
     assert [(i['seq'], i['text']) for i in detail['inputs']] == [(1, 'Triage DEMO-1')]

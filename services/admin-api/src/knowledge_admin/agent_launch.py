@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.capabilities.document_tools import outline
-from knowledge_admin.generations_api import NO_MODEL, Selection, session_detail
+from knowledge_admin.sessions.rows import NO_MODEL, Selection, session_detail
 from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.experts import offered

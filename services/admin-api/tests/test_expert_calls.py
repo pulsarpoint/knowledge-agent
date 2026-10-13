@@ -480,7 +480,7 @@ def test_a_session_turn_calls_an_expert_with_its_own_saved_configuration(native)
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=expert,
                                                                   poll=0.02).run())
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/generations/sessions/{sid}/close')
+        await post(sessions, f'/api/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
 
     asyncio.run(scenario())

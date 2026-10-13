@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.agent_sessions import NO_MODEL
-from knowledge_admin.generations_api import ONLY_DOCUMENTS
 from knowledge_admin.knowledge_agents.run_resources import FIXED
 from test_api import _client
 from test_profiles import create
@@ -74,7 +73,7 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
                                                                  (session['id'], 'admin@example.test')]
     assert set(rows[0]) == {'id', 'title', 'status', 'created_at', 'last_activity_at', 'actor_email', 'purpose'}
     assert t.client.get('/api/agents/code/sessions', headers=HEADERS).json() == {'sessions': []}
-    assert t.client.get('/api/generations/sessions', headers=HEADERS).json() == {'sessions': []}  # documents only
+    assert t.client.get('/api/sessions?purpose=documents', headers=HEADERS).json() == {'sessions': []}  # documents only
 
 
 def test_test_sessions_are_refused_with_todays_messages(tester):
@@ -133,12 +132,10 @@ def test_a_per_run_agent_pins_exactly_the_resources_of_its_first_message(analyst
     assert start(a)['run_resources'] is None
 
 
-def test_save_document_is_refused_and_the_session_endpoints_serve_test_sessions(tester):
+def test_the_session_endpoints_serve_test_sessions(tester):
     t = tester
     session = start(t)
-    url = f"/api/generations/sessions/{session['id']}"
-    saved = t.client.post(url + '/document', headers=HEADERS, json={})
-    assert saved.status_code == 400 and saved.json()['error']['message'] == ONLY_DOCUMENTS
+    url = f"/api/sessions/{session['id']}"
     sent = t.client.post(url + '/messages', headers=HEADERS, json={'text': 'And timeouts?'})
     assert sent.status_code == 202 and sent.json() == {'seq': 2, 'status': 'queued', 'working': False}
     assert t.client.post(url + '/stop', headers=HEADERS).status_code == 409  # not working

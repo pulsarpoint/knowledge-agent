@@ -209,7 +209,7 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
                                                                   poll=0.02).run())
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
-        await post(sessions, f'/api/generations/sessions/{sid}/close')
+        await post(sessions, f'/api/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
 
     asyncio.run(scenario())
@@ -226,13 +226,13 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
     assert KEY not in json.dumps(recorded, default=str)
     row = session_row(store, sid)
     assert (row['input_tokens'], row['output_tokens'], row['model_calls']) == (210, 24, 5)  # subagents included
-    detail = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
+    detail = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
     assert {count['name']: count['calls'] for count in detail['tool_counts']} == {'run_subagent': 2, 'read_file': 1}
 
 
 def test_stop_cancels_a_running_subagent_and_leaves_nothing_running(native):
     sessions, sid = native
-    store, url = sessions.store, f'/api/generations/sessions/{sid}'
+    store, url = sessions.store, f'/api/sessions/{sid}'
     started, cancelled = asyncio.Event(), []
     subagent = FakeSubagent({'Watch the queue': {'steps': [hang('tool', started, cancelled)], 'answer': 'never'}})
     fake = FakeAgent([{'offered': ['read_file'], 'steps': [
@@ -454,7 +454,7 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
     """close() gets only what is left of the grace that started at Stop, so Stop ends the turn within about
     STOP_GRACE_SECONDS, not twice that."""
     sessions, sid = native
-    store, url = sessions.store, f'/api/generations/sessions/{sid}'
+    store, url = sessions.store, f'/api/sessions/{sid}'
     grace = 0.8
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', grace)
     lead_started, sub_started, ignored, release = asyncio.Event(), asyncio.Event(), [], asyncio.Event()

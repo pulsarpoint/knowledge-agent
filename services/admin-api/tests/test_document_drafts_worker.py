@@ -54,14 +54,14 @@ def test_a_documents_turn_creates_its_draft_then_updates_it(sessions):
     assert (second['id'], second['markdown'], second['revision']) == (first['id'], '# Payments API v2', 2)
     run.finish_turn(3, 'failed', 'Broken.', draft='# Lost', usage=None)
     assert drafts_of(sessions, sid)[0]['markdown'] == '# Payments API v2'
-    session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
+    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
     assert session['document_draft'] == {'id': str(first['id']), 'document_id': None, 'status': 'open'}
     promoted = sessions.client.post(f"/api/documentation/drafts/{first['id']}/promote", headers=HEADERS, json={'revision': 2})
     assert promoted.status_code == 200, promoted.text
     created = sessions.client.get(f"/api/documentation/documents/{promoted.json()['document_id']}", headers=HEADERS).json()
     assert (created['folder'], created['code_project_ids'], created['current_version']['origin']) == (
         'payments-api-docs', [sessions.repo], 'generated')
-    session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
+    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
     # The promoted draft stays the run's document draft, so the run page links the document, not Save as draft.
     assert (session['document_id'], session['document_draft']) == (
         created['id'], {'id': str(first['id']), 'document_id': created['id'], 'status': 'promoted'})
@@ -74,9 +74,9 @@ def test_a_discarded_run_draft_stays_the_runs_document_draft(sessions):
     discarded = sessions.client.post(f"/api/documentation/drafts/{draft['id']}/discard", headers=HEADERS,
                                      json={'revision': draft['revision']})
     assert discarded.status_code == 200, discarded.text
-    session = sessions.client.get(f'/api/generations/sessions/{sid}', headers=HEADERS).json()
+    session = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
     assert session['document_draft'] == {'id': str(draft['id']), 'document_id': None, 'status': 'discarded'}
-    listed = sessions.client.get('/api/generations/sessions', headers=HEADERS).json()
+    listed = sessions.client.get('/api/sessions?purpose=documents', headers=HEADERS).json()
     assert [row['document_draft'] for row in listed['sessions'] if row['id'] == str(sid)] == [session['document_draft']]
 
 
@@ -143,28 +143,6 @@ def test_a_document_draft_that_cannot_be_saved_never_fails_the_turn(sessions, mo
         row = conn.execute('SELECT status,draft,draft_turn FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
     assert row == {'status': 'waiting', 'draft': '# Agent text', 'draft_turn': 1}
     assert drafts_of(sessions, sid) == []
-
-
-def test_save_as_draft_turns_an_old_runs_draft_into_a_document_draft(sessions):
-    client, store = sessions.client, sessions.store
-    sid = start(sessions)['id']
-    url = f'/api/generations/sessions/{sid}'
-    empty = client.post(url + '/document', headers=HEADERS, json={})
-    assert empty.status_code == 409 and empty.json()['error']['message'] == 'There is no draft yet. Wait for the agent to finish a turn.'
-    with store.connect() as conn:  # a run from before drafts: a run draft, no document draft
-        conn.execute("UPDATE ka.agent_sessions SET status='waiting',turns=1,draft='# Payments API',draft_turn=1 WHERE id=%s", (sid,))
-    assert client.get(url, headers=HEADERS).json()['document_draft'] is None
-    saved = client.post(url + '/document', headers=HEADERS, json={})
-    assert saved.status_code == 201, saved.text
-    draft = saved.json()['draft']
-    assert (draft['document_id'], draft['status']) == (None, 'open')
-    assert client.get(url, headers=HEADERS).json()['document_draft'] == draft
-    assert client.get('/api/documentation/documents', headers=HEADERS).json()['total'] == 0  # nothing went live
-    detail = client.get(f"/api/documentation/drafts/{draft['id']}", headers=HEADERS).json()
-    assert (detail['markdown'], detail['origin'], detail['author']) == ('# Payments API', 'agent', 'admin@example.test')
-    assert client.post(url + '/document', headers=HEADERS, json={}).json()['draft']['id'] == draft['id']
-    assert not (sessions.data / 'generated-documents/payments-api-docs').exists()
-    assert client.post(url + '/document', json={}).status_code == 403
 
 
 def test_a_bug_in_the_draft_path_never_fails_the_turn(sessions, monkeypatch, caplog):

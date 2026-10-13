@@ -2,7 +2,7 @@
 sessions (ka.agent_sessions with purpose 'test'; an event handler's Send to agent starts the same kind of session
 with purpose 'event'). Here: creating one (the first message becomes input 1), listing
 an agent's, and Suggest improvements (a tuning review of the conversation). Everything else — detail, messages, Stop,
-Close, the event history and stream — is the session API in generations_api."""
+Close, the event history and stream — is the session API in sessions/api.py."""
 import asyncio
 import copy
 import json
@@ -22,7 +22,7 @@ from knowledge_admin.agent_activity import redact
 from knowledge_admin.agent_reviews import TuningSuggestion
 from knowledge_admin.agents import agent, load_credentials
 from knowledge_admin.session_text import agent_system_prompt, close_idle
-from knowledge_admin.generations_api import session_detail
+from knowledge_admin.sessions.rows import session_detail
 from knowledge_admin.knowledge_agents.config import (get_agent_config, model_fits, per_run,
                                                      require_run_resources)
 from knowledge_admin.knowledge_agents.experts import pin

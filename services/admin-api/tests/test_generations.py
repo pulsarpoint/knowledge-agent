@@ -9,9 +9,10 @@ from uuid import UUID, uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import generations_api
+from knowledge_admin.sessions import api as sessions_api
 from knowledge_admin.session_text import FINAL_ANSWER, IDLE_CLOSED
-from knowledge_admin.generations_api import NO_MODEL, NOTHING_CHOSEN
+from knowledge_admin.generations_api import NOTHING_CHOSEN
+from knowledge_admin.sessions.rows import NO_MODEL
 from session_rows import add_test_session
 from test_api import _client
 from test_profiles import wizard_payload
@@ -101,7 +102,7 @@ def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context
     assert session['run_resources']['service_ids'] == [s.service]
     [first] = session['inputs']
     assert (first['seq'], first['status'], first['turn']) == (1, 'queued', None)
-    detail = s.client.get(f"/api/generations/sessions/{session['id']}", headers=HEADERS).json()
+    detail = s.client.get(f"/api/sessions/{session['id']}", headers=HEADERS).json()
     for shown in (session, detail):  # a documentation session's pinned config and history stay private
         assert shown['purpose'] == 'documents'
         for hidden in ('config', 'reviews', 'agent_config', 'history'):
@@ -122,7 +123,7 @@ def test_generate_documents_starts_an_ad_hoc_agent_with_the_forms_prompt_context
     with s.store.connect() as conn:
         pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (no_context['id'],)).fetchone()
     assert pinned['agent_config']['system_prompt']['content'] == 'You document systems.'
-    listed = s.client.get('/api/generations/sessions', headers=HEADERS).json()['sessions']
+    listed = s.client.get('/api/sessions?purpose=documents', headers=HEADERS).json()['sessions']
     assert {row['agent_name'] for row in listed} == {'Ad-hoc agent'}
 
 
@@ -175,7 +176,7 @@ def test_session_input_is_validated(sessions, change, status):
 def test_messages_stop_and_close(sessions):
     client, store = sessions.client, sessions.store
     session = start(sessions)
-    url = f"/api/generations/sessions/{session['id']}"
+    url = f"/api/sessions/{session['id']}"
     assert client.post(url + '/messages', headers=HEADERS, json={'text': ' Also cover retries. '}).json() == {
         'seq': 2, 'status': 'queued', 'working': False}
     assert client.post(url + '/messages', headers=HEADERS, json={'text': '   '}).status_code == 400
@@ -197,14 +198,14 @@ def test_messages_stop_and_close(sessions):
     closed = client.post(url + '/messages', headers=HEADERS, json={'text': 'Hello?'})
     assert closed.status_code == 409 and closed.json()['error']['message'] == 'This session is closed. Start a new session.'
     assert client.post(url + '/close', headers=HEADERS).status_code == 200  # idempotent
-    listed = client.get('/api/generations/sessions', headers=HEADERS).json()['sessions']
+    listed = client.get('/api/sessions?purpose=documents', headers=HEADERS).json()['sessions']
     assert [(s['id'], s['status'], s['agent_name'], s['model_name'], s['queued']) for s in listed] == [
         (session['id'], 'closed', 'Ad-hoc agent', 'GPT', 0)]
     assert 'draft' not in listed[0] and 'prompt_snapshot' not in listed[0]
-    assert client.get(f'/api/generations/sessions/{uuid4()}', headers=HEADERS).status_code == 404
+    assert client.get(f'/api/sessions/{uuid4()}', headers=HEADERS).status_code == 404
     for path in (url + '/messages', url + '/stop', url + '/close'):
         assert client.post(path, json={'text': 'x'}).status_code == 403
-    assert client.get('/api/generations/sessions').status_code == 403
+    assert client.get('/api/sessions?purpose=documents').status_code == 403
     with sessions.store.connect() as conn:  # an agent with a session keeps it
         project, actor = sessions.store.project(conn, 'shop'), sessions.store.actor(conn, 'admin-id', 'admin@example.test')
         add_test_session(conn, project, actor, sessions.agent, sessions.claude, status='waiting')
@@ -218,10 +219,10 @@ def test_idle_sessions_close_after_24_hours(sessions):
     with sessions.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=ANY(%s::uuid[])", (ids[:2],))
         conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (ids[1],))  # a running turn is never idle
-    listed = {s['id']: s for s in sessions.client.get('/api/generations/sessions', headers=HEADERS).json()['sessions']}
+    listed = {s['id']: s for s in sessions.client.get('/api/sessions?purpose=documents', headers=HEADERS).json()['sessions']}
     assert (listed[ids[0]]['status'], listed[ids[0]]['status_message']) == ('closed', IDLE_CLOSED)
     assert (listed[ids[1]]['status'], listed[ids[2]]['status']) == ('working', 'starting')
-    inputs = sessions.client.get(f'/api/generations/sessions/{ids[0]}', headers=HEADERS).json()['inputs']
+    inputs = sessions.client.get(f'/api/sessions/{ids[0]}', headers=HEADERS).json()['inputs']
     assert [i['status'] for i in inputs] == ['discarded']
 
 
@@ -263,7 +264,7 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, live):
 
     thread = threading.Thread(target=worker)
     thread.start()
-    response = client.get(f'/api/generations/sessions/{sid}/events', headers=HEADERS)
+    response = client.get(f'/api/sessions/{sid}/events', headers=HEADERS)
     thread.join()
     assert response.status_code == 200 and response.headers['content-type'].startswith('text/event-stream')
     assert response.headers['cache-control'] == 'no-store'
@@ -277,12 +278,12 @@ def test_event_stream_replays_history_and_follows_a_fake_worker(sessions, live):
     assert states[0]['status'] == 'working' and states[-1]['status'] == 'closed'
     assert any(s['status'] == 'waiting' and s['draft'] == '# Payments API' for s in states)
     assert events[-1]['event'] == 'closed'
-    resumed = client.get(f'/api/generations/sessions/{sid}/events', headers={**HEADERS, 'Last-Event-ID': str(runs[1]['id'])})
+    resumed = client.get(f'/api/sessions/{sid}/events', headers={**HEADERS, 'Last-Event-ID': str(runs[1]['id'])})
     assert [e['data']['kind'] for e in parse(resumed.text) if e['event'] == 'run_event'] == ['tool_result', 'message']
-    after = client.get(f"/api/generations/sessions/{sid}/events?after={runs[2]['id']}", headers=HEADERS)
+    after = client.get(f"/api/sessions/{sid}/events?after={runs[2]['id']}", headers=HEADERS)
     assert [e['data']['kind'] for e in parse(after.text) if e['event'] == 'run_event'] == ['message']
-    assert client.get(f'/api/generations/sessions/{uuid4()}/events', headers=HEADERS).status_code == 404
-    assert client.get(f'/api/generations/sessions/{sid}/events').status_code == 403
+    assert client.get(f'/api/sessions/{uuid4()}/events', headers=HEADERS).status_code == 404
+    assert client.get(f'/api/sessions/{sid}/events').status_code == 403
 
 
 def test_event_history_pages_backwards_like_the_stream(sessions):
@@ -296,7 +297,7 @@ def test_event_history_pages_backwards_like_the_stream(sessions):
         record(conn, other, 1, 1, 'message', {'text': 'another session'})
         record(conn, sid, 2, 1, 'tool_result', {'name': 'Read', 'output': 'the whole file body', 'preview': 'line'})
         record(conn, sid, 2, 2, 'message', {'text': 'two 2'})
-    url = f'/api/generations/sessions/{sid}/events/history'
+    url = f'/api/sessions/{sid}/events/history'
     latest = client.get(url + '?limit=2', headers=HEADERS)
     assert latest.status_code == 200 and latest.headers['cache-control'] == 'no-store'
     page = latest.json()
@@ -313,13 +314,13 @@ def test_event_history_pages_backwards_like_the_stream(sessions):
     assert all(e['id'] == r['id'] for e, r in zip(default['events'][-2:], page['events']))
     for bad in ('?limit=0', '?limit=501', '?before=0', '?before=x'):
         assert client.get(url + bad, headers=HEADERS).status_code == 400, bad
-    assert client.get(f'/api/generations/sessions/{uuid4()}/events/history', headers=HEADERS).status_code == 404
+    assert client.get(f'/api/sessions/{uuid4()}/events/history', headers=HEADERS).status_code == 404
     assert client.get(url).status_code == 403
 
 
 def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
     sid = start(sessions)['id']
-    url = f'/api/generations/sessions/{sid}'
+    url = f'/api/sessions/{sid}'
     with sessions.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (sid,))
     detail = sessions.client.get(url, headers=HEADERS).json()
@@ -327,12 +328,12 @@ def test_idle_session_is_closed_when_opened_or_sent_to(sessions):
     other = start(sessions)['id']
     with sessions.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now()-interval '25 hours' WHERE id=%s", (other,))
-    sent = sessions.client.post(f'/api/generations/sessions/{other}/messages', headers=HEADERS, json={'text': 'Hello?'})
+    sent = sessions.client.post(f'/api/sessions/{other}/messages', headers=HEADERS, json={'text': 'Hello?'})
     assert sent.status_code == 409 and sent.json()['error']['message'] == 'This session is closed. Start a new session.'
 
 
 def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(sessions, live, monkeypatch):
-    monkeypatch.setattr(generations_api, 'KEEPALIVE_SECONDS', 60)
+    monkeypatch.setattr(sessions_api, 'KEEPALIVE_SECONDS', 60)
     sid = start(sessions)['id']
 
     def remove():
@@ -343,13 +344,13 @@ def test_event_stream_ends_when_the_session_is_gone_and_keeps_alive_sparingly(se
 
     thread = threading.Thread(target=remove)
     thread.start()
-    response = sessions.client.get(f'/api/generations/sessions/{sid}/events', headers=HEADERS)
+    response = sessions.client.get(f'/api/sessions/{sid}/events', headers=HEADERS)
     thread.join()
     assert parse(response.text)[-1]['event'] == 'closed'
     assert ': keepalive' not in response.text  # well under KEEPALIVE_SECONDS
     assert live.subscribers(UUID(sid)) == 0  # unsubscribed and forgotten
-    assert not hasattr(generations_api, 'STREAM_POLL_SECONDS')
-    assert generations_api.KEEPALIVE_SECONDS == 60 and 10 <= generations_api.DEFAULT_KEEPALIVE_SECONDS <= 20
+    assert not hasattr(sessions_api, 'STREAM_POLL_SECONDS')
+    assert sessions_api.KEEPALIVE_SECONDS == 60 and 10 <= sessions_api.DEFAULT_KEEPALIVE_SECONDS <= 20
 
 
 def native_agent(client, name: str = 'Native writer', **change) -> str:
@@ -362,6 +363,6 @@ def native_agent(client, name: str = 'Native writer', **change) -> str:
 
 def test_the_generation_api_moved(sessions):
     client = sessions.client
-    assert client.get("/api/generations/sessions", headers=HEADERS).status_code == 200
+    assert client.get('/api/sessions?purpose=documents', headers=HEADERS).status_code == 200
     assert client.get("/api/claude-code/sessions", headers=HEADERS).status_code == 404
     assert client.post("/api/claude-code/context", headers=HEADERS, json={}).status_code == 404

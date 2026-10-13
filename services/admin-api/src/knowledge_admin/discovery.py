@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from knowledge_admin.access import request_actor
 from knowledge_admin.documents import (DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
                                        save_document)
-from knowledge_admin.generations_api import NO_MODEL, Selection
+from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError

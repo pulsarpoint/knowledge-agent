@@ -1,52 +1,24 @@
-"""Generate documents sessions (an ad-hoc native agent) and Test sessions: create, the form's live context, list,
-detail, send, stop, close, the event stream and saving the run's draft as a document draft. Turns run in
-agent-session-worker."""
-import asyncio
-import json
+"""Generate documents' form API until part 3: the live context and the create of an ad-hoc native agent session.
+The run operations and lists are in sessions/api.py. Turns run in agent-session-worker."""
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.session_text import FINAL_ANSWER, close_idle
 from knowledge_admin.data_root import documentation_folder
-from knowledge_admin.document_drafts import SESSION_DRAFT, save_run_draft
 from knowledge_admin.documents import document_slug
 from knowledge_admin.generate_documents import resource_context, subjects
-from knowledge_admin.knowledge_agents.config import AD_HOC_NAME, load_model, model_fits
+from knowledge_admin.knowledge_agents.config import load_model, model_fits
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.run_record import tool_counts_through
+from knowledge_admin.session_text import FINAL_ANSWER
+from knowledge_admin.sessions.rows import NO_MODEL, SELECTION, Selection, session_detail
 
 NOTHING_CHOSEN = 'Choose at least one code project, collection, environment, service or server to document.'
-NO_MODEL = 'Choose an enabled model.'
-ONLY_DOCUMENTS = 'Only documentation sessions have a document.'
-CLOSED = 'This session is closed. Start a new session.'
-NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
-
-
-SELECTION = ('code_project_ids', 'collection_ids', 'environment_ids', 'service_ids', 'server_ids')
-
-
-class Selection(BaseModel):
-    """What a generation documents: each id once, in the order chosen."""
-    model_config = ConfigDict(extra='forbid')
-    code_project_ids: list[UUID] = Field(default_factory=list, max_length=20)
-    collection_ids: list[UUID] = Field(default_factory=list, max_length=50)
-    environment_ids: list[UUID] = Field(default_factory=list, max_length=20)
-    service_ids: list[UUID] = Field(default_factory=list, max_length=50)
-    server_ids: list[UUID] = Field(default_factory=list, max_length=50)
-
-    @model_validator(mode='after')
-    def once(self):
-        for name in SELECTION:
-            setattr(self, name, list(dict.fromkeys(getattr(self, name))))
-        return self
 
 
 class SessionInput(Selection):
@@ -90,63 +62,6 @@ def run_folders(config: dict) -> list[dict]:
     return folders
 
 
-class MessageInput(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    text: str = Field(min_length=1, max_length=20000)
-
-    @field_validator('text')
-    @classmethod
-    def valid_text(cls, value: str) -> str:
-        if '\x00' in value or not value.strip():
-            raise ValueError('Enter a message without null characters')
-        return value.strip()
-
-
-def _select(extra: str = '') -> str:
-    return f"""SELECT s.id,s.title,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
-        s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
-        coalesce(s.lease_expires_at > now(), false) AS worker_active,
-        (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
-        s.created_at,s.last_activity_at,s.closed_at,{SESSION_DRAFT}{extra}
-        FROM ka.agent_sessions s LEFT JOIN ka.agents a ON a.id=s.agent_id JOIN ka.llm_models m ON m.id=s.model_id
-        LEFT JOIN ka.document_details d ON d.id=s.document_id"""
-
-
-SUMMARY = _select()
-DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id,s.target_document_id')
-
-
-def session_detail(conn, project: UUID, session_id: UUID) -> dict:
-    row = conn.execute(DETAIL + ' WHERE s.id=%s AND s.project_id=%s', (session_id, project)).fetchone()
-    if row is None:
-        raise HTTPException(404, 'Session not found.')
-    row['inputs'] = conn.execute('''SELECT seq,text,status,turn,created_at FROM ka.agent_session_inputs
-        WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
-    row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
-        conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
-    if row['purpose'] in ('test', 'event', 'revision'):  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
-        row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
-                                     (session_id,)).fetchone()['agent_config']
-        row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
-            FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id''', (session_id,)).fetchall()
-    return row
-
-
-DEFAULT_KEEPALIVE_SECONDS = 15.0
-KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
-HISTORY_LIMIT = 100  # events per page; the session page opens with the latest page
-LIVE_UNAVAILABLE = 'Live session updates are not running.'
-
-
-def stream_event(row: dict) -> dict:
-    """One run event for the page; a tool result keeps its preview, the full output stays in the run record."""
-    payload = dict(row['payload'])
-    if row['kind'] == 'tool_result':
-        payload.pop('output', None)
-    return {'id': row['id'], 'turn': int(row['run_key'].rsplit(':', 1)[1]), 'seq': row['seq'], 'kind': row['kind'],
-            'payload': payload, 'created_at': row['created_at']}
-
-
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/generations')
 
@@ -158,17 +73,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def audit(conn, actor, action: str, resource_type: str, details: dict, resource_id=None) -> None:
         conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
             VALUES (%s,%s,%s,%s,%s,%s)''', (store.project(conn, app_name), actor, action, resource_type, resource_id, Jsonb(details)))
-
-    def locked(conn, project, session_id: UUID) -> dict:
-        row = conn.execute('SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
-                           (session_id, project)).fetchone()
-        if row is None:
-            raise HTTPException(404, 'Session not found.')
-        return row
-
-    def discard(conn, session_id: UUID) -> int:
-        return conn.execute("UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'",
-                            (session_id,)).rowcount
 
     @router.post('/context')
     def generation_context(value: Selection) -> dict:
@@ -209,153 +113,5 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                   jsonable_encoder({'ephemeral': True, 'model_id': model['id'],
                                     'prompt_id': value.prompt_id}), session_id)
             return session_detail(conn, project, session_id)
-
-    @router.get('/sessions')
-    def sessions(response: Response, offset: int = Query(0, ge=0)) -> dict:
-        response.headers['Cache-Control'] = 'no-store'
-        db = database()
-        with db.connect() as conn:
-            close_idle(conn)
-            project = db.project(conn, app_name)
-            return {'sessions': conn.execute(SUMMARY + " WHERE s.project_id=%s AND s.purpose='documents' ORDER BY s.created_at DESC,s.id LIMIT 50 OFFSET %s",
-                                             (project, offset)).fetchall()}
-
-    @router.get('/sessions/{session_id}')
-    def session(session_id: UUID, response: Response) -> dict:
-        response.headers['Cache-Control'] = 'no-store'
-        db = database()
-        with db.connect() as conn:
-            close_idle(conn)
-            return session_detail(conn, db.project(conn, app_name), session_id)
-
-    @router.post('/sessions/{session_id}/messages', status_code=202)
-    def send(session_id: UUID, value: MessageInput, request: Request) -> dict:
-        db = database()
-        with db.connect() as conn:
-            close_idle(conn)
-            row = locked(conn, db.project(conn, app_name), session_id)
-            if row['status'] == 'closed':
-                raise HTTPException(409, CLOSED)
-            actor = db.actor(conn, *request_actor(request))
-            seq = conn.execute('SELECT coalesce(max(seq),0)+1 AS seq FROM ka.agent_session_inputs WHERE session_id=%s',
-                               (session_id,)).fetchone()['seq']
-            conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
-                         (session_id, seq, actor, value.text))
-            conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
-            return {'seq': seq, 'status': 'queued', 'working': row['status'] == 'working'}
-
-    @router.post('/sessions/{session_id}/stop', status_code=202)
-    def stop(session_id: UUID, request: Request) -> dict:
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
-            row = locked(conn, project, session_id)
-            if row['status'] != 'working':
-                raise HTTPException(409, NOTHING_TO_STOP)
-            conn.execute('UPDATE ka.agent_sessions SET stop_requested_at=now() WHERE id=%s', (session_id,))
-            discarded = discard(conn, session_id)
-            audit(conn, actor, 'generation.session.stopped', 'agent_session', {'discarded': discarded}, session_id)
-            return {'id': session_id, 'discarded': discarded}
-
-    @router.post('/sessions/{session_id}/document', status_code=201)
-    def save(session_id: UUID, request: Request) -> dict:
-        """Save as draft, for runs from before document drafts: the run's draft becomes a document draft (as every
-        finished turn now does by itself). Nothing goes live; a person promotes the draft on its page.
-        Locks the actor, then the session, then (save_run_draft) the draft: promote's order without the project."""
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            actor = db.actor(conn, *request_actor(request))
-            session = conn.execute('SELECT id,purpose,draft,turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
-                                   (session_id, project)).fetchone()
-            if session is None:
-                raise HTTPException(404, 'Session not found.')
-            if session['purpose'] != 'documents':
-                raise HTTPException(400, ONLY_DOCUMENTS)
-            if not (session['draft'] or '').strip():
-                raise HTTPException(409, 'There is no draft yet. Wait for the agent to finish a turn.')
-            draft = save_run_draft(conn, session_id, session['turns'], actor)
-            conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
-            audit(conn, actor, 'generation.session.draft_saved', 'agent_session', {'draft_id': str(draft['id'])}, session_id)
-            return jsonable_encoder({'draft': draft})
-
-    @router.post('/sessions/{session_id}/close')
-    def close(session_id: UUID, request: Request) -> dict:
-        db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
-            actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
-            row = locked(conn, project, session_id)
-            if row['status'] != 'closed':
-                conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
-                    WHERE id=%s""", (session_id,))
-                discard(conn, session_id)
-                audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
-            return {'id': session_id}
-
-    @router.get('/sessions/{session_id}/events/history')
-    def history(session_id: UUID, response: Response, before: int | None = Query(None, ge=1),
-                limit: int = Query(HISTORY_LIMIT, ge=1, le=500)) -> dict:
-        """A page of the session's events, oldest first: the latest page, or the page before an event id. Each event is
-        what the stream sends (a tool result keeps its preview; the full output stays in the run record)."""
-        response.headers['Cache-Control'] = 'no-store'
-        db = database()
-        with db.connect() as conn:
-            row = conn.execute('SELECT turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
-                               (session_id, db.project(conn, app_name))).fetchone()
-            if row is None:
-                raise HTTPException(404, 'Session not found.')
-            keys = [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
-            rows = conn.execute('''SELECT id,run_key,seq,kind,payload,created_at FROM ka.agent_run_events
-                WHERE run_key=ANY(%s) AND (%s::bigint IS NULL OR id<%s) ORDER BY id DESC LIMIT %s''',
-                (keys, before, before, limit + 1)).fetchall()
-        return jsonable_encoder({'events': [stream_event(item) for item in reversed(rows[:limit])],
-                                 'has_more': len(rows) > limit})
-
-    @router.get('/sessions/{session_id}/events')
-    async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):
-        """The session's live stream: run events after Last-Event-ID (or `after`), the state when it changes, `closed`
-        at the end, `unavailable` once while the database cannot be reached, `: keepalive` after KEEPALIVE_SECONDS of
-        quiet, and `retry: 1000` ending a stream that fell behind (the browser reconnects from its last id). The
-        process's SessionHub reads the database; the stream holds no connection."""
-        db = database()
-        with db.connect() as conn:
-            if conn.execute('SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
-                            (session_id, db.project(conn, app_name))).fetchone() is None:
-                raise HTTPException(404, 'Session not found.')
-        hub = getattr(request.app.state, 'session_hub', None)
-        if hub is None:
-            raise HTTPException(503, LIVE_UNAVAILABLE)
-        last = request.headers.get('last-event-id', '')
-        start_after = int(last) if last.isdigit() else after
-
-        async def stream():
-            # Leaving the page cancels this generator, which unsubscribes only this page.
-            async with hub.subscribe(session_id, start_after) as subscription:
-                while True:
-                    try:
-                        kind, value = await asyncio.wait_for(subscription.get(), KEEPALIVE_SECONDS)
-                    except TimeoutError:
-                        if await request.is_disconnected():
-                            return
-                        yield ': keepalive\n\n'
-                        continue
-                    if kind == 'event':
-                        yield (f"id: {value['id']}\nevent: run_event\n"
-                               f'data: {json.dumps(jsonable_encoder(stream_event(value)))}\n\n')
-                    elif kind == 'session':
-                        yield f'event: session\ndata: {json.dumps(value)}\n\n'
-                    elif kind == 'unavailable':
-                        yield 'event: unavailable\ndata: {}\n\n'
-                    elif kind == 'resync':
-                        yield 'retry: 1000\n\n'
-                        return
-                    else:  # closed
-                        yield 'event: closed\ndata: {}\n\n'
-                        return
-
-        return StreamingResponse(stream(), media_type='text/event-stream',
-                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     return router

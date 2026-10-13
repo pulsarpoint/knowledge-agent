@@ -6,27 +6,9 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.agent_launch import DEFAULT_REVISION_PROMPT
-from test_discovery_runs import ssh_ready
+from test_agent_launch_world import ask, keyless, post  # noqa: F401  (fixtures)
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
-
-
-@pytest.fixture
-def ask(sessions):
-    s = sessions
-    web = s.client.post('/api/servers', headers=HEADERS, json={'name': 'web-1', 'hostname': '10.0.0.7', 'ssh_allowed': True}).json()
-    ssh_ready(SimpleNamespace(client=s.client, server=web), web)
-    document = s.client.post('/api/documentation/documents', headers=HEADERS, json={
-        'slug': 'payments-runbook', 'title': 'Payments runbook', 'markdown': '# Payments runbook\n\n## Backup\n\nOld steps.',
-        'service_ids': [s.service], 'server_ids': [web['id']]}).json()
-    body = {'kind': 'revision', 'target': {'document_id': document['id']}, 'instruction': 'Add a section on log rotation.\nKeep it short.',
-            'model_id': s.gpt, 'system_prompt': 'You revise documents.', 'resources': {'service_ids': [s.service], 'server_ids': [web['id']]},
-            'tools': ['ssh_run', 'get_service_info'], 'expert_ids': [], 'subagents': False}
-    return SimpleNamespace(s=s, web=web, document=document, body=body)
-
-
-def post(ask, path='', **change):
-    return ask.s.client.post(f'/api/agent-sessions{path}', headers=HEADERS, json={**ask.body, **change})
 
 
 def test_options_mark_the_documents_links_and_unusable_servers(ask):
@@ -90,11 +72,11 @@ def test_start_refuses_an_unusable_server_a_disabled_model_and_a_missing_documen
 def test_the_documents_runs_are_listed_open_first_and_use_the_session_routes(ask):
     first = post(ask).json()
     second = post(ask, instruction='Remove the old backup steps.').json()
-    assert ask.s.client.post(f"/api/generations/sessions/{first['id']}/close", headers=HEADERS).status_code == 200
+    assert ask.s.client.post(f"/api/sessions/{first['id']}/close", headers=HEADERS).status_code == 200
     listed = ask.s.client.get(f"/api/agent-sessions?document_id={ask.document['id']}", headers=HEADERS).json()['sessions']
     assert [row['id'] for row in listed] == [second['id'], first['id']]
     assert listed[0]['title'] == 'Remove the old backup steps.' and listed[0]['draft_id'] is None
-    sent = ask.s.client.post(f"/api/generations/sessions/{second['id']}/messages", headers=HEADERS, json={'text': 'Also mention cron.'})
+    sent = ask.s.client.post(f"/api/sessions/{second['id']}/messages", headers=HEADERS, json={'text': 'Also mention cron.'})
     assert sent.status_code == 202, sent.text
     with ask.s.store.connect() as conn:
         actions = [row['action'] for row in conn.execute("SELECT action,details FROM ka.audit_events WHERE action='agent_run.created'")]
@@ -109,21 +91,7 @@ def test_deleting_the_document_deletes_its_runs(ask):
     deleted = ask.s.client.delete(f"/api/documentation/documents/{ask.document['id']}?revision={current['revision']}&confirmed=true",
                                   headers=HEADERS)
     assert deleted.status_code in (200, 204), deleted.text
-    assert ask.s.client.get(f"/api/generations/sessions/{session['id']}", headers=HEADERS).status_code == 404
-
-
-@pytest.fixture
-def keyless(ask):
-    """A service deployed only on an enabled, SSH-allowed server that has no SSH key."""
-    server = ask.s.client.post('/api/servers', headers=HEADERS, json={'name': 'bare-1', 'hostname': '10.0.0.9', 'ssh_allowed': True}).json()
-    service = uuid4()
-    with ask.s.store.connect() as conn:
-        project = ask.s.store.project(conn, 'shop')
-        conn.execute("UPDATE ka.servers SET ssh_allowed=true,enabled=true,username='ops' WHERE id=%s", (server['id'],))
-        conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Ledger')", (service, project))
-        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Production','ledger',8080)""", (project, service, server['id']))
-    return SimpleNamespace(server=server, service=str(service))
+    assert ask.s.client.get(f"/api/sessions/{session['id']}", headers=HEADERS).status_code == 404
 
 
 def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless):
