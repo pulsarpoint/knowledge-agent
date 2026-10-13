@@ -2,9 +2,6 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import DocumentationPromptsView from "../DocumentationPromptsView";
-import DocumentationPromptsRedirect from "../../routes/documentationPrompts";
-import DocumentationPromptDetailRedirect from "../../routes/documentationPromptDetail";
-import DocumentationPromptNewRedirect from "../../routes/documentationPromptNew";
 import routes from "../../routes";
 
 const prompts = [
@@ -33,32 +30,6 @@ test("lists prompts with their tags and filters by tag", async () => {
   await user.click(screen.getByRole("combobox", { name: "Filter by tag" }));
   await user.click(screen.getByRole("option", { name: "ssh" }));
   await waitFor(() => expect(screen.queryByRole("link", { name: "Runbook" })).toBeNull());
-});
-
-test("old addresses redirect to the Prompts page", async () => {
-  render(<MemoryRouter initialEntries={["/documentation/prompts/p1"]}><Routes>
-    <Route path="/documentation/prompts" element={<DocumentationPromptsRedirect />} />
-    <Route path="/documentation/prompts/:promptId" element={<DocumentationPromptDetailRedirect />} />
-    <Route path="*" element={<Where />} /></Routes></MemoryRouter>);
-  await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/prompts/p1"));
-});
-
-test("old addresses keep the query string and hash", async () => {
-  render(<MemoryRouter initialEntries={["/documentation/prompts?tag=ssh#top"]}><Routes>
-    <Route path="/documentation/prompts" element={<DocumentationPromptsRedirect />} />
-    <Route path="*" element={<Where />} /></Routes></MemoryRouter>);
-  await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/prompts?tag=ssh#top"));
-});
-
-test("the other old addresses keep the query string and hash", async () => {
-  render(<MemoryRouter initialEntries={["/documentation/prompts/p1?x=1#v"]}><Routes>
-    <Route path="/documentation/prompts/:promptId" element={<DocumentationPromptDetailRedirect />} />
-    <Route path="*" element={<Where />} /></Routes></MemoryRouter>);
-  await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/prompts/p1?x=1#v"));
-  render(<MemoryRouter initialEntries={["/documentation/prompts/new?x=1#v"]}><Routes>
-    <Route path="/documentation/prompts/new" element={<DocumentationPromptNewRedirect />} />
-    <Route path="*" element={<Where />} /></Routes></MemoryRouter>);
-  await waitFor(() => expect(screen.getAllByTestId("where")[1].textContent).toBe("/prompts/new?x=1#v"));
 });
 
 test("a tag filter that matches nothing says so", async () => {

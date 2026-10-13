@@ -358,8 +358,6 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
 - A saved credential that cannot be decrypted no longer refuses the start: the first turn fails with the worker's
   message.
 - Header and per-turn model calls are not shown for sessions started before native sessions.
-- `scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table: run it only on databases before
-  0081 (before the upgrade), never after.
 - `POST /api/agents/{id}/runs` and the other `/api/agents/{id}/runs*` routes are gone, as are
   `GET /api/agents/{id}/sessions/{session_id}` and `POST …/close` of the old Test chats; use
   `POST /api/agents/{id}/sessions` `{message, run_resources?}` and the session routes under `/api/generations/sessions`.

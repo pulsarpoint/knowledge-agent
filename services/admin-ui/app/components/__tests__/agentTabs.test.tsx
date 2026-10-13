@@ -5,12 +5,11 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentsView from '../AgentsView';
 import AgentDetailView from '../AgentDetailView';
 import AdminLayout from '../AdminLayout';
-import PromptsPage from '../../routes/prompts';
 import * as llm from '../../lib/llm';
 import * as profiles from '../../lib/profiles';
 
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
-vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })), getCodeMCP: vi.fn(async () => ({ revision: 1, mcp_server_ids: [] })), saveCodeMCP: vi.fn() }));
+vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
 vi.mock('../OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
   const [task, setTask] = useState('');
@@ -29,7 +28,7 @@ beforeEach(() => {
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, documentation_sessions: 0, run_records: 0 });
 });
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
-function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} /></Routes></AdminLayout></MemoryRouter>; }
+function app(path: string) { return <MemoryRouter initialEntries={[path]}><AdminLayout><Routes><Route path="/agents" element={<AgentsView />} /><Route path="/agents/:id" element={<Detail />} /></Routes></AdminLayout></MemoryRouter>; }
 
 test('catalog opens distinct agents with one model field and preserves SSH tasks across sections', async () => {
   const user = userEvent.setup();
@@ -52,13 +51,6 @@ test('catalog opens distinct agents with one model field and preserves SSH tasks
   expect(screen.getAllByRole('combobox', { name: 'Model', hidden: true })).toHaveLength(1);
   await user.click(screen.getByRole('tab', { name: 'Test' }));
   expect(screen.getByText('SSH test custom-code')).toBeVisible();
-});
-
-test('old prompt links open the matching agent detail', async () => {
-  render(app('/llm-settings/prompts?agent=code'));
-  expect(await screen.findByRole('heading', { name: 'Code search agent', level: 2 })).toBeVisible();
-  expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true');
-  expect(await screen.findByRole('textbox', { name: 'System prompt' })).toHaveValue('code instructions');
 });
 
 test('agents are created only through one New agent panel with the wizard', async () => {

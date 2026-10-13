@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentDetailView from '../AgentDetailView';
-import PromptsPage from '../../routes/prompts';
 import * as profiles from '../../lib/profiles';
 import * as llm from '../../lib/llm';
 
@@ -27,7 +26,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 function Detail() { const { id } = useParams(); return <AgentDetailView key={id} agentId={id!} />; }
 const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><Routes>
-  <Route path="/agents/:id" element={<Detail />} /><Route path="/llm-settings/prompts" element={<PromptsPage />} />
+  <Route path="/agents/:id" element={<Detail />} />
 </Routes></MemoryRouter>);
 
 test('the agent page has no Prompts or Versions tab', async () => {
@@ -61,10 +60,4 @@ test('a refused save keeps the edit and says why', async () => {
   await user.click(screen.getByRole('button', { name: 'Save prompt' }));
   expect(await screen.findByText('Agent changed. Reload before saving.')).toBeVisible();
   expect(prompt).toHaveValue('Shorter.');
-});
-
-test('old prompt links open the agent General tab', async () => {
-  open('/llm-settings/prompts?agent=code');
-  expect(await screen.findByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true');
-  expect(await screen.findByRole('textbox', { name: 'System prompt' })).toHaveValue('Use evidence.');
 });

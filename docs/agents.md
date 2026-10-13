@@ -56,8 +56,6 @@ loads. The header and the main agent's sidebar entry show the session totals inc
 Worked line counts only its own work.
 
 Test chats from before migration 0081 were deleted with their tables; their run records (`run:<id>`) stay in Agent runs.
-`scripts/migrate_agent_session_history.py` (the one-off importer of pre-0036 session history files) reads the old,
-dropped `ka.agent_sessions` table (the name now belongs to the renamed sessions table) and applies only to databases before 0081.
 
 ### Grounded answers
 

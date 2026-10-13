@@ -98,9 +98,6 @@ is recreated on `agent_sessions_cc(id)` (`ON DELETE CASCADE`) with `response_tur
 (`run:<id>` in `ka.agent_run_events`) stay readable in Agent runs. The down migration deletes Test sessions (their run
 records stay) and restores the old tables empty; the old Test chats do not come back.
 
-`scripts/migrate_agent_session_history.py` reads the old `ka.agent_sessions` table, so it applies only to databases
-before 0081.
-
 ## 0083_session_notices
 
 Live session pages stop polling. Triggers send `pg_notify('ka_sessions', …)`, delivered on commit: a statement-level

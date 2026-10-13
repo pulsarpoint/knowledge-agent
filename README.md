@@ -223,14 +223,7 @@ runner require the verified one-time `make db-adopt` step described in the
 - [Architecture and planned admin workflows](docs/architecture.md)
 - [Database model and diagram](docs/database.md)
 - [PostgreSQL migration and adoption guide](docs/migrations.md)
-- [Port inventory and remaining migration work](docs/v2-migration.md)
 - [Standalone deployment details](deploy/README.md)
-- [Runtime verification results](docs/runtime-verification.md)
-- [Preserved app-docs plugin](plugins/README.md)
-
-The plugin is bundled locally and can be loaded directly by the Claude Agent
-SDK. For manual Claude use, register this checkout as a marketplace and install
-`app-docs@knowledge-agent-v3`. Its automated admin integration is not yet wired.
 
 ### RAG collections administration
 

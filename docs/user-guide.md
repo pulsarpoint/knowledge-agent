@@ -170,8 +170,7 @@ General conventions throughout the admin app:
 | Docs | Documents · Generate documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
-Footer: theme toggle and **Sign out**. Legacy URLs `/docs/*` and `/github-projects`
-redirect to their current pages.
+Footer: theme toggle and **Sign out**.
 
 ### 4.2 LLM Settings
 
@@ -666,7 +665,7 @@ read-only.
 
 **Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
 and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
-exporting into `services/<service>/<phase>/`. Old `/documentation/sessions` links redirect. Bookmarks of old generations
+exporting into `services/<service>/<phase>/`. Bookmarks of old generations
 (`/documentation/generations/<id>`) open a page that shows "Session not found".
 
 ### 4.13 Documents
@@ -890,7 +889,7 @@ and the server discovery sheet will offer prompts tagged `server-discovery`. Typ
 existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
-`service`, `mixed`). Old `/documentation/prompts` addresses open the same page.
+`service`, `mixed`).
 
 ---
 
@@ -1066,5 +1065,4 @@ and always save trusted host keys.
 | docs/documentation.md | 16,384-token output limit for all runs | Not applied to per-endpoint API analysis |
 | docs/code-processing.md | Choose a service's "source folders" | You choose code projects; folders are mapped in Code projects |
 | docs/architecture.md | Worker serializes jobs per project | The repository worker processes one job at a time overall |
-| docs/runtime-verification.md | Admin pages `/platform`, `/github-projects` | `/platform` doesn't exist; `/github-projects` redirects to `/code-projects` |
 | Skills (migration 0059) | `api-analysis` skill for API documentation | Not wired into any documentation flow |

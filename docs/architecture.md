@@ -44,7 +44,6 @@ services/admin-api/            Standalone FastAPI administration service
   src/knowledge_admin/         Admin-only app, route definitions and CLI
 services/rag/                  Retrieval engine, document processing and retrieval
 services/code-graph/           CodeGraph indexing/query scripts bundled into admin-api
-plugins/app-docs/              Preserved plugin, explicit SDK loading
 db/migrations/                Ordered application migrations
 deploy/                       Separate web/API/auth services and shared infrastructure
 ```

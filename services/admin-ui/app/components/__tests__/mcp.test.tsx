@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import MCPServersView from '../MCPServersView';
-import CodeMCPSettings from '../CodeMCPSettings';
 import OperationsView from '../OperationsView';
 import * as api from '../../lib/mcp';
 import * as operations from '../../lib/operations';
@@ -14,7 +13,6 @@ const connection: api.MCPServer = { id: 'mcp-1', name: 'Deployment tools', url: 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getMCPServers).mockResolvedValue({ servers: [connection] });
-  vi.mocked(api.getCodeMCP).mockResolvedValue({ revision: 1, mcp_server_ids: [] });
 });
 it('preserves a saved token on edit and requires confirmation to remove a connection', async () => {
   const user = userEvent.setup();
@@ -45,18 +43,6 @@ it('tests a saved connection and shows discovered tools', async () => {
   expect(api.testMCPServer).toHaveBeenCalledWith(connection);
   await user.click(screen.getByText('1 tools · Connection verified'));
   expect(screen.getByText('read_info')).toBeVisible();
-});
-it('saves code MCP selections and excludes disabled or untested connections', async () => {
-  const user = userEvent.setup();
-  vi.mocked(api.getMCPServers).mockResolvedValue({ servers: [connection, { ...connection, id: 'mcp-2', name: 'Offline', enabled: false }, { ...connection, id: 'mcp-3', name: 'Untested', last_tested_at: null }] });
-  vi.mocked(api.saveCodeMCP).mockResolvedValue({ revision: 2, mcp_server_ids: ['mcp-1'] });
-  render(<MemoryRouter><CodeMCPSettings /></MemoryRouter>);
-  await user.click(await screen.findByRole('checkbox', { name: 'Use MCP Deployment tools' }));
-  expect(screen.getByRole('checkbox', { name: 'Use MCP Offline' })).toBeDisabled();
-  expect(screen.getByRole('checkbox', { name: 'Use MCP Untested' })).toBeDisabled();
-  await user.click(screen.getByRole('button', { name: 'Save MCP selection' }));
-  await screen.findByText('Code agent MCP selection saved.');
-  expect(api.saveCodeMCP).toHaveBeenCalledWith({ revision: 1, mcp_server_ids: ['mcp-1'] }, "code");
 });
 it('inherits global MCP connections on SSH servers and saves an explicit empty override', async () => {
   const user = userEvent.setup();

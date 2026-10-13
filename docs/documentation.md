@@ -92,8 +92,7 @@ role. Mutations also require an attributed user. No credential fields are return
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
-`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts; the old
-`/documentation/prompts…` addresses redirect there), `/documentation/generations` and
+`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts), `/documentation/generations` and
 `/documentation/folders`. `input_kind` is retired: the column remains only for the
 per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive

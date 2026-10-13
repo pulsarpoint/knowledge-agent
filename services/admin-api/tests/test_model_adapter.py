@@ -35,34 +35,6 @@ def test_responses_reasoning_and_cached_usage_survive_tool_cycle(config, respons
             usage.output_tokens_details.reasoning_tokens) == (200, 160, 40, 24)
 
 
-def test_responses_benchmark_records_usage_without_private_reasoning(config, responses_api, tmp_path, monkeypatch):
-    import importlib.util
-    import sys
-    from pathlib import Path
-
-    script = Path(__file__).resolve().parents[3] / 'scripts/benchmarks/agents_api.py'
-    spec = importlib.util.spec_from_file_location('agents_api_benchmark', script)
-    benchmark = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(benchmark)
-    config['model']['reasoning_effort'] = 'max'
-    (tmp_path / 'config.json').write_text(json.dumps(config))
-    (tmp_path / 'objective.md').write_text('RESPONSES_REASONING_CYCLE')
-    output = tmp_path / 'result'
-    monkeypatch.setenv('BENCHMARK_MODEL_KEY', 'fixture-secret')
-    monkeypatch.setattr(sys, 'argv', [str(script), '--config', str(tmp_path / 'config.json'),
-        '--objective', str(tmp_path / 'objective.md'), '--output', str(output), '--api-key-env', 'BENCHMARK_MODEL_KEY'])
-    asyncio.run(benchmark.main())
-    result = json.loads((output / 'result.json').read_text())
-    assert result['status'] == 'succeeded'
-    assert result['usage']['input_tokens_details']['cached_tokens'] == 160
-    wire = [json.loads(line) for line in (output / 'wire-usage.jsonl').read_text().splitlines()]
-    assert [item['reasoning_items'] for item in wire] == [0, 1]
-    assert wire[1]['reasoning'] == {'effort': 'max'}
-    for file in output.iterdir():
-        assert 'Synthetic fixture reasoning.' not in file.read_text()
-        assert 'fixture-secret' not in file.read_text()
-
-
 @pytest.fixture
 def chat_api():
     requests = []
