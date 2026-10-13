@@ -50,7 +50,7 @@ export default function AgentProfileSettings({ profile, onSaved, onDirtyChange, 
   }
   const needsWhen = Boolean(draft.expert) && !draft.when_to_use.trim();
   const capability = ({ documents: ['documents_enabled','Document search'], git: ['repositories_enabled','Code project access'], ssh: ['ssh_enabled','SSH access'], skills: ['skills_enabled','Skills'], mcp: ['mcp_enabled','MCP tools'], services: ['services_enabled','Service context'] } as const)[view as 'documents' | 'git' | 'ssh' | 'skills' | 'mcp' | 'services'];
-  return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>Save changes to apply them. Switching a capability off preserves its selections and removes that access from agent tasks.</CardDescription></CardHeader>
+  return <Card><CardHeader><CardTitle>{view === 'general' ? 'Agent details' : capability?.[1]}</CardTitle><CardDescription>Save changes to apply them. Switching a capability off preserves its selections and removes that access from the agent's runs.</CardDescription></CardHeader>
     <form onSubmit={event => void save(event)}><CardContent className="pb-6"><FieldGroup>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}{notice && <p role="status" className="text-sm">{notice}</p>}
       <div hidden={view !== 'general'}><FieldGroup>

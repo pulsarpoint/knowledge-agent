@@ -409,12 +409,18 @@ class NativeRunner(shared.SessionRunner):
 
 async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,
                 limit: int | None = None, poll: float = 1.0, idle_release: float = IDLE_RELEASE_SECONDS) -> None:
-    """Run native sessions (session_worker.serve); AGENT_SESSION_MAX_SESSIONS of them at once (default 4)."""
+    """Run native sessions (session_worker.serve); AGENT_SESSION_MAX_SESSIONS of them at once (default 4). Event runs
+    release their slot when a turn ends with nothing queued; other runs after `idle_release` seconds idle."""
     worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}'
     limit = limit or int(os.environ.get('AGENT_SESSION_MAX_SESSIONS', '4'))
-    await shared.serve(
-        store, lambda session, slot: NativeRunner(store, session, run_agent, poll=poll, idle_release=idle_release, slot=slot),
-        label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
+
+    def start(session: dict, slot: int) -> NativeRunner:
+        # An event run gives its slot back as soon as a turn ends with nothing queued, so event bursts do not hold
+        # slots that Test, Ask agent and discovery runs need; a later message is claimed again as usual.
+        release = 0.0 if session.get('purpose') == 'event' else idle_release
+        return NativeRunner(store, session, run_agent, poll=poll, idle_release=release, slot=slot)
+
+    await shared.serve(store, start, label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
 
 
 RESTART_SECONDS = 5

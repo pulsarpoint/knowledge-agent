@@ -388,7 +388,7 @@ sessions keep their configuration. The per-turn limit is now 16 helpers (subagen
 - Rolling back 0085 deletes callers' `expert:<id>` rows (their choices of experts to switch off) and the expert switch.
   No other data is lost.
 
-## Upgrading to agent tasks and Notifications
+## Upgrading to agent tasks and Notifications (superseded by event runs, 0103)
 
 After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0090 adds
 `ka.agent_tasks` and `ka.notifications`.

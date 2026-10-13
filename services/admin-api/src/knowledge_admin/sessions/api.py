@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_sessions import ReviewInput, review_session
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.session_text import close_idle
+from knowledge_admin.session_text import close_idle, notify_closed_before_first_turn
 from knowledge_admin.sessions import start
 from knowledge_admin.sessions.rows import (CLOSED, NOTHING_TO_STOP, SUMMARY, MessageInput, SessionPurpose, session_detail,
                                            stream_event)
@@ -170,6 +170,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
                     WHERE id=%s""", (session_id,))
                 discard(conn, session_id)
+                notify_closed_before_first_turn(conn, session_id)
                 audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
 

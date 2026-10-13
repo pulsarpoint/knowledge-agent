@@ -48,13 +48,15 @@ limit, no per-turn time limit, no 300-second limit).
   refused), the rendered prompt as the first message and the handler's creator as the actor. It is titled
   `<agent> · <event type> <subject>`, shows in the agent's Test tab under Earlier runs, and can be opened and continued.
   There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
-  (`ka.notifications.session_id` points at the run) with the answer or the failure. Agent tasks (0090, one-shot calls
+  (`ka.notifications.session_id` points at the run) with the answer or the failure; a run closed before its first
+  turn gets one failed notification ("Closed."). An event run gives its worker slot back as soon as a turn ends with
+  nothing queued; a later message is picked up again as usual. Agent tasks (0090, one-shot calls
   with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
-  `event_session` for the pre-0090 event sessions); **Full record** links to it. The `end`
+  `event_session` for event runs); **Full record** links to it. The `end`
   event of a completed grounded turn carries `grounding` (cited sources and coverage, redacted). 
-- `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and pre-0090 event sessions;
+- `POST /api/sessions/{id}/review` `{ "comment": "...", "turn": n? }` (Test and event runs;
   refused while the agent works) builds the conversation from the session's events — per turn the message, comments sent while
   the agent worked, the tools called (name and summary) and the final answer or error — and runs the tuning reviewer
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored

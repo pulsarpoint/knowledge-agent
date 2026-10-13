@@ -14,7 +14,7 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
 from knowledge_admin.document_drafts import refresh_run_sources_safely
-from knowledge_admin.session_text import close_idle
+from knowledge_admin.session_text import close_idle, notify_event_run
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore
 
@@ -32,8 +32,6 @@ END_STATUS = {'waiting': 'completed', 'stopped': 'stopped', 'failed': 'failed'}
 CLOSED = object()
 LOST = object()  # another worker holds the session now: stop without further writes
 NO_USAGE = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0}
-MAX_NOTIFICATION_BODY = 200_000
-NO_ANSWER = '(The agent returned no answer.)'
 
 
 def run_key(session_id, turn: int) -> str:
@@ -99,20 +97,6 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                         SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
                         (row['project_id'], key, kind, row['agent_id'] or AD_HOC_AGENT, row['actor_id'], Jsonb(payload), key))
     return rows
-
-
-def notify_event_run(conn, session_id, number: int, status: str, text: str) -> None:
-    """When an event run's first turn ends: one notification for the run, in the transaction that finishes the turn —
-    the answer when the turn finished (`waiting`), else why it did not (the status message). Other turns and runs that
-    no event started write none."""
-    if number != 1:
-        return
-    succeeded = status == 'waiting'
-    body = (text if text.strip() else NO_ANSWER) if succeeded else text
-    conn.execute("""INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id)
-        SELECT s.project_id,'agent.response',%s,left(s.title,500),%s,s.event_id,s.handler_id,s.agent_id,s.id
-        FROM ka.agent_sessions s WHERE s.id=%s AND s.purpose='event'""",
-        ('succeeded' if succeeded else 'failed', body.replace('\x00', '')[:MAX_NOTIFICATION_BODY], session_id))
 
 
 class SessionRunner:
