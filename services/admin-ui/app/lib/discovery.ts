@@ -1,13 +1,9 @@
 import { request, type ServerAsset } from './api';
-import type { SessionStatus } from './sessions';
 
-export const DISCOVERY_TAG = 'server-discovery';
 export interface ServerDeployment { id: string; service_id: string; service_name: string; environment: string; runtime: string;
   runtime_name: string; port: number | null; deployed_version: string }
 export interface ServerPageData { server: ServerAsset; environments: { id: string; name: string }[]; deployments: ServerDeployment[];
   ssh_ready: boolean; discovery: { ready: boolean; reason: string | null } }
-export interface DiscoveryRun { id: string; title: string; status: SessionStatus; model_name: string | null; created_at: string;
-  last_activity_at: string | null; pending: number; accepted: number; rejected: number }
 export type ServiceField = 'service_type' | 'service_role' | 'description' | 'owner' | 'operations_notes';
 export const SERVICE_FIELD_LABELS: Record<ServiceField, string> = { service_type: 'Type', service_role: 'Role',
   description: 'Description', owner: 'Owner', operations_notes: 'Operations notes' };
@@ -30,9 +26,6 @@ const json = (method: string, body: unknown) => ({ method, headers: { 'Content-T
 const server = (id: string) => `/api/servers/${encodeURIComponent(id)}`;
 export const runPagePath = (serverId: string, runId: string) => `/servers/${encodeURIComponent(serverId)}/discovery/${encodeURIComponent(runId)}`;
 export const getServerPage = (id: string, signal?: AbortSignal) => request<ServerPageData>(server(id), { signal });
-export const getDiscoveryRuns = (id: string, signal?: AbortSignal) => request<{ runs: DiscoveryRun[] }>(`${server(id)}/discovery`, { signal });
-export const startDiscovery = (id: string, value: { model_id: string; prompt: string; prompt_id: string | null }) =>
-  request<{ id: string }>(`${server(id)}/discovery`, json('POST', value));
 export const getProposals = (runId: string, signal?: AbortSignal) =>
   request<{ proposals: Proposal[] }>(`/api/discovery/${encodeURIComponent(runId)}/proposals`, { signal });
 export const acceptProposal = (id: string, revision: number, fields?: ServiceField[]) =>

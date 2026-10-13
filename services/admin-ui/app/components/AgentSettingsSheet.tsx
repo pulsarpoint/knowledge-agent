@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '~/lib/api';
 import { previewSession, type AgentOptions, type AgentResources, type ChatScope, type SessionDetail } from '~/lib/sessions';
 import { OWN, shownTools, startInput, withScope, type AgentSettings } from '~/lib/agentSettings';
@@ -25,7 +25,9 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
   open: boolean; onOpenChange: (open: boolean) => void; scope: ChatScope; options: AgentOptions;
   settings: AgentSettings; onChange: (patch: Partial<AgentSettings>) => void; previewMessage: string;
   session: SessionDetail | null; onStartNew: () => void }) {
-  const settings = withScope(scope, given);
+  // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
+  const scopeServer = scope.kind === 'server' ? scope.id : null;
+  const settings = useMemo(() => withScope(scope, given), [scopeServer, given]);
   const agent = options.agent;
   const locked = session !== null && session.status !== 'closed';
   // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.

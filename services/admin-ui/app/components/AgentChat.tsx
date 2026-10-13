@@ -22,12 +22,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
  * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. A new document
  * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title and Folder of
- * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. */
+ * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. A server
+ * (its page): discovery runs of that server; blockedReason (SSH not ready) blocks starting one; onSessionChange reports the
+ * shown run with the same version (the page shows its proposals). */
 const NEEDS_NAME = 'Give the document a title and folder first.';
-export default function AgentChat({ scope, settings, initialRunId, confirmUnsaved, onDraftChange, onRunChange, blockedReason = null, onAgentChanged }: {
+export default function AgentChat({ scope, settings, initialRunId, confirmUnsaved, onDraftChange, onRunChange, onSessionChange, blockedReason = null, onAgentChanged }: {
   scope: ChatScope; settings: ReturnType<typeof useAgentSettings>; initialRunId: string | null;
   confirmUnsaved?: (run: () => void) => void; onDraftChange?: (draft: SessionDetail['document_draft'] | null, version: string) => void;
-  onRunChange?: (runId: string | null) => void; blockedReason?: string | null; onAgentChanged?: () => void }) {
+  onRunChange?: (runId: string | null) => void; onSessionChange?: (runId: string | null, version: string) => void; blockedReason?: string | null; onAgentChanged?: () => void }) {
   const isAgent = scope.kind === 'agent';
   const isNew = scope.kind === 'new-document';
   const scopeId = scope.kind === 'new-document' ? null : scope.id;
@@ -71,7 +73,10 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
     }).catch(() => { if (!controller.signal.aborted) setListFailed(true); });
     return () => controller.abort();
   }, [scope.kind, scopeId, listed]);
-  useEffect(() => { onDraftChange?.(session?.document_draft ?? null, `${session?.id}:${session?.turns}:${session?.status}`); },
+  useEffect(() => {
+    const version = `${session?.id}:${session?.turns}:${session?.status}`;
+    onDraftChange?.(session?.document_draft ?? null, version); onSessionChange?.(session?.id ?? null, version);
+  },
     [session?.document_draft?.id, session?.document_draft?.status, session?.id, session?.turns, session?.status]);
   useEffect(() => { onRunChange?.(runId); }, [runId]);
   // A run link followed on the page: open that run. A link without a run keeps the shown run (and puts it back in the URL).

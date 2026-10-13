@@ -1,8 +1,5 @@
-import { useParams } from "react-router";
-import AdminLayout from "../components/AdminLayout";
-import DiscoveryRunView from "../components/DiscoveryRunView";
-
+/** A discovery run's link: a child of the server page (server), which reads the run id and opens the chat on that run.
+ * The page renders no outlet, so this renders nothing. */
 export default function Page() {
-  const { serverId, runId } = useParams();
-  return <AdminLayout><DiscoveryRunView key={runId} serverId={serverId!} runId={runId!} /></AdminLayout>;
+  return null;
 }

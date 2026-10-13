@@ -25,8 +25,8 @@ export default [
   route("skills", "./routes/skills.tsx"),
   route("llm-settings", "./routes/llmSettings.tsx"),
   route("servers", "./routes/servers.tsx"),
-  route("servers/:serverId", "./routes/server.tsx"),
-  route("servers/:serverId/discovery/:runId", "./routes/discoveryRun.tsx"),
+  // A discovery run link is a child of the server page: following one (or the chat changing run) keeps the page mounted.
+  route("servers/:serverId", "./routes/server.tsx", [route("discovery/:runId", "./routes/discoveryRun.tsx")]),
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
   route("jira/auto-pull", "./routes/jiraAutoPull.tsx"),

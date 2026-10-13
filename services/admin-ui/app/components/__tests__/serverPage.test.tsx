@@ -1,149 +1,182 @@
-import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import ServerPage from "../ServerPage";
+import { WidePageContext } from "~/lib/widePage";
+import { options } from "~/lib/__tests__/agentOptionsFixture";
+
+const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
+vi.mock("~/lib/useSessionEvents", async () => {
+  const { useState } = await import("react");
+  return {
+    useSessionEvents: (id: string | null) => {
+      live.requested.push(id);
+      const [error, setError] = useState("");
+      return { session: id ? live.sessions[id] ?? null : null, setSession: vi.fn(), error, setError, events: [], older: "start",
+        loadOlder: vi.fn(), toolCounts: undefined, reconnecting: false };
+    },
+    useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
+  };
+});
+vi.mock("../RunWorkspace", () => ({ default: ({ heading, headerActions, empty, composer }: Record<string, any>) => <div>
+  {heading}{headerActions}{empty}
+  <label>Message<textarea value={composer.value} onChange={e => composer.onChange(e.target.value)} /></label>
+  {composer.blockedReason && <p>{composer.blockedReason}</p>}
+  <button type="button" onClick={composer.onSend}>Send message</button></div> }));
 
 const server = { id: "s1", name: "web-1", hostname: "10.0.0.7", ssh_port: 22, ssh_username: "ops", description: "Shop front end",
   tags: [], revision: 2, created_at: "", updated_at: "", access_enabled: true, allow_sudo: false, ssh_allowed: true };
+const NOT_READY = "Set up SSH for this server first (SSH settings).";
 const page = (ready: boolean, reason: string | null = null) => ({ server, environments: [{ id: "e1", name: "Production" }],
   deployments: [{ id: "d1", service_id: "n1", service_name: "nginx", environment: "Production", runtime: "systemd", runtime_name: "nginx", port: 80, deployed_version: "" }],
-  ssh_ready: reason !== "Set up SSH for this server first (SSH settings).", discovery: { ready, reason } });
-const runs = { runs: [{ id: "r1", title: "Discovery · web-1", status: "waiting", model_name: "GPT", created_at: "2026-10-11T10:00:00Z", last_activity_at: null, pending: 2, accepted: 1, rejected: 0 }] };
-const prompts = { prompts: [{ id: "p1", name: "Server discovery", description: "", tags: ["server-discovery", "ssh"], enabled: true, active_version_id: "v1", active_version: 1, version_count: 1, revision: 1 }] };
-const prompt = { ...prompts.prompts[0], versions: [{ id: "v1", version: 1, content: "Explore this server.", activated_at: "x", created_at: "x" }] };
-const llm = { models: [{ id: "m1", name: "GPT", provider: "openai", model: "gpt-5", api_format: "responses", base_url: "http://model.test/v1",
-  aws_region: null, enabled: true, revision: 1, has_api_key: false, created_at: "", updated_at: "" }],
-  assignments: { search_model_id: null, code_model_id: null, revision: 1 } };
+  ssh_ready: reason !== NOT_READY, discovery: { ready, reason } });
+const at = "2026-10-11T10:00:00Z";
+const run = (id: string, status: string, title = `Discovery ${id}`) => ({ id, title, status, model_name: "GPT", started_by: null, created_at: at,
+  last_activity_at: at, draft_id: null, pending: 1, accepted: 0, rejected: 0 });
+const detail = (id: string, status: string, serverId = "s1") => ({ id, title: `Discovery ${id}`, status, purpose: "discovery", server_id: serverId,
+  agent_name: "Ad-hoc agent", model_name: "GPT", turns: 1, config: {}, document_draft: null });
+const proposal = { id: "q1", kind: "document", number: 1, status: "pending", revision: 1, session_id: "r1", server_id: "s1", result_id: null,
+  decided_at: null, service_id: null, document_id: null, service_proposal_id: null,
+  payload: { title: "Disk layout", description: "", markdown: "# Disks", about_service: null } };
 
-function api(routes: Record<string, unknown>) {
-  const calls: { url: string; method: string; body: unknown }[] = [];
+const RUNS = "GET /api/sessions?server_id=s1";
+const base = (ready = true, reason: string | null = null): Record<string, (body: any) => [number, unknown]> => ({
+  "GET /api/servers/s1": () => [200, page(ready, reason)],
+  "GET /api/inventory/documents?entry_kind=server&entry_id=s1": () => [200, { documents: [] }],
+  "GET /api/sessions/options?server_id=s1": () => [200, options],
+  [RUNS]: () => [200, { sessions: [] }],
+});
+function api(routes: Record<string, (body: any) => [number, unknown]>) {
+  const calls: { key: string; body: any }[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
     const key = `${init?.method ?? "GET"} ${url}`;
-    const found = key in routes ? routes[key] : routes[url];
-    if (found === undefined) throw new Error(`unexpected ${key}`);
-    return new Response(JSON.stringify(found), { status: 200 });
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ key, body });
+    if (!(key in routes)) throw new Error(`unexpected ${key}`);
+    const [status, value] = routes[key](body);
+    return new Response(JSON.stringify(value), { status });
   }));
   return calls;
 }
-function Where() { const l = useLocation(); return <output data-testid="where">{l.pathname}</output>; }
-const show = () => render(<MemoryRouter initialEntries={["/servers/s1"]}><Routes>
-  <Route path="/servers/:serverId" element={<ServerPage serverId="s1" />} />
-  <Route path="*" element={<Where />} /></Routes></MemoryRouter>);
-afterEach(() => vi.unstubAllGlobals());
+const NativeRequest = globalThis.Request;
+beforeEach(() => {
+  vi.stubGlobal("Request", class extends NativeRequest {
+    constructor(input: RequestInfo | URL, init?: RequestInit) { super(input, { ...init, signal: undefined }); }
+  });
+  try { localStorage.clear(); } catch { /* none */ }
+});
+afterEach(() => { vi.unstubAllGlobals(); live.sessions = {}; live.requested = []; });
 
-test("shows the server, its services and runs; the button says why it is off", async () => {
-  api({ "/api/servers/s1": page(false, "Set up SSH for this server first (SSH settings)."), "/api/servers/s1/discovery": runs,
-        "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [{ id: "a1", entry_kind: "server", entry_id: "s1", document_id: "doc1", slug: "web-1-overview", title: "web-1 overview", created_at: "" }] } });
+const wide = { value: false };
+/** The location React rendered (the router's state may run ahead of it). */
+function Where() { return <output data-testid="where">{useLocation().pathname}</output>; }
+function show(url = "/servers/s1") {
+  // as in routes.ts: the run link is a child of the server page
+  const router = createMemoryRouter([{ path: "/servers/:serverId", element: <><ServerPage serverId="s1" /><Where /></>,
+    children: [{ path: "discovery/:runId", element: null }] }], { initialEntries: [url] });
+  wide.value = false;
+  render(<WidePageContext.Provider value={on => { wide.value = on; }}><RouterProvider router={router} /></WidePageContext.Provider>);
+  return router;
+}
+
+test("shows the server, its services and documents", async () => {
+  api({ ...base(), "GET /api/inventory/documents?entry_kind=server&entry_id=s1": () => [200, { documents: [
+    { id: "a1", entry_kind: "server", entry_id: "s1", document_id: "doc1", slug: "web-1-overview", title: "web-1 overview", created_at: "" }] }] });
   show();
   expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services");
   expect(screen.getByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
-  const run = screen.getByRole("link", { name: /Discovery · web-1/ });
-  expect(run).toHaveAttribute("href", "/servers/s1/discovery/r1");
-  expect(within(run.closest("li")!).getByText("2 pending · 1 accepted · 0 rejected")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Ask agent to collect info" })).toBeDisabled();
-  expect(screen.getByText("Set up SSH for this server first (SSH settings).")).toBeInTheDocument();
-  expect(screen.getByText("SSH not set up")).toBeInTheDocument();  // access is enabled but there is no credential
+  expect(screen.queryByRole("region", { name: "Discovery" })).toBeNull();
+  expect(screen.getAllByRole("button").map(item => item.textContent)).toEqual(["Ask agent", "Connections and documents"]);
 });
 
-test("the sheet fills the discovery prompt, which can be edited, and Start opens the run", async () => {
-  const user = userEvent.setup();
-  const calls = api({ "/api/servers/s1": page(true), "/api/servers/s1/discovery": runs,
-    "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] },
-    "/api/documentation/prompts?tag=server-discovery": prompts, "/api/documentation/prompts/p1": prompt,
-    "/api/llm": llm, "POST /api/servers/s1/discovery": { id: "r2" } });
+test("Ask agent opens the chat and the page goes wide; the first message starts a run from the server", async () => {
+  const calls = api({ ...base(), "POST /api/sessions": () => { live.sessions.r1 = detail("r1", "starting"); return [201, detail("r1", "starting")]; },
+    "GET /api/discovery/r1/proposals": () => [200, { proposals: [] }] });
   show();
-  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
-  const text = await screen.findByRole("textbox", { name: "Prompt text" });
-  expect(text).toHaveValue("Explore this server.");
-  await user.type(text, " Focus on the databases.");
-  await user.click(screen.getByRole("button", { name: "Start" }));
-  expect(await screen.findByTestId("where")).toHaveTextContent("/servers/s1/discovery/r2");
-  expect(calls.find(c => c.method === "POST")!.body).toEqual({ model_id: "m1", prompt: "Explore this server. Focus on the databases.", prompt_id: "p1" });
+  const toggle = await screen.findByRole("button", { name: "Ask agent" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const pane = screen.getByRole("region", { name: "Ask agent" });
+  expect(wide.value).toBe(true);
+  expect(screen.getByTestId("server-split")).toHaveClass("lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]");
+  expect(within(pane).getByText("Ask the agent to explore this server.")).toBeInTheDocument();
+  await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Explore it." } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(calls.some(c => c.key === "POST /api/sessions")).toBe(true));
+  const body = calls.find(c => c.key === "POST /api/sessions")!.body;
+  expect(body.started_from).toEqual({ server_id: "s1" });
+  expect(body.message).toBe("Explore it.");
+  expect(body.resources.server_ids).toContain("s1");
+  // the URL follows the chat's run, and the proposals panel shows above the details
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1/discovery/r1"));
+  expect(await screen.findByRole("region", { name: "Proposals panel" })).toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(wide.value).toBe(false);
+  expect(screen.queryByRole("region", { name: "Ask agent" })).toBeNull();
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/servers\/s1$/));
 });
 
-test("without a discovery prompt the sheet says how to add one", async () => {
-  const user = userEvent.setup();
-  api({ "/api/servers/s1": page(true), "/api/servers/s1/discovery": { runs: [] },
-    "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] },
-    "/api/documentation/prompts?tag=server-discovery": { prompts: [] }, "/api/llm": llm });
+test("the run link opens the page with the chat on that run and its proposals above the details", async () => {
+  live.sessions.r1 = detail("r1", "waiting");
+  const calls = api({ ...base(), [RUNS]: () => [200, { sessions: [run("r2", "waiting"), run("r1", "waiting")] }],
+    "GET /api/discovery/r1/proposals": () => [200, { proposals: [proposal] }] });
+  show("/servers/s1/discovery/r1");
+  const pane = await screen.findByRole("region", { name: "Ask agent" });
+  expect(screen.getByRole("button", { name: "Ask agent" })).toHaveAttribute("aria-pressed", "true");
+  expect(await within(pane).findByRole("heading", { name: "Discovery r1" })).toBeInTheDocument();
+  const panel = await screen.findByRole("region", { name: "Proposals panel" });
+  expect(await within(panel).findByText("1 · New document Disk layout")).toBeInTheDocument();
+  expect(within(panel).getByRole("heading", { name: "Proposals · 1 pending" })).toBeInTheDocument();
+  // above the server's details
+  expect(panel.compareDocumentPosition(screen.getByRole("heading", { name: "web-1" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(live.requested).not.toContain("r2");
+  expect(calls.some(c => c.key === "GET /api/discovery/r1/proposals")).toBe(true);
+});
+
+test("Earlier runs lists the server's runs and opens one", async () => {
+  live.sessions.r2 = detail("r2", "waiting"); live.sessions.r1 = detail("r1", "closed");
+  api({ ...base(), [RUNS]: () => [200, { sessions: [run("r2", "waiting"), run("r1", "closed", "Look at the cron jobs")] }],
+    "GET /api/discovery/r1/proposals": () => [200, { proposals: [] }], "GET /api/discovery/r2/proposals": () => [200, { proposals: [] }] });
   show();
-  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
-  expect(await screen.findByText("No prompt is tagged server-discovery. Add one in Administration → Prompts, or write the instructions here.")).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "Prompt text" })).toHaveValue("");
+  fireEvent.click(await screen.findByRole("button", { name: "Ask agent" }));
+  const pane = screen.getByRole("region", { name: "Ask agent" });
+  await waitFor(() => expect(live.requested.at(-1)).toBe("r2"));
+  fireEvent.keyDown(within(pane).getByRole("button", { name: "Earlier runs" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: /Look at the cron jobs/ }));
+  await waitFor(() => expect(live.requested.at(-1)).toBe("r1"));
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/servers/s1/discovery/r1"));
 });
 
-const apiFail = (message: string, status: number) => new Response(JSON.stringify({ error: { message } }), { status });
+test("a server whose SSH is not ready shows its reason and blocks the first message", async () => {
+  const calls = api(base(false, NOT_READY));
+  show();
+  expect(await screen.findByText(NOT_READY)).toBeInTheDocument();
+  expect(screen.getByText("SSH not set up")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Ask agent" }));
+  const pane = screen.getByRole("region", { name: "Ask agent" });
+  expect(within(pane).getByText(NOT_READY)).toBeInTheDocument();
+  await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Explore it." } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(calls.some(c => c.key === "POST /api/sessions")).toBe(false);
+});
 
 test("a missing server says so and links back to Servers", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/discovery") ? new Response(JSON.stringify({ runs: [] })) :
-    url.includes("/api/inventory") ? new Response(JSON.stringify({ documents: [] })) : apiFail("Server not found.", 404)));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/api/inventory") ? new Response(JSON.stringify({ documents: [] }))
+    : new Response(JSON.stringify({ error: { message: "Server not found." } }), { status: 404 })));
   show();
   expect(await screen.findByText("Server not found.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("href", "/servers");
 });
 
-test("empty services, documents and runs are explained", async () => {
-  api({ "/api/servers/s1": { ...page(true), deployments: [] }, "/api/servers/s1/discovery": { runs: [] },
-    "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] } });
+test("empty services and documents are explained", async () => {
+  api({ ...base(), "GET /api/servers/s1": () => [200, { ...page(true), deployments: [] }] });
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
   expect(screen.getByText("No documents are attached to this server.")).toBeInTheDocument();
-  expect(screen.getByText("No discovery runs yet.")).toBeInTheDocument();
-});
-
-const sheetRoutes = (extra: Record<string, unknown>) => ({ "/api/servers/s1": page(true), "/api/servers/s1/discovery": runs,
-  "/api/inventory/documents?entry_kind=server&entry_id=s1": { documents: [] }, "/api/llm": llm, ...extra });
-
-test("a start that the API refuses shows its message and stays on the page", async () => {
-  const user = userEvent.setup();
-  api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": prompts, "/api/documentation/prompts/p1": prompt }));
-  const base = (fetch as unknown as ReturnType<typeof vi.fn>).getMockImplementation()!;
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
-    init?.method === "POST" ? apiFail("Set up SSH for this server first.", 409) : base(url, init)));
-  show();
-  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
-  await screen.findByDisplayValue("Explore this server.");
-  await user.click(screen.getByRole("button", { name: "Start" }));
-  expect(await screen.findByText("Set up SSH for this server first.")).toBeInTheDocument();
-  expect(screen.queryByTestId("where")).toBeNull();
-});
-
-test("Start is off when the prompt text is cleared", async () => {
-  const user = userEvent.setup();
-  api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": prompts, "/api/documentation/prompts/p1": prompt }));
-  show();
-  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
-  const text = await screen.findByDisplayValue("Explore this server.");
-  expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
-  await user.clear(text);
-  expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
-});
-
-test("switching prompts replaces the text; a failed load keeps the previous choice", async () => {
-  const user = userEvent.setup();
-  const second = { ...prompts.prompts[0], id: "p2", name: "Deep dive", active_version_id: "v2" };
-  const third = { ...prompts.prompts[0], id: "p3", name: "Broken", active_version_id: "v3" };
-  const calls = api(sheetRoutes({ "/api/documentation/prompts?tag=server-discovery": { prompts: [prompts.prompts[0], second, third] },
-    "/api/documentation/prompts/p1": prompt,
-    "/api/documentation/prompts/p2": { ...second, versions: [{ id: "v2", version: 1, content: "Dig deep.", activated_at: "x", created_at: "x" }] },
-    "POST /api/servers/s1/discovery": { id: "r2" } }));
-  const base = (fetch as unknown as ReturnType<typeof vi.fn>).getMockImplementation()!;
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
-    url.endsWith("/prompts/p3") ? apiFail("boom", 500) : base(url, init)));
-  show();
-  await user.click(await screen.findByRole("button", { name: "Ask agent to collect info" }));
-  await screen.findByDisplayValue("Explore this server.");
-  await user.click(screen.getByRole("combobox", { name: "Prompt" }));
-  await user.click(await screen.findByRole("option", { name: "Deep dive" }));
-  expect(await screen.findByDisplayValue("Dig deep.")).toBeInTheDocument();
-  await user.click(screen.getByRole("combobox", { name: "Prompt" }));
-  await user.click(await screen.findByRole("option", { name: "Broken" }));
-  expect(await screen.findByText("Could not load the prompt.")).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "Prompt text" })).toHaveValue("Dig deep.");
-  await user.click(screen.getByRole("button", { name: "Start" }));
-  await screen.findByTestId("where");
-  expect(calls.find(c => c.method === "POST")!.body).toMatchObject({ prompt: "Dig deep.", prompt_id: "p2" });
 });

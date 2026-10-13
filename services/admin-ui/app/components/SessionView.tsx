@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { draftPath } from '~/lib/drafts';
+import { runPagePath } from '~/lib/discovery';
 import { agentRunPath, closeSession, sendMessage, statusLabels, stopSession } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
@@ -40,7 +41,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     : session.target_document_id
     ? <Link className="underline" to={agentRunPath(session.target_document_id, session.id)}>the document</Link>
     : session.server_id
-      ? <Link className="underline" to={`/servers/${encodeURIComponent(session.server_id)}/discovery/${encodeURIComponent(session.id)}`}>the server</Link>
+      ? <Link className="underline" to={runPagePath(session.server_id, session.id)}>the server</Link>
       : session.agent_id
         ? <Link className="underline" to={`/agents/${encodeURIComponent(session.agent_id)}?view=test&session_id=${encodeURIComponent(session.id)}`}>the agent</Link>
         : null;

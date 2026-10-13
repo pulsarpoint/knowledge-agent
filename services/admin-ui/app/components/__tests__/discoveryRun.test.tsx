@@ -1,57 +1,35 @@
-import { afterEach, expect, test, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import DiscoveryRunView from "../DiscoveryRunView";
+import routes from "~/routes";
+import DiscoveryRunRoute from "~/routes/discoveryRun";
+import { runPagePath } from "~/lib/discovery";
+import SessionView from "../SessionView";
 
-const live = vi.hoisted(() => ({ status: "waiting" }));
-vi.mock("~/lib/useSessionEvents", () => ({
-  useSessionEvents: () => ({ session: { id: "r1", title: "Discovery · web-1", status: live.status, purpose: "discovery", agent_name: "Ad-hoc agent",
-    model_name: "GPT", run_resources: {}, turns: 1 }, setSession: vi.fn(), error: "", setError: vi.fn(), events: [], older: "start", loadOlder: vi.fn(), toolCounts: undefined, reconnecting: false }),
-  useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
-}));
-vi.mock("../RunWorkspace", () => ({ default: ({ heading, sidebar }: { heading: React.ReactNode; sidebar: React.ReactNode }) => <div>{heading}{sidebar}</div> }));
+vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
-const update = { id: "q1", kind: "service", number: 1, status: "pending", revision: 2, session_id: "r1", server_id: "s1", result_id: null, decided_at: null,
-  service_id: "n1", document_id: null, service_proposal_id: null,
-  payload: { name: "nginx", service_type: "builtin", service_role: "unclassified", description: "Reverse proxy", owner: "platform", operations_notes: "",
-    deployment: { environment_id: "e1", environment: "Production", runtime: "", runtime_name: "nginx", port: null, log_location: "", deployed_version: "1.24" },
-    depends_on: [], built_from: [], matched_revision: 3 },
-  current: { id: "n1", name: "nginx", revision: 3, service_type: "unclassified", service_role: "proxy", description: "Front proxy", owner: "web team", operations_notes: "" },
-  changes: ["service_type", "description", "owner"],
-  current_deployment: { id: "d1", environment_id: "e1", environment: "Production", runtime: "systemd", runtime_name: "nginx", port: 80, log_location: "", deployed_version: "" } };
-const document = { id: "q2", kind: "document", number: 2, status: "pending", revision: 1, session_id: "r1", server_id: "s1", result_id: null, decided_at: null,
-  service_id: null, document_id: null, service_proposal_id: null, payload: { title: "Disk layout", description: "", markdown: "# Disks", about_service: null } };
+class Stream extends EventTarget { close = vi.fn(); constructor(public url: string) { super(); } }
+beforeEach(() => vi.stubGlobal("EventSource", Stream));
+afterEach(() => vi.unstubAllGlobals());
 
-function api(routes: Record<string, (body: unknown) => [number, unknown]>) {
-  const calls: { key: string; body: unknown }[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    const key = `${init?.method ?? "GET"} ${url}`;
-    const body = init?.body ? JSON.parse(String(init.body)) : null;
-    calls.push({ key, body });
-    if (!(key in routes)) throw new Error(`unexpected ${key}`);
-    const [status, value] = routes[key](body);
-    return new Response(JSON.stringify(value), { status });
-  }));
-  return calls;
-}
-const show = () => render(<MemoryRouter><DiscoveryRunView serverId="s1" runId="r1" /></MemoryRouter>);
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); live.status = "waiting"; });
+test("a discovery run link is a child of the server page, and its route renders nothing of its own", () => {
+  const server = routes.find(item => item.path === "servers/:serverId")!;
+  expect(server.file).toBe("./routes/server.tsx");
+  expect(server.children?.map(item => [item.path, item.file])).toEqual([["discovery/:runId", "./routes/discoveryRun.tsx"]]);
+  expect(routes.some(item => item.path === "servers/:serverId/discovery/:runId")).toBe(false);
+  expect(DiscoveryRunRoute()).toBeNull();
+  expect(runPagePath("s 1", "r1")).toBe("/servers/s%201/discovery/r1");
+});
 
-test("lists proposals; an update shows current against proposed and accepts only the kept fields", async () => {
-  const user = userEvent.setup();
-  const calls = api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [update, document] }],
-    "POST /api/discovery/proposals/q1/accept": () => [200, { proposal: { ...update, status: "accepted" }, result_id: "n1", export_error: null }] });
-  show();
-  const list = await screen.findByRole("list", { name: "Proposals" });
-  expect(within(list).getByText("1 · Update service nginx")).toBeInTheDocument();
-  expect(within(list).getByText("2 · New document Disk layout")).toBeInTheDocument();
-  await user.click(within(list).getAllByRole("button", { name: "Review" })[0]);
-  const owner = await screen.findByRole("checkbox", { name: "Keep Owner" });
-  expect(screen.getByText("web team")).toBeInTheDocument();
-  expect(screen.getByText("platform")).toBeInTheDocument();
-  await user.click(owner);
-  await user.click(screen.getByRole("button", { name: "Accept" }));
-  await waitFor(() => expect(calls.some(c => c.key === "POST /api/discovery/proposals/q1/accept")).toBe(true));
-  expect(calls.find(c => c.key === "POST /api/discovery/proposals/q1/accept")!.body).toEqual({ revision: 2, fields: ["service_type", "description"] });
+test("a discovery run's session page says it started from the server, linking to the server page on that run", async () => {
+  const detail = { id: "r1", title: "Discovery · web-1", purpose: "discovery", status: "waiting", status_message: "", turns: 1, input_tokens: 0,
+    output_tokens: 0, cached_tokens: 0, model_calls: 0, reasoning_tokens: 0, draft: null, draft_turn: null, document_id: null, document_draft: null,
+    worker_active: false, queued: 0, document_name: null, folder: null, agent_id: null, agent_name: "Ad-hoc agent", model_id: "m1", model_name: "GPT",
+    document_title: null, target_document_id: null, server_id: "s1", run_resources: null, prompt_snapshot: { system_prompt: "" },
+    context_snapshot: { folders: [], code_project_ids: [], instructions: "" }, tool_counts: [], inputs: [],
+    created_at: "2026-10-11T10:00:00Z", last_activity_at: "2026-10-11T10:00:00Z", closed_at: null };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/events/history")
+    ? Response.json({ events: [], has_more: false }) : Response.json(detail)));
+  render(<MemoryRouter><SessionView sessionId="r1" /></MemoryRouter>);
+  expect(await screen.findByRole("link", { name: "the server" })).toHaveAttribute("href", "/servers/s1/discovery/r1");
 });
