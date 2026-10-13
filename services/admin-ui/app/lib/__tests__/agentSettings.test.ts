@@ -119,3 +119,12 @@ test('settings saved for an older revision of the agent are dropped', () => {
   expect(restoreSettings(agentOptions, saved)).toEqual(defaultSettings(agentOptions));
   expect(restoreSettings(agentOptions, { ...saved, revision: 3 }).off).toEqual(['ssh_run']);
 });
+
+test('a saved agent with fixed resources keeps every tool, since its options list no resources', () => {
+  const fixed = { ...agentOptions, agent: { ...agentOptions.agent!, resources_fixed: true } };
+  const settings = defaultSettings(fixed);
+  expect(shownTools(fixed, settings).map(tool => tool.name)).toEqual(['ssh_run', 'read_file']);
+  const body = startInput({ kind: 'agent', id: 'ops', name: 'Operations' }, fixed, settings, 'Go');
+  expect((body as { tools: string[] }).tools).toContain('ssh_run');
+  expect(shownTools(agentOptions, defaultSettings(agentOptions)).map(tool => tool.name)).toEqual([]);
+});

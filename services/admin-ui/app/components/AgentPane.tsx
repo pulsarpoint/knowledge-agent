@@ -131,8 +131,7 @@ export default function AgentPane({ documentId, documentTitle, settings, initial
         onStop: open ? () => void act(async () => { await stopSession(runId!); stopping(); }) : undefined,
         blockedReason: foreign ? 'This run belongs to another document. Start a New chat.'
           : session?.status === 'closed' ? 'This conversation is closed. Start a New chat.' : null }} />
-    {settings.options && settings.settings && <AgentSettingsSheet open={sheet} onOpenChange={setSheet} documentId={documentId}
-      documentTitle={documentTitle} options={settings.options}
+    {settings.options && settings.settings && <AgentSettingsSheet open={sheet} onOpenChange={setSheet} scope={{ kind: 'document', id: documentId, title: documentTitle }} options={settings.options}
       settings={open ? settingsFromSession(settings.options, session) : settings.settings} onChange={settings.update}
       previewMessage={message} session={open ? session : null}
       onStartNew={() => { const next = settingsFromSession(settings.options!, session!); void closeAndClear().then(done => { if (done) settings.replace(next); }); }} />}

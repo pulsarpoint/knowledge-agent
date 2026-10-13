@@ -4,13 +4,19 @@ import AgentSettingsSheet from '../AgentSettingsSheet';
 import { defaultSettings, type AgentSettings } from '~/lib/agentSettings';
 import type { SessionDetail } from '~/lib/sessions';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
+import { agentOptions } from '~/lib/__tests__/agentScopeFixture';
+import type { AgentOptions, ChatScope } from '~/lib/sessions';
 
 afterEach(() => vi.unstubAllGlobals());
 
-function Harness({ session = null, onStartNew = () => {}, message = '' }: { session?: SessionDetail | null; onStartNew?: () => void; message?: string }) {
-  const [settings, setSettings] = useState<AgentSettings>(defaultSettings(options));
+const docScope: ChatScope = { kind: 'document', id: 'doc-1', title: 'Runbook' };
+const agentScope: ChatScope = { kind: 'agent', id: 'ops', name: 'Operations' };
+
+function Harness({ session = null, onStartNew = () => {}, message = '', scope = docScope, opts = options }:
+  { session?: SessionDetail | null; onStartNew?: () => void; message?: string; scope?: ChatScope; opts?: AgentOptions }) {
+  const [settings, setSettings] = useState<AgentSettings>(defaultSettings(opts));
   return <>
-    <AgentSettingsSheet open onOpenChange={() => {}} documentId="doc-1" documentTitle="Runbook" options={options} settings={settings}
+    <AgentSettingsSheet open onOpenChange={() => {}} scope={scope} options={opts} settings={settings}
       onChange={patch => setSettings(current => ({ ...current, ...patch }))} previewMessage={message} session={session} onStartNew={onStartNew} />
     <output aria-label="Settings state">{JSON.stringify(settings)}</output>
   </>;
@@ -76,4 +82,28 @@ test('read-only: Advanced still opens and shows the run\'s system prompt, disabl
   fireEvent.click(advanced);
   expect(screen.getByRole('textbox', { name: 'System prompt' })).toBeDisabled();
   expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue('Read with get_document. Change with edit_document or save_document.');
+});
+
+test('a saved agent shows its model and prompt read-only and offers only narrowing', () => {
+  render(<Harness scope={agentScope} opts={agentOptions} />);
+  expect(screen.getByText('What the agent may use in the next conversation.')).toBeInTheDocument();
+  expect(screen.getByText('GPT')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
+  expect(screen.getAllByText('Change them in General.').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+  expect(screen.getByText('You operate servers.')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: 'System prompt' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: 'Prompt' })).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'web-1' }));
+  expect(screen.getByRole('checkbox', { name: 'SSH' })).toBeChecked();
+  expect(screen.getByRole('switch', { name: 'Allow subagents' })).toBeInTheDocument();
+});
+
+test("a fixed agent's resources are not offered", () => {
+  const fixed = { ...agentOptions, agent: { ...agentOptions.agent!, resources_fixed: true, subagents_allowed: false } };
+  render(<Harness scope={agentScope} opts={fixed} />);
+  expect(screen.getByText("This agent's resources are fixed.")).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'web-1' })).toBeNull();
+  expect(screen.queryByRole('switch', { name: 'Allow subagents' })).toBeNull();
+  expect(screen.getByRole('checkbox', { name: 'SSH' })).toBeChecked();
 });

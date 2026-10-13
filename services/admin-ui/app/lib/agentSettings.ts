@@ -84,8 +84,9 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     experts: (config.experts ?? []).map(entry => String(entry.id)).filter(id => experts.has(id)) };
 }
 
+/** A saved agent with fixed resources lists none in its options, so no tool is filtered by what is chosen. */
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
-  options.tools.filter(tool => toolApplies(tool, settings.chosen, options.resources));
+  options.agent?.resources_fixed ? options.tools : options.tools.filter(tool => toolApplies(tool, settings.chosen, options.resources));
 
 export function startInput(scope: ChatScope, options: AgentOptions, settings: AgentSettings, message: string): StartInput {
   const tools = shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name);
