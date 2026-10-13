@@ -351,7 +351,7 @@ installation, run the database migration (`make up` runs it, or `make db-migrate
 - Migration 0081 deletes the existing Test chats and their saved suggestions (`ka.agent_sessions`,
   `ka.operations_runs`, `ka.operations_commands`, `ka.agent_session_reviews`). Their run records are kept: Activity →
   Agent runs still lists them (type *Agent test*) and opens each full record.
-- New Test sessions are listed in the Test tab's **History** and in Agent runs as *Test session*; each answer's
+- New Test sessions are listed in the Test tab's **Earlier runs** and in Agent runs as *Test session*; each answer's
   **Full record** opens `cc:<session>:<turn>`.
 - Test sessions close after 24 hours without activity (the old Test chats closed after 1 hour) and have no 300-second
   turn limit.

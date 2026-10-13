@@ -560,7 +560,7 @@ list wins over the "all tools" default.
 **Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, **Settings** lists the agent's resources, one list per kind the agent uses, and you choose from them for the run; the choice is kept for the session and shown in the header and in **Preview**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: message ≤ 20,000 characters; a Test session's turns have no time
-limit (they end with the answer, **Stop**, **Close session** or a lost worker), and a session closes after 24 hours
+limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a session closes after 24 hours
 without activity. A message is blocked if the agent is disabled, has no enabled model, or other tabs have unsaved
 changes.
 
