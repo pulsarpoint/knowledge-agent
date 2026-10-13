@@ -11,9 +11,16 @@ TOOLS = ('get_server_info_basic', 'get_server_services', 'get_server_docs', 'get
          'get_project_info', 'get_document')
 
 
+def pinned(world, project=None):
+    """A run given web-1, nginx and Shop: the entries these tests read."""
+    return {'project_id': str(project or world.project), 'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}]},
+            'services': {'enabled': True, 'items': [{'id': str(world.nginx)}]},
+            'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]}}
+
+
 def call(world, tool, **arguments):
     spec = CATALOG[tool]
-    context = {'config': {'project_id': str(world.project)}}
+    context = {'config': pinned(world)}
     text = asyncio.run(spec.run(context, spec.arguments.model_validate(arguments)))
     try:
         return json.loads(text)
@@ -26,7 +33,7 @@ def test_server_info_by_hostname_or_name(world):
     assert info['name'] == 'web-1' and info['environments'] == ['Production']
     assert info['service_count'] == 1 and info['document_count'] == 1
     assert call(world, 'get_server_info_basic', hostname='WEB-1')['hostname'] == '10.0.0.7'
-    assert call(world, 'get_server_info_basic', hostname='nope') == "No server with hostname or name 'nope' in the inventory."
+    assert call(world, 'get_server_info_basic', hostname='nope') == 'This server is not available in this run.'
 
 
 def test_server_services_and_documents(world):
@@ -44,7 +51,7 @@ def test_service_info_has_fields_deployments_connections_and_documents(world):
     assert info['deployments'][0]['server'] == 'web-1'
     assert info['built_from'] == ['Shop'] and info['documents'][0]['title'] == 'nginx runbook'
     assert call(world, 'get_service_docs', name='nginx')['items'][0]['title'] == 'nginx runbook'
-    assert call(world, 'get_service_info', name='redis') == "No service named 'redis' in the inventory."
+    assert call(world, 'get_service_info', name='redis') == 'This service is not available in this run.'
 
 
 def test_project_info_lists_the_services_built_from_it(world):
@@ -77,10 +84,10 @@ def test_lists_stop_at_100(world):
 def test_another_workspace_is_not_visible(world):
     with world.store.connect() as conn:
         other = world.store.project(conn, 'other-app')
-    context = {'config': {'project_id': str(other)}}
+    context = {'config': pinned(world, other)}
     spec = CATALOG['get_server_info_basic']
     text = asyncio.run(spec.run(context, spec.arguments.model_validate({'hostname': 'web-1'})))
-    assert text == "No server with hostname or name 'web-1' in the inventory."
+    assert text == 'This server is not available in this run.'
 
 
 def test_inventory_tools_are_a_group_that_existing_agents_have_off():

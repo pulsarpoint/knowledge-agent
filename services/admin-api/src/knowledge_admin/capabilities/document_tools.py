@@ -43,7 +43,7 @@ LIVE = '''SELECT v.id AS version_id,v.version,v.title,v.description,v.purpose,v.
     FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s'''
 WORKING = '''SELECT id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
     WHERE session_id=%s AND document_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1'''
-ATTACHED = 'SELECT 1 FROM ka.inventory_documents WHERE document_id=%s'
+ATTACHED = 'SELECT server_id,service_id,code_project_id FROM ka.inventory_documents WHERE document_id=%s'
 NEW_WORKING = '''SELECT id,document_id,base_version_id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
     WHERE session_id=%s AND status='open' AND NOT edited AND ((document_id IS NULL AND folder IS NOT DISTINCT FROM %s AND slug=%s)
     OR document_id=(SELECT id FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s AND slug=%s))
@@ -100,12 +100,23 @@ def _document_id(value: str) -> UUID:
 
 
 def _readable(conn, config: dict[str, Any], document: UUID) -> bool:
-    """A document the run was given, or one attached to an inventory entry (read-only, as get_document always allowed)."""
+    """A document the run was given, or one attached to a server, service or code project the run was given
+    (read-only). A document attached only elsewhere is not readable."""
     try:
         allowed(config, 'document', str(document))
         return True
     except ValueError:
-        return conn.execute(ATTACHED, (document,)).fetchone() is not None
+        pass
+    for row in conn.execute(ATTACHED, (document,)).fetchall():
+        for kind, column in (('server', 'server_id'), ('service', 'service_id'), ('code_project', 'code_project_id')):
+            if row[column] is None:
+                continue
+            try:
+                allowed(config, kind, str(row[column]))
+                return True
+            except ValueError:
+                continue
+    return False
 
 
 def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: bool = False) -> dict | None:

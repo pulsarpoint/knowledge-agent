@@ -56,7 +56,8 @@ def test_drafts_are_never_documents(docs, monkeypatch):
         conn.execute('INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',
                      (docs.project, server, docs.runbook))
     spec = CATALOG['get_document']
-    text = asyncio.run(spec.run({'config': {'project_id': str(docs.project)}},
+    config = {'project_id': str(docs.project), 'ssh': {'enabled': True, 'servers': [{'id': str(server)}]}}
+    text = asyncio.run(spec.run({'config': config},
                                 spec.arguments.model_validate({'document_id': docs.runbook})))
     assert json.loads(text)['markdown'] == '# Runbook v1'
 

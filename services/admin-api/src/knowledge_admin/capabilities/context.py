@@ -49,9 +49,12 @@ def require_given(config: dict[str, Any], kind: str) -> None:
 
 
 NOT_AVAILABLE = 'This {kind} is not available in this run.'
+KIND_NAMES = {'server': 'server', 'document': 'document', 'service': 'service', 'code_project': 'code project'}
 ACCESS = {
     'server': lambda config: config['ssh']['servers'] if config['ssh']['enabled'] else [],
     'document': lambda config: config.get('document_access', []),
+    'service': lambda config: config['services']['items'] if config['services']['enabled'] else [],
+    'code_project': lambda config: config['code']['projects'] if config['code']['enabled'] else [],
 }
 
 
@@ -60,5 +63,5 @@ def allowed(config: dict[str, Any], kind: str, item_id: str, *, write: bool = Fa
     takes a resource id checks it here; anything else — and, with write, an entry that is not editable — is refused."""
     entry = next((item for item in ACCESS[kind](config) if str(item['id']) == str(item_id)), None)
     if entry is None or (write and not entry.get('editable')):
-        raise ValueError(NOT_AVAILABLE.format(kind=kind))
+        raise ValueError(NOT_AVAILABLE.format(kind=KIND_NAMES[kind]))
     return entry

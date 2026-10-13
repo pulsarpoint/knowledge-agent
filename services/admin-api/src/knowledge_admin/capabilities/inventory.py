@@ -1,12 +1,13 @@
 """Read the inventory for an agent: servers, services, code projects and the documents attached to them. Read-only.
 The tools run where agents run (agent-session-worker, admin-api); configure() gives them that process's database.
-The workspace is the run's (a discovery run pins config['project_id']) or the single application's."""
+The workspace is the run's (a discovery run pins config['project_id']) or the single application's. Each tool answers
+only about a server, service or code project the run was given (its allowlist); anything else reads as missing."""
 import asyncio
 import json
 from typing import Any
 from uuid import UUID
 
-from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.context import KIND_NAMES, NOT_AVAILABLE, RunContext, allowed
 
 MAX_ITEMS = 100
 SHORT = 300
@@ -64,12 +65,20 @@ DEPLOYMENTS = '''SELECT s.name AS service,h.name AS server,COALESCE(e.name,d.env
     ORDER BY lower(s.name),lower(h.name),environment,d.runtime_name LIMIT {limit}'''
 
 
-def _no_server(hostname: str) -> str:
-    return f"No server with hostname or name '{hostname}' in the inventory."
+def _given(config: dict[str, Any], kind: str, row: dict | None) -> bool:
+    """Whether the run was given this entry. A refused entry and a missing one answer alike (_unavailable), so a run
+    cannot learn what exists outside its allowlist."""
+    if row is None:
+        return False
+    try:
+        allowed(config, kind, str(row['id']))
+        return True
+    except ValueError:
+        return False
 
 
-def _no_service(name: str) -> str:
-    return f"No service named '{name}' in the inventory."
+def _unavailable(kind: str) -> str:
+    return NOT_AVAILABLE.format(kind=KIND_NAMES[kind])
 
 
 def _documents(conn, column: str, entry_id) -> list[dict]:
@@ -80,8 +89,8 @@ def _documents(conn, column: str, entry_id) -> list[dict]:
 def _server_info(config, hostname: str) -> str:
     with connect() as conn:
         server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if server is None:
-            return _no_server(hostname)
+        if not _given(config, 'server', server):
+            return _unavailable('server')
         environments = [row['name'] for row in conn.execute('''SELECT e.name FROM ka.environment_servers es
             JOIN ka.environments e ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name)''', (server['id'],))]
         counts = conn.execute('''SELECT (SELECT count(DISTINCT service_id) FROM ka.service_deployments WHERE server_id=%(id)s) AS services,
@@ -93,8 +102,8 @@ def _server_info(config, hostname: str) -> str:
 def _server_services(config, hostname: str) -> str:
     with connect() as conn:
         server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if server is None:
-            return _no_server(hostname)
+        if not _given(config, 'server', server):
+            return _unavailable('server')
         rows = conn.execute(f'''SELECT s.id,s.name,s.service_type,s.service_role,s.description,COALESCE(e.name,d.environment) AS environment,
             d.runtime,d.runtime_name,d.port,d.deployed_version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
             LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
@@ -105,8 +114,8 @@ def _server_services(config, hostname: str) -> str:
 def _server_docs(config, hostname: str) -> str:
     with connect() as conn:
         server = conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchone()
-        if server is None:
-            return _no_server(hostname)
+        if not _given(config, 'server', server):
+            return _unavailable('server')
         return dumps({'server': server['name'], **listed(_documents(conn, 'server_id', server['id']))})
 
 
@@ -114,8 +123,8 @@ def _service_info(config, name: str) -> str:
     with connect() as conn:
         project = project_of(conn, config)
         service = conn.execute(SERVICE, (project, name)).fetchone()
-        if service is None:
-            return _no_service(name)
+        if not _given(config, 'service', service):
+            return _unavailable('service')
         deployments = conn.execute(DEPLOYMENTS.format(column='service_id', limit=MAX_ITEMS), (service['id'],)).fetchall()
         links = conn.execute('''SELECT l.kind,l.description,l.from_id=%(id)s AS outgoing,
             CASE WHEN l.from_id=%(id)s THEN t.kind ELSE f.kind END AS other_kind,
@@ -136,16 +145,16 @@ def _service_info(config, name: str) -> str:
 def _service_docs(config, name: str) -> str:
     with connect() as conn:
         service = conn.execute(SERVICE, (project_of(conn, config), name)).fetchone()
-        if service is None:
-            return _no_service(name)
+        if not _given(config, 'service', service):
+            return _unavailable('service')
         return dumps({'service': service['name'], **listed(_documents(conn, 'service_id', service['id']))})
 
 
 def _project_info(config, name: str) -> str:
     with connect() as conn:
         code = conn.execute(CODE_PROJECT, (project_of(conn, config), name)).fetchone()
-        if code is None:
-            return f"No code project named '{name}' in the inventory."
+        if not _given(config, 'code_project', code):
+            return _unavailable('code_project')
         services = [row['name'] for row in conn.execute('''SELECT s.name FROM ka.inventory_links l JOIN ka.services s ON s.id=l.from_service_id
             WHERE l.kind='built_from' AND l.to_code_project_id=%s ORDER BY lower(s.name)''', (code['id'],))]
         documents = conn.execute(ATTACHED.format(column='code_project_id', limit=MAX_ITEMS), (code['id'],)).fetchall()
