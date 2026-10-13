@@ -286,4 +286,5 @@ left alone: add that the server is the one named in the context, to run commands
 prompt) are closed with "Closed by an update; start a new chat."; their queued messages are discarded and their
 proposals stay reviewable. `POST /api/servers/{id}/discovery` and `GET /api/servers/{id}/discovery` are removed (use
 `GET /api/sessions?server_id=`). The down migration re-activates version 1 and removes version 2 when version 2 is
-still active and untouched, and restores 0097's seed for new workspaces; closed runs stay closed.
+still active and untouched, and restores 0097's seed for new workspaces; closed runs stay closed. It only reverts prompts
+0102 itself rewrote (workspaces created after 0102 keep the new text).

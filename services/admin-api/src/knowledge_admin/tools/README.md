@@ -57,6 +57,10 @@ share the turn's limit of 16 helpers with subagents.
   Preserves native fields and edge metadata. Source hashes must match the index.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
+- Inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
+  `get_service_docs`, `get_project_info`, `get_document`). Scoped to the run's allowlist: they answer only about the
+  servers, services and code projects the run was given (`get_document`: documents the run was given or attached to
+  those resources). Anything else returns "This ... is not available in this run.", the same as for a missing entry.
 - `ssh_run`. Resolves a selected server and its credential reference from
   the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.

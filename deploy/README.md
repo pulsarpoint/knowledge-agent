@@ -437,3 +437,18 @@ prompt **Write a document** and closes the open Generate documents chats ("Close
 - A run's final answer no longer becomes its draft; the agent saves with `save_document`. Custom prompts tagged
   `documentation` should say so; copy the rules from **Write a document**.
 - Earlier Generate documents runs stay readable at `/sessions/<id>` and in Activity → Agent runs.
+
+## Upgrading to discovery in the server page's chat
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0102 updates
+the untouched **Server discovery** prompt to version 2 and closes open discovery runs ("Closed by an update; start a new
+chat."). Their proposals stay reviewable.
+
+- A discovery run starts from **Ask agent** on a server's page, through `POST /api/sessions` with `started_from.server_id`.
+- `POST /api/servers/{id}/discovery` and `GET /api/servers/{id}/discovery` are removed and now return 404. Use
+  `POST /api/sessions` and `GET /api/sessions?server_id=`. The separate discovery run page is gone; run links
+  `/servers/:id/discovery/:runId` open the server page on that run.
+- The code no longer adds a discovery system prompt or a "short report" line. A customized **Server discovery** prompt
+  should say: read the inventory first, propose with `propose_service` and `propose_document`, correct and retry when a
+  proposal is refused, finish with a short report.
+- Every run's inventory tools and `get_document` now answer only about what the run was given.

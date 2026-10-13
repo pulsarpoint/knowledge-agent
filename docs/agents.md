@@ -24,9 +24,9 @@ limit, no per-turn time limit, no 300-second limit).
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
-  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `offset`); `GET /api/sessions/options` and
-  `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent and the
-  agent's Test tab use it).
+  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `server_id`, `offset`; with `server_id` each row has proposal counts); `GET /api/sessions/options` and
+  `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent, Ask agent on a server and the
+  agent's Test tab use it). `started_from.server_id` starts a server discovery run (purpose `discovery`); the options take `?server_id=`.
 - Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
   when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
@@ -34,7 +34,12 @@ limit, no per-turn time limit, no 300-second limit).
   is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
   saves it with `save_document`, which creates the draft of a new document (see [documentation](documentation.md)). Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
-  run."). The editing rules are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
+  run."). The inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
+  `get_service_docs`, `get_project_info`) follow the same allowlist: they answer only about the servers, services and code
+  projects the run was given, and `get_document` reads documents the run was given or attached to those resources.
+  Anything else gets "This {server|service|code project|document} is not available in this run." — the same answer as
+  for something that does not exist. The proposal tools (`propose_service`, `propose_document`) exist only in a run
+  started from a server. The editing rules are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
   0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
   `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts and no

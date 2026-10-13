@@ -352,24 +352,35 @@ Registering does not connect to anything.
 A server cannot be deleted while service deployments reference it.
 
 A server's name opens its page: details, SSH state, the services deployed on it, its
-documents and its discovery runs. **Connections and documents** there opens the same
-panel as the System map.
+documents and its agent runs. **Connections and documents** there opens the same
+panel as the System map. **Ask agent** in the header opens the chat described under
+[Server discovery](#server-discovery).
 
 #### Server discovery
 
-**Ask agent to collect info** on a server's page starts an agent that logs in over SSH,
+**Ask agent** in the header of a server's page widens the page and opens a chat beside
+the server's details (two thirds for the page, one third for the chat). It is the same
+chat and settings sheet as Ask agent beside a document. The agent logs in over SSH,
 looks around and proposes what it finds: services, how they are deployed on this
 server, connections between services, and documents. Nothing is written to the
-inventory until you accept it. The button needs SSH set up for the server and **SSH
-allowed**; when one is missing, the button says which.
+inventory until you accept it. When SSH is not set up for the server or **SSH allowed**
+is off, Settings says why and the agent has no SSH tools.
 
-The instructions come from **Administration → Prompts** (tag `server-discovery`; the
-built-in "Server discovery" prompt). You can edit them for this run only. Several runs
-can be active at once.
+**Settings** for a server chat: the server is locked on. You may add other servers,
+services and code projects. A run started from a server also reads the services
+deployed on it, read-only, without SSH to their other servers. The prompt is chosen
+among those tagged `server-discovery` (default **Server discovery**), and the
+proposal tools are on. A server has one conversation at a time: **New chat** closes it,
+**Earlier runs** reopens another. You can write to the agent while it works.
 
-The run page shows the agent's work (messages, thinking, tool calls) and, in the
-sidebar, its proposals. You can write to the agent while it runs. **Review** opens one
-proposal:
+The instructions come from **Administration → Prompts**. The built-in prompt tells the
+agent to read the inventory first, propose with `propose_service` and
+`propose_document`, correct a proposal that is refused and try again, and finish with a
+short report. If you changed that prompt before this version, add those lines yourself.
+
+The **Proposals** panel above the server's details shows the proposals of the open
+run, with a count of those still pending. A link `/servers/:id/discovery/:runId` opens
+the server page on that run. **Review** opens one proposal:
 
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,
@@ -856,7 +867,7 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
 lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
-and the server discovery sheet will offer prompts tagged `server-discovery`. Type a tag and press Enter to add it;
+and Ask agent on a server offers prompts tagged `server-discovery`. Type a tag and press Enter to add it;
 existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
@@ -1007,8 +1018,8 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
-| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools. New-document and discovery runs always have them; other agents get them only when switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
-| Proposal tools | Discovery runs only | Exist only in a server discovery run; they record proposals that you accept or reject, and write nothing to the inventory themselves |
+| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools. New-document runs and runs started from a server always have them; other agents get them only when switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they answer only about the servers, services and code projects the run was given, and `get_document` reads documents the run was given or attached to those resources. Anything else gets "This server is not available in this run." (or service, code project, document), the same answer as for something that does not exist |
+| Proposal tools | Runs started from a server | Exist only in a run started from a server (discovery); they record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
