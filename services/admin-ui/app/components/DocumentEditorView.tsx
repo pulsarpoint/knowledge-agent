@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
 import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
 import { agentRunPath } from '~/lib/agentSessions';
 import { useAgentSettings } from '~/lib/agentSettings';
+import { useWidePage } from '~/lib/widePage';
 import type { SessionDetail } from '~/lib/generations';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from '~/lib/drafts';
 import AgentDraftBar from './AgentDraftBar';
@@ -29,10 +30,7 @@ import { Textarea } from '~/components/ui/textarea';
 const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections', 'agent-runs'];
 
 const PANE_KEY = 'ask-agent-pane';
-const WIDTH_KEY = 'ask-agent-pane-width';
-const clampWidth = (n: number) => Math.min(60, Math.max(25, Math.round(n)));
 function readPane() { try { return localStorage.getItem(PANE_KEY); } catch { return null; } }
-function readWidth() { try { const n = Number(localStorage.getItem(WIDTH_KEY)); return n ? clampWidth(n) : 40; } catch { return 40; } }
 function write(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* not remembered */ } }
 
 function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentOpen, onToggleAgent, registerConfirm }: { document: DocumentDetail | null; resources: DocumentResources;
@@ -194,11 +192,9 @@ export default function DocumentEditorView() {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [agentOpen, setAgentOpen] = useState(() => runId !== undefined || readPane() === 'open');
-  const [width, setWidth] = useState(readWidth);  // the pane's percent, 25-60, default 40
   const [agentDraft, setAgentDraft] = useState<SessionDetail['document_draft'] | null>(null);
   const [agentVersion, setAgentVersion] = useState('');  // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
-  const splitRef = useRef<HTMLDivElement>(null);
   const settings = useAgentSettings(agentOpen && documentId ? documentId : null);  // loads only while the pane is open
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const location = useLocation();
@@ -224,18 +220,6 @@ export default function DocumentEditorView() {
     setAgentOpen(next); write(PANE_KEY, next ? 'open' : 'closed');
     if (!next) { setAgentDraft(null); if (runId !== undefined) followRun(null); }  // a closed pane keeps no run in the URL
   };
-  const resize = (n: number) => { const next = clampWidth(n); setWidth(next); write(WIDTH_KEY, String(next)); };
-  const startDrag = (event: ReactPointerEvent) => {
-    event.preventDefault();
-    const box = splitRef.current?.getBoundingClientRect();
-    if (!box || box.width === 0) return;
-    const move = (e: PointerEvent) => setWidth(clampWidth(100 - (e.clientX - box.left) / box.width * 100));
-    const stop = (e: PointerEvent) => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop);
-      resize(100 - (e.clientX - box.left) / box.width * 100);
-    };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop);
-  };
   const onPromoted = (result: PromoteResult) => { setNotice(promotedNotice(result));
     setAgentDraft(d => d && d.id === result.draft.id ? { ...d, status: result.draft.status } : d);
     setParams({ tab: 'drafts' }, { replace: true }); setRefresh((n) => n + 1); };
@@ -248,22 +232,19 @@ export default function DocumentEditorView() {
   const [titled, setTitled] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => { if (loaded?.document) setTitled({ id: loaded.document.id, title: loaded.document.title }); }, [loaded]);
   const paneTitle = agentOpen && documentId && titled?.id === documentId ? titled.title : null;
+  // With the pane open the page takes the full width: the document 2/3, the chat 1/3 (below the editor on small screens).
+  useWidePage(paneTitle !== null);
   return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
-    <div ref={splitRef} className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
-      <div className="min-w-0 lg:flex-1" style={paneTitle !== null ? { flexBasis: `${100 - width}%` } : undefined}>
+    <div data-testid="document-split" className={paneTitle !== null ? 'grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start' : 'min-w-0'}>
+      <div className="min-w-0">
         {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
         {error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert>
           : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
       </div>
-      {paneTitle !== null && <>
-        <div role="separator" aria-orientation="vertical" aria-label="Resize the agent pane" aria-valuemin={25} aria-valuemax={60}
-          aria-valuenow={width} tabIndex={0} className="hidden w-1.5 cursor-col-resize self-stretch rounded bg-border lg:block"
-          onPointerDown={startDrag} onKeyDown={e => { if (e.key === 'ArrowLeft') resize(width + 5); if (e.key === 'ArrowRight') resize(width - 5); }} />
-        <div className="min-w-0 lg:sticky lg:top-4" style={{ flexBasis: `${width}%` }}>
-          <AgentPane key={documentId} documentId={documentId!} documentTitle={paneTitle} settings={settings} initialRunId={runId ?? null}
-            confirmUnsaved={run => confirmRef.current(run)} onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }}
-            onRunChange={followRun} />
-        </div>
-      </>}
+      {paneTitle !== null && <div className="min-w-0 lg:sticky lg:top-4">
+        <AgentPane key={documentId} documentId={documentId!} documentTitle={paneTitle} settings={settings} initialRunId={runId ?? null}
+          confirmUnsaved={run => confirmRef.current(run)} onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }}
+          onRunChange={followRun} />
+      </div>}
     </div></>;
 }

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import DocumentEditorView from '../DocumentEditorView';
+import { WidePageContext } from '~/lib/widePage';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const pane = vi.hoisted(() => ({ mounts: 0, props: [] as any[] }));
@@ -56,11 +57,13 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   }));
   return calls;
 }
+const wide = { value: false };
 function show(url: string) {
   // as in routes.ts: the run link is a child of the document page
   const router = createMemoryRouter([{ path: '/documents/:documentId', element: <DocumentEditorView />,
     children: [{ path: 'agent/:runId', element: null }] }], { initialEntries: [url] });
-  render(<RouterProvider router={router} />);
+  wide.value = false;
+  render(<WidePageContext.Provider value={(on) => { wide.value = on; }}><RouterProvider router={router} /></WidePageContext.Provider>);
   return router;
 }
 
@@ -70,11 +73,18 @@ test('Ask agent toggles the pane, and the choice is remembered', async () => {
   const toggle = await screen.findByRole('button', { name: 'Ask agent' });
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
   expect(screen.queryByRole('region', { name: 'Ask agent' })).toBeNull();
+  expect(wide.value).toBe(false);
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('region', { name: 'Ask agent' })).toBeInTheDocument();
-  expect(screen.getByRole('separator', { name: 'Resize the agent pane' })).toBeInTheDocument();
   expect(localStorage.getItem('ask-agent-pane')).toBe('open');
+  // the page takes the full width and splits 2:1, with no divider to drag
+  expect(wide.value).toBe(true);
+  expect(screen.getByTestId('document-split')).toHaveClass('lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]');
+  expect(screen.queryByRole('separator')).toBeNull();
+  fireEvent.click(toggle);
+  expect(wide.value).toBe(false);
+  expect(screen.getByTestId('document-split')).not.toHaveClass('lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]');
 });
 
 test('the run deep link opens the pane on that run', async () => {

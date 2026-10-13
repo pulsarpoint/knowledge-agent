@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import AdminLayout from "../AdminLayout";
+import { useWidePage } from "~/lib/widePage";
 
 test("administration has its own navigation without reader pages", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
@@ -75,4 +76,17 @@ test("a server page has its own heading and keeps Servers current in the navigat
   expect(await screen.findByRole("heading", { name: "web-1" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Servers" })).toBeNull();
   expect(screen.getByRole("link", { name: "Servers" })).toHaveAttribute("data-active", "true");
+});
+
+test("a page that asks for the full width gets it, and gives it back when it stops", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ is_admin: true }))));
+  function Wide({ on }: { on: boolean }) { useWidePage(on); return <div>Wide content</div>; }
+  const { rerender } = render(<MemoryRouter initialEntries={["/documents/doc-1"]}><AdminLayout><Wide on={false} /></AdminLayout></MemoryRouter>);
+  const content = (text: string) => screen.getByText(text).closest("main");  // the page's own main, inside the sidebar inset
+  await screen.findByText("Wide content");
+  expect(content("Wide content")).toHaveClass("max-w-6xl");
+  rerender(<MemoryRouter initialEntries={["/documents/doc-1"]}><AdminLayout><Wide on /></AdminLayout></MemoryRouter>);
+  expect(content("Wide content")).not.toHaveClass("max-w-6xl");
+  rerender(<MemoryRouter initialEntries={["/documents/doc-1"]}><AdminLayout><div>Other page</div></AdminLayout></MemoryRouter>);
+  expect(content("Other page")).toHaveClass("max-w-6xl");
 });

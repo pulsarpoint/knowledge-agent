@@ -708,7 +708,8 @@ promotes a draft, or accepts a discovery document proposal.
 
 #### Ask agent
 
-**Ask agent** on a document's page opens a chat beside the document. Write what you want ("Add a section on log
+**Ask agent** on a document's page widens the page to the full screen and opens a chat beside the document (the document
+takes two thirds, the chat one third; on a small screen the chat sits below). Write what you want ("Add a section on log
 rotation; remove the old backup steps") and send it: the agent starts with the current settings, reads the document
 part by part and saves its changes as a draft — never the live version. Its replies are a normal conversation: it may
 ask you something first, and you can ask for more changes; each save updates the same draft. A bar above the editor

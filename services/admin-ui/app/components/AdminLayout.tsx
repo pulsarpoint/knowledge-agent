@@ -4,6 +4,7 @@ import { Bell, BookOpen, CalendarClock, FolderOpen, Bot, Database, Files, Inbox,
 import { ApiError, getAdminSession } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "~/lib/utils";
+import { WidePageContext } from "~/lib/widePage";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -16,6 +17,7 @@ import {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wide, setWide] = useState(false);  // a page asked for the full width (useWidePage)
   const { pathname, search } = useLocation();
   const chatPage = pathname.startsWith('/agents/') && new URLSearchParams(search).get('view') === 'test';
   useEffect(() => {
@@ -126,9 +128,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     </Sidebar>
     <SidebarInset>
       <header className="flex h-16 items-center gap-3 border-b px-6"><SidebarTrigger /><span className="text-sm text-muted-foreground">Administration</span></header>
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
+      <main className={cn("mx-auto flex w-full flex-col gap-6 p-6", !wide && "max-w-6xl")}>
         {!sessionPage && <div className={cn(chatPage && 'sr-only')}><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>}
-        {children}
+        <WidePageContext.Provider value={setWide}>{children}</WidePageContext.Provider>
       </main>
       <Toaster position="bottom-right" />
     </SidebarInset>
