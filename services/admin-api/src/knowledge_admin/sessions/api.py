@@ -1,16 +1,20 @@
-"""/api/sessions: the run operations for every kind of run (detail, send, stop, close, the event stream) and the lists."""
+"""/api/sessions: starting a run (options, preview, start), the run operations for every kind of run (detail, send,
+stop, close, the event stream) and the lists."""
 import asyncio
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from psycopg import errors
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.session_text import close_idle
+from knowledge_admin.sessions import start
+from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS
 from knowledge_admin.sessions.rows import (CLOSED, NOTHING_TO_STOP, SUMMARY, MessageInput, SessionPurpose, session_detail,
                                            stream_event)
 
@@ -66,6 +70,51 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
             return {'sessions': conn.execute(f"{LIST} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 50 OFFSET %s",
                                              (*values, offset)).fetchall()}
+
+    @router.get('/options')
+    def options(request: Request, document_id: UUID | None = Query(None)) -> dict:
+        db = database()
+        with db.connect() as conn:
+            subject, _ = request_actor(request)  # read-only: a GET does not create the principal
+            actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
+            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id)
+
+    @router.post('/preview')
+    def preview(value: start.StartInput) -> dict:
+        db = database()
+        with db.connect() as conn:
+            pinned, _, _ = start.build(conn, db.project(conn, app_name), value, None)
+        return {'config': pinned, 'first_message': value.message}
+
+    @router.post('', status_code=201)
+    def start_session(value: start.StartInput, request: Request) -> dict:
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            actor = db.actor(conn, *request_actor(request))
+            session_id = uuid4()
+            pinned, model, _ = start.build(conn, project, value, session_id)
+            document_id = value.started_from.document_id
+            title = value.message.splitlines()[0][:start.TITLE_LENGTH]
+            snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
+            try:
+                conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                    target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
+                    VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
+                    (session_id, project, actor, model['id'], title, document_id, Jsonb(jsonable_encoder(snapshot)),
+                     Jsonb({'document_id': str(document_id)}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+            except errors.ForeignKeyViolation as exc:  # the document was deleted after build() read it
+                if exc.diag.constraint_name != start.DOCUMENT_FOREIGN_KEY:
+                    raise
+                raise HTTPException(404, start.DOCUMENT_NOT_FOUND) from None
+            conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
+                         (session_id, actor, value.message))
+            tools_off = sorted(item['tool'] for item in pinned['tools']['items']
+                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs not in RUN_ONLY_NEEDS)
+            audit(conn, actor, 'agent_run.created', 'agent_session', jsonable_encoder({
+                'document_id': document_id, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}), session_id)
+            return session_detail(conn, project, session_id)
 
     @router.get('/{session_id}')
     def session(session_id: UUID, response: Response) -> dict:

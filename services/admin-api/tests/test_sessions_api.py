@@ -1,7 +1,5 @@
 """/api/sessions: the run operations for every kind of run, and the lists."""
-import pytest
-
-from test_agent_launch_world import ask, post  # noqa: F401  (fixtures)
+from test_sessions_world import ask, post  # noqa: F401  (fixtures)
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
@@ -13,7 +11,6 @@ def test_old_session_routes_are_gone(sessions):
         assert getattr(sessions.client, method)(path, headers=HEADERS).status_code in (404, 405)
 
 
-@pytest.mark.skip(reason='Task 6')
 def test_the_lists_filter_by_document_and_by_purpose(ask):
     first, second = post(ask).json(), post(ask, message='Remove the old backup steps.').json()
     client = ask.s.client

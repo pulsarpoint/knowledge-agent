@@ -1,25 +1,22 @@
-"""Starting an Ask agent run on a document through /agent-sessions: the panel's options, Preview equal to what Start
-pins, refusals, the document's runs, the session routes, and the runs going with their document."""
-from types import SimpleNamespace
+"""Starting a run from a document through /api/sessions: the panel's options, Preview equal to what Start pins,
+refusals, the audit, and the runs going with their document."""
 from uuid import uuid4
 
-import pytest
-
-from knowledge_admin.agent_launch import DEFAULT_REVISION_PROMPT
-from test_agent_launch_world import ask, keyless, post  # noqa: F401  (fixtures)
+from test_sessions_world import ask, keyless, post  # noqa: F401  (fixtures)
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 
 def test_options_mark_the_documents_links_and_unusable_servers(ask):
-    options = ask.s.client.get(f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}", headers=HEADERS).json()
+    options = ask.s.client.get(f"/api/sessions/options?document_id={ask.document['id']}", headers=HEADERS).json()
     servers = {item['name']: item for item in options['resources']['servers']}
     assert servers['web-1']['linked'] and servers['web-1']['usable']
     assert not servers['prod-1']['linked'] and servers['prod-1']['reason'] == 'SSH is not set up for this server.'
     assert [item['name'] for item in options['resources']['services'] if item['linked']] == ['Payments']
-    assert options['default_prompt'] == {'id': None, 'name': 'Built-in', 'content': DEFAULT_REVISION_PROMPT}
-    assert [item['name'] for item in options['fixed_tools']] == ['get_doc', 'save_doc', 'edit_doc']
+    assert options['default_prompt_id'] == next(p['id'] for p in options['prompts'] if p['name'] == 'Revise a document')
+    assert options['resources']['documents'] == [{'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True, 'editable': True}]
     tools = {item['name']: item for item in options['tools']}
+    assert tools['save_document']['requires'] == 'a document to edit' and 'get_document' in tools
     assert tools['ssh_run']['requires'] == 'at least one server' and 'run_subagent' not in tools and 'propose_service' not in tools
     assert ask.s.gpt in {item['id'] for item in options['models']}
 
@@ -33,17 +30,19 @@ def test_preview_is_exactly_what_start_pins(ask):
     assert (session['purpose'], session['target_document_id'], session['title']) == (
         'revision', ask.document['id'], 'Add a section on log rotation.')
     pinned = session['config']
-    assert pinned['revision_run'] == {'session_id': session['id'], 'document_id': ask.document['id']}
-    assert {**preview.json()['config'], 'revision_run': pinned['revision_run']} == pinned
-    assert preview.json()['first_message'] == ask.body['instruction']
+    assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
+    assert preview.json()['config'] == pinned
+    assert preview.json()['first_message'] == ask.body['message']
     modes = {item['tool']: item for item in pinned['tools']['items']}
-    assert all(modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed'] for name in ('get_doc', 'save_doc', 'edit_doc'))
+    assert all(modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed'] for name in ('save_document', 'edit_document'))
+    assert modes['get_document']['mode'] == 'on'
     assert modes['ssh_run']['mode'] == 'on' and modes['get_server_info_basic']['mode'] == 'off'
     assert modes['run_subagent']['mode'] == 'off' and pinned['experts'] == []
-    assert 'You revise documents.' in pinned['system_prompt']['content'] and '## Backup' in pinned['system_prompt']['content']
-    assert 'Old steps.' not in pinned['system_prompt']['content']  # the outline, not the text
+    assert 'You revise documents.' in pinned['system_prompt']['content']
+    assert '# Context\n\nDocument: Payments runbook' in pinned['system_prompt']['content']
+    assert '## Backup' not in pinned['system_prompt']['content']  # no document text or outline is appended
     assert 'bedrock-secret-token' not in started.text and 'PRIVATE KEY' not in started.text
-    assert session['inputs'][0]['text'] == ask.body['instruction']
+    assert session['inputs'][0]['text'] == ask.body['message']
 
 
 def test_start_refuses_what_cannot_run(ask):
@@ -65,24 +64,16 @@ def test_start_refuses_an_unusable_server_a_disabled_model_and_a_missing_documen
     assert post(ask, resources={'server_ids': [prod]}).json()['error']['message'] in (
         'Server prod-1: SSH is not set up for this server.', 'Server prod-1: SSH is not allowed for this server.')
     assert post(ask, model_id=str(uuid4())).json()['error']['message'] == 'Choose an enabled model.'
-    gone = post(ask, target={'document_id': str(uuid4())})
-    assert gone.status_code == 404
+    gone = post(ask, started_from={'document_id': str(uuid4())})
+    assert gone.status_code == 404 and gone.json()['error']['message'] == 'Document not found'
 
 
-def test_the_documents_runs_are_listed_open_first_and_use_the_session_routes(ask):
-    first = post(ask).json()
-    second = post(ask, instruction='Remove the old backup steps.').json()
-    assert ask.s.client.post(f"/api/sessions/{first['id']}/close", headers=HEADERS).status_code == 200
-    listed = ask.s.client.get(f"/api/agent-sessions?document_id={ask.document['id']}", headers=HEADERS).json()['sessions']
-    assert [row['id'] for row in listed] == [second['id'], first['id']]
-    assert listed[0]['title'] == 'Remove the old backup steps.' and listed[0]['draft_id'] is None
-    sent = ask.s.client.post(f"/api/sessions/{second['id']}/messages", headers=HEADERS, json={'text': 'Also mention cron.'})
-    assert sent.status_code == 202, sent.text
+def test_start_is_audited(ask):
+    assert post(ask).status_code == 201
     with ask.s.store.connect() as conn:
-        actions = [row['action'] for row in conn.execute("SELECT action,details FROM ka.audit_events WHERE action='agent_run.created'")]
-        details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created' ORDER BY id LIMIT 1").fetchone()['details']
-    assert actions == ['agent_run.created'] * 2
-    assert details['kind'] == 'revision' and details['document_id'] == ask.document['id'] and 'get_server_info_basic' in details['tools_off']
+        details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created'").fetchone()['details']
+    assert details['document_id'] == ask.document['id'] and 'get_server_info_basic' in details['tools_off']
+    assert 'kind' not in details
 
 
 def test_deleting_the_document_deletes_its_runs(ask):
@@ -118,7 +109,7 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
         conn.execute("INSERT INTO ka.environments(id,project_id,name) VALUES (%s,%s,'Staging')", (staging, project))
         conn.execute('INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
                      (project, staging, ask.web['id']))
-    options = ask.s.client.get(f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}", headers=HEADERS).json()
+    options = ask.s.client.get(f"/api/sessions/options?document_id={ask.document['id']}", headers=HEADERS).json()
     flags = {item['name']: (item['brings_code'], item['brings_servers'])
              for kind in ('services', 'environments') for item in options['resources'][kind]}
     # Payments: two code projects, deployed only on prod-1 (SSH not set up); Ledger: only bare-1 (no key).
@@ -134,20 +125,43 @@ def test_start_names_every_tool_it_cannot_give_at_once(ask):
 
 
 def test_options_default_to_the_model_last_used_on_the_document(ask):
-    url = f"/api/agent-sessions/options?kind=revision&document_id={ask.document['id']}"
+    url = f"/api/sessions/options?document_id={ask.document['id']}"
     assert post(ask, model_id=ask.s.gpt).status_code == 201
     assert ask.s.client.get(url, headers=HEADERS).json()['default_model_id'] == ask.s.gpt
 
 
 def test_start_says_document_not_found_when_the_document_goes_before_the_insert(ask, monkeypatch):
-    from knowledge_admin import agent_launch
-    real = agent_launch.build
+    from knowledge_admin.sessions import start
+    real = start.build
 
     def build_then_delete(conn, project, value, session_id):
         built = real(conn, project, value, session_id)
         with ask.s.store.connect() as other:  # another transaction deletes the document after build() read it
             other.execute('DELETE FROM ka.documents WHERE id=%s', (ask.document['id'],))
         return built
-    monkeypatch.setattr(agent_launch, 'build', build_then_delete)
+    monkeypatch.setattr(start, 'build', build_then_delete)
     response = post(ask)
     assert response.status_code == 404 and response.json()['error']['message'] == 'Document not found', response.text
+
+
+def test_a_saved_agent_or_no_starting_point_is_refused(ask):
+    for change, status, message in (({'agent_id': 'code'}, 400, 'Saved agents start from their Test tab for now.'),
+                                    ({'started_from': None}, 400, None)):  # validation: the app answers 400
+        for path in ('/preview', ''):
+            response = post(ask, path, **change)
+            assert response.status_code == status, response.text
+            if message:
+                assert response.json()['error']['message'] == message
+
+
+def test_the_editable_document_must_exist_and_twice_listed_documents_are_one_editable_entry(ask):
+    gone = post(ask, resources={**ask.body['resources'], 'documents': [{'id': str(uuid4()), 'editable': True}]})
+    assert gone.status_code == 404 and gone.json()['error']['message'] == 'Document not found'
+    twice = [{'id': ask.document['id'], 'editable': False}, {'id': ask.document['id'], 'editable': True}]
+    pinned = post(ask, '/preview', resources={**ask.body['resources'], 'documents': twice}).json()['config']
+    assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
+
+
+def test_nothing_but_the_context_is_appended_to_the_prompt(ask):
+    pinned = post(ask, '/preview', context='').json()['config']
+    assert pinned['system_prompt']['content'] == 'You revise documents.'

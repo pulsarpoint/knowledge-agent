@@ -17,14 +17,17 @@ def ask(sessions):
     document = s.client.post('/api/documentation/documents', headers=HEADERS, json={
         'slug': 'payments-runbook', 'title': 'Payments runbook', 'markdown': '# Payments runbook\n\n## Backup\n\nOld steps.',
         'service_ids': [s.service], 'server_ids': [web['id']]}).json()
-    body = {'kind': 'revision', 'target': {'document_id': document['id']}, 'instruction': 'Add a section on log rotation.\nKeep it short.',
-            'model_id': s.gpt, 'system_prompt': 'You revise documents.', 'resources': {'service_ids': [s.service], 'server_ids': [web['id']]},
-            'tools': ['ssh_run', 'get_service_info'], 'expert_ids': [], 'subagents': False}
+    body = {'started_from': {'document_id': document['id']}, 'message': 'Add a section on log rotation.\nKeep it short.',
+            'model_id': s.gpt, 'system_prompt': 'You revise documents.', 'context': f"Document: Payments runbook (id {document['id']})",
+            'resources': {'service_ids': [s.service], 'server_ids': [web['id']],
+                          'documents': [{'id': document['id'], 'editable': True}]},
+            'tools': ['ssh_run', 'get_service_info', 'get_document', 'save_document', 'edit_document'],
+            'expert_ids': [], 'subagents': False}
     return SimpleNamespace(s=s, web=web, document=document, body=body)
 
 
 def post(ask, path='', **change):
-    return ask.s.client.post(f'/api/agent-sessions{path}', headers=HEADERS, json={**ask.body, **change})
+    return ask.s.client.post(f'/api/sessions{path}', headers=HEADERS, json={**ask.body, **change})
 
 
 @pytest.fixture
