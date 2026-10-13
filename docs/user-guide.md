@@ -632,7 +632,7 @@ finishes or you press **Stop** (each model request and MCP connection still time
 turn leaves the conversation and the draft as they were; history is saved only when a turn succeeds. Tokens are recorded,
 cost is not.
 
-**The session page.** It uses the same workspace as the Test tab: the main pane shows each turn (your message, a
+**The session page.** It is the run page at `/sessions/<id>`, the same for every run. It uses the same workspace as the Test tab: the main pane shows each turn (your message, a
 collapsed **Worked** block with thinking, tool calls and results, and the answer) and scrolls on its own; the message box
 is always visible. The main pane follows new events at the bottom; after you scroll up it stops following and shows
 **Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning
@@ -650,8 +650,7 @@ Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draf
   document there — and **Open draft** opens it (on the document's Drafts tab, or on the new document's draft page). The
   next turn updates that draft until someone saves it in the editor; after that a turn starts a new draft. Nothing goes
   live until a person promotes a draft. Once the draft is promoted the run shows **Open document**; a discarded draft
-  shows "The document draft was discarded." — neither offers Save as draft again. Runs from before drafts show
-  **Save as draft** instead.
+  shows "The document draft was discarded."
 - **Close session**.
 
 Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
@@ -666,7 +665,8 @@ read-only.
 **Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
 and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
 exporting into `services/<service>/<phase>/`. Bookmarks of old generations
-(`/documentation/generations/<id>`) open a page that shows "Session not found".
+(`/documentation/generations/<id>`) open a page that shows "Session not found". Run pages are now at `/sessions/<id>`
+for every run; old links to `/documentation/generations/<id>` do not redirect.
 
 ### 4.13 Documents
 
@@ -714,11 +714,13 @@ part by part and saves its changes as a draft — never the live version. Its re
 ask you something first, and you can ask for more changes; each save updates the same draft. A bar above the editor
 shows the agent's draft (Compare opens it with the changes; Promote makes it the live version). A turn that ended
 without a save says so. If you edit, promote or discard the draft meanwhile, the agent's next save starts a new draft.
+How the agent works on the document is the **Revise a document** prompt (Administration → Prompts); change it there, or
+pick another prompt under Advanced.
 
 **Settings** in the chat opens what the agent may use: the model, the servers and other resources (the ones linked to
-the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the tools (reading and
-saving the document are always on), subagents and experts (off unless you turn them on), and under **Advanced** the
-system prompt (prompts tagged `document-revision` in Prompts, or the built-in one). **Preview** shows exactly what the
+the document are ticked; a server whose SSH is not set up or not allowed cannot be chosen), the document (listed under
+Resources as editable) and the tools (the document tools are listed with the others), subagents and experts (off unless you turn them on), and under **Advanced** the
+prompt (**Revise a document** by default, any other saved prompt, or **Own prompt**). **Preview** shows exactly what the
 next message will start with, as JSON. Your choices are remembered for the document in this browser. While a
 conversation is open its settings are fixed: Settings shows them, and **Start new chat with these settings** closes it
 and lets you change them for the next one. **New chat** closes the conversation; **Earlier runs** reopens another. The

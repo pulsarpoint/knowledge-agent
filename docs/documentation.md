@@ -92,15 +92,17 @@ role. Mutations also require an attributed user. No credential fields are return
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
-`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts), `/documentation/generations` and
-`/documentation/folders`. `input_kind` is retired: the column remains only for the
+`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts), `/documentation/generations`,
+`/sessions/:id` (the run page for every run) and `/documentation/folders`. `input_kind` is retired: the column remains only for the
 per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
 confirmation and navigation with unsaved edits.
 
-Ask agent runs (agent sessions with purpose `revision`, started through `/api/agent-sessions` from the chat pane on the
-document page; the first message is the instruction, and `/documents/{id}/agent/{run}` opens the page with the pane on
-that run) change a document only through the `get_doc`, `save_doc` and `edit_doc` tools, which write the run's draft;
+Ask agent runs (agent sessions with purpose `revision`, started through `POST /api/sessions` from the chat pane on the
+document page, with the document as an editable resource; the first message is the instruction, and
+`/documents/{id}/agent/{run}` opens the page with the pane on that run) change a document only through the
+`get_document`, `save_document` and `edit_document` tools (each takes `document_id`), which write the run's draft. The
+editing rules are the **Revise a document** prompt (tag `document-revision`, seeded by migration 0100);
 Generate documents runs still turn their final answer into a draft.
 
 ## Generate documents
@@ -153,16 +155,11 @@ promotes or discards it; the next finished turn then starts a new draft. The dra
 from the documents the run read (`get_document`, or `read_document` of an export path), at the version live at the first
 read. Nothing goes live until a person promotes the draft.
 
-`GET /api/generations/sessions` and `GET /api/generations/sessions/{id}` rows, and the live stream's `session` state,
+`GET /api/sessions` and `GET /api/sessions/{id}` rows, and the live stream's `session` state,
 carry `document_draft`: `{id, document_id, status}` of the run's latest document draft of any status (`open`, `promoted`
-or `discarded`), or null when the run never had one. The run page shows **Open draft** for an open draft, **Open
-document** for a promoted one, and **Save as draft** only for a run with a draft text and no document draft (runs from
-before drafts). `POST /api/generations/sessions/{id}/document` is Save as draft: it turns the run's draft text into a
-document draft (updating the run's open draft no person has saved, if any) and answers 201 `{draft: {id, document_id,
-status}}`; it is audited as `generation.session.draft_saved`. 409 `There is no draft yet. Wait for the agent to finish a
-turn.` when the run has no draft text; 400 for a session that is not a documents run.
+or `discarded`), or null when the run never had one. The run page shows **Open draft** for an open draft and **Open document** for a promoted one.
 
-`GET /api/generations/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
+`GET /api/sessions/{id}/events/history` returns `{events, has_more}`: the latest page of events, oldest first,
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a
 tool result keeps its preview and the full output stays in the run record.
 

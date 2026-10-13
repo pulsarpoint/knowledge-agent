@@ -13,11 +13,18 @@ limit, no per-turn time limit, no 300-second limit).
   credential that cannot be decrypted does not refuse the start: the first turn fails with the worker's message.
 - `GET /api/agents/{id}/sessions` lists the agent's Test sessions and the event sessions handlers started before 0090
   (with `purpose`), newest first.
-- Everything else is the session API: `GET /api/generations/sessions/{id}` (with `purpose`, `model_calls`,
+- Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
-  `POST …/document` answers 400 `Only documentation sessions have a document.` for a Test session, and
-  `GET /api/generations/sessions` (Generate documents) lists documentation sessions only.
+  `GET /api/sessions` lists runs (filters `purpose`, `document_id`, `offset`); `GET /api/sessions/options` and
+  `POST /api/sessions/preview` describe and preview an ad-hoc run, and `POST /api/sessions` starts it (Ask agent uses
+  it). Starting a saved agent there is refused for now: "Saved agents start from their Test tab for now."
+- Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
+  when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
+  `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
+  work only on documents given to the run as editable, and write the run's draft, never the live version. Every
+  per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
+  run."). The editing rules are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
   0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
   `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts and no
