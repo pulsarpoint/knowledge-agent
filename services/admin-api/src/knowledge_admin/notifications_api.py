@@ -1,5 +1,6 @@
-"""Administration → Notifications: what event-triggered agent tasks produced — the agent's answer, or why it failed.
-One shared, read-only list for every user; agent_tasks.py writes it."""
+"""Administration → Notifications: what event-triggered agent runs produced — the first turn's answer, or why it failed.
+One shared, read-only list for every user; the session worker writes it when an event run's first turn ends (rows from
+before 0103 came from agent tasks, kept as read-only history)."""
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,8 +11,9 @@ from knowledge_admin.repositories import RepositoryStore
 PAGE, MAX_PAGE, MAX_OFFSET, PREVIEW = 50, 200, 100000, 200
 NOT_FOUND = 'Notification not found.'
 LISTED = f"""n.id,n.created_at,n.kind,n.status,n.title,left(n.body,{PREVIEW}) AS preview,n.event_id,n.agent_id,
-    coalesce(t.agent_name,n.agent_id) AS agent_name"""
-FROM = 'FROM ka.notifications n LEFT JOIN ka.agent_tasks t ON t.id=n.agent_task_id'
+    coalesce(t.agent_name,a.name,n.agent_id) AS agent_name,n.session_id"""
+FROM = """FROM ka.notifications n LEFT JOIN ka.agent_tasks t ON t.id=n.agent_task_id
+    LEFT JOIN ka.agents a ON a.id=n.agent_id"""
 
 
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:

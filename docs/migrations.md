@@ -288,3 +288,14 @@ proposals stay reviewable. `POST /api/servers/{id}/discovery` and `GET /api/serv
 `GET /api/sessions?server_id=`). The down migration re-activates version 1 and removes version 2 when version 2 is
 still active and untouched, and restores 0097's seed for new workspaces; closed runs stay closed. It only reverts prompts
 0102 itself rewrote (workspaces created after 0102 keep the new text).
+
+## 0103_event_runs
+
+A "Send to agent" event handler now starts an ordinary agent run (purpose `event`) instead of queueing an agent task.
+`ka.agent_sessions` gains `event_id` and `handler_id` (both `ON DELETE SET NULL`), unique together, so processing an
+event again starts no second run; `ka.notifications` gains `session_id`, the run a notification reports on (written when
+the run's first turn ends). Agent tasks still queued or running are no longer run: they are failed with "Not run: event
+handlers start agent runs now. Send the event again." and each gets a failed notification; send their events again to
+start runs. `ka.agent_tasks` stays as read-only history (the Events and Notifications pages still show old tasks). The
+down migration refuses while runs started by an event exist (delete them first) and drops the new columns; the failed
+tasks stay failed.

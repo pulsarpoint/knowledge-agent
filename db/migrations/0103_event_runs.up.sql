@@ -15,4 +15,17 @@ COMMENT ON COLUMN agent_sessions.handler_id IS 'The Send-to-agent handler that s
 ALTER TABLE notifications ADD COLUMN session_id uuid REFERENCES agent_sessions(id) ON DELETE SET NULL;
 COMMENT ON COLUMN notifications.session_id IS 'The agent run (started by an event handler) this notification reports on.';
 
+-- Agent tasks are no longer run. Tasks still queued or running are failed, each with a failed notification, so nothing
+-- waits for an answer that never comes. ka.agent_tasks stays as read-only history.
+WITH written AS (
+    INSERT INTO notifications(project_id, kind, status, title, body, event_id, handler_id, agent_id, agent_task_id)
+    SELECT project_id, 'agent.response', 'failed', title,
+        'Not run: event handlers start agent runs now. Send the event again.', event_id, handler_id, agent_id, id
+    FROM agent_tasks WHERE status IN ('queued', 'running')
+    RETURNING id, agent_task_id
+)
+UPDATE agent_tasks t SET status = 'failed', error = 'Not run: event handlers start agent runs now. Send the event again.',
+    worker_id = NULL, lease_expires_at = NULL, finished_at = now(), notification_id = written.id
+FROM written WHERE t.id = written.agent_task_id;
+
 COMMIT;

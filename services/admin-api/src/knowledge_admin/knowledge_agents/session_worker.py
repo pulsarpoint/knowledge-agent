@@ -32,6 +32,8 @@ END_STATUS = {'waiting': 'completed', 'stopped': 'stopped', 'failed': 'failed'}
 CLOSED = object()
 LOST = object()  # another worker holds the session now: stop without further writes
 NO_USAGE = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0}
+MAX_NOTIFICATION_BODY = 200_000
+NO_ANSWER = '(The agent returned no answer.)'
 
 
 def run_key(session_id, turn: int) -> str:
@@ -90,12 +92,27 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
                 conn.execute('UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
                              (row['id'], worker_id))
             if row['previous'] == 'working' and row['turns'] > 0:  # comments delivered inside it stay delivered
+                notify_event_run(conn, row['id'], row['turns'], 'failed', INTERRUPTED)
                 key = run_key(row['id'], row['turns'])
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
                     conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
                         SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
                         (row['project_id'], key, kind, row['agent_id'] or AD_HOC_AGENT, row['actor_id'], Jsonb(payload), key))
     return rows
+
+
+def notify_event_run(conn, session_id, number: int, status: str, text: str) -> None:
+    """When an event run's first turn ends: one notification for the run, in the transaction that finishes the turn —
+    the answer when the turn finished (`waiting`), else why it did not (the status message). Other turns and runs that
+    no event started write none."""
+    if number != 1:
+        return
+    succeeded = status == 'waiting'
+    body = (text if text.strip() else NO_ANSWER) if succeeded else text
+    conn.execute("""INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id)
+        SELECT s.project_id,'agent.response',%s,left(s.title,500),%s,s.event_id,s.handler_id,s.agent_id,s.id
+        FROM ka.agent_sessions s WHERE s.id=%s AND s.purpose='event'""",
+        ('succeeded' if succeeded else 'failed', body.replace('\x00', '')[:MAX_NOTIFICATION_BODY], session_id))
 
 
 class SessionRunner:
@@ -202,8 +219,9 @@ class SessionRunner:
         return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None or not row['owned']
 
     def finish_turn(self, number: int, status: str, message: str, *, usage: dict[str, Any] | None,
-                    commit: Callable[[Any], None] | None = None) -> None:
-        """Record the turn's outcome. `commit(conn)` runs in the same transaction,
+                    commit: Callable[[Any], None] | None = None, answer: str = '') -> None:
+        """Record the turn's outcome; an event run's first turn also writes its notification (`answer` when it
+        finished, else `message`). `commit(conn)` runs in the same transaction,
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again. Drafts the document tools saved get their
@@ -222,6 +240,7 @@ class SessionRunner:
             if updated is not None and status == 'waiting' and commit is not None:
                 commit(conn)
             if updated is not None:
+                notify_event_run(conn, self.id, number, status, answer if status == 'waiting' else message)
                 refresh_run_sources_safely(conn, self.id, number)  # drafts the tools saved; reads may come later
 
     def release(self) -> None:

@@ -34,7 +34,8 @@ def test_rows_carry_a_preview_and_the_agent(store, tmp_path):
     [event] = seed(store, 1)
     add(store, body='x' * 300, task=True, event_id=event)
     [row] = client.get('/api/notifications', headers=HEADERS).json()['notifications']
-    assert set(row) == {'id', 'created_at', 'kind', 'status', 'title', 'preview', 'event_id', 'agent_id', 'agent_name'}
+    assert set(row) == {'id', 'created_at', 'kind', 'status', 'title', 'preview', 'event_id', 'agent_id', 'agent_name',
+                        'session_id'}
     assert (row['preview'], row['agent_id'], row['agent_name'], row['event_id'], row['kind']) == (
         'x' * 200, 'triage', 'Triage', event, 'agent.response')
 

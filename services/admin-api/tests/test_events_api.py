@@ -144,8 +144,8 @@ def test_a_send_to_agent_run_shows_its_task(store, tmp_path):
         conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,agent_task_id)
             VALUES (%s,%s,'Triage','succeeded','Queued for Triage.',%s)""", (root, handler, key))
     [run] = client.get(f'/api/events/{root}', headers=HEADERS).json()['event']['runs']
-    assert (run['agent_id'], run['agent_session_id'], run['agent_task']) == (
-        'triage', None, {'id': key, 'status': 'succeeded', 'attempts': 2, 'notification_id': notification})
+    assert (run['agent_id'], run['agent_session_id'], run['run'], run['agent_task']) == (
+        'triage', None, None, {'id': key, 'status': 'succeeded', 'attempts': 2, 'notification_id': notification})
 
 
 # --- POST /api/events: events made by hand -----------------------------------------------------------------------

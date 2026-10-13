@@ -147,3 +147,22 @@ def test_a_tool_the_agent_cannot_use_is_left_off(tester):
     assert (handler_run['status'], handler_run['agent_session_id']) == ('succeeded', session['id'])
     modes = {item['tool']: item['mode'] for item in session['agent_config']['tools']['items']}
     assert modes['ssh_run'] == 'off'
+
+
+def test_the_event_detail_and_notifications_carry_the_run(tester):
+    t = tester
+    handler = a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt=PROMPT)
+    first = an_event(t.store)
+    event_processor.run_once(t.store)
+    [session] = sessions(t.store)
+    [handler_run] = t.client.get(f"/api/events/{first['id']}", headers=HEADERS).json()['event']['runs']
+    assert (handler_run['agent_session_id'], handler_run['agent_task']) == (str(session['id']), None)
+    assert handler_run['run'] == {'id': str(session['id']), 'status': 'starting', 'agent_id': t.agent}
+    with t.store.connect() as conn:
+        note = conn.execute("""INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,
+            session_id) VALUES (%s,'agent.response','succeeded',%s,'Done.',%s,%s,%s,%s) RETURNING id""",
+            (session['project_id'], session['title'], first['id'], handler['id'], t.agent, session['id'])).fetchone()['id']
+    [row] = t.client.get('/api/notifications', headers=HEADERS).json()['notifications']
+    assert (row['id'], row['session_id'], row['agent_name']) == (note, str(session['id']), 'Tester')
+    one = t.client.get(f'/api/notifications/{note}', headers=HEADERS).json()['notification']
+    assert (one['session_id'], one['task']) == (str(session['id']), None)

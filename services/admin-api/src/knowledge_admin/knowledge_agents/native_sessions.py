@@ -370,7 +370,8 @@ class NativeRunner(shared.SessionRunner):
             # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             # usage=None: every model call already added its tokens (add_usage)
-            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit)
+            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit,
+                                    answer=answer)
         finally:
             if history is not None:
                 history.drop()
@@ -420,8 +421,7 @@ RESTART_SECONDS = 5
 
 
 async def supervise(name: str, make_loop: Callable[[], Any], stopped: asyncio.Event) -> None:
-    """Run a loop until `stopped`; if it fails, log it and start it again after RESTART_SECONDS, so one loop's crash
-    never takes the other down."""
+    """Run a loop until `stopped`; if it fails, log it and start it again after RESTART_SECONDS."""
     while not stopped.is_set():
         try:
             await make_loop()
@@ -435,7 +435,7 @@ async def supervise(name: str, make_loop: Callable[[], Any], stopped: asyncio.Ev
 
 def main() -> None:
     """agent-session-worker: PostgreSQL from the PG* environment, run records like admin-api, and Agents SDK tracing to
-    Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api. It also runs event handlers' agent tasks (agent_tasks.serve)."""
+    Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api."""
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
     store = RepositoryStore('', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL'])
     run_record.configure(store, None)
@@ -444,13 +444,10 @@ def main() -> None:
     agent_tracing.setup()
 
     async def run() -> None:
-        from knowledge_admin import agent_tasks  # it builds on this module (failure)
         stopped = asyncio.Event()
         loop = asyncio.get_running_loop()
         for signum in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(signum, stopped.set)
-        await asyncio.gather(
-            supervise('Session', lambda: serve(store, stopped=stopped), stopped),
-            supervise('Agent task', lambda: agent_tasks.serve(store, stopped=stopped), stopped))
+        await supervise('Session', lambda: serve(store, stopped=stopped), stopped)
 
     asyncio.run(run())

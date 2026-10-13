@@ -1,6 +1,8 @@
 BEGIN;
 SET search_path = ka, public;
 
+-- Agent tasks 0103 failed stay failed: nothing to undo.
+
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM agent_sessions WHERE event_id IS NOT NULL) THEN
         RAISE EXCEPTION 'Event runs exist; delete them before rollback';

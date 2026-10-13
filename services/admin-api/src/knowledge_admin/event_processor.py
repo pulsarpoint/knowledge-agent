@@ -112,9 +112,9 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
             status, message = 'failed', UNEXPECTED
         failed = failed or status == 'failed'
         conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id,
-            agent_session_id,agent_task_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            agent_session_id) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             (event['id'], handler['id'], handler['name'], status, run_message(message),
-             links.get('emitted_event_id'), links.get('agent_session_id'), links.get('agent_task_id')))
+             links.get('emitted_event_id'), links.get('agent_session_id')))
     status = 'failed' if failed else 'processed'
     conn.execute('UPDATE ka.events SET status=%s,processed_at=now() WHERE id=%s', (status, event['id']))
     return status

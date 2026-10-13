@@ -56,6 +56,12 @@ sed -n '/^PASS:/p' "$test_log"
 run_migrate postgres up > "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres up >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
+event_runs_removed=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND ((table_name = 'agent_sessions' AND column_name IN ('event_id', 'handler_id'))
+          OR (table_name = 'notifications' AND column_name = 'session_id')))")
+[ "$event_runs_removed" = t ] || { echo 'FAIL: 0103 down left event run columns' >&2; exit 1; }
+run_migrate postgres down 1 >> "$test_log" 2>&1 || { cat "$test_log"; exit 1; }
 discovery_v1=$(docker exec "$test_container" psql -X -U postgres -Atc \
     "SELECT prosrc LIKE '%Explore this server and propose%' FROM pg_proc
         WHERE oid = 'ka.seed_server_discovery_prompt(uuid)'::regprocedure")
@@ -271,6 +277,12 @@ discovery_v2=$(docker exec "$test_container" psql -X -U postgres -Atc \
         WHERE oid = 'ka.seed_server_discovery_prompt(uuid)'::regprocedure")
 [ "$discovery_v2" = t ] || { echo 'FAIL: 0102 Server discovery seed not rewritten' >&2; exit 1; }
 printf '%s\n' 'PASS: the Server discovery prompt names the server through the context.'
+event_runs=$(docker exec "$test_container" psql -X -U postgres -Atc \
+    "SELECT count(*) = 3 FROM information_schema.columns WHERE table_schema = 'ka'
+        AND ((table_name = 'agent_sessions' AND column_name IN ('event_id', 'handler_id'))
+          OR (table_name = 'notifications' AND column_name = 'session_id'))")
+[ "$event_runs" = t ] || { echo 'FAIL: 0103 event run columns missing' >&2; exit 1; }
+printf '%s\n' 'PASS: event runs name their event and handler; notifications name their run.'
 docker exec "$test_container" psql -X -U postgres -v ON_ERROR_STOP=1 \
     -f /workspace/db/tests/documentation.sql > "$test_log" 2>&1 || {
     cat "$test_log"; exit 1;
