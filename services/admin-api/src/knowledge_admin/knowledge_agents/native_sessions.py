@@ -283,6 +283,7 @@ class NativeRunner(shared.SessionRunner):
                                   (self.id,)).fetchone()['agent_config']
             history = HistorySession.load(conn, self.id)
         config.pop('record', None)  # the turn's events are recorded here, not by agent()
+        config['session_id'] = str(self.id)  # for the document tools; never pinned
         return config, load_credentials(self.store, config), history
 
     def add_usage(self, recorder: RunRecorder, usage: dict[str, Any]) -> None:

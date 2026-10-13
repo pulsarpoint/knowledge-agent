@@ -140,22 +140,24 @@ def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
 
 
 
-@pytest.mark.skip(reason='Task 3')
-def test_a_revision_turn_never_turns_its_answer_into_a_draft_and_refreshes_sources(rev):
+def test_a_turn_refreshes_the_sources_of_every_draft_the_run_wrote(rev):
+    overview, third = make_document(rev.docs, 'overview', 'Overview'), make_document(rev.docs, 'notes', 'Notes')
+    rev.config['document_access'].append({'id': overview, 'title': 'Overview', 'editable': True})
     call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Saved by the tool')
-    other = make_document(rev.docs, 'overview', 'Overview')
+    call(rev, 'save_document', document_id=overview, markdown='# Overview saved')
     with rev.docs.store.connect() as conn:
         conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) SELECT id,1,actor_id,%s FROM ka.agent_sessions WHERE id=%s',
                      ('Add a section.', rev.sid))
         conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
             VALUES (%s,%s,1,'tool_call','ad-hoc',%s)''', (rev.docs.project, f'cc:{rev.sid}:1',
-            Jsonb({'name': 'get_document', 'call_id': 'c1', 'arguments': json.dumps({'document_id': other})})))
+            Jsonb({'name': 'get_document', 'call_id': 'c1', 'arguments': json.dumps({'document_id': third})})))
     [row] = [r for r in shared.claim(rev.docs.store, 'worker-1', [], 4) if r['id'] == rev.sid]
     shared.SessionRunner(rev.docs.store, row).finish_turn(1, 'waiting', '', draft='# The final answer', usage=None)
-    [draft] = run_drafts(rev)
-    assert draft['markdown'] == '# Saved by the tool'
-    detail = rev.docs.client.get(f"{API}/drafts/{draft['id']}", headers=HEADERS).json()
-    assert ('read', 'Overview') in [(s['kind'], s['source_title']) for s in detail['sources']]
+    drafts = run_drafts(rev)
+    assert [d['markdown'] for d in drafts] == ['# Saved by the tool', '# Overview saved']
+    for draft in drafts:
+        detail = rev.docs.client.get(f"{API}/drafts/{draft['id']}", headers=HEADERS).json()
+        assert ('read', 'Notes') in [(s['kind'], s['source_title']) for s in detail['sources']]
     with rev.docs.store.connect() as conn:
         assert conn.execute('SELECT draft FROM ka.agent_sessions WHERE id=%s', (rev.sid,)).fetchone()['draft'] is None
 

@@ -18,9 +18,18 @@ logger = logging.getLogger(__name__)
 NOT_OFFERED = 'Tool {name} is not available in this run.'
 
 
-def function_tool(spec: ToolSpec, usage: str) -> FunctionTool:
-    """One catalog tool as an SDK function tool: the usage text is its description (see _function_tool)."""
-    return _function_tool(spec.name, usage, spec.arguments, spec.run)
+ENUM_LIMIT = 50  # above this, the schema lists no choices; the tool's own check still applies
+
+
+def function_tool(spec: ToolSpec, usage: str, choices: list[dict[str, Any]] | None = None) -> FunctionTool:
+    """One catalog tool as an SDK function tool: the usage text is its description (see _function_tool). choices: the
+    run's document_access entries; an edit tool's document_id then lists only the editable ones (up to ENUM_LIMIT)."""
+    schema = spec.arguments.model_json_schema()
+    editable = [entry for entry in choices or [] if entry.get('editable')]
+    if editable and len(editable) <= ENUM_LIMIT and 'document_id' in schema.get('properties', {}):
+        schema['properties']['document_id']['enum'] = [str(entry['id']) for entry in editable]
+        usage = usage + '\n\nDocuments you may change: ' + ', '.join(f"{entry['title']} ({entry['id']})" for entry in editable)
+    return _function_tool(spec.name, usage, spec.arguments, spec.run, schema)
 
 
 class ExpertResources(BaseModel):
@@ -56,7 +65,7 @@ def expert_tool(entry: dict[str, Any]) -> FunctionTool:
 
 
 def _function_tool(name: str, description: str, arguments: type[BaseModel],
-                   run: Callable[[Any, BaseModel], Awaitable[str]]) -> FunctionTool:
+                   run: Callable[[Any, BaseModel], Awaitable[str]], schema: dict[str, Any] | None = None) -> FunctionTool:
     """One SDK function tool: `description` is what the model reads and the argument model its strict JSON schema.
 
     Invocation refuses a tool missing from context['tools'] (the run's offered tools, a backstop), validates the
@@ -82,5 +91,5 @@ def _function_tool(name: str, description: str, arguments: type[BaseModel],
             TOOL_CALL_ID.reset(token)
 
     return FunctionTool(name=name, description=description,
-                        params_json_schema=ensure_strict_json_schema(arguments.model_json_schema()),
+                        params_json_schema=ensure_strict_json_schema(schema if schema is not None else arguments.model_json_schema()),
                         on_invoke_tool=invoke, strict_json_schema=True)

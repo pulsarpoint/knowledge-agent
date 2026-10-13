@@ -208,8 +208,8 @@ class SessionRunner:
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
         delivered inside it delivered and its history uncommitted. A session closed during the turn still gets the commit, which is harmless: a closed session takes no
         more messages, so no turn reads that history again. A documents session's new draft is also saved as a document
-        draft (document_drafts) in the same transaction; a failure there loses only the document draft. An Ask agent
-        session's draft is saved by its tools; the turn only refreshes its sources."""
+        draft (document_drafts) in the same transaction; a failure there loses only the document draft. Drafts the
+        document tools saved get their sources refreshed."""
         usage = usage or NO_USAGE
         draft = draft if status == 'waiting' and draft.strip() else None
         with self.store.connect() as conn:
@@ -228,8 +228,8 @@ class SessionRunner:
                 commit(conn)
             if updated is not None and draft is not None and updated['purpose'] == 'documents':
                 save_run_draft_safely(conn, self.id, number)  # the turn's draft becomes a document draft
-            if updated is not None and updated['purpose'] == 'revision':
-                refresh_run_sources_safely(conn, self.id, number)  # the tools saved the draft; reads may come later
+            if updated is not None:
+                refresh_run_sources_safely(conn, self.id, number)  # drafts the tools saved; reads may come later
 
     def release(self) -> None:
         with self.store.connect() as conn:

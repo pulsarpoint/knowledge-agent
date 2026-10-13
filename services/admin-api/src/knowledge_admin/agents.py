@@ -25,7 +25,7 @@ from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
-from knowledge_admin.tools.catalog import SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
+from knowledge_admin.tools.catalog import DOCUMENT_EDIT_TOOLS, SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes
 from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, credential_references, get_agent_config, mcp_definitions, per_run, require_run_resources  # noqa: F401  (moved; imported from here too)
 
@@ -160,7 +160,8 @@ async def create_agent(config: dict[str, Any], *, credentials: Mapping[str, str]
     offered = [(spec, usage) for spec, usage in effective_tools(config, ssh_servers)
                if subagents or spec.name != SUBAGENT]
     prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
-    tools = [function_tool(spec, usage) for spec, usage in offered]
+    tools = [function_tool(spec, usage, config.get('document_access') if spec.name in DOCUMENT_EDIT_TOOLS else None)
+             for spec, usage in offered]
     experts = config.get('experts', []) if subagents else []  # only in a session turn, never inside an expert or a subagent
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
@@ -272,6 +273,9 @@ def get_prompt(config: dict[str, Any], ssh_servers: list[dict[str, Any]],
         resources['skills'] = [skill for skill in config['skills']['items'] if skill['enabled']]
     if config['services']['enabled']:
         resources['services'] = config['services']['items']
+    if config.get('document_access'):
+        resources['documents_in_this_run'] = [{key: entry[key] for key in ('id', 'title', 'editable')}
+                                              for entry in config['document_access']]
     if config['ssh']['enabled']:
         hosts = []
         for server in ssh_servers:

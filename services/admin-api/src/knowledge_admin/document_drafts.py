@@ -423,14 +423,14 @@ def save_run_draft_safely(conn, session_id: UUID, turn: int) -> None:
 
 
 def refresh_run_sources_safely(conn, session_id: UUID, turn: int) -> None:
-    """An Ask agent turn ended: recompute the sources of the run's working draft from every tool call recorded so far
+    """A turn ended: recompute the sources of each of the run's working drafts from every tool call recorded so far
     (a read recorded after the save that preceded it). In a savepoint; a failure loses only this refresh."""
     try:
         with conn.transaction():
-            draft = conn.execute('''SELECT id,project_id,document_id,base_version_id FROM ka.document_drafts
-                WHERE session_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE''',
-                (session_id,)).fetchone()
-            if draft is not None:
+            drafts = conn.execute('''SELECT id,project_id,document_id,base_version_id FROM ka.document_drafts
+                WHERE session_id=%s AND status='open' AND NOT edited ORDER BY created_at,id FOR UPDATE''',
+                (session_id,)).fetchall()
+            for draft in drafts:
                 record_run_sources(conn, draft['project_id'], draft['id'], draft['document_id'], draft['base_version_id'],
                                    session_id, turn)
     except Exception:  # any failure, a bug included, rolls back only the savepoint
