@@ -172,14 +172,17 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         raise HTTPException(400, ' '.join(NOT_ITS_TOOL.format(tool=name) for name in added))
     if value.subagents and SUBAGENT not in on:
         raise HTTPException(400, NO_SUBAGENTS)
+    controlled = {spec.name for spec in choosable()}  # what agent_options lists; any other tool keeps its pinned mode
     for name, item in items.items():
         if name == SUBAGENT:
             item['mode'] = 'on' if value.subagents else 'off'
-        elif name in CATALOG and name in on and name not in value.tools:
+        elif name in controlled and name in on and name not in value.tools:
             item['mode'] = 'off'
+    usable = [server for server in pinned['ssh']['servers'] if server['enabled'] and server['ssh_allowed']] \
+        if pinned['ssh']['enabled'] else []  # as get_ssh selects them at run time
     unmet = [NEEDS.format(tool=name, what=REQUIRES[CATALOG[name].needs]) for name in value.tools
              if name in CATALOG and CATALOG[name].needs in REQUIRES
-             and not needs_met(CATALOG[name].needs, pinned, pinned['ssh']['servers'])]
+             and not needs_met(CATALOG[name].needs, pinned, usable if CATALOG[name].needs == 'ssh' else None)]
     if unmet:
         raise HTTPException(400, ' '.join(unmet))
     experts = {entry['id']: entry for entry in pinned['experts']}
@@ -334,11 +337,20 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
     saved = {} if fixed else run_options(conn, project, config)
     listed = lambda kind: [] if saved.get(kind) is None else saved[kind]  # noqa: E731
     on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
+    servers = {str(item['id']) for item in listed('servers')}
+    projects = {str(item['id']) for item in listed('code_projects')}
+
+    def brings(service_id) -> dict:
+        """What one service brings to a run of this agent, as resolve() gives it: code projects and usable servers
+        inside its selection."""
+        found = bring(conn, project, [service_id])
+        return {'brings_code': any(str(item) in projects for item in found['code_project_ids']),
+                'brings_servers': any(str(item) in servers for item in found['server_ids'])}
     resources = {
         'servers': [{'id': item['id'], 'name': item['name'], 'linked': False, 'usable': True, 'reason': None}
                     for item in listed('servers')],
-        'services': [{'id': item['id'], 'name': item['name'], 'linked': False, 'brings_code': False,
-                      'brings_servers': False} for item in listed('services')],
+        'services': [{'id': item['id'], 'name': item['name'], 'linked': False, **brings(item['id'])}
+                     for item in listed('services')],
         'environments': [],
         'code_projects': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('code_projects')],
         'collections': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('collections')],

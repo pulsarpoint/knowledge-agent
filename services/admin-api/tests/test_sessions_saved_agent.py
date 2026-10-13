@@ -122,3 +122,49 @@ def test_the_old_test_routes_are_gone(agent):
     for method, path in (('post', f'/api/agents/{agent.id}/sessions'), ('get', f'/api/agents/{agent.id}/sessions'),
                          ('post', f'/api/agents/{agent.id}/sessions/{some}/review')):
         assert getattr(agent.client, method)(path, headers=HEADERS, **({'json': {}} if method == 'post' else {})).status_code in (404, 405)
+
+
+def test_code_graph_without_a_graph_still_starts(fixed, ask):
+    with ask.s.store.connect() as conn:
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'code_graph','on',true)",
+                     (fixed.id,))
+    for path, status in (('/preview', 200), ('', 201)):
+        response = start(fixed.client, path, agent_id=fixed.id, tools=['code_graph', 'read_file'])
+        assert response.status_code == status, response.text
+
+
+def test_ssh_run_needs_a_usable_saved_server(fixed, ask):
+    with ask.s.store.connect() as conn:
+        conn.execute('UPDATE ka.servers SET enabled=false WHERE id=%s', (fixed.web,))
+    response = start(fixed.client, '/preview', agent_id=fixed.id, tools=['ssh_run'])
+    assert response.status_code == 400 and response.json()['error']['message'] == 'ssh_run needs at least one server.'
+    with ask.s.store.connect() as conn:
+        conn.execute('UPDATE ka.servers SET enabled=true WHERE id=%s', (fixed.web,))
+        conn.execute('UPDATE ka.agents SET ssh_enabled=false WHERE id=%s', (fixed.id,))
+    response = start(fixed.client, '/preview', agent_id=fixed.id, tools=['ssh_run'])
+    assert response.status_code == 400 and response.json()['error']['message'] == 'ssh_run needs at least one server.'
+
+
+def test_tools_the_request_does_not_control_keep_their_mode(ask):
+    grounded = saved(ask, 'Grounded', resources='fixed')
+    with ask.s.store.connect() as conn:
+        conn.execute('UPDATE ka.agents SET documents_enabled=true,documents_grounded=true WHERE id=%s', (grounded,))
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'report_not_covered','on',true)",
+                     (grounded,))
+    options = ask.s.client.get(f'/api/sessions/options?agent_id={grounded}', headers=HEADERS).json()
+    tools = [tool['name'] for tool in options['tools']]
+    assert 'report_not_covered' not in tools
+    response = start(ask.s.client, '/preview', agent_id=grounded, tools=tools)
+    assert response.status_code == 200, response.text
+    modes = {item['tool']: item['mode'] for item in response.json()['config']['tools']['items']}
+    assert modes['report_not_covered'] == 'on'
+
+
+def test_options_tell_what_a_service_brings(agent, ask):
+    with ask.s.store.connect() as conn:
+        project = ask.s.store.project(conn, 'shop')
+        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging','payments-api',8081)""", (project, ask.s.service, agent.web))
+    options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
+    service = next(item for item in options['resources']['services'] if item['id'] == ask.s.service)
+    assert service['brings_servers'] and service['brings_code']
