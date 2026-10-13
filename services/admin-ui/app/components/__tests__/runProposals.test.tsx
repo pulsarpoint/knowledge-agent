@@ -171,7 +171,7 @@ test("shows the empty text with no proposals, and without a run", async () => {
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-test("reloads when the version changes, and tells the page after a decision reload", async () => {
+test("reloads when the version changes", async () => {
   let loads = 0;
   api({ "GET /api/discovery/r1/proposals": () => { loads += 1; return [200, { proposals: [document] }]; } });
   const view = show();
@@ -179,4 +179,15 @@ test("reloads when the version changes, and tells the page after a decision relo
   expect(loads).toBe(1);
   view.rerender(<RunProposals runId="r1" version="r1:2:waiting" />);
   await waitFor(() => expect(loads).toBe(2));
+});
+
+test("a decision's reload tells the page through onChanged", async () => {
+  const user = userEvent.setup();
+  const onChanged = vi.fn();
+  api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [document] }],
+    "POST /api/discovery/proposals/q2/accept": () => [409, { error: { message: "Review it again." } }] });
+  render(<RunProposals runId="r1" version={version} onChanged={onChanged} />);
+  await user.click(await screen.findByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
 });

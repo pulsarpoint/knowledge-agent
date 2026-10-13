@@ -1,4 +1,4 @@
-import { OWN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput } from '../agentSettings';
+import { OWN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput, withScope } from '../agentSettings';
 import type { SessionDetail } from '../sessions';
 import { options } from './agentOptionsFixture';
 import { agentOptions } from './agentScopeFixture';
@@ -147,12 +147,14 @@ test('a new document: the start body names it as started_from and as the one edi
     tools: ['ssh_run', 'save_document', 'get_document', 'get_service_info'], expert_ids: [], subagents: false });
 });
 
-test('the start body for a server: started from it, the server among the resources, no documents, empty context', () => {
-  const settings = { ...defaultSettings(options), chosen: { ...defaultSettings(options).chosen, server_ids: [] } };
-  const body = startInput({ kind: 'server', id: 's9', name: 'web-9' }, options, settings, ' Explore. ');
-  expect(body).toEqual({ started_from: { server_id: 's9' }, message: 'Explore.', model_id: settings.modelId, prompt_id: settings.promptKey,
-    system_prompt: settings.systemPrompt.trim(), context: '',
-    resources: { ...settings.chosen, server_ids: ['s9'], documents: [] },
-    tools: shownTools(options, { ...settings, chosen: { ...settings.chosen, server_ids: [] } }).map(tool => tool.name),
-    expert_ids: [], subagents: false });
+test('the start body for a server: the server is chosen even when not linked, so ssh_run is shown and sent', () => {
+  const base = defaultSettings(options);
+  const settings = { ...base, chosen: { ...base.chosen, server_ids: [], service_ids: [] } };
+  const scope = { kind: 'server' as const, id: 's1', name: 'web-1' };
+  expect(shownTools(options, settings).map(tool => tool.name)).not.toContain('ssh_run');
+  expect(shownTools(options, withScope(scope, settings)).map(tool => tool.name)).toContain('ssh_run');
+  const body = startInput(scope, options, settings, ' Explore. ');
+  expect(body).toMatchObject({ started_from: { server_id: 's1' }, message: 'Explore.', context: '', prompt_id: base.promptKey,
+    resources: { ...settings.chosen, server_ids: ['s1'], documents: [] }, expert_ids: [], subagents: false });
+  expect(body.tools).toContain('ssh_run');
 });

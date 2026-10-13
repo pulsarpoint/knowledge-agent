@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '~/lib/api';
 import { previewSession, type AgentOptions, type AgentResources, type ChatScope, type SessionDetail } from '~/lib/sessions';
-import { OWN, shownTools, startInput, type AgentSettings } from '~/lib/agentSettings';
+import { OWN, shownTools, startInput, withScope, type AgentSettings } from '~/lib/agentSettings';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
@@ -20,11 +20,12 @@ const GROUPS: [string, string][] = [['code', 'Code'], ['documents', 'Documents']
 
 /** The Ask agent settings for a document, or the narrowing of a saved agent: editable before a conversation starts (Preview shows the JSON the next message
  * starts with), read-only while a conversation is open (its saved configuration; Start new chat with these settings). */
-export default function AgentSettingsSheet({ open, onOpenChange, scope, options, settings, onChange,
+export default function AgentSettingsSheet({ open, onOpenChange, scope, options, settings: given, onChange,
   previewMessage, session, onStartNew }: {
   open: boolean; onOpenChange: (open: boolean) => void; scope: ChatScope; options: AgentOptions;
   settings: AgentSettings; onChange: (patch: Partial<AgentSettings>) => void; previewMessage: string;
   session: SessionDetail | null; onStartNew: () => void }) {
+  const settings = withScope(scope, given);
   const agent = options.agent;
   const locked = session !== null && session.status !== 'closed';
   // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.

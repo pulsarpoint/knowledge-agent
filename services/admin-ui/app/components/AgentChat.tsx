@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { MessageSquarePlus, Settings2 } from 'lucide-react';
 import { agentRunPath, closeSession, getSessions, savedIn, sendMessage, startSession, statusLabels, stopSession, type ChatScope, type RunSummary, type SessionDetail } from '~/lib/sessions';
-import { settingsFromSession, settingsSummary, startInput, type useAgentSettings } from '~/lib/agentSettings';
+import { settingsFromSession, settingsSummary, startInput, withScope, type useAgentSettings } from '~/lib/agentSettings';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';
 import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
@@ -142,7 +142,7 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
         {listFailed && <Alert variant="destructive"><AlertDescription>{isAgent ? 'Could not load this agent\'s runs.' : scope.kind === 'server' ? 'Could not load this server\'s runs.' : 'Could not load this document\'s runs.'}{' '}
           <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed(n => n + 1)}>Retry</Button></AlertDescription></Alert>}
         {runId === null && settings.options && settings.settings && <p aria-label="Current settings" className="text-xs text-muted-foreground">
-          {settingsSummary(settings.options, settings.settings)}</p>}
+          {settingsSummary(settings.options, withScope(scope, settings.settings))}</p>}
         {refused && <Alert variant="destructive"><AlertDescription>{refused}</AlertDescription></Alert>}
         {settings.error && <Alert variant="destructive"><AlertDescription>{settings.error}</AlertDescription></Alert>}</div>}
       headerActions={<>

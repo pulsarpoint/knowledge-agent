@@ -90,17 +90,23 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
   options.agent?.resources_fixed ? options.tools : options.tools.filter(tool => toolApplies(tool, settings.chosen, options.resources));
 
-export function startInput(scope: ChatScope, options: AgentOptions, settings: AgentSettings, message: string): StartInput {
+/** A server scope always has its server chosen (the run is about it), so the tools that need a server show and are sent. */
+export function withScope(scope: ChatScope, settings: AgentSettings): AgentSettings {
+  if (scope.kind !== 'server' || settings.chosen.server_ids.includes(scope.id)) return settings;
+  return { ...settings, chosen: { ...settings.chosen, server_ids: [...settings.chosen.server_ids, scope.id] } };
+}
+
+export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
+  const settings = withScope(scope, raw);
   const tools = shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).map(tool => tool.name);
   if (scope.kind === 'agent') {  // a saved agent keeps its own model and prompt; the run only narrows it
     return { agent_id: scope.id, message: message.trim(), context: '', tools, expert_ids: settings.experts, subagents: settings.subagents,
       resources: { ...settings.chosen, environment_ids: [], documents: [] } };
   }
   if (scope.kind === 'server') {  // a discovery run from the server: the server is always among its resources
-    const server_ids = settings.chosen.server_ids.includes(scope.id) ? settings.chosen.server_ids : [...settings.chosen.server_ids, scope.id];
     return { started_from: { server_id: scope.id }, message: message.trim(), model_id: settings.modelId,
       prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(), context: '',
-      resources: { ...settings.chosen, server_ids, documents: [] }, tools, expert_ids: settings.experts, subagents: settings.subagents };
+      resources: { ...settings.chosen, documents: [] }, tools, expert_ids: settings.experts, subagents: settings.subagents };
   }
   if (scope.kind === 'new-document') {  // the Title and Folder become the one document the run may write
     const document = { folder: scope.folder.trim(), name: scope.title.trim() };
