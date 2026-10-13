@@ -163,7 +163,7 @@ or `discarded`), or null when the run never had one. The run page shows **Open d
 or the page before an event id with `before` (`limit` 1 to 500, default 100). Events are redacted like the live stream; a
 tool result keeps its preview and the full output stays in the run record.
 
-`GET /api/claude-code/sessions/{id}/events` is the live stream (Server-Sent Events): `run_event` events with their id
+`GET /api/sessions/{id}/events` is the live stream (Server-Sent Events): `run_event` events with their id
 after `Last-Event-ID` (or `?after=`), `session` with the state when it changes, `closed` at the end, `unavailable` once
 while the database cannot be reached (the stream stays open and resumes; the browser shows "The session stream is
 unavailable. Reconnecting…" and clears it with the next event or state, which the hub sends again on recovery),
