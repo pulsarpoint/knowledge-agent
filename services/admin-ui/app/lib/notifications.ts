@@ -2,7 +2,7 @@ import { request } from "./api";
 
 export type NotificationStatus = "succeeded" | "failed";
 export interface NotificationRow { id: number; created_at: string; kind: string; status: NotificationStatus; title: string;
-  preview: string; event_id: number | null; agent_id: string | null; agent_name: string | null }
+  preview: string; event_id: number | null; session_id: string | null; agent_id: string | null; agent_name: string | null }
 export interface NotificationDetail extends NotificationRow { body: string; handler_id: string | null;
   event: { id: number; type: string; subject: string } | null;
   task: { id: string; attempts: number; created_at: string; finished_at: string | null } | null }

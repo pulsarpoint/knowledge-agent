@@ -157,12 +157,15 @@ def test_the_event_detail_and_notifications_carry_the_run(tester):
     [session] = sessions(t.store)
     [handler_run] = t.client.get(f"/api/events/{first['id']}", headers=HEADERS).json()['event']['runs']
     assert (handler_run['agent_session_id'], handler_run['agent_task']) == (str(session['id']), None)
-    assert handler_run['run'] == {'id': str(session['id']), 'status': 'starting', 'agent_id': t.agent}
+    assert handler_run['run'] == {'id': str(session['id']), 'status': 'starting', 'agent_id': t.agent,
+                                'notification_id': None}
     with t.store.connect() as conn:
         note = conn.execute("""INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,
             session_id) VALUES (%s,'agent.response','succeeded',%s,'Done.',%s,%s,%s,%s) RETURNING id""",
             (session['project_id'], session['title'], first['id'], handler['id'], t.agent, session['id'])).fetchone()['id']
     [row] = t.client.get('/api/notifications', headers=HEADERS).json()['notifications']
     assert (row['id'], row['session_id'], row['agent_name']) == (note, str(session['id']), 'Tester')
+    [handler_run] = t.client.get(f"/api/events/{first['id']}", headers=HEADERS).json()['event']['runs']
+    assert handler_run['run']['notification_id'] == note
     one = t.client.get(f'/api/notifications/{note}', headers=HEADERS).json()['notification']
     assert (one['session_id'], one['task']) == (str(session['id']), None)

@@ -119,6 +119,9 @@ export default function NotificationsView() {
               <dt className="text-muted-foreground">Status</dt><dd><StatusBadge status={selected.status} /></dd>
               <dt className="text-muted-foreground">Agent</dt><dd>{selected.agent_name ?? selected.agent_id ?? "—"}</dd>
               {selected.task && <><dt className="text-muted-foreground">Attempts</dt><dd>{selected.task.attempts}</dd></>}
+              {selected.session_id && selected.agent_id && <><dt className="text-muted-foreground">Run</dt>
+                <dd><Link className="text-primary underline underline-offset-4"
+                  to={`/agents/${encodeURIComponent(selected.agent_id)}?view=test&session_id=${encodeURIComponent(selected.session_id)}`}>Open run</Link></dd></>}
               {selected.event && <><dt className="text-muted-foreground">Event</dt>
                 <dd><Link className="text-primary underline underline-offset-4" to={`/events?event=${selected.event.id}`}>Open event</Link>
                   {" "}<span className="text-muted-foreground">{selected.event.subject} · {selected.event.type}</span></dd></>}

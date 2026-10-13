@@ -64,6 +64,17 @@ test("opening a notification shows the full answer, the agent, attempts and a li
   expect(within(sheet).getByRole("link", { name: "Open event" })).toHaveAttribute("href", "/events?event=41");
 });
 
+test("a notification of a run links to the run", async () => {
+  const user = userEvent.setup();
+  api({ "/api/notifications": { notifications: [row(1, { session_id: "s-1" })], next_offset: null },
+    "/api/notifications/1": { notification: detail(1, { session_id: "s-1", task: null }) } });
+  view();
+  await user.click(await screen.findByText("Triage · jira.ticket.updated DEMO-1"));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("link", { name: "Open run" })).toHaveAttribute("href", "/agents/triage?view=test&session_id=s-1");
+  expect(within(sheet).getByRole("link", { name: "Open event" })).toHaveAttribute("href", "/events?event=41");
+});
+
 test("a notification whose event is gone has no event link", async () => {
   const user = userEvent.setup();
   api({ "/api/notifications": { notifications: [row(1, { event_id: null })], next_offset: null },

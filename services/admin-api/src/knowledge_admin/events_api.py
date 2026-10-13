@@ -110,7 +110,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                                     (project, row['root_id'], MAX_CHAIN)).fetchall()
         row['runs'] = conn.execute("""SELECT r.handler_id,r.handler_name,r.status,r.message,r.emitted_event_id,
             r.agent_session_id,coalesce(s.agent_id,t.agent_id) AS agent_id,r.created_at,
-            CASE WHEN s.id IS NULL THEN NULL ELSE jsonb_build_object('id',s.id,'status',s.status,'agent_id',s.agent_id) END AS run,
+            CASE WHEN s.id IS NULL THEN NULL ELSE jsonb_build_object('id',s.id,'status',s.status,'agent_id',s.agent_id,
+                'notification_id',(SELECT min(n.id) FROM ka.notifications n WHERE n.session_id=s.id)) END AS run,
             CASE WHEN t.id IS NULL THEN NULL ELSE jsonb_build_object('id',t.id,'status',t.status,'attempts',t.attempts,
                 'notification_id',t.notification_id) END AS agent_task
             FROM ka.event_handler_runs r LEFT JOIN ka.agent_sessions s ON s.id=r.agent_session_id

@@ -115,6 +115,25 @@ test("the sheet shows the chain and the handler runs with their links", async ()
   expect(within(screen.getByRole("dialog")).getByText("Parent")).toBeInTheDocument();
 });
 
+test("a run shows its status, Open run and Open notification; an older task keeps its own", async () => {
+  const user = userEvent.setup();
+  const base = { message: "Started a run of Tester.", emitted_event_id: null, created_at: "2026-10-09T10:00:06Z" };
+  api({ "/api/events/facets": FACETS, "/api/events": { events: [row(7)], next_offset: null },
+    "/api/events/7": { event: detail(7, { runs: [
+      { ...base, handler_id: "h-1", handler_name: "New", status: "succeeded", agent_session_id: "s-9", agent_id: "tester", agent_task: null,
+        run: { id: "s-9", status: "waiting", agent_id: "tester", notification_id: 12 } },
+      { ...base, handler_id: "h-2", handler_name: "Old", status: "succeeded", agent_session_id: null, agent_id: "tester",
+        agent_task: { id: "t-1", status: "failed", attempts: 3, notification_id: 4 } }] }) } });
+  view();
+  await user.click(await screen.findByText("DEMO-7"));
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText("Waiting for you")).toBeInTheDocument();
+  expect(within(sheet).getByRole("link", { name: "Open run" })).toHaveAttribute("href", "/agents/tester?view=test&session_id=s-9");
+  const links = within(sheet).getAllByRole("link", { name: "Open notification" });
+  expect(links.map(link => link.getAttribute("href"))).toEqual(["/notifications?id=12", "/notifications?id=4"]);
+  expect(within(sheet).getByText(/Failed · 3 attempts/)).toBeInTheDocument();
+});
+
 test("empty state", async () => {
   api({ "/api/events/facets": { sources: [], types: [], statuses: [], handlers: [] }, "/api/events": { events: [], next_offset: null } });
   view();

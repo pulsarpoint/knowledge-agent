@@ -1,13 +1,15 @@
 import { request } from "./api";
+import type { SessionStatus } from "./sessions";
 
 export type EventStatus = "pending" | "processed" | "failed";
 export interface EventRow { id: number; source: string; type: string; subject: string; title: string; occurred_at: string; created_at: string;
   status: EventStatus; depth: number; parent_id: number | null; root_id: number; handler_id: string | null }
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed";
 export interface AgentTaskRef { id: string; status: TaskStatus; attempts: number; notification_id: number | null }
+export interface RunRef { id: string; status: SessionStatus; agent_id: string; notification_id: number | null }
 export interface HandlerRun { handler_id: string; handler_name: string; status: "succeeded" | "failed"; message: string;
   emitted_event_id: number | null; agent_session_id: string | null; agent_id: string | null; created_at: string;
-  agent_task: AgentTaskRef | null }
+  run?: RunRef | null; agent_task: AgentTaskRef | null }
 export interface EventDetail extends EventRow { source_id: string | null; dedupe_key: string; created_manually: boolean; payload: Record<string, unknown>;
   parent: EventRow | null; chain: EventRow[]; runs: HandlerRun[] }
 export interface EventFilters { source: string; type: string; status: string; handler: string; q: string }

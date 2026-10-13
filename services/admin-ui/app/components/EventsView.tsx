@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "l
 import { ApiError } from "../lib/api";
 import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TASK_STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
   type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "../lib/events";
+import { statusLabels } from "../lib/sessions";
 import NewEventSheet, { type Prefill } from "./NewEventSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -196,7 +197,13 @@ export default function EventsView() {
                   <Badge variant={run.status === "failed" ? "destructive" : "secondary"}>{run.status === "failed" ? "Failed" : "Succeeded"}</Badge></div>
                 {run.message && <span className="text-muted-foreground">{run.message}</span>}
                 {run.emitted_event_id !== null && <Button variant="link" className="h-auto self-start p-0" onClick={() => void open(run.emitted_event_id!)}>Open event #{run.emitted_event_id}</Button>}
-                {run.agent_session_id && run.agent_id && <Link className="text-primary underline underline-offset-4"
+                {run.run && <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={run.run.status === "failed" ? "destructive" : "outline"}>{statusLabels[run.run.status]}</Badge>
+                  <Link className="text-primary underline underline-offset-4"
+                    to={`/agents/${encodeURIComponent(run.run.agent_id)}?view=test&session_id=${encodeURIComponent(run.run.id)}`}>Open run</Link>
+                  {run.run.notification_id != null && <Link className="text-primary underline underline-offset-4"
+                    to={`/notifications?id=${run.run.notification_id}`}>Open notification</Link>}</div>}
+                {!run.run && run.agent_session_id && run.agent_id && <Link className="text-primary underline underline-offset-4"
                   to={`/agents/${encodeURIComponent(run.agent_id)}?view=test&session_id=${encodeURIComponent(run.agent_session_id)}`}>Open agent session</Link>}
                 {run.agent_task && <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={run.agent_task.status === "failed" ? "destructive" : run.agent_task.status === "succeeded" ? "secondary" : "outline"}>
