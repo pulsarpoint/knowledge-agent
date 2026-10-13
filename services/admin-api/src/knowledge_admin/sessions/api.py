@@ -77,8 +77,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                                              (*values, 100 if document_id or agent_id else 50, offset)).fetchall()}
 
     @router.get('/options')
-    def options(request: Request, document_id: UUID | None = Query(None), agent_id: str | None = Query(None)) -> dict:
+    def options(request: Request, document_id: UUID | None = Query(None), agent_id: str | None = Query(None),
+                new_document: bool = Query(False)) -> dict:
         db = database()
+        if new_document and (agent_id is not None or document_id is not None):
+            raise HTTPException(400, start.ONE_START)
         if agent_id is not None and document_id is not None:
             raise HTTPException(400, 'Choose a document or an agent.')
         with db.connect() as conn:
@@ -86,7 +89,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 return start.agent_options(conn, db.project(conn, app_name), agent_id, db.conninfo)
             subject, _ = request_actor(request)  # read-only: a GET does not create the principal
             actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
-            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id)
+            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document)
 
     @router.post('/preview')
     def preview(value: start.StartInput) -> dict:
@@ -117,6 +120,16 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 details = {'agent_id': value.agent_id, 'model_id': model['id'], 'tools_off': tools_off,
                            'expert_ids': [entry['id'] for entry in pinned['experts']],
                            'subagents': value.subagents, 'resources': pinned.get('run_resources')}
+            elif value.started_from.new_document is not None:
+                new = value.started_from.new_document.model_dump()
+                snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
+                conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                    target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config,run_resources)
+                    VALUES (%s,%s,NULL,%s,%s,%s,'documents',NULL,%s,%s,%s,%s,%s,%s)""",
+                    (session_id, project, actor, model['id'], title, new['folder'], new['name'],
+                     Jsonb(jsonable_encoder(snapshot)), Jsonb({'new_document': new}), Jsonb(pinned), Jsonb(pinned['run_resources'])))
+                details = {'new_document': new, 'model_id': model['id'], 'prompt_id': value.prompt_id,
+                           'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}
             else:
                 document_id = value.started_from.document_id
                 snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}

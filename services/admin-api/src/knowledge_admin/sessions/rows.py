@@ -68,7 +68,9 @@ def session_detail(conn, project: UUID, session_id: UUID) -> dict:
         WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
         conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
-    if row['purpose'] in ('test', 'event', 'revision'):  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
+    pinned_shown = row['purpose'] in ('test', 'event', 'revision') or (
+        row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {}))  # a new-document run
+    if pinned_shown:  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
         row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
                                      (session_id,)).fetchone()['agent_config']
         row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes

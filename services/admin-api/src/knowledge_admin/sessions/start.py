@@ -2,11 +2,14 @@
 every run; where it is started from is a label (started_from), and what it may use is pinned in its config. A saved agent
 (agent_id) starts from its own configuration, which the request can only narrow (narrow)."""
 import hashlib
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from knowledge_admin.data_root import documentation_folder
+from knowledge_admin.documents import document_slug
 
 from knowledge_admin.knowledge_agents.config import get_agent_config, load_model, model_fits, per_run, require_run_resources
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
@@ -16,6 +19,11 @@ from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, SUBAGENT, needs_met
 
 REVISION_TAG = 'document-revision'
+WRITE_TAG = 'documentation'
+ONE_START = 'Choose one starting point: a document or a new document.'
+ID_OR_NEW = 'Give a document id or a new document.'
+ONE_NEW = 'One new document per run.'
+NOT_THE_START = 'The new document must be the one the run starts from.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
 UNKNOWN_TOOL = 'Unknown tool: {names}.'
@@ -34,10 +42,37 @@ AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
 
 
-class DocumentAccess(BaseModel):
+class NewDocument(BaseModel):
+    """A document the run writes: its name (a slug comes from it) and its documentation folder."""
     model_config = ConfigDict(extra='forbid')
-    id: UUID
+    folder: str = Field(max_length=200)
+    name: str = Field(max_length=240)
+
+    @model_validator(mode='after')
+    def valid(self):
+        if '\x00' in self.name:
+            raise ValueError('Text cannot contain null characters')
+        self.name = self.name.strip()
+        if not document_slug(self.name):
+            raise ValueError('Use letters or digits in the document name')
+        self.folder = documentation_folder(self.folder)
+        return self
+
+
+class DocumentAccess(BaseModel):
+    """A document the run may read (and edit, when editable), or a new document it may write (always editable)."""
+    model_config = ConfigDict(extra='forbid')
+    id: UUID | None = None
+    new: NewDocument | None = None
     editable: bool = False
+
+    @model_validator(mode='after')
+    def valid(self):
+        if (self.id is None) == (self.new is None):
+            raise ValueError(ID_OR_NEW)
+        if self.new is not None:
+            self.editable = True
+        return self
 
 
 class Resources(Selection):
@@ -46,7 +81,14 @@ class Resources(Selection):
 
 class StartedFrom(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    document_id: UUID
+    document_id: UUID | None = None
+    new_document: NewDocument | None = None
+
+    @model_validator(mode='after')
+    def valid(self):
+        if (self.document_id is None) == (self.new_document is None):
+            raise ValueError(ONE_START)
+        return self
 
 
 class StartInput(BaseModel):
@@ -84,9 +126,13 @@ class StartInput(BaseModel):
         self.tools = list(dict.fromkeys(self.tools))
         self.expert_ids = list(dict.fromkeys(self.expert_ids))
         merged: dict[UUID, bool] = {}
+        new = [entry for entry in self.resources.documents if entry.new is not None]
+        if len(new) > 1:
+            raise ValueError(ONE_NEW)
         for entry in self.resources.documents:  # one entry per document; editable wins
-            merged[entry.id] = merged.get(entry.id, False) or entry.editable
-        self.resources.documents = [DocumentAccess(id=key, editable=value) for key, value in merged.items()]
+            if entry.id is not None:
+                merged[entry.id] = merged.get(entry.id, False) or entry.editable
+        self.resources.documents = [DocumentAccess(id=key, editable=value) for key, value in merged.items()] + new
         return self
 
 
@@ -99,6 +145,11 @@ def choosable() -> list:
 def revise_prompt_id(project: UUID) -> UUID:
     """The seeded "Revise a document" prompt's id (migration 0100: md5(...)::uuid)."""
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:document-revision:{project}'.encode()).hexdigest())
+
+
+def write_prompt_id(project: UUID) -> UUID:
+    """The seeded "Write a document" prompt's id (md5(...)::uuid, as its migration seeds it)."""
+    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:write-document:{project}'.encode()).hexdigest())
 
 
 def server_reason(row: dict) -> str | None:
@@ -118,9 +169,14 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
 
 
 def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[dict]:
-    """The documents the run may read (and edit, when editable), with their current titles."""
+    """The documents the run may read (and edit, when editable), with their current titles, and the new document it
+    may write (an id of its own, 'new:<uuid>', its name, folder and slug)."""
     access = []
     for entry in entries:
+        if entry.new is not None:
+            access.append({'id': f'new:{uuid4()}', 'title': entry.new.name, 'folder': entry.new.folder,
+                           'slug': document_slug(entry.new.name), 'editable': True, 'new': True})
+            continue
         row = conn.execute('''SELECT d.id,v.title FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
             WHERE d.id=%s AND d.project_id=%s''', (entry.id, project)).fetchone()
         if row is None:
@@ -199,15 +255,24 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
 
 def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
           ) -> tuple[dict, dict, dict | None]:
-    """(pinned configuration, model, started-from document or None for a saved agent): preview and start share it, so
-    they cannot differ."""
+    """(pinned configuration, model, started-from document; None for a saved agent or a new document): preview and
+    start share it, so they cannot differ."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
-    target = conn.execute('SELECT id FROM ka.documents WHERE id=%s AND project_id=%s',
-                          (value.started_from.document_id, project)).fetchone()
-    if target is None:
-        raise HTTPException(404, DOCUMENT_NOT_FOUND)
+    started = value.started_from.new_document
+    entries = list(value.resources.documents)
+    new = next((entry.new for entry in entries if entry.new is not None), None)
+    if new is not None and (started is None or new.model_dump() != started.model_dump()):
+        raise HTTPException(400, NOT_THE_START)
+    if started is not None and new is None:  # the new document it starts from is a resource it may write
+        entries.append(DocumentAccess(new=started, editable=True))
+    target = None
+    if value.started_from.document_id is not None:
+        target = conn.execute('SELECT id FROM ka.documents WHERE id=%s AND project_id=%s',
+                              (value.started_from.document_id, project)).fetchone()
+        if target is None:
+            raise HTTPException(404, DOCUMENT_NOT_FOUND)
     model = load_model(conn, value.model_id)
     if model is None or not model['enabled'] or not model_fits(model):
         raise HTTPException(400, NO_MODEL)
@@ -232,7 +297,7 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
             kept = {str(server['id']) for server in keyed}
             pinned['run_resources'] = {**pinned['run_resources'],
                                        'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept]}
-    pinned['document_access'] = document_access(conn, project, value.resources.documents)
+    pinned['document_access'] = document_access(conn, project, entries)
     unmet = [NEEDS.format(tool=name, what=REQUIRES[names[name].needs]) for name in value.tools
              if not needs_met(names[name].needs, pinned, None)]
     if unmet:
@@ -254,9 +319,9 @@ def build(conn, project: UUID, value: StartInput, session_id: UUID | None, conni
     return jsonable_encoder(pinned), model, target
 
 
-def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None) -> dict:
-    """What a start panel offers: models (the last one used first), prompts tagged for revision, resources (marked
-    linked to the starting document), the choosable tools and experts."""
+def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None, new_document: bool = False) -> dict:
+    """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
+    tagged documentation), resources (marked linked to the starting document), the choosable tools and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
 
     def links(key: str) -> list:
@@ -275,8 +340,8 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None) -
     prompts = conn.execute('''SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
         JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
         WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s]::text[] ORDER BY lower(p.name),p.id''',
-        (project, REVISION_TAG)).fetchall()
-    seeded = revise_prompt_id(project)
+        (project, WRITE_TAG if new_document else REVISION_TAG)).fetchall()
+    seeded = write_prompt_id(project) if new_document else revise_prompt_id(project)
     prompt_choice = seeded if any(row['id'] == seeded for row in prompts) else (prompts[0]['id'] if prompts else None)
 
     def listed(query: str, linked_ids) -> list[dict]:
