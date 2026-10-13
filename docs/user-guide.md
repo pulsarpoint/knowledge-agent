@@ -363,15 +363,16 @@ the server's details (two thirds for the page, one third for the chat). It is th
 chat and settings sheet as Ask agent beside a document. The agent logs in over SSH,
 looks around and proposes what it finds: services, how they are deployed on this
 server, connections between services, and documents. Nothing is written to the
-inventory until you accept it. When SSH is not set up for the server or **SSH allowed**
-is off, Settings says why and the agent has no SSH tools.
+inventory until you accept it. Settings and the chat show why when SSH is not set up
+or **SSH allowed** is off for the server, and the chat cannot start until it is.
 
 **Settings** for a server chat: the server is locked on. You may add other servers,
 services and code projects. A run started from a server also reads the services
 deployed on it, read-only, without SSH to their other servers. The prompt is chosen
 among those tagged `server-discovery` (default **Server discovery**), and the
 proposal tools are on. A server has one conversation at a time: **New chat** closes it,
-**Earlier runs** reopens another. You can write to the agent while it works.
+**Earlier runs** reopens another. A link `/servers/:id/discovery/:runId` opens the
+server page on that run. You can write to the agent while it works.
 
 The instructions come from **Administration → Prompts**. The built-in prompt tells the
 agent to read the inventory first, propose with `propose_service` and
@@ -379,8 +380,7 @@ agent to read the inventory first, propose with `propose_service` and
 short report. If you changed that prompt before this version, add those lines yourself.
 
 The **Proposals** panel above the server's details shows the proposals of the open
-run, with a count of those still pending. A link `/servers/:id/discovery/:runId` opens
-the server page on that run. **Review** opens one proposal:
+run, with a count of those still pending. **Review** opens one proposal:
 
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,

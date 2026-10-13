@@ -34,12 +34,14 @@ limit, no per-turn time limit, no 300-second limit).
   is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
   saves it with `save_document`, which creates the draft of a new document (see [documentation](documentation.md)). Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
-  run."). The inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
+  run.").
+- Inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
   `get_service_docs`, `get_project_info`) follow the same allowlist: they answer only about the servers, services and code
   projects the run was given, and `get_document` reads documents the run was given or attached to those resources.
   Anything else gets "This {server|service|code project|document} is not available in this run." — the same answer as
   for something that does not exist. The proposal tools (`propose_service`, `propose_document`) exist only in a run
-  started from a server. The editing rules are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
+  started from a server.
+- The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
   0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
   `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts and no
