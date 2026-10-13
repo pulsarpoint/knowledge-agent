@@ -27,6 +27,9 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
   session: SessionDetail | null; onStartNew: () => void }) {
   const agent = options.agent;
   const locked = session !== null && session.status !== 'closed';
+  // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.
+  const agentModel = locked ? session!.model_name : agent?.model?.name;
+  const agentPrompt = locked ? session!.prompt_snapshot?.system_prompt ?? '' : agent?.system_prompt;
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,7 +60,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
       <FieldGroup className="mt-4">
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         <fieldset disabled={locked} className="flex min-w-0 flex-col gap-6">
-          {agent ? <Field><FieldLabel>Model</FieldLabel><p className="text-sm">{agent.model?.name ?? 'No model'}</p>
+          {agent ? <Field><FieldLabel>Model</FieldLabel><p className="text-sm">{agentModel || 'No model'}</p>
             <FieldDescription>Change them in General.</FieldDescription></Field> :
           <Field><FieldLabel htmlFor="settings-model">Model</FieldLabel>
             <Select value={settings.modelId} onValueChange={modelId => onChange({ modelId })} disabled={locked || options.models.length === 0}>
@@ -120,7 +123,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
           <CollapsibleTrigger asChild><Button type="button" variant="ghost">Advanced</Button></CollapsibleTrigger>
           <CollapsibleContent className="mt-2 flex flex-col gap-4">
             {agent ? <Field><FieldLabel>Prompt</FieldLabel>
-              <pre aria-label="Agent prompt" tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{agent.system_prompt}</pre>
+              <pre aria-label="Agent prompt" tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{agentPrompt}</pre>
               <FieldDescription>Change them in General.</FieldDescription></Field> : <>
             <Field><FieldLabel htmlFor="settings-prompt">Prompt</FieldLabel>
               <Select value={settings.promptKey} onValueChange={choosePrompt} disabled={locked}>

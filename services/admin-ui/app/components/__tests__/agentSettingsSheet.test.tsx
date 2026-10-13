@@ -99,6 +99,16 @@ test('a saved agent shows its model and prompt read-only and offers only narrowi
   expect(screen.getByRole('switch', { name: 'Allow subagents' })).toBeInTheDocument();
 });
 
+test("an open agent run shows the run's model and prompt, not the agent's current ones", () => {
+  const session = { id: 'r1', status: 'waiting', model_name: 'GPT then', prompt_snapshot: { system_prompt: 'You operated servers.' },
+    config: {} } as unknown as SessionDetail;
+  render(<Harness scope={agentScope} opts={agentOptions} session={session} />);
+  expect(screen.getByText('GPT then')).toBeInTheDocument();
+  expect(screen.queryByText('GPT')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+  expect(screen.getByLabelText('Agent prompt').textContent).toBe('You operated servers.');
+});
+
 test("a fixed agent's resources are not offered", () => {
   const fixed = { ...agentOptions, agent: { ...agentOptions.agent!, resources_fixed: true, subagents_allowed: false } };
   render(<Harness scope={agentScope} opts={fixed} />);

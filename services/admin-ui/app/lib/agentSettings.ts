@@ -80,7 +80,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   return { modelId, promptKey: promptId && options.prompts.some(item => item.id === promptId) ? promptId : OWN,
     systemPrompt: session.prompt_snapshot?.system_prompt ?? defaultSettings(options).systemPrompt, chosen,
     off: items.filter(item => choosable.has(item.tool) && item.mode !== 'on').map(item => item.tool),
-    subagents: items.some(item => item.tool === 'run_subagent' && item.mode === 'on'),
+    subagents: (!options.agent || options.agent.subagents_allowed) && items.some(item => item.tool === 'run_subagent' && item.mode === 'on'),
     experts: (config.experts ?? []).map(entry => String(entry.id)).filter(id => experts.has(id)) };
 }
 

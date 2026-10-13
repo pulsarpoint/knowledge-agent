@@ -72,6 +72,14 @@ test('settingsFromSession leaves out what today\'s options no longer have or can
     off: ['ssh_run'], subagents: false, experts: ['e1'] });
 });
 
+test('settingsFromSession: a saved agent that no longer allows subagents gets them off', () => {
+  const session = { model_id: 'm1', prompt_snapshot: { system_prompt: 'x', prompt_id: null }, run_resources: {},
+    config: { tools: { items: [{ tool: 'run_subagent', mode: 'on' }] } } } as unknown as SessionDetail;
+  expect(settingsFromSession(agentOptions, session).subagents).toBe(true);
+  const solo = { ...agentOptions, agent: { ...agentOptions.agent!, subagents_allowed: false } };
+  expect(settingsFromSession(solo, session).subagents).toBe(false);
+});
+
 test('the summary names the model, up to three resources and the tools on', () => {
   expect(settingsSummary(options, defaultSettings(options))).toBe('Claude · web-1, Payments · 4 tools');
   const many = { ...defaultSettings(options), chosen: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: ['c1'], collection_ids: [] } };
