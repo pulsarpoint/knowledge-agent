@@ -2,7 +2,7 @@
 
 Implementations live in `knowledge_admin/capabilities/`:
 `files.py` (list/read/search files), `ast_grep.py`, `code_search.py`, `code_graph.py` (the CodeGraph queries and
-`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`, `get_document`, `edit_document`, `save_document`), `ssh.py`, `mcp.py`
+`current_graph`), `documents.py` (`search_documents`, `read_document`, `report_not_covered`), `document_tools.py` (`get_document`, `edit_document`, `save_document`), `ssh.py`, `mcp.py`
 (MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
 `worker.py` for the shell worker service). They do not import the Agents SDK.
 

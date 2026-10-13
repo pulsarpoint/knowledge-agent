@@ -14,7 +14,7 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.session_text import close_idle
 from knowledge_admin.sessions import start
-from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS
+from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.sessions.rows import (CLOSED, NOTHING_TO_STOP, SUMMARY, MessageInput, SessionPurpose, session_detail,
                                            stream_event)
 
@@ -68,8 +68,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if purpose is not None:
                 where.append('s.purpose=%s'); values.append(purpose)
             order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
-            return {'sessions': conn.execute(f"{LIST} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 50 OFFSET %s",
-                                             (*values, offset)).fetchall()}
+            return {'sessions': conn.execute(f"{LIST} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s OFFSET %s",
+                                             (*values, 100 if document_id else 50, offset)).fetchall()}
 
     @router.get('/options')
     def options(request: Request, document_id: UUID | None = Query(None)) -> dict:
@@ -110,7 +110,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,%s)',
                          (session_id, actor, value.message))
             tools_off = sorted(item['tool'] for item in pinned['tools']['items']
-                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs not in RUN_ONLY_NEEDS)
+                               if item['tool'] in CATALOG and item['mode'] != 'on' and CATALOG[item['tool']].needs != 'discovery')
             audit(conn, actor, 'agent_run.created', 'agent_session', jsonable_encoder({
                 'document_id': document_id, 'model_id': model['id'], 'prompt_id': value.prompt_id,
                 'tools_off': tools_off, 'expert_ids': value.expert_ids, 'subagents': value.subagents}), session_id)

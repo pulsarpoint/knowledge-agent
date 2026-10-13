@@ -3,7 +3,7 @@ import type { SessionDetail, SessionStatus } from './sessions';
 import type { RunResourcesInput } from './profiles';
 
 /** The agent Test tab's sessions (event handlers' sessions are listed too, purpose `event`): created with the first
- * message, then run by the agent session worker like a Generate documents session (messages, Stop, Close and the event stream are the session API in generations.ts). */
+ * message, then run by the agent session worker like a Generate documents session (messages, Stop, Close and the event stream are the session API in sessions.ts). */
 export interface TestSessionSummary { id: string; title: string; status: SessionStatus; purpose: 'test' | 'event'; created_at: string; last_activity_at: string; actor_email: string }
 /** A tuning suggestion; `response_turn` is the answer the feedback was about (none: the whole session). */
 export interface SessionReview { id: string; comment: string; suggestion: string; response_turn?: number | null; created_at: string }

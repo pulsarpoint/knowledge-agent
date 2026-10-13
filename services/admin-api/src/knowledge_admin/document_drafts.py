@@ -294,7 +294,7 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
 
 
 # The session `s`'s latest document draft of any status (open, promoted or discarded), for session rows and the live
-# session state: the run page offers Save as draft only to a run that never had one.
+# session state: every finished turn saves its draft, so a run has one once a turn has finished.
 SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document_id,'status',x.status)
     FROM ka.document_drafts x WHERE x.session_id=s.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS document_draft"""
 DOCUMENT_TOOLS = ['get_document', 'read_document']
@@ -376,7 +376,7 @@ def save_run_draft(conn, session_id: UUID, turn: int, actor: UUID | None = None)
     has saved, or create one — a draft of the document at the run's folder and name, or of a new document there. Its
     sources are recomputed from the run's tool calls. None when the run has no draft.
 
-    The caller holds the session row (the turn's UPDATE, or Save as draft's FOR UPDATE); this locks only the run's
+    The caller holds the session row (the turn's UPDATE); this locks only the run's
     draft after it, the order promote takes them in (project, actor, session, draft). It never locks ka.projects or
     ka.documents rows, which promote locks before the session."""
     session = conn.execute('''SELECT id,project_id,purpose,document_name,folder,draft,context_snapshot
@@ -501,7 +501,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 project = db.project(conn, app_name)
                 conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
                 actor = db.actor(conn, *request_actor(request))
-                # The run's session before the draft, the order a run's turn and Save as draft lock them in.
+                # The run's session before the draft, the order a run's turn locks them in.
                 run = conn.execute('SELECT session_id FROM ka.document_drafts WHERE id=%s AND project_id=%s',
                                    (draft_id, project)).fetchone()
                 if run is not None and run['session_id'] is not None:

@@ -133,7 +133,8 @@ def test_a_closed_run_or_a_deleted_document_cannot_save(rev):
     current = rev.docs.client.get(f'{API}/documents/{rev.docs.runbook}', headers=HEADERS).json()
     deleted = rev.docs.client.delete(f"{API}/documents/{rev.docs.runbook}?revision={current['revision']}&confirmed=true", headers=HEADERS)
     assert deleted.status_code in (200, 204), deleted.text
-    assert call(rev, 'get_document', document_id=str(rev.docs.runbook)) == NOT_AVAILABLE.format(kind='document')
+    assert call(rev, 'get_document', document_id=str(rev.docs.runbook)) == 'Document not found'
+    assert call(rev, 'get_document', document_id=str(uuid4())) == NOT_AVAILABLE.format(kind='document')
     with pytest.raises(ValueError, match='This document no longer exists.'):
         call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Gone')
 
@@ -230,3 +231,12 @@ def test_without_a_session_the_edit_tools_refuse(rev):
     with pytest.raises(ValueError, match='The document tools work only in an agent session.'):
         asyncio.run(CATALOG['save_document'].run({'config': no_session}, CATALOG['save_document'].arguments.model_validate(
             {'document_id': str(rev.docs.runbook), 'markdown': '# x'})))
+
+
+def test_a_subagent_gets_no_document_access_so_the_edit_tools_are_unmet():
+    from test_subagent_config import MCP, OFFERED, parent
+    from knowledge_admin.knowledge_agents.subagents import subagent_config
+    lead = parent(document_access=[{'id': 'd', 'title': 'T', 'editable': True}])
+    assert needs_met('editable_document', lead, None)
+    sub = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
+    assert 'document_access' not in sub and not needs_met('editable_document', sub, None)

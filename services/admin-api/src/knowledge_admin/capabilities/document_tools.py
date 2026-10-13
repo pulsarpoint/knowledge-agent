@@ -36,8 +36,6 @@ FENCE = re.compile(r'^ {0,3}(```|~~~)')
 HEADING = re.compile(r'^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$')
 LIVE = '''SELECT v.id AS version_id,v.version,v.title,v.description,v.purpose,v.audience,v.tags,v.markdown
     FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s'''
-LIVE = '''SELECT v.id AS version_id,v.version,v.title,v.description,v.purpose,v.audience,v.tags,v.markdown
-    FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s'''
 WORKING = '''SELECT id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
     WHERE session_id=%s AND document_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1'''
 ATTACHED = 'SELECT 1 FROM ka.inventory_documents WHERE document_id=%s'
@@ -106,6 +104,8 @@ def _get_document(config: dict[str, Any], document_id: str, section: str | None,
     with connect() as conn:
         project = project_of(conn, config)
         live = conn.execute(LIVE, (document, project)).fetchone()
+        if live is None and str(document) in {str(entry.get('id')) for entry in config.get('document_access', [])}:
+            return 'Document not found'  # deleted during the run
         if live is None or not _readable(conn, config, document):
             return NOT_AVAILABLE.format(kind='document')
         session = config.get('session_id')

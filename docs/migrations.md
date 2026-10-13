@@ -260,4 +260,4 @@ migration refuses while open drafts, sources or links exist.
 Seeds the prompt **Revise a document** (tag `document-revision`) in every workspace and for new ones: the Ask agent's
 editing rules, now ordinary prompt text. Open Ask agent runs (pinned with the old document tools) are closed with "Closed
 by an update; start a new chat."; their queued messages are discarded. `target_document_id` now only records where a run
-was started. The down migration refuses while the seeded prompt is customized and removes it; closed runs stay closed.
+was started. Prompts tagged `document-revision` that people made before this update no longer get the editing rules and document outline appended by code; copy the rules from "Revise a document" into them. The down migration refuses while the seeded prompt is customized and removes it; closed runs stay closed.

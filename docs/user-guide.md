@@ -664,8 +664,7 @@ read-only.
 
 **Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
 and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
-exporting into `services/<service>/<phase>/`. Bookmarks of old generations
-(`/documentation/generations/<id>`) open a page that shows "Session not found". Run pages are now at `/sessions/<id>`
+exporting into `services/<service>/<phase>/`. Run pages are now at `/sessions/<id>`
 for every run; old links to `/documentation/generations/<id>` do not redirect.
 
 ### 4.13 Documents
