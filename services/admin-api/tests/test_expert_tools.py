@@ -3,6 +3,7 @@ Generate documents sessions, and the Tools tab's Experts group."""
 from test_agent_tools_api import put, view
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_generations import sessions, start  # noqa: F401  (fixtures)
+from test_test_sessions import test_start
 from test_profiles import create, update
 from test_repositories import HEADERS
 
@@ -76,7 +77,7 @@ def test_a_test_session_pins_the_offered_experts(store, saved_agent):
     client, model = saved_agent[0], model_of(saved_agent)
     me = caller(store, saved_agent, model)
     first = expert(client, 'Payments', model_id=model)
-    response = client.post(f"/api/agents/{me['id']}/sessions", headers=HEADERS, json={'message': 'Hi'})
+    response = client.post('/api/sessions', headers=HEADERS, json=test_start(client, me['id'], 'Hi'))
     assert response.status_code == 201, response.text
     with store.connect() as conn:
         pinned = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',

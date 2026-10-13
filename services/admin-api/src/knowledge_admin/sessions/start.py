@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from knowledge_admin.knowledge_agents.config import get_agent_config, load_model, model_fits, per_run, require_run_resources
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.experts import offered, pin
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, resolve
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, options as run_options, resolve
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, SUBAGENT, needs_met
 
@@ -316,3 +316,44 @@ def options(conn, project: UUID, actor: UUID | None, document_id: UUID | None) -
         'tools': [{'name': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
                    'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None} for spec in choosable()],
         'experts': experts})
+
+
+def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
+    """What a start panel offers for a saved agent: only what the request may narrow. Its own model and prompt (no
+    choice), its saved selection (a per-run agent's usable resources; none for a fixed agent), its tools that are on and
+    its offered experts."""
+    try:
+        config = get_agent_config(agent_id, conninfo=conninfo)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    model = config['model']
+    fits = model is not None and model['enabled'] and model_fits(model)
+    fixed = not per_run(config)
+    saved = {} if fixed else run_options(conn, project, config)
+    listed = lambda kind: [] if saved.get(kind) is None else saved[kind]  # noqa: E731
+    on = {item['tool'] for item in config['tools']['items'] if item['mode'] == 'on'}
+    resources = {
+        'servers': [{'id': item['id'], 'name': item['name'], 'linked': False, 'usable': True, 'reason': None}
+                    for item in listed('servers')],
+        'services': [{'id': item['id'], 'name': item['name'], 'linked': False, 'brings_code': False,
+                      'brings_servers': False} for item in listed('services')],
+        'environments': [],
+        'code_projects': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('code_projects')],
+        'collections': [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed('collections')],
+        'documents': [],
+    }
+    return jsonable_encoder({
+        'agent': {'id': config['id'], 'name': config['name'], 'revision': config['revision'],
+                  'model': {'id': model['id'], 'name': model['name']} if model else None,
+                  'system_prompt': config['system_prompt']['content'], 'resources_fixed': fixed,
+                  'subagents_allowed': SUBAGENT in on},
+        'models': [{'id': model['id'], 'name': model['name']}] if fits else [],
+        'default_model_id': model['id'] if fits else None, 'prompts': [], 'default_prompt_id': None,
+        'resources': resources,
+        'tools': [{'name': spec.name, 'label': spec.label, 'summary': spec.summary, 'group': spec.group,
+                   'needs': spec.needs, 'requires': REQUIRES.get(spec.needs) if spec.needs else None}
+                  for spec in choosable() if spec.name in on],
+        'experts': [{'id': entry['id'], 'name': entry['name'], 'when_to_use': entry['when_to_use']}
+                    for entry in offered(conn, agent_id)]})

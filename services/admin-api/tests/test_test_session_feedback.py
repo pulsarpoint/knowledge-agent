@@ -42,7 +42,7 @@ def chat(tester):
                 (2, 4, 'end', {'status': 'failed'})):
             record(conn, sid, turn, seq, kind, payload)
         conn.execute("UPDATE ka.agent_sessions SET status='failed',turns=2 WHERE id=%s", (sid,))
-    t.session, t.review = sid, f'{t.path}/{sid}/review'
+    t.session, t.review = sid, f'/api/sessions/{sid}/review'
     return t
 
 
@@ -95,8 +95,7 @@ def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(
         assert response.status_code == status, response.text
         return response.json()['error']['message']
     assert post(chat.review, {'comment': 'x', 'turn': 3}, 404) == NO_RESPONSE
-    assert post(f'/api/agents/code/sessions/{chat.session}/review', {'comment': 'x'}, 404) == \
-        'Session not found for this agent.'
+    assert post(f'/api/sessions/{uuid4()}/review', {'comment': 'x'}, 404) == 'Session not found.'
     post(chat.review, {'comment': ' '}, 400)
     post(chat.review, {'comment': 'x', 'turn': 0}, 400)
     assert chat.client.post(chat.review, json={'comment': 'x'}).status_code == 403
@@ -107,11 +106,11 @@ def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(
             '{}','{}','Docs','docs',agent_config FROM ka.agent_sessions WHERE id=%s RETURNING id''',
             (uuid4(), chat.session)).fetchone()['id']
     assert post(chat.review, {'comment': 'x'}, 409) == REVIEW_BUSY
-    assert post(f'{chat.path}/{documents}/review', {'comment': 'x'}, 400) == NOT_A_TEST
+    assert post(f'/api/sessions/{documents}/review', {'comment': 'x'}, 400) == NOT_A_TEST
     fresh = start(chat)['id']
     with chat.store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (fresh,))
-    assert post(f'{chat.path}/{fresh}/review', {'comment': 'x'}, 409) == NO_TURNS
+    assert post(f'/api/sessions/{fresh}/review', {'comment': 'x'}, 409) == NO_TURNS
     with chat.store.connect() as conn:
         assert conn.execute('SELECT count(*) AS n FROM ka.agent_session_reviews').fetchone()['n'] == 0
 

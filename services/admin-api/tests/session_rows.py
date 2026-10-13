@@ -18,7 +18,7 @@ def a_model(conn, actor) -> UUID:
 
 def add_test_session(conn, project, actor, agent_id: str, model_id, *, config: dict[str, Any] | None = None,
                      message: str | None = None, status: str = 'starting', turns: int = 0, purpose: str = 'test') -> UUID:
-    """A Test session of the agent as POST /api/agents/{id}/sessions inserts it (or, with purpose 'event', as an event
+    """A Test session of the agent as POST /api/sessions with an agent inserts it (or, with purpose 'event', as an event
     handler starts one); `message` queues input 1."""
     session = uuid4()
     conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,

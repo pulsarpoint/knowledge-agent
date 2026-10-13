@@ -104,3 +104,21 @@ def test_context_is_added_as_facts(agent):
     pinned = start(agent.client, '/preview', agent_id=agent.id, tools=['read_file'], context='Ticket OPS-1',
                    resources={'server_ids': [agent.web]}).json()['config']
     assert pinned['system_prompt']['content'].endswith('# Context\n\nTicket OPS-1')
+
+
+def test_options_for_a_saved_agent_offer_only_what_may_be_narrowed(agent, fixed):
+    options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
+    assert options['agent']['id'] == agent.id and not options['agent']['resources_fixed']
+    assert options['agent']['subagents_allowed'] and options['prompts'] == [] and options['default_prompt_id'] is None
+    assert {tool['name'] for tool in options['tools']} == {'ssh_run', 'read_file'}
+    assert [server['id'] for server in options['resources']['servers']] == [agent.web]
+    fixed_options = fixed.client.get(f'/api/sessions/options?agent_id={fixed.id}', headers=HEADERS).json()
+    assert fixed_options['agent']['resources_fixed'] and fixed_options['resources']['servers'] == []
+    assert agent.client.get('/api/sessions/options?agent_id=nope', headers=HEADERS).status_code == 404
+
+
+def test_the_old_test_routes_are_gone(agent):
+    some = '00000000-0000-0000-0000-000000000001'
+    for method, path in (('post', f'/api/agents/{agent.id}/sessions'), ('get', f'/api/agents/{agent.id}/sessions'),
+                         ('post', f'/api/agents/{agent.id}/sessions/{some}/review')):
+        assert getattr(agent.client, method)(path, headers=HEADERS, **({'json': {}} if method == 'post' else {})).status_code in (404, 405)

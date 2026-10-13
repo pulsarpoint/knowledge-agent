@@ -11,6 +11,7 @@ from psycopg import errors
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.agent_sessions import ReviewInput, review_session
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.knowledge_agents.config import per_run
 from knowledge_admin.session_text import agent_system_prompt, close_idle
@@ -57,8 +58,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.get('')
     def sessions(response: Response, purpose: SessionPurpose | None = None, document_id: UUID | None = None,
-                 offset: int = Query(0, ge=0)) -> dict:
-        """Runs, newest first: those started from a document (open first, then by activity), or of one purpose."""
+                 agent_id: str | None = None, offset: int = Query(0, ge=0)) -> dict:
+        """Runs, newest first: those started from a document (open first, then by activity), of one purpose, or an
+        agent's Test and event sessions."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
@@ -68,14 +70,20 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 where.append('s.target_document_id=%s'); values.append(document_id)
             if purpose is not None:
                 where.append('s.purpose=%s'); values.append(purpose)
+            if agent_id is not None:
+                where.append("s.agent_id=%s AND s.purpose IN ('test','event')"); values.append(agent_id)
             order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
             return {'sessions': conn.execute(f"{LIST} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s OFFSET %s",
-                                             (*values, 100 if document_id else 50, offset)).fetchall()}
+                                             (*values, 100 if document_id or agent_id else 50, offset)).fetchall()}
 
     @router.get('/options')
-    def options(request: Request, document_id: UUID | None = Query(None)) -> dict:
+    def options(request: Request, document_id: UUID | None = Query(None), agent_id: str | None = Query(None)) -> dict:
         db = database()
+        if agent_id is not None and document_id is not None:
+            raise HTTPException(400, 'Choose a document or an agent.')
         with db.connect() as conn:
+            if agent_id is not None:
+                return start.agent_options(conn, db.project(conn, app_name), agent_id, db.conninfo)
             subject, _ = request_actor(request)  # read-only: a GET does not create the principal
             actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
             return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id)
@@ -128,6 +136,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                          (session_id, actor, value.message))
             audit(conn, actor, 'agent_run.created', 'agent_session', jsonable_encoder(details), session_id)
             return session_detail(conn, project, session_id)
+
+    @router.post('/{session_id}/review')
+    async def review(session_id: UUID, value: ReviewInput, request: Request) -> dict:
+        """Suggest improvements for a Test or event session (a tuning review; nothing is applied)."""
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+        return await review_session(db, project, session_id, value, request_actor(request))
 
     @router.get('/{session_id}')
     def session(session_id: UUID, response: Response) -> dict:

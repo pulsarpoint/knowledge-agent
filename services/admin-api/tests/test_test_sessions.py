@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.agent_sessions import NO_MODEL
-from knowledge_admin.knowledge_agents.run_resources import FIXED
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS
@@ -29,17 +28,30 @@ def tester(store, tmp_path, monkeypatch):
             ssh_enabled=false,skills_enabled=false,mcp_enabled=false,services_enabled=false WHERE id=%s''',
             (model['id'], agent['id']))
     return SimpleNamespace(client=client, store=store, agent=agent['id'], model=model['id'], root=tmp_path.resolve(),
-                           path=f"/api/agents/{agent['id']}/sessions")
+                           path=f"/api/sessions?agent_id={agent['id']}")
+
+
+def test_start(client, agent_id: str, message: str = 'How many retries?', run_resources=None) -> dict:
+    """The body a Test tab sends: everything the agent has on (its tools, experts, subagents), with the given resources."""
+    options = client.get(f'/api/sessions/options?agent_id={agent_id}', headers=HEADERS).json()
+    return {'agent_id': agent_id, 'message': message, 'tools': [tool['name'] for tool in options['tools']],
+            'subagents': options['agent']['subagents_allowed'], 'expert_ids': [e['id'] for e in options['experts']],
+            'resources': run_resources or {}}
+
+
+test_start.__test__ = False  # a helper, not a test
 
 
 def start(t, message: str = 'How many retries?', **body) -> dict:
-    response = t.client.post(t.path, headers=HEADERS, json={'message': message, **body})
+    run_resources = body.pop('run_resources', None)
+    response = t.client.post('/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, message, run_resources), **body})
     assert response.status_code == 201, response.text
     return response.json()
 
 
 def refused(t, status: int, **body) -> str:
-    response = t.client.post(t.path, headers=HEADERS, json={'message': 'Hi', **body})
+    run_resources = body.pop('run_resources', None)
+    response = t.client.post('/api/sessions', headers=HEADERS, json={**test_start(t.client, t.agent, 'Hi', run_resources), **body})
     assert response.status_code == status, response.text
     return response.json()['error']['message']
 
@@ -65,24 +77,23 @@ def test_the_first_message_pins_the_configuration_for_the_whole_session(tester):
                               (session['id'],)).fetchone()['agent_config']
     assert pinned['system_prompt'] == {'content': 'Instructions for Tester.'}  # the session keeps what it started with
     later = start(t, 'x' * 250)
-    assert later['config']['system_prompt'] == {'content': 'A changed prompt.'} and later['title'] == 'x' * 200
+    assert later['config']['system_prompt'] == {'content': 'A changed prompt.'} and later['title'] == 'x' * 120
     listed = t.client.get(t.path, headers=HEADERS)
     assert listed.headers['cache-control'] == 'no-store'
     rows = listed.json()['sessions']
-    assert [(row['id'], row['actor_email']) for row in rows] == [(later['id'], 'admin@example.test'),
+    assert [(row['id'], row['started_by']) for row in rows] == [(later['id'], 'admin@example.test'),
                                                                  (session['id'], 'admin@example.test')]
-    assert set(rows[0]) == {'id', 'title', 'status', 'created_at', 'last_activity_at', 'actor_email', 'purpose'}
-    assert t.client.get('/api/agents/code/sessions', headers=HEADERS).json() == {'sessions': []}
+    assert {'id', 'title', 'status', 'created_at', 'last_activity_at', 'started_by', 'purpose'} <= set(rows[0])
+    assert t.client.get('/api/sessions?agent_id=code', headers=HEADERS).json() == {'sessions': []}
     assert t.client.get('/api/sessions?purpose=documents', headers=HEADERS).json() == {'sessions': []}  # documents only
 
 
 def test_test_sessions_are_refused_with_todays_messages(tester):
     t = tester
-    for body in ({'message': ' '}, {'message': 'a\x00b'}, {'message': 'x' * 20001}, {'message': 'Hi', 'title': 'Old'},
-                 {'message': 'Hi', 'resources': {}}):
-        assert t.client.post(t.path, headers=HEADERS, json=body).status_code == 400, body
-    assert t.client.post(t.path, json={'message': 'Hi'}).status_code == 403
-    assert t.client.post('/api/agents/missing/sessions', headers=HEADERS, json={'message': 'Hi'}).status_code == 404
+    for body in ({'message': ' '}, {'message': 'a\x00b'}, {'message': 'x' * 20001}, {'message': 'Hi', 'title': 'Old'}):
+        assert t.client.post('/api/sessions', headers=HEADERS, json={'agent_id': t.agent, **body}).status_code == 400, body
+    assert t.client.post('/api/sessions', json={'agent_id': t.agent, 'message': 'Hi'}).status_code == 403
+    assert t.client.post('/api/sessions', headers=HEADERS, json={'agent_id': 'missing', 'message': 'Hi'}).status_code == 404
     with t.store.connect() as conn:
         conn.execute('UPDATE ka.agents SET model_id=NULL WHERE id=%s', (t.agent,))
     assert refused(t, 409) == NO_MODEL
@@ -128,7 +139,6 @@ def test_a_per_run_agent_pins_exactly_the_resources_of_its_first_message(analyst
         'Code project Worker is not allowed for this agent.'
     with a.store.connect() as conn:
         conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
-    assert refused(a, 400, run_resources={}) == FIXED
     assert start(a)['run_resources'] is None
 
 
@@ -156,3 +166,4 @@ def test_the_test_tab_offers_what_a_run_may_be_given(analyst):
         conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
     assert a.client.get(f'/api/agents/{a.agent}/run-resources', headers=HEADERS).json() == {'resources': 'fixed'}
     assert a.client.get('/api/agents/missing/run-resources', headers=HEADERS).status_code == 404
+
