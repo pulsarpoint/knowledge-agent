@@ -2,7 +2,7 @@
 
 This guide explains how the application is used, from first start-up to day-to-day
 work. It describes the behavior of the **current code** (including uncommitted work
-on Generate documents, code graphs and the sandboxed shell worker), not the
+on document agents, code graphs and the sandboxed shell worker), not the
 intended design. Where existing documentation in `docs/` disagrees with the code,
 the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree-with-the-code).
 
@@ -22,7 +22,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.9 Skills](#49-skills)
   - [4.10 MCP servers](#410-mcp-servers)
   - [4.11 Agents](#411-agents)
-  - [4.12 Generate documents](#412-generate-documents)
+  - [4.12 Write a new document with an agent](#412-write-a-new-document-with-an-agent)
   - [4.13 Documents](#413-documents)
   - [4.14 Storage](#414-storage)
   - [4.15 Agent runs](#415-agent-runs)
@@ -62,8 +62,8 @@ What you can actually do today:
   pulled on a schedule, and build a **code graph** (symbols, relationships, routes).
 - **Keep an operational inventory**: services, their code, environments, servers,
   deployments and service-to-service dependencies.
-- **Generate documents with an agent**: pick a model and what to document
-  (code projects, environments, services, servers), follow the session and save the draft.
+- **Write documents with an agent**: on Documents → New, chat with an agent that has the code,
+  documents, servers and services you allow; it saves its work as a draft.
 - **Configure and test AI agents** with prompts, skills, documents, code, SSH servers
   and MCP tools, and run them interactively (agent **Test** chat).
 - **Import Jira tickets** into the knowledge base as Markdown.
@@ -78,10 +78,10 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
-               agent-session-worker (Generate documents, Test sessions, event-handler agent tasks)
+               agent-session-worker (document, Test and Ask agent sessions, event-handler agent tasks)
 ```
 
-`agent-session-worker` runs Generate documents and Test sessions, and the event-handler agent tasks (one-shot; each
+`agent-session-worker` runs document, Test and Ask agent sessions, and the event-handler agent tasks (one-shot; each
 answer goes to Notifications). Like `admin-api` it reaches
 RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
@@ -136,7 +136,7 @@ Most features depend on earlier ones. A sensible order in the Administration app
    documentation should inspect them.
 6. **Environments** → group servers and services (e.g. `production`, `staging`).
 7. **Services** → describe applications, link code projects, add deployments and dependencies.
-8. **Docs → Generate documents** → **New**: choose what to document → **Generate**.
+8. **Docs → Documents** → **New** → **Write with an agent**: give a title and folder, then tell the agent what to write.
 9. **Agents** → create agents, assign a model, enable capabilities, test them.
 
 ---
@@ -167,7 +167,7 @@ General conventions throughout the admin app:
 | Jira | Tickets · Auto pull · Settings |
 | Environments | Environments · Services · Servers · System map |
 | Code | Projects · Code graphs |
-| Docs | Documents · Generate documents · Folders |
+| Docs | Documents · Folders |
 | RAG | Collections · Processing jobs · Settings · Search |
 
 Footer: theme toggle and **Sign out**.
@@ -313,7 +313,7 @@ dependency/build folders, binaries and files over 1 MiB, and reuses unchanged fi
 lists every project's graph (status, files, symbols, relationships, languages, last
 generated) with **View graph** and **Generate graph**; `/code-graphs?project=<id>` opens one
 directly. The graph is a
-prerequisite for code documentation phases ([4.12](#412-generate-documents)).
+prerequisite for code documentation phases ([4.12](#412-write-a-new-document-with-an-agent)).
 
 Code projects only clone and pull into `code/…`. To search code, add the project's folders
 to a collection in RAG → Collections; removing a project does not change RAG.
@@ -541,8 +541,8 @@ answer (**Main agent** goes back). The header and the main agent's entry count t
 the main turn's Worked line counts only the agent's own work. **Stop** stops the agent and all of its helpers.
 
 **Experts.** Turn on **Offer as an expert** on an agent's General tab (it needs a When to use text, which tells other
-agents when to call it; the agent must be enabled and have a model). Every other native agent, including Generate
-documents agents, then gets a tool `ask_<name>` for it. In an agent's **Tools** tab the **Experts** group lists the
+agents when to call it; the agent must be enabled and have a model). Every other native agent, including the agent of a
+new-document run, then gets a tool `ask_<name>` for it. In an agent's **Tools** tab the **Experts** group lists the
 experts with their When to use and whether they use fixed or per-run resources; switch one off to stop this agent
 from calling it. The group says "No experts yet. Turn on Offer as an expert on an agent's General tab." when there is
 none, and an expert itself sees "When this agent runs as an expert it cannot call experts." A per-run expert works
@@ -572,106 +572,70 @@ on. Saving the agent's settings changes what runs next.
 Removing an agent that has history (test chats, documentation sessions or run records of earlier test chats) lists that
 history in the **Remove agent?** dialog. **Delete agent and history** deletes the agent together with it; saved
 documents are kept. To keep the history, cancel and disable the agent instead. An agent that is working right now
-(a Test or documentation session that is starting or working) cannot be removed; stop that work or wait for
+(a Test or document session that is starting or working) cannot be removed; stop that work or wait for
 it to finish first.
 See [Appendix A](#appendix-a-agent-tools-and-safety) for the tools an agent receives.
 
-### 4.12 Generate documents
+### 4.12 Write a new document with an agent
 
-**Docs → Generate documents** (`/documentation/generations`) lists sessions in which an agent writes one
-document: status, model, tokens and the saved document. **New** opens the form. Sessions continue when you leave the page
-and close after 24 idle hours (a session idle for 5 minutes is paused and resumes on your next message).
+**Documents → New** has a **Write with an agent** button (`/documents/new`). It opens a chat with an agent that writes a document that does not
+exist yet. It is the same chat as **Ask agent** on a document ([4.13](#413-documents)): the page takes the full width, the
+document takes two thirds and the chat one third.
 
-**Prerequisites**
+1. Give a **Title** and a **Folder**. The Folder field appears with the chat. Without both, nothing starts. Folder names are
+   lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
+   '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
+   characters. The title needs ASCII letters or digits (the file name is made from them).
+2. Message the agent: what to write and what to read. It writes the document with `save_document` and changes it with
+   `edit_document`. Each save updates the run's draft; you can ask for more changes.
+3. A bar above the editor shows the draft. **Compare** opens the draft page. **Promote** creates the document and opens it.
 
-- An enabled model that is a Responses or Claude connection. The session runs an agent made for it; there is no saved agent.
+If the title and folder match an existing document, the agent's saves become a draft of that document. Nothing goes live until
+you promote the draft. There is one conversation per page visit; **New chat** closes it.
 
-**The form**
+**Settings** in the chat opens what the agent may use: the model, the resources (code projects, document collections,
+environments, services and servers), the tools, subagents and experts, and under **Advanced** the prompt. A server whose SSH
+is not set up or not allowed cannot be chosen. The prompts offered are those tagged `documentation`; the default is **Write a
+document** (Administration → Prompts). It tells the agent to read what it was given, write with `save_document`, change a passage
+with `edit_document`, and never say the document is published. If you write your own prompt, tell the agent to write with
+`save_document`; a final answer is not turned into a draft. **Preview** shows exactly what the next message will start with, as
+JSON. By default the agent has all resources, tools and experts, `run_subagent` and every agent offered as an expert
+(`ask_<name>`). Its tools (`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and
+`ssh_run` when servers are chosen) work as in an agent's Test tab.
 
-- **Agent context** (closed by default; one line shows the model and the system prompt): **Model**, **System prompt**
-  and **Context**. The context is generated from what you choose below and can be edited; **Regenerate from selection**
-  replaces your edits.
-- **What to document**: tick **Code**, **Documents**, **Environment**, **Services** and/or **Servers**; each shows its picker. Pick at
-  least one item.
-- **Prompt**: **Write my own**, or a saved prompt from Administration → Prompts; **Prompt tag**
-  narrows the list. **Prompt text** is the first message; editing a saved prompt changes only this run.
-- **Document name** and **folder**: the folder defaults to `<first code project>-docs`, or `docs`. Folder names are
-  lowercase (`Payments` and `payments` would be the same folder on macOS): each segment uses lowercase letters, digits,
-  '.', '_' and '-', does not start with '.'; `node_modules` and a first segment `services` are not allowed; at most 200
-  characters. The name needs ASCII letters or digits (the file name is made from them).
+**The run page.** Every run, including this one, has a page at `/sessions/<id>`. It uses the same workspace as the Test tab: the
+main pane shows each turn (your message, a collapsed **Worked** block with thinking, tool calls and results, and the answer)
+and scrolls on its own; the message box is always visible. After you scroll up it stops following new events and shows
+**Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up. The header shows tokens
+in/out/cached, model calls and the status: Starting, Working, Waiting for you, Stopped, Failed or Finished; the sidebar shows
+**Agents in this run** and the draft (on a narrow screen open **Run details**). Each answer links to its **Full record**. A run
+that wrote a draft shows **Open draft** (or **Open document** once it is promoted; a discarded draft shows "The document draft
+was discarded.").
 
-The agent also gets `run_subagent` and every agent offered as an expert (`ask_<name>`). The default system prompt tells it to plan sections first when the document covers several parts, to ask an expert where its description fits and otherwise start a subagent with a complete task and only that part's resources, to write small single-part documents itself, and to combine the answers into one consistent document, resolving or marking conflicts. Subagents are asked to return finished markdown sections with their evidence cited. Sessions created before this version keep their configuration (no experts, no subagents).
+- **Send message**: the message box stays enabled while the agent works. The agent receives the comment at its next step
+  ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn.
+- **Stop**: ends the turn within about 30 seconds; a request or command already running cannot be recalled. Queued messages are
+  discarded when the turn is stopped.
+- **Close session**. Sessions continue when you leave the page and close after 24 idle hours (a session idle for 5 minutes is
+  paused and resumes on your next message).
 
-The agent gets exactly what you choose: its code projects, collections and servers are the ones ticked (environments and
-services also bring their code projects and the servers they are deployed on; servers without SSH are skipped). Its tools
-(`list_files`, `read_file`, `search_files`, `shell_run`, `code_search`, `ast_grep`, documents, and `ssh_run` when servers are chosen) work as in an agent's Test tab. The agent can connect over SSH to the servers you tick and to the SSH-allowed servers that environments and services bring; servers without a usable connection are left out, and a ticked server that cannot be used is refused.
+A turn has no time or model-call limit: it ends when the agent finishes or you press **Stop** (each model request and MCP
+connection still times out after 5 minutes). A failed or stopped turn leaves the conversation and the draft as they were.
+Tokens are recorded, cost is not. Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
 
-**What the agent receives.** The system prompt and context from the form, then one first message listing
-what to document, as a user could have typed it:
+Errors: "Choose an enabled model."; "Select available …" for an item that is gone; `… is not available: it was removed,
+archived or disabled.`; a provider error, such as a missing Bedrock inference profile, shows the provider's reason without
+credentials plus a hint; "Waiting for the agent session worker…" when the worker is not running.
 
-```
-Document the following.
+Security: the model key stays in the worker. Every enabled model connection's key is redacted from stored events, drafts and
+error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROOT` read-only.
 
-## Code
-- Payments API — /work/data/code/payments-api
-
-## Documents
-- runbooks: Payments runbooks
-
-## Services
-- Payments — deployed on prod-1 (production); code: Payments API (/work/data/code/payments-api)
-
-## Servers
-- prod-1 (10.0.0.5): Payments host
-
-## Instructions
-Focus on the public API.
-
-When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
-later message, reply again with the complete updated document.
-```
-
-Environments and services are described as text (servers, services, deployments, linked code projects).
-
-A turn has no time or model-call limit: it ends when the agent
-finishes or you press **Stop** (each model request and MCP connection still times out after 5 minutes). A failed or stopped
-turn leaves the conversation and the draft as they were; history is saved only when a turn succeeds. Tokens are recorded,
-cost is not.
-
-**The session page.** It is the run page at `/sessions/<id>`, the same for every run. It uses the same workspace as the Test tab: the main pane shows each turn (your message, a
-collapsed **Worked** block with thinking, tool calls and results, and the answer) and scrolls on its own; the message box
-is always visible. The main pane follows new events at the bottom; after you scroll up it stops following and shows
-**Jump to latest**. Opening a session loads the latest 100 events; earlier pages load as you scroll up until **Beginning
-of the session**. The header shows tokens in/out/cached, model calls and the status: Starting, Working, Waiting for you,
-Stopped, Failed or Finished; the sidebar shows **Agents in this run** and **Draft · turn n** (on a narrow screen open
-**Run details**). Each answer links to its **Full record**.
-
-- **Send message**: the message box stays enabled while the agent works. The agent receives
-  the comment at its next step in the same turn ("Queued. Your comment reaches the agent at its next step."). Sent between turns, a message starts a new turn in the same conversation.
-- **Stop**: always ends the turn: it is recorded as stopped within about 30 seconds of Stop, and after that it cannot start
-  new model requests or tool calls (a request or command already running at Stop cannot be recalled). Queued messages are
-  discarded when the turn is stopped (a message sent after Stop starts the next turn); after a failure or a lost worker they go to the next turn.
-- **Draft**: each finished turn's final answer, as Markdown; **Preview draft** shows it in a wide side panel. Each
-  finished turn also keeps it as a **document draft** — of the document with the run's name in its folder, or of a new
-  document there — and **Open draft** opens it (on the document's Drafts tab, or on the new document's draft page). The
-  next turn updates that draft until someone saves it in the editor; after that a turn starts a new draft. Nothing goes
-  live until a person promotes a draft. Once the draft is promoted the run shows **Open document**; a discarded draft
-  shows "The document draft was discarded."
-- **Close session**.
-
-Every turn is an agent run in **Activity → Agent runs** (`cc:<session>:<turn>`).
-
-Errors: "Choose an enabled model."; "Choose at least one code project, collection, environment, service or server to document."; "Select available …" for an item that is gone; `… is not available: it was removed, archived or disabled.`; a provider error, such as
-a missing Bedrock inference profile, shows the provider's reason without credentials plus a hint; "Waiting for the agent session worker…" when the worker is not running.
-
-Security: the model key stays in the worker. Every enabled model connection's key is
-redacted from stored events, drafts and error messages. `shell_run` runs in the sandboxed `shell-worker`, with `DATA_ROOT`
-read-only.
-
-**Upgrading.** Migration 0073 removed the service, whole-environment and code-project generation, its workflows, history
-and run records. Saved documents, their versions and exported files stay, and documents written by service phases keep
-exporting into `services/<service>/<phase>/`. Run pages are now at `/sessions/<id>`
-for every run; old links to `/documentation/generations/<id>` do not redirect.
+**Upgrading.** The Docs → Generate documents pages (`/documentation/generations`) and their API are gone; write documents here
+instead. Migration 0101 closed the Generate documents chats that were open ("Closed by an update; start a new chat."). Earlier
+Generate documents runs stay readable at `/sessions/<id>` and in Agent runs. Custom prompts tagged `documentation` should tell the
+agent to write with `save_document`; copy the rules from **Write a document**. Migration 0073 removed the service,
+whole-environment and code-project generation; documents written by service phases keep exporting into
+`services/<service>/<phase>/`.
 
 ### 4.13 Documents
 
@@ -754,7 +718,7 @@ container paths, availability, and a file browser with text preview.
 ### 4.15 Agent runs
 
 `/activity/runs` — a complete record of every agent run: agent Test
-sessions, earlier test chats and Generate documents sessions. Each record shows, in order:
+sessions, earlier test chats, document runs and the earlier Generate documents sessions. Each record shows, in order:
 
 - the full instructions sent to the model and the input (with conversation history);
 - the model's reasoning when the provider returns it (otherwise "Reasoning not returned
@@ -764,9 +728,9 @@ sessions, earlier test chats and Generate documents sessions. Each record shows,
 - messages, token usage per model call, errors, and the final status.
 
 Known secrets are replaced with `[redacted]`; very large values are cut at 1,000,000
-characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade) and **Native session** (Generate documents turns); you
+characters. The run type filter offers **Test session** (Test tab turns), **Agent test** (test chats from before the upgrade) and **Native session** (document run turns); you
 can also filter by user. **Full record** links lead here from each reply in an agent's Test tab and from each
-Generate documents session turn.
+document run turn.
 Records are kept until deleted; only administrators can see them.
 
 ### 4.16 Schedules
@@ -891,7 +855,7 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
 ### 4.21 Prompts
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
-lowercase letters, digits and `-`, at most 10 — that features use to find it: Generate documents can filter by tag,
+lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
 and the server discovery sheet will offer prompts tagged `server-discovery`. Type a tag and press Enter to add it;
 existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
@@ -918,16 +882,16 @@ Prompts that came with the application are tagged `documentation` plus what they
 2. **Code projects**: add the Git repository; wait for the clone.
 3. **Services**: create the service, link the code project.
 4. **Administration → Prompts**: save a documentation prompt (or write it in the form).
-5. **Docs → Generate documents → New**: choose the model and the prompt, tick **Services** and pick the service → **Generate**. The agent reads the code projects the service links.
-6. Follow the session, send messages such as "shorten the API section", then **Open draft** and **Promote**.
+5. **Docs → Documents → New → Write with an agent**: give a title and folder, open **Settings**, pick the service under Resources and the prompt, then tell the agent what to write. The agent reads the code projects the service links.
+6. Follow the chat, send messages such as "shorten the API section", then **Promote** the draft.
 7. Make the documents searchable through a collection that holds `generated-documents` (`documents` on upgraded installs); **RAG → Collections** → **Refresh** it.
 
 ### C. Document deployments and infrastructure
 
 1. **Servers**: register hosts. **Environments**: create `production` with its servers and services.
 2. **Services**: add deployments (server + environment + container/unit + port + log path).
-3. **Generate documents → New**: tick **Environment** and pick it (or tick **Servers**), add instructions about
-   deployments → **Generate**.
+3. **Documents → New → Write with an agent**: in **Settings** pick the environment (or the servers) and ask for the
+   deployments to be documented.
 4. The agent connects over SSH to the chosen servers (and to those the environment brings).
 
 ### D. Build and test an operations agent
@@ -945,16 +909,16 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 ### F. Make one code project's documentation searchable
 
-1. **Generate documents** → **New** → **Code**: the project → **Generate** → **Open draft**, then **Promote**.
+1. **Documents → New → Write with an agent**: pick the code project in **Settings**, ask for its documentation, then **Promote** the draft.
 2. **Docs → Folders** → **Index in RAG → Collections** → **Create collection** (the folder
    is selected; the sync starts at once).
 3. Grant the collection to agents in **Agents**.
 
 ### G. Write documentation interactively with an agent
 
-1. **Docs → Generate documents → New** → choose the model, what to document and a prompt → **Generate**.
+1. **Docs → Documents → New → Write with an agent** → give a title and folder, choose the resources and the prompt in **Settings**, and tell the agent what to write.
 2. Follow the stream and send a message such as "shorten the API section".
-3. **Open draft**, then **Promote**.
+3. **Promote** the draft.
 4. **Docs → Folders** → **Index in RAG → Collections**.
 
 ---
@@ -1043,7 +1007,7 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
-| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools. Generate documents sessions and discovery runs always have them; other agents get them only when switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
+| `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs`, `get_project_info`, `get_document` | Inventory tools. New-document and discovery runs always have them; other agents get them only when switched on in the **Tools** tab (off for existing agents until you switch them on) | Read-only: they read the inventory of servers, services, projects and their documents |
 | Proposal tools | Discovery runs only | Exist only in a server discovery run; they record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |

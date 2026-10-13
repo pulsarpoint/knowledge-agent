@@ -1,7 +1,7 @@
 # Agent execution status
 
 The agent **Test** tab runs **Test sessions**: sessions in `ka.agent_sessions` with `purpose = 'test'`, run by
-`agent-session-worker` exactly like Generate documents sessions (claim and lease, turns, comments delivered
+`agent-session-worker` exactly like Ask agent sessions (claim and lease, turns, comments delivered
 between model calls, Stop with a 30-second grace, closing after 24 hours without activity, the worker's concurrency
 limit, no per-turn time limit, no 300-second limit).
 
@@ -30,7 +30,9 @@ limit, no per-turn time limit, no 300-second limit).
 - Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
   when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
-  work only on documents given to the run as editable, and write the run's draft, never the live version. Every
+  work only on documents given to the run as editable, and write the run's draft, never the live version. A new document
+  is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
+  saves it with `save_document`, which creates the draft of a new document (see [documentation](documentation.md)). Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run."). The editing rules are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
@@ -54,7 +56,7 @@ limit, no per-turn time limit, no 300-second limit).
   (the session's model with every capability off, 240 seconds) with the pinned configuration. The suggestion is stored
   in `ka.agent_session_reviews` with `response_turn`; **Review and apply** reads it.
 
-The Test tab and the Generate documents session page share `RunWorkspace` (`services/admin-ui/app/components`):
+The Test tab and the run page (`/sessions/:id`) share `RunWorkspace` (`services/admin-ui/app/components`):
 a header (agent, type, resources, status, tokens, tools used), turns with a collapsed **Worked** block and the answer
 with its sources, a sidebar **Agents in this run** (a drawer on narrow screens) with the page's sections, and a message
 box that stays on screen. `useSessionEvents` loads the latest page, earlier pages and the live stream (fed by the admin-api session hub, see
@@ -127,12 +129,12 @@ and the same model. It gets only the turn's already decrypted credentials its co
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at
 most 16 helpers, subagents and expert calls together ("This turn already started 16 helpers."), and runs
 `AGENT_MAX_SUBAGENTS` (default 4) at once, shared with expert calls; later calls wait. The result is the subagent's final answer, redacted, or `Subagent failed: <reason>`; refusals are tool
-errors naming the tool or resource. Subagents run only in native agent sessions (Test and Generate documents). Their
+errors naming the tool or resource. Subagents run only in native agent sessions (Test, Ask agent and new-document runs). Their
 events go into the turn's record (`cc:<session>:<turn>`) with `payload.parent_call_id` (the `run_subagent` call id; the
 first is `input {task, subagent}`), their model calls into the session's totals and their tool calls into the tool
 counts. **Stop** stops the agent and every subagent; a subagent of an ended turn starts no model or tool call.
 
-**Experts (`ask_<slug>`).** A native agent, including a Generate documents agent, gets one tool per offered expert
+**Experts (`ask_<slug>`).** A native agent, including the ad-hoc agent of a new-document run, gets one tool per offered expert
 (see [agent configuration](agent-profiles.md)): an agent with **Offer as an expert** that is enabled, has a model and
 is not the caller, and that the caller has not switched off. The name is `ask_` plus the expert's name lowercased with
 every run of characters other than `a-z0-9` replaced by `_`, trimmed of `_`, at most 50 characters (an empty slug gives
@@ -142,7 +144,7 @@ projects, document collections, servers, services).` (only the kinds it uses) or
 resources.` Parameters: `task` (non-empty, at most 20,000 characters) and, for per-run experts only, `resources`
 (`code_project_ids`, `collection_ids`, `server_ids`, `service_ids`). The experts a session may call are pinned with its
 configuration (`config['experts']`: id, name, tool, When to use, resources); later changes to the expert list apply to
-new sessions, and Generate documents pins every offered expert. The expert's own configuration is loaded when it is
+new sessions, and a new-document run pins every offered expert. The expert's own configuration is loaded when it is
 called. Refusals are tool errors: `Expert <name> is not available.` (deleted, no longer an expert, disabled or without
 a model), `<kind> <id> is not one of your resources.`, the expert's own resource message, the 16-helper limit, an empty
 or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin. A failure returns `Expert <name>

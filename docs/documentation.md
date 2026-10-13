@@ -1,8 +1,8 @@
 # Documentation administration
 
-Docs is a separate admin section with Documents, Prompts, Generate documents and Folders.
+Docs is a separate admin section with Documents, Prompts and Folders.
 It supports Markdown CRUD, version history, resource links, versioned prompts and
-document generation by agent sessions. RAG publication remains a separate next stage.
+documents written by agent sessions. RAG publication remains a separate next stage.
 
 ## Storage and versions
 
@@ -43,8 +43,8 @@ reusing version numbers. Whole-prompt deletion removes its versions. Enabled sta
 and active version are separate: a disabled prompt may retain its active version.
 
 These prompts are analysis/writing templates. Agent system prompts remain in the
-existing agent prompt system. Generate documents does not use them: its agent runs
-with its own prompt and instructions.
+existing agent prompt system. The agent chat on Documents → New uses the prompts tagged
+`documentation` (see below).
 
 Migration [41](../db/migrations/0041_app_docs_prompt.up.sql) seeds
 **Application documentation (Diátaxis)** as an enabled code-analysis template with
@@ -92,7 +92,7 @@ role. Mutations also require an attributed user. No credential fields are return
 | `DELETE /prompts/{id}` | Remove prompt and versions; expected `revision`, confirmation |
 
 The UI is at `/documents`, `/documents/new`, `/documents/{id}`,
-`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts), `/documentation/generations`,
+`/prompts`, `/prompts/new`, `/prompts/{id}` (Administration → Prompts),
 `/sessions/:id` (the run page for every run) and `/documentation/folders`. `input_kind` is retired: the column remains only for the
 per-workspace seed functions, and the API neither accepts nor returns it.
 The shared Markdown renderer supplies preview; shadcn dialogs handle destructive
@@ -102,41 +102,46 @@ Ask agent runs (agent sessions with purpose `revision`, started through `POST /a
 document page, with the document as an editable resource; the first message is the instruction, and
 `/documents/{id}/agent/{run}` opens the page with the pane on that run) change a document only through the
 `get_document`, `save_document` and `edit_document` tools (each takes `document_id`), which write the run's draft. The
-editing rules are the **Revise a document** prompt (tag `document-revision`, seeded by migration 0100);
-Generate documents runs still turn their final answer into a draft.
+editing rules are the **Revise a document** prompt (tag `document-revision`, seeded by migration 0100).
 
-## Generate documents
+## Write a new document with an agent
 
-**Docs → Generate documents** starts a session with an ad-hoc native agent: no `agents` row, no saved agent. The form picks the
-model and system prompt, shows the context generated from what to document (editable), and takes a saved or own prompt.
+**Documents → New → Write with an agent** opens the same chat pane as Ask agent, on a document that does not exist yet.
+The page asks for a **Title** and a **Folder** (the Folder field appears with the pane). The run is started by
+`POST /api/sessions` with `started_from.new_document {folder, name}` and the document as a new editable resource,
+`resources.documents[{new: {folder, name}, editable: true}]`. Such runs have `purpose = 'documents'`. A run starts from a document or
+from a new document, not both (`GET /api/sessions/options` takes `new_document=1` without `agent_id` or `document_id`).
 
-`POST /api/generations/context` takes the five id lists and returns `{text}`: the context the form shows and the agent reads.
+`GET /api/sessions/options?new_document=1` says what the pane may offer: the models, the resources (code projects, document
+collections, environments, services, servers), the tools, the experts, whether subagents are allowed, and the prompts tagged
+`documentation`. The default prompt is **Write a document** (tags `documentation` and `new-document`, seeded by migration
+0101): read what you were given, write the document with `save_document`, change a passage with `edit_document`, and never
+say it is published. Custom prompts tagged `documentation` should tell the agent to write with `save_document`. The
+agent has all resources, tools and experts unless the settings narrow them.
 
-`POST /api/generations/sessions` takes `model_id`, `code_project_ids`, `collection_ids`, `environment_ids`, `service_ids`,
-`server_ids`, `system_prompt` (up to 20,000 characters), `context` (up to 100,000), `prompt` (up to 100,000), `prompt_id`
-(the saved prompt it came from, or null), `document_name` and `folder`. At least one code project, collection, environment,
-service or server is required. Refusals (400): `NOTHING_CHOSEN`, `NO_MODEL` ("Choose an enabled model.": unknown, disabled or
-not a Responses or Claude connection), unknown or unavailable ids ("Select available ..."), and the per-run resource refusals
-`<label> <name> is not available: it was removed, archived or disabled.` Servers brought by environments or services that have no
-usable connection are left out of the agent's tools.
+The agent writes the document only with `save_document(document_id, markdown, title?, description?)` and
+`edit_document(document_id, old_text, new_text)`. Both write the run's draft. The agent's final answer is not turned into a
+draft. If a document with the title's slug already exists in the folder, the saves become a draft of that document.
+Otherwise the first save creates a draft of a new document, which links the run's code projects, environments, services
+and servers when it is promoted. Later saves update the same draft until a person saves (edits), promotes or discards it;
+the next save then starts a new draft. The draft's sources are the documents the run read (`get_document`, or
+`read_document` of an export path), at the version live at the first read. Nothing goes live until a person promotes the draft.
 
-The session stores two snapshots. `prompt_snapshot` holds `system_prompt`, `context` and `prompt_id`;
-the pinned agent's system prompt is the system prompt followed by the context. `agent_config` is the ad-hoc configuration
-narrowed to the form's sources (`run_resources.resolve`; credential references only), and `history` holds the Agents SDK items
-of successful turns, redacted; listing and detail never return `agent_config` or `history`. Migration 0082 lets these
-sessions have `agent_id` NULL, and their run records carry the agent `ad-hoc`.
-`context_snapshot` holds the chosen `code_projects`, `collections`, `environments`, `services`, `servers`, plus
-`folders` (the working folders, read-only, the first being the working directory) and `code_project_ids`. Credentials are
-never included. Sessions also store `run_resources` (ids only). Generate documents sessions have `purpose = 'documents'`; the agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft) and are not listed in Generate documents.
+There is one conversation per page visit. Earlier runs stay readable at `/sessions/{id}` and in Activity → Agent runs, including the runs of the
+removed Docs → Generate documents.
 
-The first message is the prompt followed by the final-answer instruction, queued as the session's first input:
+**Removed.** The Docs → Generate documents form and list pages (`/documentation/generations`), `POST /api/generations/sessions`,
+`POST /api/generations/context` and the rule that a run's final answer becomes the draft are gone (the routes now return 404).
+Migration 0101 closed the open Generate documents runs with "Closed by an update; start a new chat." Their conversations
+stay readable.
 
-```
-<prompt>
-
-When you finish, reply with the complete document in Markdown as your final answer: it becomes the draft. After each
-later message, reply again with the complete updated document.
-```
+The session stores two snapshots. `prompt_snapshot` holds the system prompt, the context and `prompt_id` (the saved prompt it
+came from, or null); `agent_config` is the ad-hoc configuration narrowed to the chosen resources (`run_resources.resolve`;
+credential references only), and `history` holds the Agents SDK items of successful turns, redacted; listing and detail never
+return `agent_config` or `history`. These sessions have `agent_id` NULL (migration 0082), and their run records carry the
+agent `ad-hoc`. `context_snapshot` holds the chosen resources, plus `folders` (the working folders, read-only, the first being
+the working directory) and `code_project_ids`. Credentials are never included. Sessions also store `run_resources` (ids only).
+The agent Test tab's sessions share the table with `purpose = 'test'` (no document name, folder or draft).
 
 **Turns.** `agent-session-worker` claims sessions (`session_worker.claim`), decrypts the pinned
 config's credentials per turn, runs `agents.agent(config, text, session=HistorySession, hooks=SessionEvents, stream=False,
@@ -147,13 +152,7 @@ call (a request or command already running cannot be recalled), and comments del
 a message sent after Stop is not delivered to the stopped turn and starts the next one.
 After a failure or a lost worker they go to the next turn. The turn's history is committed in the transaction that records
 the turn; failed and stopped turns drop it. `SessionSettings(limit)` is not used (every turn sees the whole conversation).
-Each finished turn also writes the run's document draft in the same transaction (`save_run_draft_safely`, in a
-savepoint: a draft that cannot be saved is logged and never fails the turn). The first finished turn creates the draft — a
-draft of the document the run's folder and name already name, or of a new document there that links the run's code
-projects, environments, services and servers on promote — and later turns update it until a person saves (edits),
-promotes or discards it; the next finished turn then starts a new draft. The draft's sources are recomputed every turn
-from the documents the run read (`get_document`, or `read_document` of an export path), at the version live at the first
-read. Nothing goes live until a person promotes the draft.
+The run's document draft is written by the document tools during the turn, not by the worker when the turn ends.
 
 `GET /api/sessions` and `GET /api/sessions/{id}` rows, and the live stream's `session` state,
 carry `document_draft`: `{id, document_id, status}` of the run's latest document draft of any status (`open`, `promoted`

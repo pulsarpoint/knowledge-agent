@@ -182,7 +182,7 @@ history, or disable it to keep the history.") unless the body also has
 `{"test_chats", "documentation_sessions", "run_records"}`. With
 `with_history` the same transaction first deletes the agent's run records
 (`agent_run_events` with keys `run:<run id>` and `cc:<session id>:<turn>` of those rows only), its runs and their SSH
-commands, its sessions (Test and Generate documents) with their queued inputs and reviews. Saved documents are
+commands, its sessions (Test and document runs) with their queued inputs and reviews. Saved documents are
 independent rows and stay. While the agent is working — a session that is
 `starting` or `working`, or a `running` operations run — the delete (with or without history) returns HTTP 409
 ("This agent is working right now. Stop its documentation sessions and runs, or wait for them to finish, then

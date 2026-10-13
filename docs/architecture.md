@@ -111,7 +111,7 @@ data, never as executable commands or grants of access.
 
 ## Agent session worker
 
-Generate documents and Test sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
+New-document, Ask agent and Test sessions run in `agent-session-worker` (`knowledge_admin.knowledge_agents.native_sessions`),
 claimed with a lease (`knowledge_agents/session_worker.py`:
 queued messages delivered once per turn, Stop, idle release after 5 minutes, interrupted turns failed on reclaim). Native
 turns have no time or model-call limit (each model request and MCP connection keeps a 300 s timeout); Stop always ends a
@@ -142,7 +142,7 @@ changes never remove source files. No automatic cache/snapshot cleanup is added.
 
 ## Generate documentation
 
-The earlier job-based design with the Claude Agent SDK plugin was superseded by Generate documents agent sessions (migrations 0073 and 0084); see [Documentation administration](documentation.md#generate-documents).
+The earlier job-based design with the Claude Agent SDK plugin was superseded by agent sessions (migrations 0073 and 0084); see [Documentation administration](documentation.md#write-a-new-document-with-an-agent).
 
 ## File uploads and directory consistency
 

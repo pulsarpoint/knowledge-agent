@@ -30,7 +30,7 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- `agent-session-worker` runs native agents' **Generate documents** and **Test** sessions with the native runtime, and
+- `agent-session-worker` runs native agents' **Test**, **Ask agent** and new-document sessions with the native runtime, and
   the one-shot agent tasks that event handlers queue (their answers become Notifications). It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
   and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once, and at most `AGENT_TASK_MAX` (a whole number of at least 1, default 2) agent tasks beside
@@ -424,3 +424,16 @@ Migration 0095 replaces the stored system graph with connections between invento
 Migration 0093 links the system graph to the inventory. When admin-api starts it gives every server, service,
 deployment, environment and code project a node (Environments → System map) and from then on keeps them in step whenever
 the inventory changes. Nodes made by hand keep their names; a synced node whose name is already taken gets " (2)".
+
+## Upgrading to agent-written new documents
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0101 seeds the
+prompt **Write a document** and closes the open Generate documents chats ("Closed by an update; start a new chat.").
+
+- A new document is written with an agent from Documents → New → **Write with an agent**.
+- Docs → Generate documents (`/documentation/generations`), `POST /api/generations/sessions` and
+  `POST /api/generations/context` are removed and now return 404. Update any script that called them to use
+  `POST /api/sessions` with `started_from.new_document`.
+- A run's final answer no longer becomes its draft; the agent saves with `save_document`. Custom prompts tagged
+  `documentation` should say so; copy the rules from **Write a document**.
+- Earlier Generate documents runs stay readable at `/sessions/<id>` and in Activity → Agent runs.
