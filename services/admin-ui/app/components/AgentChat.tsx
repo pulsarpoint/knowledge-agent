@@ -20,24 +20,30 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
  * New chat closes the run; Earlier runs opens another. A changed initialRunId (a run link) opens that run; onRunChange
  * reports the shown run (the page keeps it in the URL). Documents: confirmUnsaved wraps the first message, and
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
- * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. */
+ * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. A new document
+ * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title and Folder of
+ * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. */
+const NEEDS_NAME = 'Give the document a title and folder first.';
 export default function AgentChat({ scope, settings, initialRunId, confirmUnsaved, onDraftChange, onRunChange, blockedReason = null, onAgentChanged }: {
   scope: ChatScope; settings: ReturnType<typeof useAgentSettings>; initialRunId: string | null;
   confirmUnsaved?: (run: () => void) => void; onDraftChange?: (draft: SessionDetail['document_draft'] | null, version: string) => void;
   onRunChange?: (runId: string | null) => void; blockedReason?: string | null; onAgentChanged?: () => void }) {
   const isAgent = scope.kind === 'agent';
+  const isNew = scope.kind === 'new-document';
+  const scopeId = scope.kind === 'new-document' ? null : scope.id;
   const navigate = useNavigate();
-  const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const [runs, setRuns] = useState<RunSummary[] | null>(isNew ? [] : null);
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [chosen, setChosen] = useState(initialRunId !== null);  // the person (or the link) picked a run or New chat
   const run = useSessionEvents(runId);
   // useSessionEvents resets the session on an id change and fills it after the load: only a session of the selected run counts.
   const loaded = run.session?.id === runId ? run.session : null;
   // A run of another document (or not an Ask agent run) is not this document's: it is not shown, and its draft never reaches
-  // the page. For a saved agent: a run of another agent, or not a Test or event run.
+  // the page. For a saved agent: a run of another agent, or not a Test or event run. A new document's runs are only the
+  // ones this page started.
   const foreign = loaded !== null && (scope.kind === 'document'
     ? loaded.purpose !== 'revision' || loaded.target_document_id !== scope.id
-    : loaded.agent_id !== scope.id || (loaded.purpose !== 'test' && loaded.purpose !== 'event')) ? loaded : null;
+    : scope.kind === 'agent' && (loaded.agent_id !== scope.id || (loaded.purpose !== 'test' && loaded.purpose !== 'event'))) ? loaded : null;
   const session = foreign ? null : loaded;
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -54,15 +60,16 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
   const [listed, setListed] = useState(0);
   const [listFailed, setListFailed] = useState(false);
   useEffect(() => {
+    if (scopeId === null) return;  // a new document: no run list
     const controller = new AbortController();
     setListFailed(false);
-    getSessions(scope.kind === 'document' ? { documentId: scope.id } : { agentId: scope.id }, controller.signal).then(value => {
+    getSessions(scope.kind === 'document' ? { documentId: scopeId } : { agentId: scopeId }, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       setRuns(value.sessions);
       if (!chosen) setRunId(value.sessions.find(item => item.status !== 'closed')?.id ?? null);
     }).catch(() => { if (!controller.signal.aborted) setListFailed(true); });
     return () => controller.abort();
-  }, [scope.kind, scope.id, listed]);
+  }, [scope.kind, scopeId, listed]);
   useEffect(() => { onDraftChange?.(session?.document_draft ?? null, `${session?.id}:${session?.turns}:${session?.status}`); },
     [session?.document_draft?.id, session?.document_draft?.status, session?.id, session?.turns, session?.status]);
   useEffect(() => { onRunChange?.(runId); }, [runId]);
@@ -84,9 +91,11 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
     catch (e) { run.setError(e instanceof Error ? e.message : 'The request failed'); return false; }
     finally { setBusy(false); }
   }
+  // Before a run: a new document needs its Title and Folder; a saved agent may be blocked by the page.
+  const blocked = isNew && (!scope.title.trim() || !scope.folder.trim()) ? NEEDS_NAME : blockedReason;
   async function send() {
     const text = message.trim();
-    if (!text || !settings.options || !settings.settings || waiting || foreign || (!open && blockedReason)) return;
+    if (!text || !settings.options || !settings.settings || waiting || foreign || (!open && blocked)) return;
     if (open) {
       await act(async () => { const result = await sendMessage(runId!, text); setMessage(''); sent(result.working); });
       return;
@@ -123,7 +132,8 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
       agentName={session?.agent_name ?? (scope.kind === 'agent' ? scope.name : 'Ask agent')}
       heading={<div className="flex flex-col gap-1">
         <h2 className="break-words font-semibold">{runId === null ? 'New conversation'
-          : foreign ? (isAgent ? 'Another agent\'s run' : 'Another document\'s run') : session?.title ?? 'Loading the conversation…'}</h2>
+          : foreign ? (isAgent ? 'Another agent\'s run' : 'Another document\'s run')
+          : isNew && session ? `Writing: ${session.folder ?? ''}/${session.document_name ?? ''}` : session?.title ?? 'Loading the conversation…'}</h2>
         {foreign && (isAgent ? <Alert variant="destructive"><AlertDescription>This run belongs to another agent.</AlertDescription></Alert>
           : <Alert variant="destructive"><AlertDescription>This run belongs to another document.{' '}
           {foreign.target_document_id && <Link className="underline" to={agentRunPath(foreign.target_document_id, foreign.id)}>Open it on its document</Link>}</AlertDescription></Alert>)}
@@ -138,29 +148,30 @@ export default function AgentChat({ scope, settings, initialRunId, confirmUnsave
           disabled={!settings.options} onClick={() => setSheet(true)}>
           <Settings2 data-icon="inline-start" />Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}</Button>
         <Button type="button" size="sm" variant="outline" disabled={busy || (runId === null && !run.error)} onClick={newChat}>New chat</Button>
-        <DropdownMenu>
+        {!isNew && <DropdownMenu>
           <DropdownMenuTrigger asChild><Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>Earlier runs</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">{earlier.map(item => <DropdownMenuItem key={item.id} onSelect={() => pick(item.id)}>
             {`${item.title} · ${statusLabels[item.status]}${item.purpose === 'event' ? ' · Event' : ''}`}</DropdownMenuItem>)}</DropdownMenuContent>
-        </DropdownMenu>
+        </DropdownMenu>}
         {isAgent && session && <Button type="button" size="sm" variant="outline" disabled={!reviews.length}
           onClick={() => setSuggestions({ open: true, turn: null })}>Suggestions ({reviews.length})</Button>}</>}
       answerActions={turn => <>{!isAgent && !savedIn(turn) && <span className="text-xs text-muted-foreground">No draft saved in this turn</span>}
         {session && <Button variant="ghost" size="sm" asChild><Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link></Button>}
         {isAgent && session && <Button type="button" variant="ghost" size="sm" disabled={busy || working}
           onClick={() => setSuggestions({ open: true, turn: turn.turn })}><MessageSquarePlus data-icon="inline-start" />Add feedback</Button>}</>}
-      empty={<p className="text-sm text-muted-foreground">{isAgent ? 'Send a message to test the agent.' : 'Ask the agent to change this document.'}</p>}
+      empty={<p className="text-sm text-muted-foreground">{isAgent ? 'Send a message to test the agent.' : isNew ? 'Tell the agent what to write.' : 'Ask the agent to change this document.'}</p>}
       composer={{ value: message, onChange: setMessage, busy: busy || waiting || !settings.settings, label: 'Message',
-        placeholder: isAgent ? 'Ask a question or give a task…' : 'For example: add a section on log rotation', onSend: () => void send(),
+        placeholder: isAgent ? 'Ask a question or give a task…' : isNew ? 'For example: document the payments API for new developers'
+          : 'For example: add a section on log rotation', onSend: () => void send(),
         onStop: open ? () => void act(async () => { await stopSession(runId!); stopping(); }) : undefined,
         blockedReason: foreign ? `This run belongs to another ${isAgent ? 'agent' : 'document'}. Start a New chat.`
           : session?.status === 'closed' ? 'This conversation is closed. Start a New chat.'
-          : !open ? blockedReason : null }} />
+          : !open ? blocked : null }} />
     {settings.options && settings.settings && <AgentSettingsSheet open={sheet} onOpenChange={setSheet} scope={scope} options={settings.options}
       settings={open ? settingsFromSession(settings.options, session) : settings.settings} onChange={settings.update}
       previewMessage={message} session={open ? session : null}
       onStartNew={() => { const next = settingsFromSession(settings.options!, session!); void closeAndClear().then(done => { if (done) settings.replace(next); }); }} />}
-    {isAgent && session && <RunSuggestions agentId={scope.id} session={session} turn={suggestions.turn} open={suggestions.open}
+    {scope.kind === 'agent' && session && <RunSuggestions agentId={scope.id} session={session} turn={suggestions.turn} open={suggestions.open}
       onOpenChange={value => setSuggestions(current => ({ ...current, open: value }))}
       onReview={review => run.setSession(current => current && { ...current, reviews: [...(current.reviews ?? []), review] })}
       onApplied={(target, id) => {

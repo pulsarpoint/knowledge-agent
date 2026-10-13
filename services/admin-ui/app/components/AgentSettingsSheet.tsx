@@ -56,6 +56,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
       <SheetHeader><SheetTitle>Agent settings</SheetTitle>
         <SheetDescription>{locked ? "This conversation's settings. They cannot change while it is open."
           : agent ? 'What the agent may use in the next conversation.'
+          : scope.kind === 'new-document' ? `What the agent may use for “${scope.title}”.`
           : `What the agent may use in the next conversation on “${scope.kind === 'document' ? scope.title : ''}”.`}</SheetDescription></SheetHeader>
       <FieldGroup className="mt-4">
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -69,7 +70,8 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
             {options.models.length === 0 && <FieldDescription className="text-destructive">Add a model in Models first.</FieldDescription>}</Field>}
           <FieldSet><FieldLegend>Servers and resources</FieldLegend>
             {agent?.resources_fixed ? <FieldDescription>This agent's resources are fixed.</FieldDescription> : <>
-            {options.resources.documents.length > 0 && <FieldSet><FieldLegend variant="label">Documents</FieldLegend>
+            {/* A new document is implied: the run writes it. */}
+            {scope.kind !== 'new-document' && options.resources.documents.length > 0 && <FieldSet><FieldLegend variant="label">Documents</FieldLegend>
               {options.resources.documents.map(item => <Field key={item.id} orientation="horizontal">
                 <Checkbox id={`settings-document-${item.id}`} aria-label={item.name} checked disabled />
                 <FieldLabel htmlFor={`settings-document-${item.id}`}>{item.name}</FieldLabel>

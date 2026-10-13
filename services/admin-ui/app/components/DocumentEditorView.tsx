@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Bot, Save, Trash2 } from 'lucide-react';
-import { deleteDocument, exportDocument, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
+import { deleteDocument, exportDocument, folderError, getDocument, getDocumentResources, getDocumentVersion, saveDocument, type DocumentDetail, type DocumentInput, type DocumentResources, type DocumentVersion } from '~/lib/documents';
 import { agentRunPath } from '~/lib/sessions';
 import { useAgentSettings } from '~/lib/agentSettings';
 import { useWidePage } from '~/lib/widePage';
@@ -33,9 +33,14 @@ const PANE_KEY = 'ask-agent-pane';
 function readPane() { try { return localStorage.getItem(PANE_KEY); } catch { return null; } }
 function write(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* not remembered */ } }
 
-function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentOpen, onToggleAgent, registerConfirm }: { document: DocumentDetail | null; resources: DocumentResources;
+/** The editor. On the New page, Write with an agent shows a Folder field (where the agent writes the document);
+ * onFieldsChange reports the Title and Folder, and registerLeave lets the page leave without the unsaved-changes question
+ * (a promoted agent draft opens the new document). */
+function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentOpen, onToggleAgent, registerConfirm, onFieldsChange, registerLeave }: {
+  document: DocumentDetail | null; resources: DocumentResources;
   onSaved: (id: string) => void; onDraftSaved: (draftId: string) => void; onPromoted: (result: PromoteResult) => void;
-  agentOpen: boolean; onToggleAgent: () => void; registerConfirm: (confirm: (run: () => void) => void) => void }) {
+  agentOpen: boolean; onToggleAgent: () => void; registerConfirm: (confirm: (run: () => void) => void) => void;
+  onFieldsChange: (title: string, folder: string) => void; registerLeave: (leave: () => void) => void }) {
   const navigate = useNavigate();
   const [initial] = useState<DocumentInput>(() => document ? {
     slug: document.slug, title: document.title, description: document.description, purpose: document.purpose, audience: document.audience,
@@ -60,6 +65,9 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
   // An action from the Drafts tab (Edit, Promote) waiting for the confirmation that unsaved changes may be lost.
   const [unsavedAction, setUnsavedAction] = useState<{ run: () => void } | null>(null);
   const leaving = useRef(false);
+  const [folder, setFolder] = useState('');  // the New page's agent only: not part of the document input
+  useEffect(() => { onFieldsChange(value.title, folder); }, [value.title, folder]);
+  useEffect(() => { registerLeave(() => { leaving.current = true; }); }, []);
   const dirty = JSON.stringify(value) !== JSON.stringify(initial) || tags !== initial.tags.join(', ');
   const unlessUnsaved = (run: () => void) => { if (dirty) setUnsavedAction({ run }); else run(); };
   useEffect(() => { registerConfirm(unlessUnsaved); });
@@ -116,6 +124,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
       {document && <Badge variant="secondary">Version {document.version}</Badge>}
       {document && <Button type="button" variant="outline" disabled={pending} onClick={() => { setError(''); setConfirmDelete(true); }}><Trash2 data-icon="inline-start" />Delete</Button>}
       {document && <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}><Bot data-icon="inline-start" />Ask agent</Button>}
+      {!document && <Button type="button" variant="outline" aria-pressed={agentOpen} onClick={onToggleAgent}><Bot data-icon="inline-start" />Write with an agent</Button>}
       <Button type="button" variant="outline" disabled={pending || !value.markdown.trim() || !value.title.trim()} onClick={() => void saveDraft()}>Save draft</Button>
       <Button type="submit" disabled={pending || !value.markdown.trim() || (!dirty && document !== null)}>{pending ? <Spinner /> : <Save data-icon="inline-start" />}{document ? 'Save new version' : 'Create document'}</Button>
     </div></div>
@@ -127,6 +136,9 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
         const title = e.target.value;
         setValue((old) => ({ ...old, title, ...(!document && (old.slug === '' || old.slug === old.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120)) ? { slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120) } : {}) }));
       }} /></Field><Field><FieldLabel htmlFor="doc-slug">Slug</FieldLabel><Input id="doc-slug" required maxLength={120} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={value.slug} onChange={(e) => patch('slug', e.target.value)} /><FieldDescription>Unique name using lowercase letters, numbers, and hyphens.</FieldDescription></Field></FieldGroup>
+      {!document && agentOpen && <Field><FieldLabel htmlFor="doc-folder">Folder</FieldLabel>
+        <Input id="doc-folder" maxLength={200} placeholder="payments" value={folder} onChange={(e) => setFolder(e.target.value)} />
+        <FieldDescription>{folder.trim() && folderError(folder.trim()) ? folderError(folder.trim()) : 'The documentation folder the agent writes the document in.'}</FieldDescription></Field>}
       <Field><FieldLabel htmlFor="doc-description">Short description</FieldLabel><Textarea id="doc-description" rows={2} maxLength={4000} value={value.description} onChange={(e) => patch('description', e.target.value)} /></Field>
       <FieldGroup className="grid gap-4 sm:grid-cols-3">
         <Field><FieldLabel htmlFor="doc-purpose">Purpose</FieldLabel><Input id="doc-purpose" list="document-purposes" required maxLength={80} value={value.purpose} onChange={(e) => patch('purpose', e.target.value)} />
@@ -191,11 +203,16 @@ export default function DocumentEditorView() {
   const [loaded, setLoaded] = useState<{ document: DocumentDetail | null; resources: DocumentResources } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
-  const [agentOpen, setAgentOpen] = useState(() => runId !== undefined || readPane() === 'open');
+  // The New page's agent pane starts closed and is not remembered (Ask agent's choice is per document page).
+  const [agentOpen, setAgentOpen] = useState(() => documentId !== undefined && (runId !== undefined || readPane() === 'open'));
   const [agentDraft, setAgentDraft] = useState<SessionDetail['document_draft'] | null>(null);
   const [agentVersion, setAgentVersion] = useState('');  // changes after each of the agent's turns: the bar reloads the draft
   const confirmRef = useRef<(run: () => void) => void>((run) => run());
-  const settings = useAgentSettings(agentOpen && documentId ? { kind: 'document', id: documentId, title: '' } : null);  // loads only while the pane is open
+  const leaveRef = useRef<() => void>(() => {});
+  const [fields, setFields] = useState({ title: '', folder: '' });  // the New page's Title and Folder (the agent writes them)
+  // Loads only while the pane is open; a new document's options once per page, whatever the title.
+  const settings = useAgentSettings(!agentOpen ? null : documentId ? { kind: 'document', id: documentId, title: '' }
+    : { kind: 'new-document', ...fields });
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const location = useLocation();
   const handed = (location.state as { notice?: unknown } | null)?.notice;
@@ -217,7 +234,7 @@ export default function DocumentEditorView() {
   };
   const toggleAgent = () => {
     const next = !agentOpen;
-    setAgentOpen(next); write(PANE_KEY, next ? 'open' : 'closed');
+    setAgentOpen(next); if (documentId) write(PANE_KEY, next ? 'open' : 'closed');
     if (!next) { setAgentDraft(null); if (runId !== undefined) followRun(null); }  // a closed pane keeps no run in the URL
   };
   const onPromoted = (result: PromoteResult) => { setNotice(promotedNotice(result));
@@ -226,18 +243,26 @@ export default function DocumentEditorView() {
   const editor = (current: { document: DocumentDetail | null; resources: DocumentResources }) =>
     <Editor key={`${documentId}-${refresh}`} {...current} onSaved={(id) => { setNotice('Document version saved.'); if (documentId === id) setRefresh((n) => n + 1); else navigate(`/documents/${id}`); }}
       onDraftSaved={(draftId) => { setNotice('Draft saved.'); setParams({ tab: 'drafts', draft: draftId }, { replace: true }); setRefresh((n) => n + 1); }}
-      onPromoted={onPromoted} agentOpen={agentOpen} onToggleAgent={toggleAgent} registerConfirm={(confirm) => { confirmRef.current = confirm; }} />;
+      onPromoted={onPromoted} agentOpen={agentOpen} onToggleAgent={toggleAgent} registerConfirm={(confirm) => { confirmRef.current = confirm; }}
+      onFieldsChange={(title, folder) => setFields(old => old.title === title && old.folder === folder ? old : { title, folder })}
+      registerLeave={(leave) => { leaveRef.current = leave; }} />;
   // The pane lives outside the editor and is rendered whenever it is open, so it keeps its conversation across the
   // editor's reload (refresh) and remounts only when the document changes.
   const [titled, setTitled] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => { if (loaded?.document) setTitled({ id: loaded.document.id, title: loaded.document.title }); }, [loaded]);
   const paneTitle = agentOpen && documentId && titled?.id === documentId ? titled.title : null;
+  const writing = agentOpen && !documentId && loaded !== null;  // the New page's Write with an agent
+  const split = paneTitle !== null || writing;
   // With the pane open the page takes the full width: the document 2/3, the chat 1/3 (below the editor on small screens).
-  useWidePage(paneTitle !== null);
+  useWidePage(split);
+  // A new document's promoted draft is the document: open it (the editor's fields were the agent's input).
+  const onNewPromoted = (result: PromoteResult) => { leaveRef.current();
+    navigate(`/documents/${encodeURIComponent(result.document_id)}`, { state: { notice: promotedNotice(result) } }); };
   return <>{notice && <Alert role="status"><AlertDescription>{notice}</AlertDescription></Alert>}
-    <div data-testid="document-split" className={paneTitle !== null ? 'grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start' : 'min-w-0'}>
+    <div data-testid="document-split" className={split ? 'grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start' : 'min-w-0'}>
       <div className="min-w-0">
         {paneTitle !== null && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => confirmRef.current(run)} onPromoted={onPromoted} />}
+        {writing && agentDraft && <AgentDraftBar draft={agentDraft} version={agentVersion} confirm={run => run()} onPromoted={onNewPromoted} />}
         {error ? <Alert variant="destructive"><AlertDescription>{error} <Button variant="link" onClick={() => setRefresh((n) => n + 1)}>Retry</Button></AlertDescription></Alert>
           : loaded ? editor(loaded) : <Skeleton className="h-96 w-full" />}
       </div>
@@ -245,6 +270,10 @@ export default function DocumentEditorView() {
         <AgentChat key={documentId} scope={{ kind: 'document', id: documentId!, title: paneTitle }} settings={settings} initialRunId={runId ?? null}
           confirmUnsaved={run => confirmRef.current(run)} onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }}
           onRunChange={followRun} />
+      </div>}
+      {writing && <div className="min-w-0 lg:sticky lg:top-4">
+        <AgentChat key="new" scope={{ kind: 'new-document', ...fields }} settings={settings} initialRunId={null}
+          onDraftChange={(draft, version) => { setAgentDraft(draft); setAgentVersion(version); }} />
       </div>}
     </div></>;
 }

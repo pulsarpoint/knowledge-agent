@@ -13,8 +13,10 @@ export const statusLabels: Record<SessionStatus, string> = {
 };
 /** A tuning suggestion; `response_turn` is the answer the feedback was about (none: the whole session). */
 export interface SessionReview { id: string; comment: string; suggestion: string; response_turn?: number | null; created_at: string; changes?: unknown }
-/** What a chat is about: a document (Ask agent) or a saved agent (its Test tab). */
-export type ChatScope = { kind: 'document'; id: string; title: string } | { kind: 'agent'; id: string; name: string };
+/** What a chat is about: a document (Ask agent), a saved agent (its Test tab) or a new document (Documents → New: the
+ * Title and Folder the editor holds now). */
+export type ChatScope = { kind: 'document'; id: string; title: string } | { kind: 'agent'; id: string; name: string }
+  | { kind: 'new-document'; folder: string; title: string };
 
 export interface SessionFolder { path: string; kind: 'code_project' | 'folder'; name: string; code_project_id?: string }
 export interface SessionSummary {
@@ -73,8 +75,9 @@ const query = (values: Record<string, string | number | undefined>) => {
 };
 export const getSessions = (filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; offset?: number }, signal?: AbortSignal) =>
   request<{ sessions: RunSummary[] }>(`/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, purpose: filter.purpose, offset: filter.offset })}`, { signal });
-export const getSessionOptions = (scope: { documentId?: string; agentId?: string }, signal?: AbortSignal) =>
-  request<AgentOptions>(`/api/sessions/options${query({ document_id: scope.documentId, agent_id: scope.agentId })}`, { signal });
+export const getSessionOptions = (scope: { documentId?: string; agentId?: string; newDocument?: boolean }, signal?: AbortSignal) =>
+  request<AgentOptions>(`/api/sessions/options${query({ document_id: scope.documentId, agent_id: scope.agentId,
+    new_document: scope.newDocument ? 1 : undefined })}`, { signal });
 export const reviewSession = (id: string, comment: string, turn?: number) =>
   request<SessionReview>(`${session(id)}/review`, json('POST', { comment, ...(turn ? { turn } : {}) }));
 export const previewSession = (value: StartInput) =>
@@ -99,9 +102,13 @@ export interface AgentOptions {
   tools: AgentTool[]; experts: { id: string; name: string; when_to_use: string }[];
 }
 export interface AgentResources { server_ids: string[]; service_ids: string[]; environment_ids: string[]; code_project_ids: string[]; collection_ids: string[] }
+/** A document a run writes from scratch: its name and documentation folder. */
+export interface NewDocument { folder: string; name: string }
 export interface StartInput {
-  started_from?: { document_id: string }; agent_id?: string; message: string; model_id?: string; prompt_id?: string | null; system_prompt?: string; context: string;
-  resources: AgentResources & { documents: { id: string; editable: boolean }[] }; tools: string[]; expert_ids: string[]; subagents: boolean;
+  started_from?: { document_id: string } | { new_document: NewDocument }; agent_id?: string; message: string; model_id?: string;
+  prompt_id?: string | null; system_prompt?: string; context: string;
+  resources: AgentResources & { documents: ({ id: string; editable: boolean } | { new: NewDocument; editable: true })[] };
+  tools: string[]; expert_ids: string[]; subagents: boolean;
 }
 export type RunSummary = SessionSummary & { started_by: string | null; draft_id: string | null };
 export const agentRunPath = (documentId: string, runId: string) =>

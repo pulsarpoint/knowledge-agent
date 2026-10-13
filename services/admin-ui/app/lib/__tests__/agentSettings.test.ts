@@ -136,3 +136,13 @@ test('a saved agent with fixed resources keeps every tool, since its options lis
   expect((body as { tools: string[] }).tools).toContain('ssh_run');
   expect(shownTools(agentOptions, defaultSettings(agentOptions)).map(tool => tool.name)).toEqual([]);
 });
+
+test('a new document: the start body names it as started_from and as the one editable document', () => {
+  const fresh = { ...options, resources: { ...options.resources, documents: [] } };
+  const body = startInput({ kind: 'new-document', folder: 'payments', title: 'Payments API' }, fresh, defaultSettings(fresh), ' Write it. ');
+  expect(body).toEqual({ started_from: { new_document: { folder: 'payments', name: 'Payments API' } }, message: 'Write it.',
+    model_id: 'm2', prompt_id: 'p2', system_prompt: options.prompts[1].content, context: '',
+    resources: { server_ids: ['s1'], service_ids: ['v1'], environment_ids: [], code_project_ids: [], collection_ids: [],
+      documents: [{ new: { folder: 'payments', name: 'Payments API' }, editable: true }] },
+    tools: ['ssh_run', 'save_document', 'get_document', 'get_service_info'], expert_ids: [], subagents: false });
+});

@@ -3,8 +3,9 @@ import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources,
 
 /** The prompt choice for "my own text, no library prompt". */
 export const OWN = 'own';
-const STORAGE = (scope: { kind: ChatScope['kind']; id: string }) =>
-  scope.kind === 'document' ? `ask-agent-settings:${scope.id}` : `agent-settings:agent:${scope.id}`;
+/** Where a scope's settings are remembered in this browser: per document, per saved agent, one for every new document. */
+const STORAGE = (scope: ChatScope) => scope.kind === 'document' ? `ask-agent-settings:${scope.id}`
+  : scope.kind === 'agent' ? `agent-settings:agent:${scope.id}` : 'agent-settings:new-document';
 const KINDS: [keyof AgentOptions['resources'], keyof AgentResources][] = [['servers', 'server_ids'], ['services', 'service_ids'],
   ['environments', 'environment_ids'], ['code_projects', 'code_project_ids'], ['collections', 'collection_ids']];
 const EMPTY: AgentResources = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
@@ -94,6 +95,13 @@ export function startInput(scope: ChatScope, options: AgentOptions, settings: Ag
     return { agent_id: scope.id, message: message.trim(), context: '', tools, expert_ids: settings.experts, subagents: settings.subagents,
       resources: { ...settings.chosen, environment_ids: [], documents: [] } };
   }
+  if (scope.kind === 'new-document') {  // the Title and Folder become the one document the run may write
+    const document = { folder: scope.folder.trim(), name: scope.title.trim() };
+    return { started_from: { new_document: document }, message: message.trim(), model_id: settings.modelId,
+      prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(), context: '',
+      resources: { ...settings.chosen, documents: [{ new: document, editable: true }] },
+      tools, expert_ids: settings.experts, subagents: settings.subagents };
+  }
   return { started_from: { document_id: scope.id }, message: message.trim(), model_id: settings.modelId,
     prompt_id: settings.promptKey === OWN ? null : settings.promptKey, system_prompt: settings.systemPrompt.trim(),
     context: `Document: ${scope.title} (id ${scope.id})`,
@@ -110,35 +118,38 @@ export function settingsSummary(options: AgentOptions, settings: AgentSettings):
   return `${model} · ${resources} · ${on} tool${on === 1 ? '' : 's'}`;
 }
 
-/** The Ask agent settings of a document or the Test settings of a saved agent: loaded with the options, remembered in
- * this browser per scope. Null: nothing is loaded (the pane is closed, or a new document). A changed revision (a saved
- * agent's) reloads the options. */
+/** The Ask agent settings of a document, the Test settings of a saved agent, or the settings for writing a new document:
+ * loaded with the options, remembered in this browser per scope. Null: nothing is loaded (the pane is closed). A changed
+ * revision (a saved agent's) reloads the options. A new document's options load once per page (not per typed title). */
 export function useAgentSettings(scope: ChatScope | null, revision?: number) {
-  const kind = scope?.kind ?? null;
-  const id = scope?.id ?? null;
-  // The loaded state carries the scope it belongs to, so a save never writes one scope's settings under another's key.
+  // The loaded state carries the storage key it belongs to, so a save never writes one scope's settings under another's key.
   // A saved agent's new revision loads its options again (remembered settings of the old revision are dropped).
-  const key = kind && id ? `${kind}:${id}${revision === undefined ? '' : `@${revision}`}` : null;
-  const [loaded, setLoaded] = useState<{ key: string; kind: ChatScope['kind']; id: string; options: AgentOptions; settings: AgentSettings } | null>(null);
+  const key = !scope ? null : scope.kind === 'new-document' ? 'new-document'
+    : `${scope.kind}:${scope.id}${revision === undefined ? '' : `@${revision}`}`;
+  const storage = scope ? STORAGE(scope) : null;
+  const [loaded, setLoaded] = useState<{ key: string; storage: string; options: AgentOptions; settings: AgentSettings } | null>(null);
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
+  const kind = scope?.kind ?? null;
+  const id = scope && scope.kind !== 'new-document' ? scope.id : null;
   useEffect(() => {
-    if (!key || !kind || !id) return;
+    if (!key || !kind || !storage) return;
     const controller = new AbortController();
-    getSessionOptions(kind === 'document' ? { documentId: id } : { agentId: id }, controller.signal).then(value => {
+    const which = kind === 'new-document' ? { newDocument: true } : kind === 'document' ? { documentId: id! } : { agentId: id! };
+    getSessionOptions(which, controller.signal).then(value => {
       if (controller.signal.aborted) return;
       let saved: unknown = null;
-      try { saved = JSON.parse(localStorage.getItem(STORAGE({ kind, id })) ?? 'null'); } catch { saved = null; }
-      setFailed(null); setLoaded({ key, kind, id, options: value, settings: restoreSettings(value, saved) });
+      try { saved = JSON.parse(localStorage.getItem(storage) ?? 'null'); } catch { saved = null; }
+      setFailed(null); setLoaded({ key, storage, options: value, settings: restoreSettings(value, saved) });
     }).catch(e => {
       if (!controller.signal.aborted) setFailed({ key, message: e instanceof Error ? e.message : 'Could not load the agent options.' });
     });
     return () => controller.abort();
-  }, [key, kind, id]);
+  }, [key]);
   const current = key !== null && loaded?.key === key ? loaded : null;
   useEffect(() => {
     if (!current) return;
     try {
-      localStorage.setItem(STORAGE(current), JSON.stringify({ v: 2, ...(current.options.agent ? { revision: current.options.agent.revision } : {}),
+      localStorage.setItem(current.storage, JSON.stringify({ v: 2, ...(current.options.agent ? { revision: current.options.agent.revision } : {}),
         linked: linkedIds(current.options), settings: current.settings }));
     } catch { /* storage off */ }
   }, [current]);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from '~/lib/drafts';
+import { draftPath, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from '~/lib/drafts';
 import type { SessionDetail } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -10,10 +10,11 @@ import { Button } from '~/components/ui/button';
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
  * Drafts tab with that draft) and Promote (with the stale check: the server's message, then Promote anyway). The agent may
  * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
- * reads the draft's revision fresh. */
+ * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. */
 export default function AgentDraftBar({ draft, version, confirm, onPromoted }: { draft: NonNullable<SessionDetail['document_draft']>;
   version?: string; confirm: (run: () => void) => void; onPromoted: (result: PromoteResult) => void }) {
   const [, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<DraftDetail | null>(null);
   const [stale, setStale] = useState('');
   const [error, setError] = useState('');
@@ -40,10 +41,12 @@ export default function AgentDraftBar({ draft, version, confirm, onPromoted }: {
   if (draft.status !== 'open') return null;
   return <section aria-label="Agent draft" className="mb-4 flex flex-col gap-2 rounded-lg border bg-muted/40 p-3">
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span>{detail ? `Agent draft · based on version ${detail.base_version ?? '?'}` : 'Agent draft'}</span>
+      <span>{!detail ? 'Agent draft' : draft.document_id === null ? 'Agent draft · a new document'
+        : `Agent draft · based on version ${detail.base_version ?? '?'}`}</span>
       {detail?.stale && <Badge variant="destructive">stale</Badge>}
       <span className="ml-auto flex gap-2">
-        <Button type="button" size="sm" variant="outline" onClick={() => setParams({ tab: 'drafts', draft: draft.id }, { replace: true })}>Compare</Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => draft.document_id === null ? navigate(draftPath(draft))
+          : setParams({ tab: 'drafts', draft: draft.id }, { replace: true })}>Compare</Button>
         <Button type="button" size="sm" disabled={busy || !detail || stale !== ''} onClick={() => confirm(() => void promote(false))}>Promote</Button>
       </span>
     </div>
