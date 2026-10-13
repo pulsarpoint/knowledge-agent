@@ -30,11 +30,9 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   synthetic tickets on an internal Docker network shared with `admin-api`, with
   no host port or external connection. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
-- `agent-session-worker` runs native agents' **Test**, **Ask agent** and new-document sessions with the native runtime, and
-  the one-shot agent tasks that event handlers queue (their answers become Notifications). It is on `default`
+- `agent-session-worker` runs native agents' **Test**, **Ask agent**, new-document and event-handler sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
-  and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once, and at most `AGENT_TASK_MAX` (a whole number of at least 1, default 2) agent tasks beside
-  them; an invalid `AGENT_TASK_MAX` is logged every 5 seconds and keeps the task runner down while sessions keep working.
+  and shares `agent-workspaces` with `shell-worker`. At most `AGENT_SESSION_MAX_SESSIONS` (default 4) sessions run at once.
   Native turns have no time or model-call limit; Stop ends a turn within about 30 seconds. A turn runs at most `AGENT_MAX_SUBAGENTS` (default 4) subagents or expert calls at once, and at most 16 in all; an expert's own subagents run in slots of their own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once.
 - Phoenix has its own authenticated UI and volume. The admin API exports
   OpenInference traces to it (project `docs-wiki`); tracing failure does not stop agent runs.
@@ -398,7 +396,18 @@ After pulling this version, run the database migration (`make up` runs it, or `m
 - Event handlers with the action Send to agent now queue an agent task instead of starting a session:
   `repository-worker` queues the tasks and `agent-session-worker` runs them, so update both together (`make up` does).
 - Sessions that handlers started before 0090 stay viewable.
-- `AGENT_TASK_MAX` (default 2) sets how many tasks run at once per `agent-session-worker`.
+
+## Upgrading to event runs
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0103 adds
+`event_id` and `handler_id` to `ka.agent_sessions` and `session_id` to `ka.notifications`.
+
+- Event handlers with the action Send to agent now start an ordinary agent run, not an agent task. `repository-worker`
+  starts the run and `agent-session-worker` runs it, so update both together (`make up` does).
+- `agent-session-worker` no longer runs agent tasks, and `AGENT_TASK_MAX` does nothing. Remove it from your `.env`;
+  a leftover value is ignored.
+- Agent tasks still queued or running when 0103 ran are failed with a notification each. Send their events again.
+  Old tasks stay visible as history.
 
 ## Upgrading to the system graph
 

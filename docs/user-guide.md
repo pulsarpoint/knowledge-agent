@@ -78,11 +78,10 @@ Browser ──► admin-oauth2-proxy :8183 (docs-admins only) ──► admin-we
                                                                                     │
      admin-api ──► rag, PostgreSQL, shell-worker (sandboxed bash), LLM providers, SSH hosts, Jira, MCP servers
      workers:  rag-worker (indexing) · repository-worker (git clone/pull, code graph)
-               agent-session-worker (document, Test and Ask agent sessions, event-handler agent tasks)
+               agent-session-worker (document, Test, Ask agent and event-handler sessions)
 ```
 
-`agent-session-worker` runs document, Test and Ask agent sessions, and the event-handler agent tasks (one-shot; each
-answer goes to Notifications). Like `admin-api` it reaches
+`agent-session-worker` runs document, Test and Ask agent sessions, and the agent runs that event handlers start. Like `admin-api` it reaches
 RAG, PostgreSQL, MCP servers, model providers and SSH hosts, and runs `shell_run` in `shell-worker`; it reads `DATA_ROOT`
 read-only.
 
@@ -770,7 +769,7 @@ Processed. Filter by source, type, status and **Emitted by** (the handler that e
 key or title, and open an event to see its
 changes, a link to the ticket, the raw data, its **Chain** (the event it came from and everything handlers made of it,
 indented by level) and its **Handler runs** (each handler's result, with links to the event it emitted, or, for Send
-to agent, the agent task's status and its notification).
+to agent, the agent run's status, **Open run** and **Open notification**; events handled before agent runs existed show their old task status).
 
 **New event** (next to Refresh) makes an event by hand, to try your handlers without waiting for Jira. Fill in
 **Type** (e.g. `jira.ticket.created`; known types are suggested), **Subject**, an optional **Title** and the
@@ -801,16 +800,17 @@ A handler does one thing:
   `event.payload.summary`, …). Empty Subject, Title or Payload copy the matched event's. Write payload values with
   `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
-- **Send to agent** queues one call of the chosen agent for every matching event; the **Prompt** template is the
-  message. agent-session-worker runs it once, with no conversation and no streaming, and puts the answer in
-  **Notifications** (4.19). A call that fails is tried again 30 seconds and then 2 minutes later (3 attempts in all);
-  an agent that was deleted, disabled, switched to per-run resources or left without a usable model fails at once.
-  A worker that stops hands a running call back without counting the attempt. Only enabled agents with fixed
-  resources can be chosen. A handler whose agent was deleted or no longer qualifies can still be turned off or
-  edited; choosing a new agent or turning it back on checks the agent again. Processing the same event again never
-  queues a second call. Calls appear in Agent runs as **Event task**.
+- **Send to agent** starts an ordinary agent run of the chosen agent for every matching event. The **Prompt** template
+  is the run's first message, the run uses everything the agent has switched on that it can use, and the handler's
+  creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
+  under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
+  notification is written with the answer, or why it failed (4.19). A failed run is not retried: continue it, or send
+  the event again. Only enabled agents with fixed resources can be chosen (agents that choose resources per run are
+  refused). A handler whose agent was deleted or no longer qualifies can still be turned off or edited; choosing a new
+  agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
+  the same handler.
 
-**Careful with Send to agent on broad patterns.** Every matching event runs the agent once. The first scheduled Jira
+**Careful with Send to agent on broad patterns.** Every matching event starts one agent run. The first scheduled Jira
 pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once per
 ticket; `*` and other broad patterns also match the events other handlers emit, multiplying calls down a chain. Start
 narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when Send to agent
@@ -829,10 +829,10 @@ event still run. Deleting a handler keeps its run history on the events.
 Administration → **Notifications** lists what agents answered when a handler sent them an event, newest first: Time,
 Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`) and the first line of the answer
 (taken from its first 200 characters, cut off when long). Everyone sees the same list. Filter by status or search the
-title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the call
-failed, after its last attempt), the agent, the number of attempts and **Open event**, which opens the event that
-triggered it. On the event, the handler run shows the call's status (Queued, Running, Succeeded or Failed) and **Open
-notification**.
+title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
+failed), the agent, **Open run**, which opens the run in the agent's Test tab, and **Open event**, which opens the event that
+triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
+Notifications from before event runs show the old task's attempts and have no **Open run**.
 
 ### 4.20 System map
 
@@ -948,7 +948,6 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 | `DOCS_FOLDER` | Folder for bootstrap docs (default `docs`; seeded only when empty) |
 | `GENERATED_DOCS_FOLDER` | Folder for document exports (default `generated-documents`) |
 | `AGENT_SESSION_MAX_SESSIONS` | Sessions running at once per agent-session-worker (default 4) |
-| `AGENT_TASK_MAX` | Event-handler agent tasks running at once per agent-session-worker (whole number of at least 1, default 2; an invalid value is logged every 5 s and the task runner stays down while sessions keep working) |
 | `AGENT_MAX_SUBAGENTS` | Subagents running at once in one native session turn (default 4; at most 16 helpers per turn, with expert calls). Expert calls take a slot too, and an expert's own subagents run in slots of its own, so a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running experts) helpers at once |
 | `JIRA_FOLDER` | Folder for Jira exports, the only folder RAG writes (default `jira`) |
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts all stored secrets — **back it up separately** |

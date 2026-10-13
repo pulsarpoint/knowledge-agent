@@ -42,17 +42,14 @@ limit, no per-turn time limit, no 300-second limit).
   for something that does not exist. The proposal tools (`propose_service`, `propose_document`) exist only in a run
   started from a server.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
-- Event handlers (Administration → Events → Handlers, action Send to agent) do not start sessions: since migration
-  0090 they queue an agent task (`ka.agent_tasks`), and agent-session-worker runs it once with the rendered prompt —
-  `agent(config, prompt, stream=False)`, the agent's current configuration, no history, no experts and no
-  `run_subagent` (agent() offers them only to a session turn), a 10-minute limit — and writes the answer or the
-  failure to `ka.notifications` (Administration → Notifications). `AGENT_TASK_MAX` (a whole number of at least 1,
-  default 2) tasks run at once, beside the session slots; an invalid value is logged every 5 seconds (by the
-  supervisor) and the task runner stays down until the value is fixed, while sessions keep working. The worker runs
-  the session loop and the task loop under supervisors: a loop that crashes is logged and restarted after 5 s, and the
-  other keeps running. A task is tried up to 3 times (30 s, then 2 min apart); a worker that stops hands a running
-  task back without counting the attempt. Each pickup of a task is recorded as run key `task:<task id>:<claim
-  number>`, kind `event_task` (**Event task** in Agent runs), so a pickup after a worker restart has its own record.
+- Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
+  migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per
+  event and handler), the agent's current configuration, everything it has on that it can use (per-run agents are
+  refused), the rendered prompt as the first message and the handler's creator as the actor. It is titled
+  `<agent> · <event type> <subject>`, shows in the agent's Test tab under Earlier runs, and can be opened and continued.
+  There are no automatic retries. When the first turn ends, agent-session-worker writes one notification
+  (`ka.notifications.session_id` points at the run) with the answer or the failure. Agent tasks (0090, one-shot calls
+  with retries) are removed; `ka.agent_tasks` stays as history, and 0103 failed the ones still waiting.
   Sessions with `purpose = 'event'` created before 0090 stay viewable in the agent's Test tab (**Event** badge).
 - Each turn's run record is `cc:<session>:<turn>` (start kind `test_session`, or
   `event_session` for the pre-0090 event sessions); **Full record** links to it. The `end`

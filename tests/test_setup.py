@@ -345,9 +345,9 @@ class SetupTests(unittest.TestCase):
             env = worker["environment"]
             self.assertEqual((env["AGENT_SHELL_URL"], env["AGENT_WORKSPACE_ROOT"], env["CODE_ROOT"], env["DATA_ROOT_DIR"],
                               env["DOCS_WIKI_RAG_URL"], env["DOCS_WIKI_PHOENIX_ENDPOINT"], env["AGENT_SESSION_MAX_SESSIONS"],
-                              env["AGENT_MAX_SUBAGENTS"], env["AGENT_TASK_MAX"]),
+                              env["AGENT_MAX_SUBAGENTS"]),
                              ("http://shell-worker:8796", "/work/agent-workspaces", "/work/data/code", "/work/data",
-                              "http://rag:8790", "http://phoenix:6006/v1/traces", "4", "4", "2"))
+                              "http://rag:8790", "http://phoenix:6006/v1/traces", "4", "4"))
             for name in ("PGHOST", "PGPASSWORD", "CREDENTIAL_ENCRYPTION_KEY", "AUTH_ISSUER_URL", "RAG_BACKOFFICE_KEY",
                          "DOCS_WIKI_PHOENIX_API_KEY"):
                 self.assertIn(name, env)
