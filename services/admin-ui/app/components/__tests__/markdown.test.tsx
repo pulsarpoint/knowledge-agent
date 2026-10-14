@@ -65,29 +65,31 @@ test("diagram validation waits until streaming has completed", async () => {
   vi.mocked(mermaid.render).mockClear();
   const content = '```mermaid\nflowchart LR\nA["One"] --> B\n```';
   const view = render(<Markdown content={content} isStreaming />);
-  expect(screen.getByText('Diagram will appear when the answer is complete.')).toBeInTheDocument();
+  expect(screen.getByText("Diagram will appear when the answer is complete.")).toBeInTheDocument();
   expect(mermaid.parse).not.toHaveBeenCalled();
   expect(mermaid.render).not.toHaveBeenCalled();
   view.rerender(<Markdown content={content} />);
   await waitFor(() => expect(mermaid.render).toHaveBeenCalledWith(expect.any(String), 'flowchart LR\nA["One"] --> B'));
   expect(mermaid.parse).toHaveBeenCalledWith('flowchart LR\nA["One"] --> B');
-  expect(view.container.querySelector('pre')).toBeNull();
+  expect(view.container.querySelector("pre")).toBeNull();
 });
 
 test("invalid Mermaid preserves the answer and safely displays its source", async () => {
-  vi.mocked(mermaid.parse).mockRejectedValueOnce(new Error('Parse error'));
+  vi.mocked(mermaid.parse).mockRejectedValueOnce(new Error("Parse error"));
   vi.mocked(mermaid.render).mockClear();
-  const { container } = render(<Markdown content={'Useful explanation.\n\n```mermaid\nflowchart LR\nA[<img src=x onerror=alert(1)>\n```'} />);
-  expect(await screen.findByText('This diagram could not be rendered. Its source is shown below.')).toBeInTheDocument();
-  expect(screen.getByText('Useful explanation.')).toBeInTheDocument();
-  expect(container.querySelector('img')).toBeNull();
-  expect(container.querySelector('pre')?.textContent).toContain('<img src=x onerror=alert(1)>');
+  const { container } = render(
+    <Markdown content={"Useful explanation.\n\n```mermaid\nflowchart LR\nA[<img src=x onerror=alert(1)>\n```"} />,
+  );
+  expect(await screen.findByText("This diagram could not be rendered. Its source is shown below.")).toBeInTheDocument();
+  expect(screen.getByText("Useful explanation.")).toBeInTheDocument();
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.querySelector("pre")?.textContent).toContain("<img src=x onerror=alert(1)>");
   expect(mermaid.render).not.toHaveBeenCalled();
 });
 
 test("diagram releases pan and zoom listeners when it unmounts", async () => {
   vi.mocked(svgPanZoom).mockClear();
-  const view = render(<Markdown content={'```mermaid\nflowchart LR\nA --> B\n```'} />);
+  const view = render(<Markdown content={"```mermaid\nflowchart LR\nA --> B\n```"} />);
   await waitFor(() => expect(svgPanZoom).toHaveBeenCalledOnce());
   const controls = vi.mocked(svgPanZoom).mock.results[0].value;
   view.unmount();
@@ -98,9 +100,9 @@ test("unrelated renders preserve the SVG initialized by pan and zoom", async () 
   vi.mocked(svgPanZoom).mockClear();
   const view = render(<Mermaid chart="flowchart LR; A --> B" zoomingEnabled />);
   await waitFor(() => expect(svgPanZoom).toHaveBeenCalledOnce());
-  const svg = view.container.querySelector('svg')!;
-  svg.setAttribute('data-pan-zoom', 'initialized');
+  const svg = view.container.querySelector("svg")!;
+  svg.setAttribute("data-pan-zoom", "initialized");
   view.rerender(<Mermaid chart="flowchart LR; A --> B" zoomingEnabled />);
-  expect(view.container.querySelector('svg')).toBe(svg);
-  expect(svg).toHaveAttribute('data-pan-zoom', 'initialized');
+  expect(view.container.querySelector("svg")).toBe(svg);
+  expect(svg).toHaveAttribute("data-pan-zoom", "initialized");
 });

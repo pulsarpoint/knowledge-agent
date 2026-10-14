@@ -3,10 +3,25 @@ import userEvent from "@testing-library/user-event";
 import RagFileLog from "~/features/rag/RagFileLog";
 import type { LogFile } from "~/features/rag/api";
 
-const indexed: LogFile = { path: "jira/DEMO-1.md", status: "indexed", size: 2048, mtime: 1, error: null,
-  indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 13 };
-const failed: LogFile = { ...indexed, path: "jira/DEMO-2.md", status: "failed", indexed_at: null, chunks: 0,
-  error: "Could not parse this file: unbalanced table" };
+const indexed: LogFile = {
+  path: "jira/DEMO-1.md",
+  status: "indexed",
+  size: 2048,
+  mtime: 1,
+  error: null,
+  indexed_at: "2026-10-05T09:00:00Z",
+  last_seen_at: "2026-10-05T09:00:00Z",
+  removed_at: null,
+  chunks: 13,
+};
+const failed: LogFile = {
+  ...indexed,
+  path: "jira/DEMO-2.md",
+  status: "failed",
+  indexed_at: null,
+  chunks: 0,
+  error: "Could not parse this file: unbalanced table",
+};
 
 function api(files: LogFile[] = [indexed, failed], total = files.length) {
   const fetchMock = vi.fn(async (_url: string) => Response.json({ files, total }));

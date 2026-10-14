@@ -1,62 +1,125 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import { beforeEach, expect, it, vi } from "vitest";
 import MCPServersView from "~/features/llm/MCPServersView";
-import OperationsView from '~/features/servers/OperationsView';
+import OperationsView from "~/features/servers/OperationsView";
 import * as api from "~/features/llm/mcp";
-import * as operations from '~/features/servers/operations';
+import * as operations from "~/features/servers/operations";
 vi.mock("~/features/llm/mcp");
-vi.mock('~/features/servers/operations');
-vi.mock('../Markdown', () => ({ default: () => null }));
-const connection: api.MCPServer = { id: 'mcp-1', name: 'Deployment tools', url: 'https://mcp.test/mcp', description: 'Read deployments', enabled: true, revision: 2, has_token: true, tools: [{ name: 'read_info', description: 'Read deployment information' }], last_tested_at: '2026-09-10T12:00:00Z', last_test_error: null };
+vi.mock("~/features/servers/operations");
+vi.mock("../Markdown", () => ({ default: () => null }));
+const connection: api.MCPServer = {
+  id: "mcp-1",
+  name: "Deployment tools",
+  url: "https://mcp.test/mcp",
+  description: "Read deployments",
+  enabled: true,
+  revision: 2,
+  has_token: true,
+  tools: [{ name: "read_info", description: "Read deployment information" }],
+  last_tested_at: "2026-09-10T12:00:00Z",
+  last_test_error: null,
+};
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.getMCPServers).mockResolvedValue({ servers: [connection] });
 });
-it('preserves a saved token on edit and requires confirmation to remove a connection', async () => {
+it("preserves a saved token on edit and requires confirmation to remove a connection", async () => {
   const user = userEvent.setup();
   vi.mocked(api.saveMCPServer).mockResolvedValue(connection);
-  render(<MemoryRouter><MCPServersView /></MemoryRouter>);
-  await user.click(await screen.findByRole('button', { name: 'Edit' }));
-  expect(screen.getByLabelText('Replace bearer token')).toHaveValue('');
+  render(
+    <MemoryRouter>
+      <MCPServersView />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole("button", { name: "Edit" }));
+  expect(screen.getByLabelText("Replace bearer token")).toHaveValue("");
   expect(screen.getByText(/Leave blank to keep it/)).toBeVisible();
-  await user.type(screen.getByLabelText('Description'), ' and health');
-  await user.click(screen.getByRole('button', { name: 'Save MCP server' }));
-  await waitFor(() => expect(api.saveMCPServer).toHaveBeenCalledWith('mcp-1', { name: connection.name, description: 'Read deployments and health', url: connection.url, enabled: true, revision: 2 }));
-  await user.click(screen.getByRole('button', { name: /^Remove$/ }));
-  const dialog = screen.getByRole('alertdialog');
-  expect(dialog).toHaveTextContent('removed from all agent configurations');
+  await user.type(screen.getByLabelText("Description"), " and health");
+  await user.click(screen.getByRole("button", { name: "Save MCP server" }));
+  await waitFor(() =>
+    expect(api.saveMCPServer).toHaveBeenCalledWith("mcp-1", {
+      name: connection.name,
+      description: "Read deployments and health",
+      url: connection.url,
+      enabled: true,
+      revision: 2,
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: /^Remove$/ }));
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog).toHaveTextContent("removed from all agent configurations");
   expect(api.deleteMCPServer).not.toHaveBeenCalled();
-  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(api.deleteMCPServer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole('button', { name: /^Remove$/ }));
-  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove MCP server' }));
+  await user.click(screen.getByRole("button", { name: /^Remove$/ }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove MCP server" }));
   await waitFor(() => expect(api.deleteMCPServer).toHaveBeenCalledWith(connection));
 });
-it('tests a saved connection and shows discovered tools', async () => {
+it("tests a saved connection and shows discovered tools", async () => {
   const user = userEvent.setup();
-  vi.mocked(api.testMCPServer).mockResolvedValue({ ok: true, message: 'Connected. Discovered 1 tools.', server: connection });
-  render(<MemoryRouter><MCPServersView /></MemoryRouter>);
-  await user.click(await screen.findByRole('button', { name: 'Test connection' }));
-  await screen.findByText('Connected. Discovered 1 tools.');
+  vi.mocked(api.testMCPServer).mockResolvedValue({
+    ok: true,
+    message: "Connected. Discovered 1 tools.",
+    server: connection,
+  });
+  render(
+    <MemoryRouter>
+      <MCPServersView />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole("button", { name: "Test connection" }));
+  await screen.findByText("Connected. Discovered 1 tools.");
   expect(api.testMCPServer).toHaveBeenCalledWith(connection);
-  await user.click(screen.getByText('1 tools · Connection verified'));
-  expect(screen.getByText('read_info')).toBeVisible();
+  await user.click(screen.getByText("1 tools · Connection verified"));
+  expect(screen.getByText("read_info")).toBeVisible();
 });
-it('inherits global MCP connections on SSH servers and saves an explicit empty override', async () => {
+it("inherits global MCP connections on SSH servers and saves an explicit empty override", async () => {
   const user = userEvent.setup();
-  const data: operations.OperationsConfiguration = { settings: { revision: 1, instructions: '', server_ids: ['ssh-1'], skill_ids: [], mcp_server_ids: ['mcp-1'] }, configs: [], skills: [], mcp_servers: [connection], servers: [{ id: 'ssh-1', name: 'Staging', hostname: 'staging.test', port: 22, username: 'test', revision: 1, ssh_allowed: true, enabled: true, allow_sudo: false, known_hosts: '', has_private_key: true, last_tested_at: null, last_test_error: null }] };
+  const data: operations.OperationsConfiguration = {
+    settings: { revision: 1, instructions: "", server_ids: ["ssh-1"], skill_ids: [], mcp_server_ids: ["mcp-1"] },
+    configs: [],
+    skills: [],
+    mcp_servers: [connection],
+    servers: [
+      {
+        id: "ssh-1",
+        name: "Staging",
+        hostname: "staging.test",
+        port: 22,
+        username: "test",
+        revision: 1,
+        ssh_allowed: true,
+        enabled: true,
+        allow_sudo: false,
+        known_hosts: "",
+        has_private_key: true,
+        last_tested_at: null,
+        last_test_error: null,
+      },
+    ],
+  };
   vi.mocked(operations.getOperationsSettings).mockResolvedValue(data);
-  render(<MemoryRouter><OperationsView view="settings" /></MemoryRouter>);
-  await user.click(await screen.findByRole('combobox', { name: 'SSH configuration' }));
-  await user.click(screen.getByRole('option', { name: 'Staging' }));
-  expect(screen.getByRole('checkbox', { name: 'Use MCP Deployment tools' })).toBeChecked();
-  expect(screen.getByRole('checkbox', { name: 'Use MCP Deployment tools' })).toBeDisabled();
-  await user.click(screen.getByRole('button', { name: 'Create server configuration' }));
-  expect(screen.getByRole('checkbox', { name: 'Use agent MCP selection' })).toBeChecked();
-  await user.click(screen.getByRole('checkbox', { name: 'Use agent MCP selection' }));
-  await user.click(screen.getByRole('checkbox', { name: 'Use MCP Deployment tools' }));
-  await user.click(screen.getByRole('button', { name: 'Save server configuration' }));
-  await waitFor(() => expect(operations.saveOperationsServerConfig).toHaveBeenCalledWith('ssh-1', { settings_revision: 1, revision: null, instructions: null, skill_ids: null, mcp_server_ids: [] }, "operations"));
+  render(
+    <MemoryRouter>
+      <OperationsView view="settings" />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole("combobox", { name: "SSH configuration" }));
+  await user.click(screen.getByRole("option", { name: "Staging" }));
+  expect(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Create server configuration" }));
+  expect(screen.getByRole("checkbox", { name: "Use agent MCP selection" })).toBeChecked();
+  await user.click(screen.getByRole("checkbox", { name: "Use agent MCP selection" }));
+  await user.click(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" }));
+  await user.click(screen.getByRole("button", { name: "Save server configuration" }));
+  await waitFor(() =>
+    expect(operations.saveOperationsServerConfig).toHaveBeenCalledWith(
+      "ssh-1",
+      { settings_revision: 1, revision: null, instructions: null, skill_ids: null, mcp_server_ids: [] },
+      "operations",
+    ),
+  );
 });

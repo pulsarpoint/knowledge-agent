@@ -4,5 +4,9 @@ import RagCollectionDetail from "~/features/rag/RagCollectionDetail";
 
 export default function RagCollectionPage() {
   const params = useParams();
-  return <AdminLayout><RagCollectionDetail id={params.collectionId!} /></AdminLayout>;
+  return (
+    <AdminLayout>
+      <RagCollectionDetail id={params.collectionId!} />
+    </AdminLayout>
+  );
 }

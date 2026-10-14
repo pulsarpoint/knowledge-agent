@@ -9,7 +9,9 @@ export default [
   route("documents/new", "./routes/documentNew.tsx"),
   route("documents/drafts/:draftId", "./routes/documentDraft.tsx"),
   // The run link is a child of the document page: following one (or the pane changing run) keeps the page mounted.
-  route("documents/:documentId", "./routes/documentDetail.tsx", [route("agent/:runId", "./routes/documentAgentRun.tsx")]),
+  route("documents/:documentId", "./routes/documentDetail.tsx", [
+    route("agent/:runId", "./routes/documentAgentRun.tsx"),
+  ]),
   route("prompts", "./routes/promptLibrary.tsx"),
   route("prompts/new", "./routes/promptLibraryEditor.tsx", { id: "prompt-library-new" }),
   route("prompts/:promptId", "./routes/promptLibraryEditor.tsx"),

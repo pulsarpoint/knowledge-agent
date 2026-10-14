@@ -4,9 +4,24 @@ import { MemoryRouter } from "react-router";
 import SchedulesView from "~/features/events/SchedulesView";
 import type { Schedule } from "~/features/events/schedules";
 
-const schedule: Schedule = { id: "s-1", name: "Jira auto pull", target_kind: "jira.pull", target_id: "jira-1", cron: "*/15 * * * *",
-  description: "Every 15 minutes", timezone: "Europe/Belgrade", enabled: true, next_run_at: "2026-10-09T10:15:00Z", running: false,
-  last_run_at: "2026-10-09T10:00:00Z", last_finished_at: "2026-10-09T10:00:02Z", last_status: "succeeded", last_message: "Pulled 25 of 140 tickets.", revision: 3, params: {} };
+const schedule: Schedule = {
+  id: "s-1",
+  name: "Jira auto pull",
+  target_kind: "jira.pull",
+  target_id: "jira-1",
+  cron: "*/15 * * * *",
+  description: "Every 15 minutes",
+  timezone: "Europe/Belgrade",
+  enabled: true,
+  next_run_at: "2026-10-09T10:15:00Z",
+  running: false,
+  last_run_at: "2026-10-09T10:00:00Z",
+  last_finished_at: "2026-10-09T10:00:02Z",
+  last_status: "succeeded",
+  last_message: "Pulled 25 of 140 tickets.",
+  revision: 3,
+  params: {},
+};
 
 function api(routes: Record<string, (init?: RequestInit) => [number, unknown]>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -19,8 +34,14 @@ function api(routes: Record<string, (init?: RequestInit) => [number, unknown]>) 
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
-const body = (fetch: ReturnType<typeof api>, key: string) => JSON.parse(fetch.mock.calls.find(([url, init]) => `${init?.method ?? "GET"} ${url}` === key)![1]!.body as string);
-const view = () => render(<MemoryRouter><SchedulesView /></MemoryRouter>);
+const body = (fetch: ReturnType<typeof api>, key: string) =>
+  JSON.parse(fetch.mock.calls.find(([url, init]) => `${init?.method ?? "GET"} ${url}` === key)![1]!.body as string);
+const view = () =>
+  render(
+    <MemoryRouter>
+      <SchedulesView />
+    </MemoryRouter>,
+  );
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -38,21 +59,30 @@ test("lists schedules with their timetable and last result", async () => {
 test("shows the empty state", async () => {
   api({ "GET /api/schedules": () => [200, { schedules: [] }] });
   view();
-  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+  expect(
+    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
+  ).toBeInTheDocument();
 });
 
 test("new schedule creates a Jira pull", async () => {
   const user = userEvent.setup();
-  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [] }],
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [] }],
     "POST /api/schedules/preview": () => [200, { runs: ["2026-10-12T05:00:00Z"] }],
-    "POST /api/schedules": () => [201, { schedule }] });
+    "POST /api/schedules": () => [201, { schedule }],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "New schedule" }));
   expect(screen.getByRole("combobox", { name: "What to run" })).toHaveTextContent("Jira tickets");
   await screen.findByText("Next runs");
   await user.click(screen.getByRole("button", { name: "Create" }));
   expect(await screen.findByText("Jira auto pull")).toBeInTheDocument();
-  expect(body(fetch, "POST /api/schedules")).toEqual({ target_kind: "jira.pull", cron: "*/15 * * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", enabled: true });
+  expect(body(fetch, "POST /api/schedules")).toEqual({
+    target_kind: "jira.pull",
+    cron: "*/15 * * * *",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    enabled: true,
+  });
 });
 
 test("new schedule says when every target is taken", async () => {
@@ -65,22 +95,32 @@ test("new schedule says when every target is taken", async () => {
 
 test("delete asks first and removes the row", async () => {
   const user = userEvent.setup();
-  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [schedule] }], "DELETE /api/schedules/s-1": () => [204, null] });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "DELETE /api/schedules/s-1": () => [204, null],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "Delete" }));
   expect(screen.getByText("Delete schedule Jira auto pull?")).toBeInTheDocument();
   expect(screen.getByText("Its history is deleted too.")).toBeInTheDocument();
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
-  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+  expect(
+    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
+  ).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, init]) => url === "/api/schedules/s-1" && init?.method === "DELETE")).toBe(true);
 });
 
 test("a double click on Delete sends one request and keeps the title", async () => {
   const user = userEvent.setup();
   let release: () => void = () => {};
-  const gate = new Promise<void>(resolve => { release = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === "DELETE") { await gate; return new Response(null, { status: 204 }); }
+    if (init?.method === "DELETE") {
+      await gate;
+      return new Response(null, { status: 204 });
+    }
     return new Response(JSON.stringify({ schedules: [schedule] }), { status: 200 });
   });
   vi.stubGlobal("fetch", fetch);
@@ -90,25 +130,39 @@ test("a double click on Delete sends one request and keeps the title", async () 
   await user.dblClick(confirm);
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   release();
-  expect(await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull.")).toBeInTheDocument();
+  expect(
+    await screen.findByText("No schedules yet. Create one with New schedule, or set up Jira → Auto pull."),
+  ).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
   expect(screen.queryByText("Delete schedule ?")).not.toBeInTheDocument();
 });
 
 test("pausing sends the revision and shows the paused row", async () => {
   const user = userEvent.setup();
-  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [schedule] }],
-    "PUT /api/schedules/s-1": () => [200, { schedule: { ...schedule, enabled: false, next_run_at: null, revision: 4 } }] });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "PUT /api/schedules/s-1": () => [
+      200,
+      { schedule: { ...schedule, enabled: false, next_run_at: null, revision: 4 } },
+    ],
+  });
   view();
   await user.click(await screen.findByRole("switch", { name: "Enabled: Jira auto pull" }));
   expect(await screen.findByText("Paused")).toBeInTheDocument();
-  expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({ cron: "*/15 * * * *", timezone: "Europe/Belgrade", enabled: false, revision: 3 });
+  expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({
+    cron: "*/15 * * * *",
+    timezone: "Europe/Belgrade",
+    enabled: false,
+    revision: 3,
+  });
 });
 
 test("run now while running shows the server message", async () => {
   const user = userEvent.setup();
-  api({ "GET /api/schedules": () => [200, { schedules: [schedule] }],
-    "POST /api/schedules/s-1/run": () => [409, { error: { message: "This schedule is already running." } }] });
+  api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "POST /api/schedules/s-1/run": () => [409, { error: { message: "This schedule is already running." } }],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "Run now" }));
   expect(await screen.findByText("This schedule is already running.")).toBeInTheDocument();
@@ -116,8 +170,24 @@ test("run now while running shows the server message", async () => {
 
 test("history lists the newest runs", async () => {
   const user = userEvent.setup();
-  api({ "GET /api/schedules": () => [200, { schedules: [schedule] }],
-    "GET /api/schedules/s-1/runs": () => [200, { runs: [{ id: 2, trigger: "manual", started_at: "2026-10-09T10:00:00Z", finished_at: "2026-10-09T10:00:02Z", status: "failed", message: "Could not reach Jira." }] }] });
+  api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "GET /api/schedules/s-1/runs": () => [
+      200,
+      {
+        runs: [
+          {
+            id: 2,
+            trigger: "manual",
+            started_at: "2026-10-09T10:00:00Z",
+            finished_at: "2026-10-09T10:00:02Z",
+            status: "failed",
+            message: "Could not reach Jira.",
+          },
+        ],
+      },
+    ],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "History" }));
   expect(await screen.findByText(/Run now · Failed · Could not reach Jira\./)).toBeInTheDocument();
@@ -125,23 +195,38 @@ test("history lists the newest runs", async () => {
 
 test("editor previews a custom cron, shows errors under the field and saves", async () => {
   const user = userEvent.setup();
-  const fetch = api({ "GET /api/schedules": () => [200, { schedules: [schedule] }],
-    "POST /api/schedules/preview": (init) => JSON.parse(init!.body as string).cron === "*/2 * * * *"
-      ? [400, { error: { message: "Schedules may run at most every 5 minutes." } }]
-      : [200, { runs: ["2026-10-12T05:00:00Z", "2026-10-13T05:00:00Z", "2026-10-14T05:00:00Z"] }],
-    "PUT /api/schedules/s-1": () => [200, { schedule: { ...schedule, cron: "0 7 * * 1-5", description: "0 7 * * 1-5", revision: 4 } }] });
+  const fetch = api({
+    "GET /api/schedules": () => [200, { schedules: [schedule] }],
+    "POST /api/schedules/preview": (init) =>
+      JSON.parse(init!.body as string).cron === "*/2 * * * *"
+        ? [400, { error: { message: "Schedules may run at most every 5 minutes." } }]
+        : [200, { runs: ["2026-10-12T05:00:00Z", "2026-10-13T05:00:00Z", "2026-10-14T05:00:00Z"] }],
+    "PUT /api/schedules/s-1": () => [
+      200,
+      { schedule: { ...schedule, cron: "0 7 * * 1-5", description: "0 7 * * 1-5", revision: 4 } },
+    ],
+  });
   view();
   await user.click(await screen.findByRole("button", { name: "Edit" }));
   await user.click(screen.getByRole("combobox", { name: "How often" }));
   await user.click(screen.getByRole("option", { name: "Custom" }));
   const cron = screen.getByLabelText("Cron expression");
-  await user.clear(cron); await user.type(cron, "*/2 * * * *");
+  await user.clear(cron);
+  await user.type(cron, "*/2 * * * *");
   expect(await screen.findByText("Schedules may run at most every 5 minutes.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-  await user.clear(cron); await user.type(cron, "0 7 * * 1-5");
+  await user.clear(cron);
+  await user.type(cron, "0 7 * * 1-5");
   expect(await screen.findByText("Next runs")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({ cron: "0 7 * * 1-5", timezone: "Europe/Belgrade", enabled: true, revision: 3 }));
+  await waitFor(() =>
+    expect(body(fetch, "PUT /api/schedules/s-1")).toEqual({
+      cron: "0 7 * * 1-5",
+      timezone: "Europe/Belgrade",
+      enabled: true,
+      revision: 3,
+    }),
+  );
   expect(await screen.findByText("0 7 * * 1-5")).toBeInTheDocument();
 });
 
@@ -149,14 +234,23 @@ test("a successful refresh clears an earlier refresh error", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   try {
     let calls = 0;
-    api({ "GET /api/schedules": () => ++calls === 2 ? [500, { error: { message: "Backend down." } }] : [200, { schedules: [schedule] }] });
+    api({
+      "GET /api/schedules": () =>
+        ++calls === 2 ? [500, { error: { message: "Backend down." } }] : [200, { schedules: [schedule] }],
+    });
     view();
     await screen.findByText("Jira auto pull");
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
     expect(await screen.findByText("Backend down.")).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
     await waitFor(() => expect(screen.queryByText("Backend down.")).not.toBeInTheDocument());
-  } finally { vi.useRealTimers(); }
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a slow refresh that resolves after a pause does not revert the row", async () => {
@@ -168,20 +262,32 @@ test("a slow refresh that resolves after a pause does not revert the row", async
       const key = `${init?.method ?? "GET"} ${url}`;
       if (key === "GET /api/schedules") {
         if (++calls === 1) return new Response(JSON.stringify({ schedules: [schedule] }));
-        await new Promise<void>(resolve => { release = resolve; });
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
         return new Response(JSON.stringify({ schedules: [schedule] }));
       }
-      if (key === "PUT /api/schedules/s-1") return new Response(JSON.stringify({ schedule: { ...schedule, enabled: false, next_run_at: null, revision: 4 } }));
+      if (key === "PUT /api/schedules/s-1")
+        return new Response(
+          JSON.stringify({ schedule: { ...schedule, enabled: false, next_run_at: null, revision: 4 } }),
+        );
       throw new Error(`unexpected ${key}`);
     });
     vi.stubGlobal("fetch", fetch);
     view();
     const toggle = await screen.findByRole("switch", { name: "Enabled: Jira auto pull" });
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    await userEvent.setup({ advanceTimers: ms => vi.advanceTimersByTimeAsync(ms) }).click(toggle);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTimeAsync(ms) }).click(toggle);
     expect(await screen.findByText("Paused")).toBeInTheDocument();
-    await act(async () => { release(); await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Enabled: Jira auto pull" })).not.toBeChecked();
-  } finally { vi.useRealTimers(); }
+  } finally {
+    vi.useRealTimers();
+  }
 });

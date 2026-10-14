@@ -4,5 +4,9 @@ import RunRecordView from "~/features/sessions/RunRecordView";
 
 export default function RunRecordPage() {
   const { runKey } = useParams() as { runKey: string };
-  return <AdminLayout><RunRecordView runKey={runKey} /></AdminLayout>;
+  return (
+    <AdminLayout>
+      <RunRecordView runKey={runKey} />
+    </AdminLayout>
+  );
 }

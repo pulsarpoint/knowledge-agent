@@ -7,21 +7,59 @@ import type { ServiceAsset } from "~/features/servers/services";
 import type { ServerAsset } from "~/features/servers/api";
 
 const services: ServiceAsset[] = ["API", "Database"].map((name, index) => ({
-  id: `service-${index}`, project_id: "project", name, description: "", owner: "", operations_notes: "", revision: 1,
-  service_type: index ? "builtin" : "custom", service_role: index ? "database" : "application",
-  created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z", repositories: [], deployments: [], dependencies: [], dependents: [], environments: [],
+  id: `service-${index}`,
+  project_id: "project",
+  name,
+  description: "",
+  owner: "",
+  operations_notes: "",
+  revision: 1,
+  service_type: index ? "builtin" : "custom",
+  service_role: index ? "database" : "application",
+  created_at: "2026-09-13T00:00:00Z",
+  updated_at: "2026-09-13T00:00:00Z",
+  repositories: [],
+  deployments: [],
+  dependencies: [],
+  dependents: [],
+  environments: [],
 }));
 const servers: ServerAsset[] = ["App host", "Data host"].map((name, index) => ({
-  id: `server-${index}`, name, hostname: `host${index}.internal`, description: "", tags: [], revision: 1, ssh_port: 22, ssh_username: null,
-  access_enabled: false, allow_sudo: false, ssh_allowed: false, created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z",
+  id: `server-${index}`,
+  name,
+  hostname: `host${index}.internal`,
+  description: "",
+  tags: [],
+  revision: 1,
+  ssh_port: 22,
+  ssh_username: null,
+  access_enabled: false,
+  allow_sudo: false,
+  ssh_allowed: false,
+  created_at: "2026-09-13T00:00:00Z",
+  updated_at: "2026-09-13T00:00:00Z",
 }));
 const development: EnvironmentAsset = {
-  id: "development", project_id: "project", name: "Development", description: "Daily testing", revision: 3,
-  created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z",
-  services: services.map(({ id, name }) => ({ id, name })), servers: servers.map(({ id, name, hostname }) => ({ id, name, hostname })),
+  id: "development",
+  project_id: "project",
+  name: "Development",
+  description: "Daily testing",
+  revision: 3,
+  created_at: "2026-09-13T00:00:00Z",
+  updated_at: "2026-09-13T00:00:00Z",
+  services: services.map(({ id, name }) => ({ id, name })),
+  servers: servers.map(({ id, name, hostname }) => ({ id, name, hostname })),
 };
 
-function setup(environments: EnvironmentAsset[] = [], options: { emptyInventory?: boolean; saveStatus?: number; loadError?: boolean; onDelete?: () => Promise<Response> } = {}) {
+function setup(
+  environments: EnvironmentAsset[] = [],
+  options: {
+    emptyInventory?: boolean;
+    saveStatus?: number;
+    loadError?: boolean;
+    onDelete?: () => Promise<Response>;
+  } = {},
+) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "DELETE") {
       if (options.onDelete) return options.onDelete();
@@ -29,19 +67,41 @@ function setup(environments: EnvironmentAsset[] = [], options: { emptyInventory?
       return new Response(JSON.stringify({ id: development.id }));
     }
     if (init?.method === "POST" || init?.method === "PUT") {
-      if (options.saveStatus) return new Response(JSON.stringify({ error: { message: "This environment changed. Cancel and reopen the form before saving" } }), { status: options.saveStatus });
+      if (options.saveStatus)
+        return new Response(
+          JSON.stringify({ error: { message: "This environment changed. Cancel and reopen the form before saving" } }),
+          { status: options.saveStatus },
+        );
       const value = JSON.parse(init.body as string) as EnvironmentInput;
-      const saved = { ...development, name: value.name, description: value.description, revision: (value.revision ?? 0) + 1,
-        services: development.services.filter(service => value.service_ids.includes(service.id)), servers: development.servers.filter(server => value.server_ids.includes(server.id)) };
+      const saved = {
+        ...development,
+        name: value.name,
+        description: value.description,
+        revision: (value.revision ?? 0) + 1,
+        services: development.services.filter((service) => value.service_ids.includes(service.id)),
+        servers: development.servers.filter((server) => value.server_ids.includes(server.id)),
+      };
       environments.splice(0, environments.length, saved);
       return new Response(JSON.stringify(saved), { status: init.method === "POST" ? 201 : 200 });
     }
-    if (options.loadError) return new Response(JSON.stringify({ error: { message: "Inventory unavailable" } }), { status: 503 });
-    return new Response(JSON.stringify(url.endsWith("/services") ? { services: options.emptyInventory ? [] : services }
-      : url.endsWith("/servers") ? { servers: options.emptyInventory ? [] : servers } : { environments }));
+    if (options.loadError)
+      return new Response(JSON.stringify({ error: { message: "Inventory unavailable" } }), { status: 503 });
+    return new Response(
+      JSON.stringify(
+        url.endsWith("/services")
+          ? { services: options.emptyInventory ? [] : services }
+          : url.endsWith("/servers")
+            ? { servers: options.emptyInventory ? [] : servers }
+            : { environments },
+      ),
+    );
   });
   vi.stubGlobal("fetch", fetch);
-  render(<MemoryRouter><EnvironmentsView /></MemoryRouter>);
+  render(
+    <MemoryRouter>
+      <EnvironmentsView />
+    </MemoryRouter>,
+  );
   return fetch;
 }
 
@@ -51,31 +111,50 @@ test("create selects multiple services and servers, retaining selections through
   await userEvent.click(screen.getByRole("button", { name: "Add environment" }));
   fireEvent.change(screen.getByLabelText("Environment name"), { target: { value: "Development" } });
   fireEvent.change(screen.getByLabelText("Description (optional)"), { target: { value: "Daily testing" } });
-  for (const name of ["API", "Database", "App host", "Data host"]) await userEvent.click(screen.getByRole("checkbox", { name }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Filter environment services" }), { target: { value: "nothing" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Filter environment servers" }), { target: { value: "nothing" } });
+  for (const name of ["API", "Database", "App host", "Data host"])
+    await userEvent.click(screen.getByRole("checkbox", { name }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter environment services" }), {
+    target: { value: "nothing" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter environment servers" }), {
+    target: { value: "nothing" },
+  });
   expect(screen.getByText("No services match. Your selections are kept.")).toBeInTheDocument();
   expect(screen.getByText("No servers match. Your selections are kept.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Save environment" }));
   expect(await screen.findByRole("status")).toHaveTextContent("Environment “Development” saved.");
   const request = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
-  expect(JSON.parse(request[1]!.body as string)).toEqual({ name: "Development", description: "Daily testing", service_ids: ["service-0", "service-1"], server_ids: ["server-0", "server-1"] });
-  expect(within(screen.getByRole("region", { name: "Environment services" })).getByText("Database")).toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Environment servers" })).getByText(/host1.internal/)).toBeInTheDocument();
+  expect(JSON.parse(request[1]!.body as string)).toEqual({
+    name: "Development",
+    description: "Daily testing",
+    service_ids: ["service-0", "service-1"],
+    server_ids: ["server-0", "server-1"],
+  });
+  expect(
+    within(screen.getByRole("region", { name: "Environment services" })).getByText("Database"),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Environment servers" })).getByText(/host1.internal/),
+  ).toBeInTheDocument();
 });
 
 test("edit restores membership and explicitly removes links with the saved revision", async () => {
   const fetch = setup([{ ...development }]);
   await userEvent.click(await screen.findByRole("button", { name: "Edit Development" }));
   expect(screen.getByLabelText("Environment name")).toHaveValue("Development");
-  for (const name of ["API", "Database", "App host", "Data host"]) expect(screen.getByRole("checkbox", { name })).toBeChecked();
+  for (const name of ["API", "Database", "App host", "Data host"])
+    expect(screen.getByRole("checkbox", { name })).toBeChecked();
   await userEvent.click(screen.getByRole("checkbox", { name: "Database" }));
   await userEvent.click(screen.getByRole("checkbox", { name: "Data host" }));
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("status");
   const request = fetch.mock.calls.find(([, init]) => init?.method === "PUT")!;
   expect(request[0]).toBe("/api/environments/development");
-  expect(JSON.parse(request[1]!.body as string)).toMatchObject({ revision: 3, service_ids: ["service-0"], server_ids: ["server-0"] });
+  expect(JSON.parse(request[1]!.body as string)).toMatchObject({
+    revision: 3,
+    service_ids: ["service-0"],
+    server_ids: ["server-0"],
+  });
   await waitFor(() => expect(screen.getByRole("button", { name: "Edit Development" })).toBeEnabled());
   await userEvent.click(screen.getByRole("button", { name: "Edit Development" }));
   expect(screen.getByRole("checkbox", { name: "Database" })).not.toBeChecked();
@@ -101,7 +180,12 @@ test("stale edits keep the form and cancellation preserves saved membership", as
 test("deletion waits for confirmation and completion while preserving the Cancel path", async () => {
   const environments = [{ ...development }];
   let finish!: (response: Response) => void;
-  const fetch = setup(environments, { onDelete: () => new Promise(resolve => { finish = resolve; }) });
+  const fetch = setup(environments, {
+    onDelete: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
   await userEvent.click(await screen.findByRole("button", { name: "Delete Development" }));
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toHaveFocus();
   expect(screen.getByText(/Services, servers, and their deployment records are preserved/)).toBeInTheDocument();
@@ -110,16 +194,25 @@ test("deletion waits for confirmation and completion while preserving the Cancel
   await userEvent.click(screen.getByRole("button", { name: "Delete Development" }));
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete environment" }));
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" })).toBeDisabled();
-  expect(fetch.mock.calls.find(([, init]) => init?.method === "DELETE")?.[0]).toBe("/api/environments/development?revision=3&confirmed=true");
+  expect(fetch.mock.calls.find(([, init]) => init?.method === "DELETE")?.[0]).toBe(
+    "/api/environments/development?revision=3&confirmed=true",
+  );
   environments.splice(0);
-  await act(async () => { finish(new Response(JSON.stringify({ id: development.id }))); });
+  await act(async () => {
+    finish(new Response(JSON.stringify({ id: development.id })));
+  });
   expect(await screen.findByRole("status")).toHaveTextContent("Environment “Development” deleted.");
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.getByText("No environments yet")).toBeInTheDocument();
 });
 
 test("deletion failure retains the environment and explains the conflict", async () => {
-  setup([{ ...development }], { onDelete: async () => new Response(JSON.stringify({ error: { message: "This environment changed. Cancel, refresh, and try again" } }), { status: 409 }) });
+  setup([{ ...development }], {
+    onDelete: async () =>
+      new Response(JSON.stringify({ error: { message: "This environment changed. Cancel, refresh, and try again" } }), {
+        status: 409,
+      }),
+  });
   await userEvent.click(await screen.findByRole("button", { name: "Delete Development" }));
   await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete environment" }));
   expect(await within(screen.getByRole("alertdialog")).findByText(/This environment changed/)).toBeInTheDocument();

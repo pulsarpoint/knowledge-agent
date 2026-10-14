@@ -5,8 +5,28 @@ import DocumentationPromptsView from "~/features/documents/DocumentationPromptsV
 import routes from "../../routes";
 
 const prompts = [
-  { id: "p1", name: "Discovery", description: "Look around", tags: ["server-discovery", "ssh"], enabled: true, active_version_id: "v1", active_version: 1, version_count: 1, revision: 1 },
-  { id: "p2", name: "Runbook", description: "", tags: ["documentation", "service"], enabled: true, active_version_id: "v2", active_version: 1, version_count: 1, revision: 1 },
+  {
+    id: "p1",
+    name: "Discovery",
+    description: "Look around",
+    tags: ["server-discovery", "ssh"],
+    enabled: true,
+    active_version_id: "v1",
+    active_version: 1,
+    version_count: 1,
+    revision: 1,
+  },
+  {
+    id: "p2",
+    name: "Runbook",
+    description: "",
+    tags: ["documentation", "service"],
+    enabled: true,
+    active_version_id: "v2",
+    active_version: 1,
+    version_count: 1,
+    revision: 1,
+  },
 ];
 function api(routes: Record<string, unknown>) {
   const fetch = vi.fn(async (url: string) => {
@@ -16,14 +36,33 @@ function api(routes: Record<string, unknown>) {
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
-function Where() { const l = useLocation(); return <output data-testid="where">{l.pathname + l.search + l.hash}</output>; }
+function Where() {
+  const l = useLocation();
+  return <output data-testid="where">{l.pathname + l.search + l.hash}</output>;
+}
 afterEach(() => vi.unstubAllGlobals());
 
 test("lists prompts with their tags and filters by tag", async () => {
   const user = userEvent.setup();
-  api({ "/api/documentation/prompts": { prompts }, "/api/documentation/prompts/tags": { tags: [{ tag: "documentation", count: 1 }, { tag: "server-discovery", count: 1 }, { tag: "service", count: 1 }, { tag: "ssh", count: 1 }] },
-        "/api/documentation/prompts?tag=ssh": { prompts: [prompts[0]] } });
-  render(<MemoryRouter initialEntries={["/prompts"]}><Routes><Route path="/prompts" element={<DocumentationPromptsView />} /></Routes></MemoryRouter>);
+  api({
+    "/api/documentation/prompts": { prompts },
+    "/api/documentation/prompts/tags": {
+      tags: [
+        { tag: "documentation", count: 1 },
+        { tag: "server-discovery", count: 1 },
+        { tag: "service", count: 1 },
+        { tag: "ssh", count: 1 },
+      ],
+    },
+    "/api/documentation/prompts?tag=ssh": { prompts: [prompts[0]] },
+  });
+  render(
+    <MemoryRouter initialEntries={["/prompts"]}>
+      <Routes>
+        <Route path="/prompts" element={<DocumentationPromptsView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
   const row = (await screen.findByRole("link", { name: "Discovery" })).closest("tr")!;
   expect(within(row).getByText("server-discovery")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Discovery" })).toHaveAttribute("href", "/prompts/p1");
@@ -34,9 +73,18 @@ test("lists prompts with their tags and filters by tag", async () => {
 
 test("a tag filter that matches nothing says so", async () => {
   const user = userEvent.setup();
-  api({ "/api/documentation/prompts": { prompts }, "/api/documentation/prompts/tags": { tags: [{ tag: "ssh", count: 1 }] },
-        "/api/documentation/prompts?tag=ssh": { prompts: [] } });
-  render(<MemoryRouter initialEntries={["/prompts"]}><Routes><Route path="/prompts" element={<DocumentationPromptsView />} /></Routes></MemoryRouter>);
+  api({
+    "/api/documentation/prompts": { prompts },
+    "/api/documentation/prompts/tags": { tags: [{ tag: "ssh", count: 1 }] },
+    "/api/documentation/prompts?tag=ssh": { prompts: [] },
+  });
+  render(
+    <MemoryRouter initialEntries={["/prompts"]}>
+      <Routes>
+        <Route path="/prompts" element={<DocumentationPromptsView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
   await screen.findByRole("link", { name: "Discovery" });
   await user.click(screen.getByRole("combobox", { name: "Filter by tag" }));
   await user.click(screen.getByRole("option", { name: "ssh" }));
@@ -46,7 +94,11 @@ test("a tag filter that matches nothing says so", async () => {
 
 test("route ids are unique", () => {
   const ids: string[] = [];
-  const walk = (list: any[]) => list.forEach((r) => { ids.push(r.id ?? r.file); if (r.children) walk(r.children); });
+  const walk = (list: any[]) =>
+    list.forEach((r) => {
+      ids.push(r.id ?? r.file);
+      if (r.children) walk(r.children);
+    });
   walk(routes as any[]);
   // react-router derives the id from the file when none is given; two routes on one file need an explicit id.
   expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);

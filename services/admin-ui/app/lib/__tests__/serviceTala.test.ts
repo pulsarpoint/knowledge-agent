@@ -5,14 +5,34 @@ import { serviceDependencyD2 } from "~/features/servers/serviceGraph";
 test("real TALA compilation preserves labels, cycles, isolated services and dependency direction", () => {
   const unusualName = 'API "prod" ${untrusted} \\ <img src=x onerror=alert(1)>\n# @import';
   const services = [
-    { id: "api", name: unusualName, service_role: "application" as const, dependencies: [{ service_id: "db", name: "DB", description: "Stores data" }] },
-    { id: "db", name: "DB", service_role: "database" as const, dependencies: [{ service_id: "queue", name: "Queue", description: "" }] },
-    { id: "queue", name: "Queue", service_role: "message_broker" as const, dependencies: [{ service_id: "api", name: unusualName, description: "" }] },
+    {
+      id: "api",
+      name: unusualName,
+      service_role: "application" as const,
+      dependencies: [{ service_id: "db", name: "DB", description: "Stores data" }],
+    },
+    {
+      id: "db",
+      name: "DB",
+      service_role: "database" as const,
+      dependencies: [{ service_id: "queue", name: "Queue", description: "" }],
+    },
+    {
+      id: "queue",
+      name: "Queue",
+      service_role: "message_broker" as const,
+      dependencies: [{ service_id: "api", name: unusualName, description: "" }],
+    },
     { id: "isolated", name: "Unconnected", service_role: "unclassified" as const, dependencies: [] },
   ];
   // Run the real WASM worker in Node, independent of jsdom's browser globals.
   const packagePath = createRequire(import.meta.url).resolve("@d2lang/d2");
-  const result = JSON.parse(execFileSync(process.execPath, ["-e", `
+  const result = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "-e",
+        `
     const { D2 } = require(process.argv[1]);
     const fs = require('node:fs');
     (async () => {
@@ -28,15 +48,23 @@ test("real TALA compilation preserves labels, cycles, isolated services and depe
         process.stdout.write(JSON.stringify(diagrams));
       } finally { await engine.dispose(); }
     })().catch(error => { console.error(error); process.exitCode = 1; });
-  `, packagePath], {
-    input: JSON.stringify([serviceDependencyD2(services), serviceDependencyD2([services[0]])]),
-    encoding: "utf8", timeout: 20_000,
-  }));
-  expect(result[0].shapes.map((shape: { label: string }) => shape.label).sort()).toEqual([
-    `${unusualName}\nApplication`, 'DB\nDatabase', 'Queue\nMessage broker', 'Unconnected\nUnclassified',
-  ].sort());
+  `,
+        packagePath,
+      ],
+      {
+        input: JSON.stringify([serviceDependencyD2(services), serviceDependencyD2([services[0]])]),
+        encoding: "utf8",
+        timeout: 20_000,
+      },
+    ),
+  );
+  expect(result[0].shapes.map((shape: { label: string }) => shape.label).sort()).toEqual(
+    [`${unusualName}\nApplication`, "DB\nDatabase", "Queue\nMessage broker", "Unconnected\nUnclassified"].sort(),
+  );
   expect(result[0].connections.map((edge: { src: string; dst: string }) => [edge.src, edge.dst])).toEqual([
-    ["service0", "service1"], ["service1", "service2"], ["service2", "service0"],
+    ["service0", "service1"],
+    ["service1", "service2"],
+    ["service2", "service0"],
   ]);
   const svg = new DOMParser().parseFromString(result[0].svg, "image/svg+xml");
   expect(svg.querySelector("parsererror, script, img, image, foreignObject")).toBeNull();

@@ -7,7 +7,11 @@ export default function JiraAutoPullStatus({ refreshKey }: { refreshKey: string 
   const [state, setState] = useState<AutoPull | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    getAutoPull(controller.signal).then(setState).catch(() => { if (!controller.signal.aborted) setState(null); });
+    getAutoPull(controller.signal)
+      .then(setState)
+      .catch(() => {
+        if (!controller.signal.aborted) setState(null);
+      });
     return () => controller.abort();
   }, [refreshKey]);
   if (!state || state.connected !== true) return null;
@@ -15,5 +19,12 @@ export default function JiraAutoPullStatus({ refreshKey }: { refreshKey: string 
   const summary = schedule?.enabled
     ? `Auto pull: ${schedule.description}${schedule.next_run_at ? ` · next ${new Date(schedule.next_run_at).toLocaleString()}` : ""}`
     : "Auto pull is off";
-  return <p className="text-sm text-muted-foreground">{summary} · <Link className="underline" to="/jira/auto-pull">Auto pull settings</Link></p>;
+  return (
+    <p className="text-sm text-muted-foreground">
+      {summary} ·{" "}
+      <Link className="underline" to="/jira/auto-pull">
+        Auto pull settings
+      </Link>
+    </p>
+  );
 }

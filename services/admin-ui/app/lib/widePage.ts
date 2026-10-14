@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect } from "react";
 
 /** The admin layout's switch for a page that needs the full width (the document page with Ask agent open). Outside the
  * layout it does nothing. */

@@ -5,7 +5,12 @@ import TagsInput from "~/features/documents/TagsInput";
 
 function Harness({ initial = [] as string[] }) {
   const [tags, setTags] = useState(initial);
-  return <><TagsInput id="tags" value={tags} onChange={setTags} suggestions={["server-discovery", "ssh"]} /><output data-testid="tags">{tags.join("|")}</output></>;
+  return (
+    <>
+      <TagsInput id="tags" value={tags} onChange={setTags} suggestions={["server-discovery", "ssh"]} />
+      <output data-testid="tags">{tags.join("|")}</output>
+    </>
+  );
 }
 
 test("adds tags with Enter or comma, normalises them and removes them with ×", async () => {
@@ -14,7 +19,7 @@ test("adds tags with Enter or comma, normalises them and removes them with ×", 
   const input = screen.getByRole("combobox", { name: "Tags" });
   await user.type(input, " Server-Discovery {Enter}");
   await user.type(input, "ssh,");
-  await user.type(input, "ssh{Enter}");  // duplicate ignored
+  await user.type(input, "ssh{Enter}"); // duplicate ignored
   expect(screen.getByTestId("tags").textContent).toBe("server-discovery|ssh");
   await user.click(screen.getByRole("button", { name: "Remove tag ssh" }));
   expect(screen.getByTestId("tags").textContent).toBe("server-discovery");
@@ -32,5 +37,7 @@ test("stops at 10 tags and suggests only tags not yet chosen", () => {
   const { container } = render(<Harness initial={["ssh", ...Array.from({ length: 9 }, (_, i) => `t${i}`)]} />);
   expect(screen.getByRole("combobox", { name: "Tags" })).toBeDisabled();
   expect(screen.getByText("Use at most 10 tags.")).toBeInTheDocument();
-  expect([...container.querySelectorAll("datalist option")].map(option => option.getAttribute("value"))).toEqual(["server-discovery"]);
+  expect([...container.querySelectorAll("datalist option")].map((option) => option.getAttribute("value"))).toEqual([
+    "server-discovery",
+  ]);
 });

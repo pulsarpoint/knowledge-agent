@@ -12,8 +12,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
         <script
           dangerouslySetInnerHTML={{
-            __html:
-              'document.documentElement.dataset.theme=localStorage.getItem("knowledge-admin.theme")||"light";',
+            __html: 'document.documentElement.dataset.theme=localStorage.getItem("knowledge-admin.theme")||"light";',
           }}
         />
       </head>
@@ -35,7 +34,11 @@ export function ErrorBoundary() {
     <main className="p-8 max-w-xl mx-auto">
       <h1 className="text-xl font-bold mb-2">Something went wrong</h1>
       <p className="text-sm opacity-70">
-        Reload the page, or go back to the <a href="/" className="underline">app list</a>.
+        Reload the page, or go back to the{" "}
+        <a href="/" className="underline">
+          app list
+        </a>
+        .
       </p>
     </main>
   );

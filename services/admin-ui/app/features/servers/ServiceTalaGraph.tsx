@@ -16,7 +16,13 @@ function DiagramImage({ data }: NodeProps<DiagramNode>) {
 const nodeTypes = { diagram: DiagramImage };
 const fitViewOptions = { padding: 0.15, maxZoom: 1 };
 
-export default function ServiceTalaGraph({ source, label = "Service dependencies laid out by TALA. Arrows point to dependencies; relationship details are listed below." }: { source: string; label?: string }) {
+export default function ServiceTalaGraph({
+  source,
+  label = "Service dependencies laid out by TALA. Arrows point to dependencies; relationship details are listed below.",
+}: {
+  source: string;
+  label?: string;
+}) {
   const [diagram, setDiagram] = useState<Diagram | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -41,10 +47,23 @@ export default function ServiceTalaGraph({ source, label = "Service dependencies
         const svg = await engine.render(result.diagram, result.renderOptions);
         const root = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
         const bounds = root.getAttribute("viewBox")?.trim().split(/\s+/).map(Number);
-        if (root.localName !== "svg" || !bounds || bounds.length !== 4 || !bounds.every(Number.isFinite) || bounds[2] <= 0 || bounds[3] <= 0) {
+        if (
+          root.localName !== "svg" ||
+          !bounds ||
+          bounds.length !== 4 ||
+          !bounds.every(Number.isFinite) ||
+          bounds[2] <= 0 ||
+          bounds[3] <= 0
+        ) {
           throw new Error("Invalid diagram dimensions");
         }
-        if (!cancelled) setDiagram({ label, url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, width: bounds[2], height: bounds[3] });
+        if (!cancelled)
+          setDiagram({
+            label,
+            url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+            width: bounds[2],
+            height: bounds[3],
+          });
       } catch {
         if (!cancelled) setError("Could not draw the diagram. Check the D2 source and try again.");
       } finally {
@@ -53,24 +72,75 @@ export default function ServiceTalaGraph({ source, label = "Service dependencies
       }
     }
     void render();
-    return () => { cancelled = true; window.clearTimeout(timeout); void engine?.dispose(); };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      void engine?.dispose();
+    };
   }, [source, attempt, label]);
 
-  const nodes = useMemo<DiagramNode[]>(() => diagram ? [{
-    id: "tala-diagram", type: "diagram", position: { x: 0, y: 0 }, data: diagram,
-    width: diagram.width, height: diagram.height, focusable: false,
-  }] : [], [diagram]);
+  const nodes = useMemo<DiagramNode[]>(
+    () =>
+      diagram
+        ? [
+            {
+              id: "tala-diagram",
+              type: "diagram",
+              position: { x: 0, y: 0 },
+              data: diagram,
+              width: diagram.width,
+              height: diagram.height,
+              focusable: false,
+            },
+          ]
+        : [],
+    [diagram],
+  );
 
-  if (error) return <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-    <span>{error}</span><Button variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}>Retry layout</Button>
-  </AlertDescription></Alert>;
-  if (!diagram) return <div role="status" className="flex h-[520px] items-center justify-center gap-2 rounded-lg border text-muted-foreground"><Spinner />Drawing dependencies…</div>;
-  return <div className="service-dependency-flow h-[520px] min-w-0 overflow-hidden rounded-lg border" aria-label="TALA dependency diagram">
-    <ReactFlow key={diagram.url} nodes={nodes} edges={[]} nodeTypes={nodeTypes}
-      nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} deleteKeyCode={null}
-      fitView fitViewOptions={fitViewOptions} minZoom={0.05} maxZoom={2} colorMode="light">
-      <Background gap={20} size={1} />
-      <Controls showInteractive={false} fitViewOptions={fitViewOptions} />
-    </ReactFlow>
-  </div>;
+  if (error)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
+            Retry layout
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  if (!diagram)
+    return (
+      <div
+        role="status"
+        className="flex h-[520px] items-center justify-center gap-2 rounded-lg border text-muted-foreground"
+      >
+        <Spinner />
+        Drawing dependencies…
+      </div>
+    );
+  return (
+    <div
+      className="service-dependency-flow h-[520px] min-w-0 overflow-hidden rounded-lg border"
+      aria-label="TALA dependency diagram"
+    >
+      <ReactFlow
+        key={diagram.url}
+        nodes={nodes}
+        edges={[]}
+        nodeTypes={nodeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        deleteKeyCode={null}
+        fitView
+        fitViewOptions={fitViewOptions}
+        minZoom={0.05}
+        maxZoom={2}
+        colorMode="light"
+      >
+        <Background gap={20} size={1} />
+        <Controls showInteractive={false} fitViewOptions={fitViewOptions} />
+      </ReactFlow>
+    </div>
+  );
 }

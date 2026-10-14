@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type CSSProperties } from 'react';
+import { useLayoutEffect, useState, type CSSProperties } from "react";
 
 const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 
@@ -13,16 +13,19 @@ export function useFillViewport<T extends HTMLElement>(bottomGap = 1.5, floor = 
   useLayoutEffect(() => {
     if (!element) return;
     const measure = () => {
-      const top = element.getBoundingClientRect().top + window.scrollY;  // where it starts on the page
+      const top = element.getBoundingClientRect().top + window.scrollY; // where it starts on the page
       const unit = rem();
       setHeight(Math.floor(Math.max(floor * unit, window.innerHeight - top - bottomGap * unit)));
     };
     measure();
-    window.addEventListener('resize', measure);
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(document.body);  // content above the container moves it down or up
-    if (element.parentElement) observer?.observe(element.parentElement);  // and shrinking content above it (an alert going away)
-    return () => { window.removeEventListener('resize', measure); observer?.disconnect(); };
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(document.body); // content above the container moves it down or up
+    if (element.parentElement) observer?.observe(element.parentElement); // and shrinking content above it (an alert going away)
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
   }, [element, bottomGap, floor]);
   const style: CSSProperties = height === null ? {} : { height: `${height}px` };
   return { ref, style };

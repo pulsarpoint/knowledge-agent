@@ -1,19 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import mermaid from 'mermaid';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import mermaid from "mermaid";
 // We'll use dynamic import for svg-pan-zoom
 
 // Initialize mermaid with defaults - Japanese aesthetic
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'neutral',
-  securityLevel: 'strict',
+  theme: "neutral",
+  securityLevel: "strict",
   suppressErrorRendering: true,
-  logLevel: 'error',
+  logLevel: "error",
   maxTextSize: 100000, // Increase text size limit
   htmlLabels: true,
   flowchart: {
     htmlLabels: true,
-    curve: 'basis',
+    curve: "basis",
     nodeSpacing: 60,
     rankSpacing: 60,
     padding: 20,
@@ -166,7 +166,7 @@ mermaid.initialize({
     }
   `,
   // Use an available font in both Mermaid's measurement container and the answer.
-  fontFamily: 'Arial, sans-serif',
+  fontFamily: "Arial, sans-serif",
   fontSize: 12,
 });
 
@@ -188,17 +188,17 @@ const FullScreenModal: React.FC<{
   // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         onClose();
       }
     };
 
     if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown);
     }
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen, onClose]);
 
@@ -211,11 +211,11 @@ const FullScreenModal: React.FC<{
     };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener("mousedown", handleOutsideClick);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [isOpen, onClose]);
 
@@ -244,7 +244,17 @@ const FullScreenModal: React.FC<{
                 className="text-[var(--foreground)] hover:bg-[var(--primary)]/10 p-2 rounded-md border border-[var(--border)] transition-colors"
                 aria-label="Zoom out"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   <line x1="8" y1="11" x2="14" y2="11"></line>
@@ -256,7 +266,17 @@ const FullScreenModal: React.FC<{
                 className="text-[var(--foreground)] hover:bg-[var(--primary)]/10 p-2 rounded-md border border-[var(--border)] transition-colors"
                 aria-label="Zoom in"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   <line x1="11" y1="8" x2="11" y2="14"></line>
@@ -268,7 +288,17 @@ const FullScreenModal: React.FC<{
                 className="text-[var(--foreground)] hover:bg-[var(--primary)]/10 p-2 rounded-md border border-[var(--border)] transition-colors"
                 aria-label="Reset zoom"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
                   <path d="M21 3v5h-5"></path>
                 </svg>
@@ -279,7 +309,17 @@ const FullScreenModal: React.FC<{
               className="text-[var(--foreground)] hover:bg-[var(--primary)]/10 p-2 rounded-md border border-[var(--border)] transition-colors"
               aria-label="Close"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
@@ -292,8 +332,8 @@ const FullScreenModal: React.FC<{
           <div
             style={{
               transform: `scale(${zoom})`,
-              transformOrigin: 'center center',
-              transition: 'transform 0.3s ease-out'
+              transformOrigin: "center center",
+              transition: "transform 0.3s ease-out",
             }}
           >
             {children}
@@ -304,8 +344,8 @@ const FullScreenModal: React.FC<{
   );
 };
 
-const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled = false }) => {
-  const [svg, setSvg] = useState<string>('');
+const Mermaid: React.FC<MermaidProps> = ({ chart, className = "", zoomingEnabled = false }) => {
+  const [svg, setSvg] = useState<string>("");
   // Keep the initialized SVG intact when unrelated parent state changes.
   const markup = useMemo(() => ({ __html: svg }), [svg]);
   const [error, setError] = useState<string | null>(null);
@@ -326,14 +366,19 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         svgElement.style.width = "100%";
         svgElement.style.height = "100%";
         const controls = svgPanZoom(svgElement, {
-          zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,
-          minZoom: 0.1, maxZoom: 10, zoomScaleSensitivity: 0.3,
+          zoomEnabled: true,
+          controlIconsEnabled: true,
+          fit: true,
+          center: true,
+          minZoom: 0.1,
+          maxZoom: 10,
+          zoomScaleSensitivity: 0.3,
         });
         destroy = () => controls.destroy();
         // Fit large diagrams, but keep small graphs close to their natural text size.
         const scale = controls.getSizes().realZoom;
         if (scale > 1.5) {
-          controls.zoom(controls.getZoom() * 1.5 / scale);
+          controls.zoom((controls.getZoom() * 1.5) / scale);
           controls.center();
         }
       } catch (error) {
@@ -341,13 +386,16 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
       }
     }
     void initializePanZoom();
-    return () => { cancelled = true; destroy?.(); };
+    return () => {
+      cancelled = true;
+      destroy?.();
+    };
   }, [svg, zoomingEnabled]);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    setSvg('');
+    setSvg("");
     async function renderChart() {
       try {
         await mermaid.parse(chart);
@@ -355,13 +403,15 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
         if (!cancelled) setSvg(renderedSvg);
       } catch {
-        if (!cancelled) setError('This diagram could not be rendered. Its source is shown below.');
+        if (!cancelled) setError("This diagram could not be rendered. Its source is shown below.");
       } finally {
         document.getElementById(`d${idRef.current}`)?.remove();
       }
     }
     if (chart.trim()) void renderChart();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [chart]);
 
   const handleDiagramClick = () => {
@@ -373,8 +423,12 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
   if (error) {
     return (
       <div className={`flex flex-col gap-3 rounded-md border p-4 ${className}`}>
-        <p role="status" className="text-sm text-muted-foreground">{error}</p>
-        <pre className="overflow-auto text-xs"><code>{chart}</code></pre>
+        <p role="status" className="text-sm text-muted-foreground">
+          {error}
+        </p>
+        <pre className="overflow-auto text-xs">
+          <code>{chart}</code>
+        </pre>
       </div>
     );
   }
@@ -394,13 +448,8 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
 
   return (
     <>
-      <div
-        ref={containerRef}
-        className={`w-full max-w-full ${zoomingEnabled ? "h-[600px] p-4" : ""}`}
-      >
-        <div
-          className={`relative group ${zoomingEnabled ? "h-full rounded-lg border" : ""}`}
-        >
+      <div ref={containerRef} className={`w-full max-w-full ${zoomingEnabled ? "h-[600px] p-4" : ""}`}>
+        <div className={`relative group ${zoomingEnabled ? "h-full rounded-lg border" : ""}`}>
           <div
             className={`flex justify-center overflow-auto text-center transition-shadow duration-200 rounded-md ${className} ${zoomingEnabled ? "h-full cursor-grab active:cursor-grabbing" : "my-2 cursor-pointer hover:shadow-md"}`}
             dangerouslySetInnerHTML={markup}
@@ -410,7 +459,17 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
 
           {!zoomingEnabled && (
             <div className="absolute top-2 right-2 bg-gray-700/70 dark:bg-gray-900/70 text-white p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-1.5 text-xs shadow-md pointer-events-none">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 <line x1="11" y1="8" x2="11" y2="14"></line>
@@ -423,17 +482,12 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
       </div>
 
       {!zoomingEnabled && (
-        <FullScreenModal
-          isOpen={isFullscreen}
-          onClose={() => setIsFullscreen(false)}
-        >
+        <FullScreenModal isOpen={isFullscreen} onClose={() => setIsFullscreen(false)}>
           <div dangerouslySetInnerHTML={markup} />
         </FullScreenModal>
       )}
     </>
   );
 };
-
-
 
 export default Mermaid;

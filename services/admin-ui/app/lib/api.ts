@@ -1,4 +1,6 @@
-export interface AdminSession { is_admin: boolean }
+export interface AdminSession {
+  is_admin: boolean;
+}
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -18,7 +20,9 @@ export async function request<T>(url: string, init?: RequestInit, responseType: 
       const body = await response.json();
       if (body?.error?.message) message = body.error.message;
       if (typeof body?.error?.code === "string") code = body.error.code;
-    } catch { /* non-JSON error body — keep the status message */ }
+    } catch {
+      /* non-JSON error body — keep the status message */
+    }
     throw new ApiError(message, response.status, code);
   }
   if (response.status === 204) return undefined as T;
