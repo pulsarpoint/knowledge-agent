@@ -28,6 +28,7 @@ from knowledge_admin.documents.api import (
     Tags,
     Title,
     export_args,
+    export_conflict,
     export_document,
     export_input,
 )
@@ -169,7 +170,7 @@ def live_document(conn, project: UUID, document_id: UUID) -> dict | None:
 def project_draft(conn, project: UUID, draft_id: UUID) -> dict:
     """The draft's session and whether it revises a live document, 404 unless it is a draft of `project`."""
     row = conn.execute(
-        'SELECT id,session_id,draft_of FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft',
+        'SELECT id,session_id,draft_of,slug,folder FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft',
         (draft_id, project),
     ).fetchone()
     if row is None:
@@ -436,6 +437,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 actor = db.actor(conn, *request_actor(request))
                 # The export lock save_document takes before a live row, so a promote cannot deadlock with a save.
                 conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
+                if row['draft_of'] is None:  # a brand-new document's export folder, as save_document checks it
+                    conflict = export_conflict(conn, project, row['slug'], row['folder'], draft_id)
+                    if conflict:
+                        raise HTTPException(409, conflict)
                 result = lifecycle.promote_draft(
                     conn, project, actor, draft_id, revision=value.revision, confirm_stale=value.confirm_stale
                 )

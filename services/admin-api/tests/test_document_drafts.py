@@ -215,6 +215,10 @@ def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
     assert taken.status_code == 409, taken.text
     promoted = promote(docs, draft)
     assert promoted.status_code == 200 and promoted.json()['document_id'] == draft['id']
+    # Its export folder is checked on promote, as a save checks it: a folder named like the document is refused.
+    nested = new_draft(docs, slug='notes', folder='overview', title='Notes', markdown='# Notes')
+    refused = promote(docs, nested)
+    assert refused.status_code == 409 and 'holds the export of the document overview' in refused.text
 
 
 def test_promote_deletes_the_documents_other_drafts(docs):
