@@ -5,17 +5,17 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentsView from '../AgentsView';
 import AgentDetailView from '../AgentDetailView';
 import AdminLayout from '../AdminLayout';
-import * as llm from '../../lib/llm';
+import * as llm from "~/features/llm/api";
 import * as profiles from '../../lib/profiles';
 
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
-vi.mock('../../lib/mcp', () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
+vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
 vi.mock('../OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
   const [task, setTask] = useState('');
   return <div hidden={view !== 'test'}><span>SSH test {agentId}</span><label>SSH task<input value={task} onChange={event => setTask(event.target.value)} /></label></div>;
 } }));
-vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
+vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 let agents: profiles.AgentSummary[];
 beforeEach(() => {
   vi.clearAllMocks();

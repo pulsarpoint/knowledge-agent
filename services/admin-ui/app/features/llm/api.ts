@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from "~/lib/api";
 
 export type AgentName = 'search' | 'code' | 'operations';
 export const agentNames: Record<AgentName, string> = { search: 'Search agent', code: 'Code search agent', operations: 'SSH agent' };

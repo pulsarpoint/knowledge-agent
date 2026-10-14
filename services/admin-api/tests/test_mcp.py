@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 from psycopg.conninfo import conninfo_to_dict
 
-from knowledge_admin.mcp_settings import credential_aad
+from knowledge_admin.llm.mcp_settings import credential_aad
 from test_api import _client
 from test_operations import configured
 from test_repositories import HEADERS

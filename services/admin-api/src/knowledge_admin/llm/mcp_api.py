@@ -18,7 +18,7 @@ from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
-from knowledge_admin.mcp_settings import PUBLIC_COLUMNS, credential_aad, save_selection
+from knowledge_admin.llm.mcp_settings import PUBLIC_COLUMNS, credential_aad, save_selection
 
 
 class MCPInput(BaseModel):

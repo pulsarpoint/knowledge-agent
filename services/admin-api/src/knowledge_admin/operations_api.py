@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 
 from knowledge_admin.capabilities import ssh
-from knowledge_admin.mcp_settings import PUBLIC_COLUMNS
+from knowledge_admin.llm.mcp_settings import PUBLIC_COLUMNS
 from knowledge_admin.access import request_actor
 from knowledge_admin.operations_store import AgentSSHInput, DeleteAgentSSHInput, DeleteServerConfigInput, ServerConfigInput, SSHInput, SettingsInput, OperationsStore
 

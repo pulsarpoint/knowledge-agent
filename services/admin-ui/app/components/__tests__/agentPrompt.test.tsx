@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentDetailView from '../AgentDetailView';
 import * as profiles from '../../lib/profiles';
-import * as llm from '../../lib/llm';
+import * as llm from "~/features/llm/api";
 
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(),
   getAgentOptions: vi.fn(), saveAgentPrompt: vi.fn() }));
-vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
+vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('../OperationsView', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'custom', name: 'Payments analyst', description: '', when_to_use: '',

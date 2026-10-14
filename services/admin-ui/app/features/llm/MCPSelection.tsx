@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router';
-import type { MCPServer } from '../lib/mcp';
+import type { MCPServer } from "./mcp";
 import { Checkbox } from '~/components/ui/checkbox';
 import { Field, FieldDescription, FieldLabel, FieldSet, FieldLegend } from '~/components/ui/field';
 

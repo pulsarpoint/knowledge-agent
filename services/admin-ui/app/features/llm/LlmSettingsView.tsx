@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Plus, RefreshCw } from 'lucide-react';
-import { ApiError } from '../lib/api';
-import { getLlmSettings, providerLabels, testModel, type LlmSettings, type ModelProfile } from '../lib/llm';
+import { ApiError } from "~/lib/api";
+import { getLlmSettings, providerLabels, testModel, type LlmSettings, type ModelProfile } from "./api";
 import LlmModelForm from './LlmModelForm';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';

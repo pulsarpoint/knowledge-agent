@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from "~/lib/api";
 export interface MCPServer {
   id: string; name: string; description: string; url: string; enabled: boolean; has_token: boolean; revision: number;
   tools: { name: string; description: string }[]; last_tested_at: string | null; last_test_error: string | null;

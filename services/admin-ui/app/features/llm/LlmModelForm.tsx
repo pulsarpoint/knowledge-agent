@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { ApiError } from '../lib/api';
-import { providerLabels, saveModel, type ModelInput, type ModelProfile, type Provider } from '../lib/llm';
+import { ApiError } from "~/lib/api";
+import { providerLabels, saveModel, type ModelInput, type ModelProfile, type Provider } from "./api";
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';

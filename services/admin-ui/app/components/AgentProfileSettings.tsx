@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { useEffect, useState, type FormEvent } from 'react';
 import { RESOURCE_MODES, RESOURCES_HELP, getAgentOptions, saveAgent, type AgentProfile, type AgentOptions, type AgentResources } from '../lib/profiles';
 import { EXPERT_HELP, SUBAGENTS_HELP } from '../lib/tools';
-import { codeCompatible, getLlmSettings, type ModelProfile } from '../lib/llm';
+import { codeCompatible, getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '~/components/ui/select';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';

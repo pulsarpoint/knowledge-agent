@@ -4,12 +4,12 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import AgentDetailView from '../AgentDetailView';
 import AgentsView from '../AgentsView';
 import * as profiles from '../../lib/profiles';
-import * as llm from '../../lib/llm';
+import * as llm from "~/features/llm/api";
 import { Toaster } from '~/components/ui/sonner';
 
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgents: vi.fn(),
   getAgentOptions: vi.fn(), saveAgent: vi.fn(), saveProfileModel: vi.fn(), deleteAgent: vi.fn() }));
-vi.mock('../../lib/llm', async () => ({ ...await vi.importActual('../../lib/llm'), getLlmSettings: vi.fn() }));
+vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('../OperationsView', () => ({ default: ({ view }: { view: string }) => <div>{view === 'test' ? 'Native test chat' : 'Operations settings'}</div> }));
 vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
 

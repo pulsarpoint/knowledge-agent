@@ -5,7 +5,7 @@ import httpx
 import pytest
 from openai import AsyncOpenAI
 from knowledge_llm import decode_model
-from knowledge_admin import llm_api
+from knowledge_admin.llm import api as llm_api
 from test_api import _client
 from test_llm import HEADERS, OPENAI, create
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import { ApiError } from '../lib/api';
-import { getMCPServers, saveMCPServer, testMCPServer, deleteMCPServer, type MCPServer } from '../lib/mcp';
+import { ApiError } from "~/lib/api";
+import { getMCPServers, saveMCPServer, testMCPServer, deleteMCPServer, type MCPServer } from "./mcp";
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

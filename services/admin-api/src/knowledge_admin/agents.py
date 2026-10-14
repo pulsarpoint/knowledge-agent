@@ -20,7 +20,7 @@ from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageC
 from knowledge_admin.agent_tracing import trace_secrets
 from knowledge_admin.rag.collections import document_collections
 from knowledge_admin import grounding
-from knowledge_admin.model_adapter import agent_model
+from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp

@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from cryptography.exceptions import InvalidTag
 from knowledge_llm import ModelUnavailable, assigned_model, decode_model
-from knowledge_admin import llm_api
+from knowledge_admin.llm import api as llm_api
 from test_api import _client
 
 HEADERS = {'X-Forwarded-Groups': 'docs-admins', 'X-Forwarded-User': 'admin', 'X-Forwarded-Email': 'admin@example.test'}

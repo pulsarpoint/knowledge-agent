@@ -49,7 +49,8 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(document_drafts.build_api(app_name, repository_store))
     router.include_router(documentation_prompts.build_api(app_name, repository_store))
     router.include_router(documentation_folders.build_api(app_name, repository_store))
-    from knowledge_admin import llm_api, mcp_api, profiles_api, agent_wizard, tools_api, agent_clones, agent_reviews
+    from knowledge_admin.llm import api as llm_api, mcp_api
+    from knowledge_admin import profiles_api, agent_wizard, tools_api, agent_clones, agent_reviews
     router.include_router(agent_wizard.build_api(app_name, repository_store))
     router.include_router(profiles_api.build_api(app_name, repository_store))
     router.include_router(agent_clones.build_api(app_name, repository_store))

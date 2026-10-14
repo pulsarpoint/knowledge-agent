@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { getLlmSettings, type ModelProfile } from "~/lib/llm";
+import { getLlmSettings, type ModelProfile } from "~/features/llm/api";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { ragRequest, type RagConfig, type RagSettings } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";

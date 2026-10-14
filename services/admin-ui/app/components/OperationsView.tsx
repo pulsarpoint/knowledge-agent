@@ -6,7 +6,7 @@ import { ApiError } from '../lib/api';
 import { getOperationsSettings, saveOperationsSettings, saveOperationsServerConfig, deleteOperationsServerConfig, type OperationsConfiguration, type OperationsSettings, type ServerConfigInput } from '../lib/operations';
 import AgentTestView from './AgentTestView';
 import ServerSSHForm from './ServerSSHForm';
-import MCPSelection from './MCPSelection';
+import MCPSelection from "~/features/llm/MCPSelection";
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

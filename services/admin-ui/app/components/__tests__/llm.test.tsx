@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
-import LlmSettingsView from '../LlmSettingsView';
-import LlmModelForm from '../LlmModelForm';
-import type { ModelProfile } from '../../lib/llm';
+import LlmSettingsView from "~/features/llm/LlmSettingsView";
+import LlmModelForm from "~/features/llm/LlmModelForm";
+import type { ModelProfile } from "~/features/llm/api";
 
 afterEach(() => vi.unstubAllGlobals());
 const bedrock: ModelProfile = { id: 'bedrock-1', name: 'Bedrock Claude', provider: 'bedrock', model: 'eu.anthropic.claude-test-v1:0', api_format: 'native', base_url: null, aws_region: 'eu-central-1', enabled: true, has_api_key: true, revision: 1, created_at: '', updated_at: '' };

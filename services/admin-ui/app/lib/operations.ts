@@ -1,4 +1,4 @@
-import type { MCPServer } from './mcp';
+import type { MCPServer } from "~/features/llm/mcp";
 import { request } from './api';
 export interface SSHServer {
   id: string; name: string; hostname: string; port: number; username: string | null; revision: number;

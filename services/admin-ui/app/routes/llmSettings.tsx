@@ -1,5 +1,5 @@
 import AdminLayout from '../components/AdminLayout';
-import LlmSettingsView from '../components/LlmSettingsView';
+import LlmSettingsView from "~/features/llm/LlmSettingsView";
 
 export default function LlmSettingsPage() {
   return <AdminLayout><LlmSettingsView /></AdminLayout>;
