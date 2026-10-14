@@ -232,7 +232,7 @@ class Subagents:
     """The subagents and expert calls of one native session turn (NativeRunner.run_turn makes one; agent() puts it in
     the run context). At most MAX_PER_TURN of them together are started; `limit` run at once (AGENT_MAX_SUBAGENTS,
     default 4, at least 1) and later calls wait for a slot. Each runs through `run_agent`
-    (knowledge_admin.agents.agent) as its own task, with the parent's scratch workspace, no history, no turn or time
+    (knowledge_admin.agents.runner.agent) as its own task, with the parent's scratch workspace, no history, no turn or time
     limit, SubagentEvents hooks and `model_filter`. A subagent gets only the parent turn's credentials its
     configuration references; an expert gets its own configuration and credentials from `load_expert(entry, given
     resources)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,

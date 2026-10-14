@@ -67,7 +67,7 @@ class Turn:
 
 
 class FakeAgent:
-    """Stands in for knowledge_admin.agents.agent. Each call plays the next scripted turn like the real runtime: the
+    """Stands in for knowledge_admin.agents.runner.agent. Each call plays the next scripted turn like the real runtime: the
     SDK reads the session, adds the user item, runs the steps (model calls go through the call_model_input_filter, then
     the hooks), then adds the answer and returns, or raises the turn's error (after the user item was buffered). A turn
     listed in `gates` waits before it ends, until the gate opens or the turn is cancelled. `running` counts turns that
@@ -172,7 +172,7 @@ def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event)
 
 
 class FakeSubagent:
-    """Stands in for knowledge_admin.agents.agent when Subagents runs a subagent or an expert: the script named by the
+    """Stands in for knowledge_admin.agents.runner.agent when Subagents runs a subagent or an expert: the script named by the
     task plays with its hooks and model filter like a FakeAgent turn, without a session, then raises the script's
     error or returns its answer."""
 
