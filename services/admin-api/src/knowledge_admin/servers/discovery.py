@@ -7,12 +7,13 @@ from typing import Literal
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.capabilities.discovery import RESOURCE_COLUMNS, RESOURCE_TABLES
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as lifecycle
 from knowledge_admin.documents.api import document_slug, export_conflict
@@ -48,6 +49,7 @@ def server_row(conn, project, server_id: UUID, lock: bool = False) -> dict:
 
 
 NO_RUN = 'Discovery run not found.'
+RESOURCE_GONE = 'The server, service or environment this proposal was made for no longer exists. Reject this proposal.'
 NO_PROPOSAL = 'Proposal not found.'
 DECIDED = 'This proposal was already accepted or rejected.'
 STALE = 'This proposal changed since you opened it. Review it again.'
@@ -121,18 +123,44 @@ def free_slug(conn, project, folder: str, base: str) -> str:
     raise HTTPException(409, 'Too many documents with this name. Rename one and try again.')
 
 
-def free_folder(conn, project, server_slug: str) -> str:
-    """servers/<server>, or servers/<server>-2, -3, ... when the folder itself cannot hold exports (a document is
-    named like it, or a folder level is a document's export): the conflict does not depend on the slug. When
-    servers itself is a document's export, server-documents/<server> is used instead."""
-    for root in ('servers', 'server-documents'):
+# The document folder roots of each resource type, in order: a root that is a document's export is skipped. A
+# top-level services folder is reserved (documents_folder_check).
+FOLDER_ROOTS = {
+    'server': ('servers', 'server-documents'),
+    'service': ('service-documents',),
+    'environment': ('environments', 'environment-documents'),
+}
+
+
+def free_folder(conn, project, kind: str, entry_slug: str) -> str:
+    """<root>/<entry> (servers/web-1, service-documents/nginx, environments/production), or <root>/<entry>-2, -3, ...
+    when the folder itself cannot hold exports (a document is named like it, or a folder level is a document's
+    export): the conflict does not depend on the slug. When a root itself is a document's export, the next root of
+    FOLDER_ROOTS is used instead."""
+    for root in FOLDER_ROOTS[kind]:
         for number in range(1, 100):
-            folder = f'{root}/{server_slug}' if number == 1 else f'{root}/{server_slug}-{number}'
+            folder = f'{root}/{entry_slug}' if number == 1 else f'{root}/{entry_slug}-{number}'
             if export_conflict(conn, project, 'probe-slug-0', folder) is None:
                 return folder
     raise HTTPException(
-        409, "No folder is free for this server's documents. Rename a document or folder and try again."
+        409, f"No folder is free for this {kind}'s documents. Rename a document or folder and try again."
     )
+
+
+def run_resource(conn, session_id) -> dict:
+    """The resource a proposal's run started from ({type, id, name}, the name as it is now)."""
+    session = conn.execute(
+        "SELECT agent_config->'started_from' AS started_from FROM ka.agent_sessions WHERE id=%s", (session_id,)
+    ).fetchone()
+    started = session['started_from'] if session else None
+    resource = (
+        conn.execute(f'SELECT id,name FROM {RESOURCE_TABLES[started["type"]]} WHERE id=%s', (started['id'],)).fetchone()
+        if started and started.get('type') in RESOURCE_TABLES
+        else None
+    )
+    if resource is None:
+        raise HTTPException(400, RESOURCE_GONE)
+    return {**resource, 'type': started['type']}
 
 
 def draft_published(conn, row: dict) -> bool:
@@ -295,11 +323,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         return save_service(conn, project, actor, value, current['id'], keep_archived_links=True)['id']
 
     def accept_document(conn, project, actor, row: dict) -> UUID:
-        """The draft accepting a document proposal makes: a brand-new draft (built for its service, else its server;
-        attached to that inventory entry when it is published) or a draft of the live document it updates."""
+        """The draft accepting a document proposal makes: a brand-new draft (built for the service it is about, else
+        the run's server, service or environment, in that resource's folder; attached to that inventory entry when it
+        is published) or a draft of the live document it updates."""
         payload = row['payload']
         prov = Provenance('discovery', actor, row['session_id'])
-        server = conn.execute('SELECT id,name FROM ka.servers WHERE id=%s', (row['server_id'],)).fetchone()
         if row['service_proposal_id'] is not None:
             parent = conn.execute(
                 'SELECT status,result_id,payload FROM ka.discovery_proposals WHERE id=%s', (row['service_proposal_id'],)
@@ -320,8 +348,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             and conn.execute('SELECT 1 FROM ka.services WHERE id=%s', (service_id,)).fetchone() is None
         ):
             raise HTTPException(400, SERVICE_GONE.format(name=payload.get('about_service') or gone_name))
-        column, entry = ('service_id', service_id) if service_id else ('server_id', server['id'])
         if row['document_id'] is None:
+            resource = run_resource(conn, row['session_id'])
+            column, entry = (
+                ('service_id', service_id) if service_id else (RESOURCE_COLUMNS[resource['type']], resource['id'])
+            )
             clash = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
                 WHERE a.{column}=%s AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1""",
@@ -338,11 +369,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             name = (
                 conn.execute('SELECT name FROM ka.services WHERE id=%s', (service_id,)).fetchone()['name']
                 if service_id
-                else server['name']
+                else resource['name']
             )
             # The export lock a promote takes, so the free name below cannot race a Publish of another draft.
             conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
-            folder = free_folder(conn, project, document_slug(server['name']) or 'server')
+            kind = resource['type']
+            folder = free_folder(conn, project, kind, document_slug(resource['name']) or kind)
             slug = free_slug(conn, project, folder, document_slug(f'{name} {payload["title"]}'))
             content = DraftContent(
                 title=payload['title'], description=payload['description'], markdown=payload['markdown']
@@ -355,7 +387,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 origin='generated',
                 slug=slug,
                 folder=folder,
-                links={'service_ids': [service_id]} if service_id else {'server_ids': [server['id']]},
+                links={'service_ids': [service_id]} if service_id else {f'{kind}_ids': [resource['id']]},
             )
         current = conn.execute(
             'SELECT title,description,purpose,audience,tags,revision FROM ka.document_details WHERE id=%s',
@@ -412,6 +444,35 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     'SELECT id,title,version FROM ka.document_details WHERE id=%s', (row['document_id'],)
                 ).fetchone()
         return item
+
+    @router.get('/discovery/proposals')
+    def resource_proposals(
+        tag: str = Query(min_length=1, max_length=120), status: Literal['pending', 'accepted', 'rejected'] | None = None
+    ) -> dict:
+        """The proposals of the runs tagged with a resource (servers/<id>, services/<id>, environments/<id>), of one
+        status or all, grouped by run, newest run first; a run without such proposals is left out."""
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            rows = conn.execute(
+                """SELECT p.*,s.title AS run_title,s.created_at AS run_started_at,a.email AS run_started_by
+                FROM ka.discovery_proposals p JOIN ka.agent_sessions s ON s.id=p.session_id
+                LEFT JOIN ka.principals a ON a.id=s.actor_id
+                WHERE s.project_id=%s AND s.tags @> ARRAY[%s]::text[] AND (%s::text IS NULL OR p.status=%s)
+                ORDER BY s.created_at DESC,s.id,p.number""",
+                (project, tag, status, status),
+            ).fetchall()
+            runs: dict = {}
+            for row in rows:
+                proposal = dict(row)
+                run = {
+                    'session_id': row['session_id'],
+                    'title': proposal.pop('run_title'),
+                    'started_at': proposal.pop('run_started_at'),
+                    'started_by': proposal.pop('run_started_by'),
+                    'proposals': [],
+                }
+                runs.setdefault(row['session_id'], run)['proposals'].append(detail(conn, proposal))
+            return jsonable_encoder({'runs': list(runs.values())})
 
     @router.get('/discovery/{session_id}/proposals')
     def proposals(session_id: UUID) -> dict:

@@ -9,13 +9,15 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
-from knowledge_admin.sessions import start
+from knowledge_admin.agents.runner import known_secrets
+from knowledge_admin.sessions import debug, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
     NOTHING_TO_STOP,
@@ -150,10 +152,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.post('/preview')
     def preview(value: start.StartInput) -> dict:
+        """The configuration a start would pin, with the instructions and tools its turns would give the model."""
         db = database()
         with db.connect() as conn:
             pinned, _, _ = start.build(conn, db.project(conn, app_name), value, None, db.conninfo)
-        return {'config': pinned, 'first_message': value.message}
+            # As a run stores it (jsonb) and its turns read it: the instructions list its resources in that order.
+            stored = conn.execute('SELECT %s::jsonb AS config', (Jsonb(pinned),)).fetchone()['config']
+        shown = debug.instructions_and_tool_list(stored, known_secrets(db, stored))
+        return {'config': pinned, 'first_message': value.message, **shown}
 
     @router.post('', status_code=201)
     def start_session(value: start.StartInput, request: Request) -> dict:
@@ -170,6 +176,30 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with db.connect() as conn:
             project = db.project(conn, app_name)
         return await review_session(db, project, session_id, value, request_actor(request))
+
+    @router.get('/{session_id}/debug')
+    def session_debug(session_id: UUID, response: Response) -> dict:
+        """What the run's model receives, from its pinned configuration (sessions/debug.py)."""
+        response.headers['Cache-Control'] = 'no-store'
+        db = database()
+        with db.connect() as conn:
+            project = db.project(conn, app_name)
+            row = conn.execute(
+                'SELECT agent_config,tags,prompt_snapshot FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                (session_id, project),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, 'Session not found.')
+            snapshot = row['prompt_snapshot'] or {}
+            return debug.view(
+                conn,
+                db,
+                project,
+                row['agent_config'],
+                tags=row['tags'],
+                prompt_id=snapshot.get('prompt_id'),
+                prompt_text=snapshot.get('system_prompt') or '',
+            )
 
     @router.get('/{session_id}')
     def session(session_id: UUID, response: Response) -> dict:

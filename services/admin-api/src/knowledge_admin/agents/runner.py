@@ -13,6 +13,7 @@ from typing import Any
 import psycopg
 from agents import (
     Agent,
+    FunctionTool,
     AgentOutputSchema,
     ModelSettings,
     RunConfig,
@@ -248,18 +249,7 @@ async def create_agent(
         raise ValueError('The selected model API key was not supplied.')
     model_api_key = credentials[reference['id']] if reference is not None else None
     ssh_servers = get_ssh(config, credentials)
-    selected_mcp = mcp.selected_servers(config, ssh_servers)
-    offered = [
-        (spec, usage) for spec, usage in effective_tools(config, ssh_servers) if subagents or spec.name != SUBAGENT
-    ]
-    prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
-    tools = [
-        function_tool(spec, usage, config.get('document_access') if spec.name in DOCUMENT_EDIT_TOOLS else None)
-        for spec, usage in offered
-    ]
-    experts = (
-        config.get('experts', []) if subagents else []
-    )  # only in a session turn, never inside an expert or a subagent
+    prompt, tools, experts, selected_mcp = instructions_and_tools(config, ssh_servers, subagents=subagents)
     for path in code_paths(config):  # a missing document collection path is skipped, not fatal
         if not mounted(path):
             raise ValueError(f'Agent folder is unavailable or not an absolute mounted directory: {path}')
@@ -300,14 +290,33 @@ async def create_agent(
             taken = {tool.name for tool in tools} | {
                 tool.name for tool in await assistant.get_mcp_tools(RunContextWrapper({}))
             }
-            for entry in experts:
-                if entry['tool'] in taken:
-                    logger.warning(
-                        'Expert tool %s is skipped: another tool of the run has the same name.', entry['tool']
-                    )
+            for expert in experts:
+                if expert.name in taken:
+                    logger.warning('Expert tool %s is skipped: another tool of the run has the same name.', expert.name)
                     continue
-                assistant.tools.append(expert_tool(entry))
+                assistant.tools.append(expert)
         yield assistant
+
+
+def instructions_and_tools(
+    config: dict[str, Any], ssh_servers: list[dict[str, Any]], *, subagents: bool
+) -> tuple[str, list[FunctionTool], list[FunctionTool], list[dict[str, Any]]]:
+    """(instructions, catalog tools, expert tools, selected MCP servers) of a run of this configuration: what
+    create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
+    what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. ssh_servers: the usable
+    servers (ssh_servers()); subagents as in create_agent."""
+    selected_mcp = mcp.selected_servers(config, ssh_servers)
+    offered = [
+        (spec, usage) for spec, usage in effective_tools(config, ssh_servers) if subagents or spec.name != SUBAGENT
+    ]
+    prompt = get_prompt(config, ssh_servers, selected_mcp, [spec.name for spec, _ in offered])
+    tools = [
+        function_tool(spec, usage, config.get('document_access') if spec.name in DOCUMENT_EDIT_TOOLS else None)
+        for spec, usage in offered
+    ]
+    # only in a session turn, never inside an expert or a subagent
+    experts = [expert_tool(entry) for entry in config.get('experts', [])] if subagents else []
+    return prompt, tools, experts, selected_mcp
 
 
 async def mcp_tool_names(assistant: Agent, context: dict[str, Any]) -> dict[str, str]:
@@ -355,11 +364,16 @@ def get_paths(config: dict[str, Any]) -> list[Path]:
     return list(dict.fromkeys([*code_paths(config), *document_paths(config)]))
 
 
-def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:
-    """Select available SSH servers and require their resolved backend keys."""
+def ssh_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The SSH servers a run of this configuration may use (their keys are checked by get_ssh)."""
     if not config['ssh']['enabled']:
         return []
-    servers = [server for server in config['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
+    return [server for server in config['ssh']['servers'] if server['enabled'] and server['ssh_allowed']]
+
+
+def get_ssh(config: dict[str, Any], credentials: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Select available SSH servers and require their resolved backend keys."""
+    servers = ssh_servers(config)
     for server in servers:
         reference = server['private_key_ref']
         if reference is None or not credentials.get(reference['id']):
@@ -446,11 +460,6 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
     """Decrypt only the credentials referenced by the enabled saved configuration."""
     references = credential_references(config)
     mcp = mcp_definitions(config)
-    queries = {
-        'ka.llm_models': 'SELECT api_key_ciphertext AS secret FROM ka.llm_models WHERE id=%s AND enabled',
-        'ka.credentials': "SELECT ciphertext AS secret FROM ka.credentials WHERE id=%s AND kind='ssh_private_key'",
-        'ka.mcp_servers': 'SELECT token_ciphertext AS secret FROM ka.mcp_servers WHERE id=%s AND enabled',
-    }
     credentials = {}
     with store.connect() as conn:
         # The ad-hoc agent has no agents row: a saved agent that happens to be called 'ad-hoc' must never block its turns.
@@ -477,11 +486,36 @@ def load_credentials(store: RepositoryStore, config: dict[str, Any]) -> dict[str
         for reference in references:
             if reference is None or reference['id'] in credentials:
                 continue
-            row = conn.execute(queries[reference['table']], (reference['id'],)).fetchone()
-            if row is None or row['secret'] is None:
+            secret = _decrypt(conn, store, reference, usable=True)
+            if secret is None:
                 raise ValueError('A configured credential is unavailable.')
-            encrypted = bytes(row['secret'])
-            credentials[reference['id']] = store.cipher.decrypt(
-                encrypted[:12], encrypted[12:], reference['aad'].encode()
-            ).decode()
+            credentials[reference['id']] = secret
     return credentials
+
+
+SECRETS = {
+    'ka.llm_models': ('SELECT api_key_ciphertext AS secret,enabled AS usable FROM ka.llm_models WHERE id=%s'),
+    'ka.credentials': "SELECT ciphertext AS secret,kind='ssh_private_key' AS usable FROM ka.credentials WHERE id=%s",
+    'ka.mcp_servers': 'SELECT token_ciphertext AS secret,enabled AS usable FROM ka.mcp_servers WHERE id=%s',
+}
+
+
+def _decrypt(conn, store: RepositoryStore, reference: dict[str, Any], *, usable: bool) -> str | None:
+    """One referenced credential decrypted, or None when it is gone (or, with usable, disabled or not an SSH key)."""
+    row = conn.execute(SECRETS[reference['table']], (reference['id'],)).fetchone()
+    if row is None or row['secret'] is None or (usable and not row['usable']):
+        return None
+    encrypted = bytes(row['secret'])
+    return store.cipher.decrypt(encrypted[:12], encrypted[12:], reference['aad'].encode()).decode()
+
+
+def known_secrets(store: RepositoryStore, config: dict[str, Any]) -> list[str]:
+    """The secrets a configuration references that can still be decrypted (a disabled model's key too): only for
+    redacting what is shown of it (the Debug tab), never handed to a run."""
+    with store.connect() as conn:
+        found = [
+            _decrypt(conn, store, reference, usable=False)
+            for reference in credential_references(config)
+            if reference is not None
+        ]
+    return [secret for secret in found if secret]

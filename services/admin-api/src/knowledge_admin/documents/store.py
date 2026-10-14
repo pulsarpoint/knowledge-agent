@@ -443,15 +443,21 @@ def update_draft(conn, draft_id: UUID, actor: UUID | None, content: dict, *, rev
 
 
 def _attach_discovered(conn, document_id: UUID) -> None:
-    """A brand-new draft made by accepting discovery proposals was just published: attach the document to each such
-    proposal's inventory entry (its service — the recorded one or the one its service proposal created — while that
-    still exists, else its server), once per entry however many proposals name the draft."""
+    """A brand-new draft made by accepting proposals was just published: attach the document to each such proposal's
+    inventory entry (its service — the recorded one or the one its service proposal created — while that still
+    exists, else the server or environment its run started from), once per entry however many proposals name the
+    draft. A service run's proposals record its service; nothing is attached for an entry deleted meanwhile."""
     conn.execute(
-        """INSERT INTO ka.inventory_documents(project_id,service_id,server_id,document_id)
-        SELECT DISTINCT p.project_id,s.id,CASE WHEN s.id IS NULL THEN p.server_id END,%s
+        """INSERT INTO ka.inventory_documents(project_id,service_id,server_id,environment_id,document_id)
+        SELECT DISTINCT p.project_id,s.id,CASE WHEN s.id IS NULL THEN p.server_id END,
+            CASE WHEN s.id IS NULL AND p.server_id IS NULL THEN e.id END,%s
         FROM ka.discovery_proposals p LEFT JOIN ka.discovery_proposals parent ON parent.id=p.service_proposal_id
         LEFT JOIN ka.services s ON s.id=COALESCE(p.service_id,parent.result_id)
+        LEFT JOIN ka.agent_sessions r ON r.id=p.session_id
+        LEFT JOIN ka.environments e ON r.agent_config->'started_from'->>'type'='environment'
+            AND e.id::text=r.agent_config->'started_from'->>'id'
         WHERE p.draft_id=%s AND p.kind='document' AND p.status='accepted'
+            AND (s.id IS NOT NULL OR p.server_id IS NOT NULL OR e.id IS NOT NULL)
         ON CONFLICT DO NOTHING""",
         (document_id, document_id),
     )
