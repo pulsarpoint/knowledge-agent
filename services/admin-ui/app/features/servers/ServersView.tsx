@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { KeyRound, MoreHorizontal, Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteServer, getServers, type ServerAsset } from "./api";
 import { getSSH, testSSH } from "./operations";
@@ -19,6 +19,13 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button, buttonVariants } from "~/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -258,57 +265,54 @@ export default function ServersView() {
                       </Badge>
                     </TableCell>
                     <TableCell className="align-top">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={loading || form !== null || sshServer !== null}
-                          onClick={() => {
-                            setTestResult(null);
-                            setSshServer(server.id);
-                          }}
-                        >
-                          SSH settings<span className="sr-only"> {server.name}</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!server.ssh_allowed || testing !== null || sshServer !== null}
-                          title={server.ssh_allowed ? undefined : "Enable SSH allowed to test"}
-                          aria-label={`Test SSH ${server.name}`}
-                          onClick={() => void testConnection(server)}
-                        >
-                          {testing === server.id ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : (
-                            <Plug data-icon="inline-start" />
-                          )}
-                          Test SSH
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={loading || error !== null || form !== null}
-                          aria-label={`Edit ${server.name}`}
-                          onClick={() => openForm(server)}
-                        >
-                          <Pencil data-icon="inline-start" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={loading || error !== null || form !== null}
-                          aria-label={`Delete ${server.name}`}
-                          onClick={() => {
-                            setDeleteTarget(server);
-                            setDeleteError(null);
-                            setNotice(null);
-                          }}
-                        >
-                          <Trash2 data-icon="inline-start" />
-                          Delete
-                        </Button>
+                      <div className="flex justify-end">
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label={`Actions for ${server.name}`}>
+                              {testing === server.id ? <Spinner /> : <MoreHorizontal />}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              disabled={loading || form !== null || sshServer !== null}
+                              onSelect={() => {
+                                setTestResult(null);
+                                setSshServer(server.id);
+                              }}
+                            >
+                              <KeyRound />
+                              SSH settings
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={!server.ssh_allowed || testing !== null || sshServer !== null}
+                              title={server.ssh_allowed ? undefined : "Enable SSH allowed to test"}
+                              onSelect={() => void testConnection(server)}
+                            >
+                              <Plug />
+                              {testing === server.id ? "Testing…" : "Test SSH"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={loading || error !== null || form !== null}
+                              onSelect={() => openForm(server)}
+                            >
+                              <Pencil />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              disabled={loading || error !== null || form !== null}
+                              onSelect={() => {
+                                setDeleteTarget(server);
+                                setDeleteError(null);
+                                setNotice(null);
+                              }}
+                            >
+                              <Trash2 />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
