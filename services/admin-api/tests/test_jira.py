@@ -6,7 +6,7 @@ from uuid import UUID
 import httpx
 import pytest
 
-from knowledge_admin.jira import JiraClient
+from knowledge_admin.jira.client import JiraClient
 from test_api import _client
 from test_repositories import HEADERS
 

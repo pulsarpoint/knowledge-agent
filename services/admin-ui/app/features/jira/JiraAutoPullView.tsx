@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { CalendarClock, Play } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { DEFAULT_CRON, browserTimeZone, getAutoPull, runSchedule, saveAutoPull, type AutoPull } from "../lib/schedules";
-import { ScheduleStatus } from "./SchedulesView";
-import TimetableFields, { type Timetable } from "./TimetableFields";
+import { ApiError } from "~/lib/api";
+import { DEFAULT_CRON, browserTimeZone, getAutoPull, runSchedule, saveAutoPull, type AutoPull } from "~/lib/schedules";
+import { ScheduleStatus } from "~/components/SchedulesView";
+import TimetableFields, { type Timetable } from "~/components/TimetableFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";

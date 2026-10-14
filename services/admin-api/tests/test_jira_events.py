@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import httpx
 
-from knowledge_admin.jira_events import changes
-from knowledge_admin.jira_sync import auto_pull
+from knowledge_admin.jira.events import changes
+from knowledge_admin.jira.sync import auto_pull
 from test_api import _client
 from test_jira import ISSUES, setup
 from test_repositories import HEADERS

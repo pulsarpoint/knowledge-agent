@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { PlugZap, RefreshCw } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { getJiraSettings, saveJiraSettings, testJiraConnection, type JiraConnection } from "../lib/jira";
+import { ApiError } from "~/lib/api";
+import { getJiraSettings, saveJiraSettings, testJiraConnection, type JiraConnection } from "./api";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";

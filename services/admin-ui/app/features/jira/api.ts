@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export interface JiraConnection {
   id: string; base_url: string; username: string; has_token: boolean; revision: number; jql: string;

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import psycopg
 from fastapi import HTTPException
 
-from knowledge_admin import jira_sync
+from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.schedules import MISSING, TargetMissing, next_after
 

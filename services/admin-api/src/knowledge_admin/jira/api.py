@@ -11,12 +11,12 @@ from fastapi import APIRouter, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
-from knowledge_admin import jira_sync
+from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.data_root import jira_folder
 from knowledge_admin.db import storage, workspace
-from knowledge_admin.jira import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
+from knowledge_admin.jira.client import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.jira_export import TicketExportInput, publish_ticket, ticket_markdown
+from knowledge_admin.jira.export import TicketExportInput, publish_ticket, ticket_markdown
 
 SETTINGS_FIELDS = """id,base_url,username,revision,jql,(credential_id IS NOT NULL) AS has_token,
     last_tested_at,last_test_error,last_successful_sync_at,last_fetch_limit,last_fetch_total"""

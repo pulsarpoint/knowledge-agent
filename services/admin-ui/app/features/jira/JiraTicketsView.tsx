@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Download, FolderOutput, Ticket } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "../lib/jira";
+import { ApiError } from "~/lib/api";
+import { exportJiraTicket, fetchJiraTickets, getJiraTickets, type JiraExportResult, type JiraTickets } from "./api";
 import JiraAutoPullStatus from "./JiraAutoPullStatus";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";

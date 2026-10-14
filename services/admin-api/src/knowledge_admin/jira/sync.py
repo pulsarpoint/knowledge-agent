@@ -6,8 +6,8 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import jira_events
-from knowledge_admin.jira import JiraClient
+from knowledge_admin.jira import events as jira_events
+from knowledge_admin.jira.client import JiraClient
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.schedules import TargetMissing
 

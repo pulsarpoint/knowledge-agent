@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
-from knowledge_admin.jira_sync import DEFAULT_LIMIT
+from knowledge_admin.jira.sync import DEFAULT_LIMIT
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.schedules import ScheduleError, describe, next_after, upcoming, validate
 

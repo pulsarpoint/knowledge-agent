@@ -5,7 +5,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from knowledge_admin.jira_sync import CLASH_SKIPPED, auto_pull
+from knowledge_admin.jira.sync import CLASH_SKIPPED, auto_pull
 from knowledge_admin.schedules import TargetMissing
 from test_jira import SETTINGS, jira_response, setup
 from test_repositories import HEADERS
