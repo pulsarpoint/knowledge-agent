@@ -12,7 +12,8 @@ argument model, the capability it `needs`, `default_on`), `NEED_REASONS` for the
 configurations saved before 0078 use) and `effective_tools(config, ssh_servers)` (the tools a run offers: switched
 on and their need met). `mcp_blocked` and `mcp_notes` do the same for MCP tools.
 
-`tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool`, and the
+`tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool` whose description
+and argument schema are the same in every run (what a run may use is in its prompt and checked by the tool), and the
 adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
 
 `create_agent` (`knowledge_admin/agents/runner.py`) builds the tools from `effective_tools`; MCP servers get a static
@@ -57,10 +58,15 @@ share the turn's limit of 16 helpers with subagents.
   Preserves native fields and edge metadata. Source hashes must match the index.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
-- Inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
-  `get_service_docs`, `get_project_info`, `get_document`). Scoped to the run's allowlist: they answer only about the
-  servers, services and code projects the run was given (`get_document`: documents the run was given or attached to
-  those resources). Anything else returns "This ... is not available in this run.", the same as for a missing entry.
+- Inventory tools (`get_resource`, `get_document`). `get_resource(resource_type, resource_id)` — `resource_type` one
+  of `server`, `service`, `environment`, `code_project` (a fixed enum), `resource_id` a plain uuid — returns everything
+  recorded about one resource as JSON: its fields, its documents (id, title) and `links` (`{type, id, name, relation,
+  ...}`) the model follows by passing `type` and `id` again; lists stop at 100 (`truncated`). A server's connection,
+  instructions, skills and MCP server ids come from the run's configuration. Scoped to the run's allowlist: anything
+  the run was not given (a linked resource too) or a malformed id returns "The <type> <id> is not available in this
+  run.", the same as for a missing entry. `get_document` reads documents the run was given or attached to those
+  resources. The prompt names a run's starting resource in one line (`Resource: server <uuid> (<name>)`) and lists
+  servers and services as an index (`{type, id, name, description}`); details come from `get_resource`.
 - `ssh_run`. Resolves a selected server and its credential reference from
   the supplied snapshot/context. Reuses `knowledge_admin.capabilities.ssh.execute`, including
   optional host verification, sudo restrictions, timeout and cancellation handling.

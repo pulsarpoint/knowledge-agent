@@ -17,15 +17,11 @@ from test_repositories import HEADERS
 
 TOOLS = [
     'ssh_run',
-    'get_server_info_basic',
-    'get_server_services',
-    'get_server_docs',
-    'get_service_info',
+    'get_resource',
     'get_document',
     'propose_service',
     'propose_document',
 ]
-NO_SERVICE = 'This service is not available in this run.'
 
 
 def ssh_ready(world, server=None):
@@ -124,14 +120,12 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
     assert config['proposal_tools'] == ['propose_service', 'propose_document']
     assert 'discovery' not in config and 'session_id' not in config
     assert config['project_id'] == str(world.project)
-    assert config['system_prompt']['content'] == (
-        f'You explore servers.\n\n# Context\n\nServer: web-1 (hostname 10.0.0.7, id {world.server["id"]}).'
-    )
+    assert config['system_prompt']['content'] == 'You explore servers.'  # the Resource line names the server
     rows = {item['tool']: item for item in config['tools']['items']}
     assert rows['propose_service']['mode'] == 'on' and not rows['propose_service']['subagent_allowed']
     assert rows['propose_document']['mode'] == 'on' and not rows['propose_document']['subagent_allowed']
     offered = {spec.name for spec, _ in effective_tools(config, config['ssh']['servers'])}
-    assert {'ssh_run', 'get_server_info_basic', 'propose_service', 'propose_document'} <= offered
+    assert {'ssh_run', 'get_resource', 'propose_service', 'propose_document'} <= offered
     with world.store.connect() as conn:
         session = conn.execute(
             """SELECT purpose,server_id,agent_id,title,target_document_id,context_snapshot,prompt_snapshot
@@ -195,8 +189,9 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
     assert pinned['services']['enabled'] and [item['id'] for item in pinned['services']['items']] == [str(world.nginx)]
     assert pinned['code']['projects'] == []
     config = config_of(world, sid)
-    assert call(config, 'get_service_info', name='nginx')['name'] == 'nginx'
-    assert call(config, 'get_service_info', name='postgres') == NO_SERVICE
+    assert call(config, 'get_resource', resource_type='service', resource_id=str(world.nginx))['name'] == 'nginx'
+    refused = f'The service {postgres} is not available in this run.'
+    assert call(config, 'get_resource', resource_type='service', resource_id=str(postgres)) == refused
 
 
 def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(world):

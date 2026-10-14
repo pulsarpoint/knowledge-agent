@@ -1,18 +1,21 @@
-"""Read the inventory for an agent: servers, services, code projects and the documents attached to them. Read-only.
-The tools run where agents run (agent-session-worker, admin-api); configure() gives them that process's database.
-The workspace is the run's (a discovery run pins config['project_id']) or the single application's. Each tool answers
-only about a server, service or code project the run was given (its allowlist); anything else reads as missing."""
+"""Read the inventory for an agent: get_resource answers with everything recorded about one server, service,
+environment or code project, with links to related resources the model follows by their type and id. Read-only.
+The tool runs where agents run (agent-session-worker, admin-api); configure() gives it that process's database.
+The workspace is the run's (a resource run pins config['project_id']) or the single application's. It answers only
+about a resource the run was given (its allowlist); anything else, a linked resource too, reads as missing."""
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from knowledge_admin.capabilities.context import KIND_NAMES, NOT_AVAILABLE, RunContext, allowed
+from knowledge_admin.capabilities.context import RunContext, allowed
 
 MAX_ITEMS = 100
 SHORT = 300
 UNAVAILABLE = 'The inventory is not available in this run.'
+NOT_GIVEN = 'The {type} {id} is not available in this run.'
+ResourceType = Literal['server', 'service', 'environment', 'code_project']
 _store = None
 
 
@@ -42,199 +45,120 @@ def short(text: str | None) -> str:
     return text if len(text) <= SHORT else text[:SHORT].rstrip() + '…'
 
 
-def listed(rows: list[dict]) -> dict[str, Any]:
-    return {'items': rows[:MAX_ITEMS], 'truncated': len(rows) > MAX_ITEMS}
-
-
 def dumps(value: Any) -> str:
     return json.dumps(value, default=str, ensure_ascii=False)
 
 
-SERVER = """SELECT id,name,hostname,description,tags FROM ka.servers WHERE project_id=%(project)s
-    AND (lower(hostname)=lower(%(key)s) OR lower(name)=lower(%(key)s))
-    ORDER BY lower(hostname)=lower(%(key)s) DESC,id"""
+SERVER = """SELECT id,name,hostname,port,username,description,tags,allow_sudo FROM ka.servers
+    WHERE id=%s AND project_id=%s"""
 SERVICE = """SELECT id,name,service_type,service_role,description,owner,operations_notes FROM ka.services
-    WHERE project_id=%s AND lower(name)=lower(%s)"""
-CODE_PROJECT = """SELECT id,name,remote_url,requested_ref,current_commit FROM ka.repositories
-    WHERE project_id=%s AND archived_at IS NULL AND lower(name)=lower(%s) ORDER BY id"""
-ATTACHED = """SELECT d.id,d.title,d.description FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
-    WHERE a.{column}=%s ORDER BY lower(d.title),d.id LIMIT {limit}"""
-DEPLOYMENTS = """SELECT s.name AS service,h.name AS server,COALESCE(e.name,d.environment) AS environment,d.runtime,
-    d.runtime_name,d.port,d.log_location,d.deployed_version
-    FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id JOIN ka.servers h ON h.id=d.server_id
-    LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.{column}=%s
-    ORDER BY lower(s.name),lower(h.name),environment,d.runtime_name LIMIT {limit}"""
+    WHERE id=%s AND project_id=%s"""
+ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
+CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
+    WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
+ATTACHED = """SELECT d.id,d.title FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
+    WHERE a.{column}=%s ORDER BY lower(d.title),d.id LIMIT {{limit}}"""
+# Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS.
+SERVER_LINKS = (
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environment_servers es
+    JOIN ka.environments e ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name),e.id LIMIT {limit}""",
+    """SELECT 'service' AS type,s.id,s.name,'runs' AS relation,COALESCE(e.name,d.environment) AS environment,d.runtime,
+    d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
+    LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
+    ORDER BY lower(s.name),environment,d.runtime_name,s.id LIMIT {limit}""",
+)
+SERVICE_LINKS = (
+    """SELECT 'server' AS type,h.id,h.name,'deployed_on' AS relation,COALESCE(e.name,d.environment) AS environment,
+    d.runtime,d.runtime_name,d.port,d.deployed_version AS version FROM ka.service_deployments d
+    JOIN ka.servers h ON h.id=d.server_id LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.service_id=%s
+    ORDER BY lower(h.name),environment,d.runtime_name,h.id LIMIT {limit}""",
+    """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environment_services es
+    JOIN ka.environments e ON e.id=es.environment_id WHERE es.service_id=%s ORDER BY lower(e.name),e.id LIMIT {limit}""",
+    # depends_on (needed_by from the other side), built_from and connects_to (connected_from); the other end's name
+    # from inventory_entries
+    """SELECT CASE WHEN l.from_id=%(id)s THEN l.to_kind ELSE l.from_kind END AS type,
+    CASE WHEN l.from_id=%(id)s THEN l.to_id ELSE l.from_id END AS id,o.name,
+    CASE WHEN l.from_id=%(id)s THEN l.kind WHEN l.kind='depends_on' THEN 'needed_by' ELSE 'connected_from' END AS relation,
+    l.description FROM ka.inventory_links l JOIN ka.inventory_entries o
+    ON o.id=CASE WHEN l.from_id=%(id)s THEN l.to_id ELSE l.from_id END
+    WHERE l.from_id=%(id)s OR l.to_id=%(id)s
+    ORDER BY l.kind,lower(o.name),o.id LIMIT {limit}""",
+)
+ENVIRONMENT_LINKS = (
+    """SELECT 'service' AS type,s.id,s.name,'contains' AS relation FROM ka.environment_services es
+    JOIN ka.services s ON s.id=es.service_id WHERE es.environment_id=%s ORDER BY lower(s.name),s.id LIMIT {limit}""",
+    """SELECT 'server' AS type,s.id,s.name,'contains' AS relation FROM ka.environment_servers es
+    JOIN ka.servers s ON s.id=es.server_id WHERE es.environment_id=%s ORDER BY lower(s.name),s.id LIMIT {limit}""",
+)
+CODE_PROJECT_LINKS = (
+    """SELECT 'service' AS type,s.id,s.name,'builds' AS relation FROM ka.inventory_links l
+    JOIN ka.services s ON s.id=l.from_service_id WHERE l.kind='built_from' AND l.to_code_project_id=%s
+    ORDER BY lower(s.name),s.id LIMIT {limit}""",
+)
+READS = {
+    'server': (SERVER, SERVER_LINKS, 'server_id'),
+    'service': (SERVICE, SERVICE_LINKS, 'service_id'),
+    'environment': (ENVIRONMENT, ENVIRONMENT_LINKS, 'environment_id'),
+    'code_project': (CODE_PROJECT, CODE_PROJECT_LINKS, 'code_project_id'),
+}
 
 
-def _given(config: dict[str, Any], kind: str, row: dict | None) -> bool:
-    """Whether the run was given this entry. A refused entry and a missing one answer alike (_unavailable), so a run
-    cannot learn what exists outside its allowlist."""
-    if row is None:
-        return False
+def _given(config: dict[str, Any], kind: str, resource_id: str) -> dict | None:
+    """The run's pinned entry of this resource, or None when it was not given. A refused resource and a missing one
+    answer alike, so a run cannot learn what exists outside its allowlist."""
     try:
-        allowed(config, kind, str(row['id']))
-        return True
+        return allowed(config, kind, resource_id)
     except ValueError:
-        return False
+        return None
 
 
-def _first_given(config: dict[str, Any], kind: str, rows: list[dict]) -> dict | None:
-    """The first matching row the run was given: a hostname or name shared with an entry outside the allowlist does not
-    hide the run's own; None when it was given none of them."""
-    return next((row for row in rows if _given(config, kind, row)), None)
+def _rows(conn, query: str, resource_id: UUID) -> list[dict]:
+    """One link or document query, MAX_ITEMS + 1 rows at most (the extra one says the list was cut)."""
+    limited = query.replace('{limit}', str(MAX_ITEMS + 1))
+    parameters = {'id': resource_id} if '%(id)s' in limited else (resource_id,)
+    return conn.execute(limited, parameters).fetchall()
 
 
-def _unavailable(kind: str) -> str:
-    return NOT_AVAILABLE.format(kind=KIND_NAMES[kind])
+def _server_extras(config: dict[str, Any], entry: dict) -> dict[str, Any]:
+    """What the run's configuration says about the server: its connection as pinned (a saved agent may connect with
+    its own username, port and sudo), its instructions, and its skills and MCP servers when the run uses them."""
+    extras = {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
+    extras['instructions'] = entry.get('instructions') or ''
+    if (config.get('skills') or {}).get('enabled'):
+        extras['skills'] = [skill for skill in entry.get('skills', []) if skill.get('enabled')]
+    if (config.get('mcp') or {}).get('enabled'):
+        extras['mcp_server_ids'] = [server['id'] for server in entry.get('mcp_servers', []) if server.get('enabled')]
+    return extras
 
 
-def _documents(conn, column: str, entry_id) -> list[dict]:
-    rows = conn.execute(ATTACHED.format(column=column, limit=MAX_ITEMS + 1), (entry_id,)).fetchall()
-    return [{**row, 'description': short(row['description'])} for row in rows]
-
-
-def _server_info(config, hostname: str) -> str:
+def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> str:
+    refused = NOT_GIVEN.format(type=resource_type, id=resource_id)
+    try:
+        key = UUID(str(resource_id))
+    except ValueError:
+        return refused
+    entry = _given(config, resource_type, str(key))
+    if entry is None:
+        return refused
+    fields, link_queries, column = READS[resource_type]
     with connect() as conn:
-        server = _first_given(
-            config, 'server', conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall()
-        )
-        if server is None:
-            return _unavailable('server')
-        environments = [
-            row['name']
-            for row in conn.execute(
-                """SELECT e.name FROM ka.environment_servers es
-            JOIN ka.environments e ON e.id=es.environment_id WHERE es.server_id=%s ORDER BY lower(e.name)""",
-                (server['id'],),
-            )
-        ]
-        counts = conn.execute(
-            """SELECT (SELECT count(DISTINCT service_id) FROM ka.service_deployments WHERE server_id=%(id)s) AS services,
-            (SELECT count(*) FROM ka.inventory_documents WHERE server_id=%(id)s) AS documents""",
-            {'id': server['id']},
-        ).fetchone()
+        row = conn.execute(fields, (key, project_of(conn, config))).fetchone()
+        if row is None:
+            return refused
+        links = [link for query in link_queries for link in _rows(conn, query, key)]
+        documents = _rows(conn, ATTACHED.format(column=column), key)
+    found = {'type': resource_type, **row}
+    if resource_type == 'server':
+        found.update(_server_extras(config, entry))
     return dumps(
         {
-            **server,
-            'environments': environments,
-            'service_count': counts['services'],
-            'document_count': counts['documents'],
+            **found,
+            'links': links[:MAX_ITEMS],
+            'documents': documents[:MAX_ITEMS],
+            'truncated': len(links) > MAX_ITEMS or len(documents) > MAX_ITEMS,
         }
     )
 
 
-def _server_services(config, hostname: str) -> str:
-    with connect() as conn:
-        server = _first_given(
-            config, 'server', conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall()
-        )
-        if server is None:
-            return _unavailable('server')
-        rows = conn.execute(
-            f"""SELECT s.id,s.name,s.service_type,s.service_role,s.description,COALESCE(e.name,d.environment) AS environment,
-            d.runtime,d.runtime_name,d.port,d.deployed_version FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id
-            LEFT JOIN ka.environments e ON e.id=d.environment_id WHERE d.server_id=%s
-            ORDER BY lower(s.name),environment,d.runtime_name LIMIT {MAX_ITEMS + 1}""",
-            (server['id'],),
-        ).fetchall()
-    return dumps(
-        {'server': server['name'], **listed([{**row, 'description': short(row['description'])} for row in rows])}
-    )
-
-
-def _server_docs(config, hostname: str) -> str:
-    with connect() as conn:
-        server = _first_given(
-            config, 'server', conn.execute(SERVER, {'project': project_of(conn, config), 'key': hostname}).fetchall()
-        )
-        if server is None:
-            return _unavailable('server')
-        return dumps({'server': server['name'], **listed(_documents(conn, 'server_id', server['id']))})
-
-
-def _service_info(config, name: str) -> str:
-    with connect() as conn:
-        project = project_of(conn, config)
-        service = conn.execute(SERVICE, (project, name)).fetchone()
-        if not _given(config, 'service', service):
-            return _unavailable('service')
-        deployments = conn.execute(
-            DEPLOYMENTS.format(column='service_id', limit=MAX_ITEMS), (service['id'],)
-        ).fetchall()
-        links = conn.execute(
-            """SELECT l.kind,l.description,l.from_id=%(id)s AS outgoing,
-            CASE WHEN l.from_id=%(id)s THEN t.kind ELSE f.kind END AS other_kind,
-            CASE WHEN l.from_id=%(id)s THEN t.name ELSE f.name END AS other
-            FROM ka.inventory_links l JOIN ka.inventory_entries f ON f.id=l.from_id JOIN ka.inventory_entries t ON t.id=l.to_id
-            WHERE l.from_id=%(id)s OR l.to_id=%(id)s ORDER BY l.kind,other""",
-            {'id': service['id']},
-        ).fetchall()
-        documents = conn.execute(ATTACHED.format(column='service_id', limit=MAX_ITEMS), (service['id'],)).fetchall()
-    return dumps(
-        {
-            **service,
-            'deployments': [{key: value for key, value in row.items() if key != 'service'} for row in deployments],
-            'depends_on': [row['other'] for row in links if row['kind'] == 'depends_on' and row['outgoing']],
-            'needed_by': [row['other'] for row in links if row['kind'] == 'depends_on' and not row['outgoing']],
-            'built_from': [row['other'] for row in links if row['kind'] == 'built_from'],
-            'connects_to': [
-                {'kind': row['other_kind'], 'name': row['other'], 'description': row['description']}
-                for row in links
-                if row['kind'] == 'connects_to'
-            ],
-            'documents': [{'id': row['id'], 'title': row['title']} for row in documents],
-        }
-    )
-
-
-def _service_docs(config, name: str) -> str:
-    with connect() as conn:
-        service = conn.execute(SERVICE, (project_of(conn, config), name)).fetchone()
-        if not _given(config, 'service', service):
-            return _unavailable('service')
-        return dumps({'service': service['name'], **listed(_documents(conn, 'service_id', service['id']))})
-
-
-def _project_info(config, name: str) -> str:
-    with connect() as conn:
-        code = _first_given(
-            config, 'code_project', conn.execute(CODE_PROJECT, (project_of(conn, config), name)).fetchall()
-        )
-        if code is None:
-            return _unavailable('code_project')
-        services = [
-            row['name']
-            for row in conn.execute(
-                """SELECT s.name FROM ka.inventory_links l JOIN ka.services s ON s.id=l.from_service_id
-            WHERE l.kind='built_from' AND l.to_code_project_id=%s ORDER BY lower(s.name)""",
-                (code['id'],),
-            )
-        ]
-        documents = conn.execute(ATTACHED.format(column='code_project_id', limit=MAX_ITEMS), (code['id'],)).fetchall()
-    return dumps(
-        {**code, 'services': services, 'documents': [{'id': row['id'], 'title': row['title']} for row in documents]}
-    )
-
-
-async def get_server_info_basic(context: RunContext, hostname: str) -> str:
-    return await asyncio.to_thread(_server_info, context['config'], hostname)
-
-
-async def get_server_services(context: RunContext, hostname: str) -> str:
-    return await asyncio.to_thread(_server_services, context['config'], hostname)
-
-
-async def get_server_docs(context: RunContext, hostname: str) -> str:
-    return await asyncio.to_thread(_server_docs, context['config'], hostname)
-
-
-async def get_service_info(context: RunContext, name: str) -> str:
-    return await asyncio.to_thread(_service_info, context['config'], name)
-
-
-async def get_service_docs(context: RunContext, name: str) -> str:
-    return await asyncio.to_thread(_service_docs, context['config'], name)
-
-
-async def get_project_info(context: RunContext, name: str) -> str:
-    return await asyncio.to_thread(_project_info, context['config'], name)
+async def get_resource(context: RunContext, resource_type: ResourceType, resource_id: str) -> str:
+    return await asyncio.to_thread(_resource, context['config'], resource_type, resource_id)

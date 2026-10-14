@@ -163,7 +163,7 @@ test("no open run: an empty conversation with the settings summary; the first me
         collection_ids: [],
         documents: [{ id: "doc-1", editable: true }],
       },
-      tools: ["ssh_run", "save_document", "get_document", "get_service_info"],
+      tools: ["ssh_run", "save_document", "get_document", "get_resource"],
       expert_ids: [],
       subagents: false,
     }),

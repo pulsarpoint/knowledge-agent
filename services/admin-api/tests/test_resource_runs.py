@@ -13,7 +13,7 @@ from knowledge_admin.tools.catalog import effective_tools
 from test_discovery_runs import call, config_of, pinned_of, ssh_ready
 from test_repositories import HEADERS
 
-PLAIN = ['get_server_info_basic', 'get_server_services', 'get_service_info', 'get_document']
+PLAIN = ['get_resource', 'get_document']
 PROPOSALS = ['propose_service', 'propose_document']
 
 
@@ -57,7 +57,7 @@ def test_a_chat_on_a_service_is_a_resource_run_tagged_with_it_that_brings_its_co
     assert pinned['chosen_resources']['server_ids'] == [] and pinned['chosen_resources']['environment_ids'] == []
     assert pinned['run_resources']['code_project_ids'] == [str(world.shop)]
     assert pinned['ssh']['servers'] == [] and not pinned['ssh']['enabled']  # nothing it brings is reachable
-    assert pinned['system_prompt']['content'] == f'You answer.\n\n# Context\n\nService: nginx (id {world.nginx}).'
+    assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the service
     assert pinned['proposal_tools'] == []
     ssh_ready(world)
     pinned = pinned_of(world, start(world, {'service_id': str(world.nginx)}).json()['id'])
@@ -79,9 +79,7 @@ def test_a_chat_on_an_environment_brings_its_services_and_servers(world):
     assert pinned['chosen_resources']['service_ids'] == [] and pinned['chosen_resources']['server_ids'] == []
     assert pinned['run_resources']['service_ids'] == [str(world.nginx)]
     assert pinned['run_resources']['server_ids'] == [world.server['id']]
-    assert pinned['system_prompt']['content'].endswith(
-        f'Environment: Production (id {world.environment}). Services: nginx. Servers: web-1.'
-    )
+    assert pinned['system_prompt']['content'] == 'You answer.'  # the Resource line names the environment
 
 
 def test_a_chat_on_a_server_is_tagged_with_it_and_keeps_its_server(world):
@@ -156,7 +154,7 @@ def test_a_plain_server_chat_has_no_proposal_tools_even_when_its_configuration_h
     sid = start(world, {'server_id': world.server['id']}, tools=['ssh_run', *PLAIN]).json()['id']
     config = config_of(world, sid)
     assert config['proposal_tools'] == []
-    assert {'ssh_run', 'get_server_info_basic'} <= offered(config)
+    assert {'ssh_run', 'get_resource'} <= offered(config)
     assert not set(PROPOSALS) & offered(config)
     for item in config['tools']['items']:  # as a saved agent's configuration listing them on would have them
         if item['tool'] in PROPOSALS:
@@ -258,4 +256,7 @@ def test_the_assistant_prompts_are_seeded_for_new_workspaces(world):
     for row in rows:
         assert row['id'] == assistant_prompt_id(project, row['input_kind'])
         assert 'Never show passwords, keys or tokens.' in row['content']
-    assert 'df -h' in rows[1]['content'] and 'get_service_docs' in rows[2]['content']
+    assert 'df -h' in rows[1]['content']
+    for row in rows:
+        assert 'get_resource' in row['content'] and 'get_server_info_basic' not in row['content']
+        assert 'Resource line' in row['content'] and 'named in the context' not in row['content']

@@ -64,9 +64,6 @@ REQUIRES = {
     'server_proposals': 'a run started from a server',
     'resource_proposals': 'a run started from a server, service or environment',
 }
-SERVER_FACTS = 'Server: {name} (hostname {hostname}, id {id}).'
-SERVICE_FACTS = 'Service: {name} (id {id}).'
-ENVIRONMENT_FACTS = 'Environment: {name} (id {id}). Services: {services}. Servers: {servers}.'
 # A chat on a resource: its tag (lists find its chats by it) and the table its id is in.
 RESOURCE_TYPES = {'server': 'servers', 'service': 'services', 'environment': 'environments'}
 RESOURCE_NOT_FOUND = {'service': 'Service not found.', 'environment': 'Environment not found.'}
@@ -264,47 +261,15 @@ def start_server(conn, project: UUID, server_id: UUID) -> dict:
 
 
 def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
-    """The service or environment a run starts from, with the facts its context gives: it exists in this workspace.
-    No SSH is needed: what it brings that the run cannot reach is left out (inventory and documents still work)."""
-    if kind == 'service':
-        row = conn.execute(
-            'SELECT id,name FROM ka.services WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
-        ).fetchone()
-        if row is None:
-            raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
-        row['facts'] = SERVICE_FACTS.format(name=row['name'], id=row['id'])
-        return row
+    """The service or environment a run starts from: it exists in this workspace. No SSH is needed: what it brings
+    that the run cannot reach is left out (inventory and documents still work)."""
+    table = 'ka.services' if kind == 'service' else 'ka.environments'
     row = conn.execute(
-        'SELECT id,name FROM ka.environments WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
+        f'SELECT id,name FROM {table} WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
     ).fetchone()
     if row is None:
         raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
-
-    def names(query: str) -> str:
-        return ', '.join(item['name'] for item in conn.execute(query, (resource_id,)).fetchall()) or 'none'
-
-    row['facts'] = ENVIRONMENT_FACTS.format(
-        name=row['name'],
-        id=row['id'],
-        services=names(
-            """SELECT s.name FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
-            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id"""
-        ),
-        servers=names(
-            """SELECT s.name FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
-            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id"""
-        ),
-    )
     return row
-
-
-def resource_context(value: 'StartInput', origin: dict | None) -> str:
-    """The run's context: the request's, or for a run started from a resource the facts about it."""
-    if value.context or origin is None or value.resource() is None:
-        return value.context
-    if 'facts' in origin:
-        return origin['facts']
-    return SERVER_FACTS.format(name=origin['name'], hostname=origin['hostname'], id=origin['id'])
 
 
 def server_reason(row: dict) -> str | None:
@@ -527,8 +492,8 @@ def build(
     unknown = [name for name in value.tools if name not in names]
     if unknown:
         raise HTTPException(400, UNKNOWN_TOOL.format(names=', '.join(unknown)))
-    context = resource_context(value, origin)
-    system_prompt = value.system_prompt + (f'\n\n# Context\n\n{context}' if context else '')
+    # a resource run's resource is named in the instructions (runner.get_prompt), not in its context
+    system_prompt = value.system_prompt + (f'\n\n# Context\n\n{value.context}' if value.context else '')
     try:
         pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=selection)
     except RunResourceError as exc:
@@ -644,7 +609,7 @@ def start_run(
         kind, resource_id = resource
         snapshot = {
             'system_prompt': value.system_prompt,
-            'context': resource_context(value, origin),
+            'context': value.context,
             'prompt_id': value.prompt_id,
         }
         conn.execute(

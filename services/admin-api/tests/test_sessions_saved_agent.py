@@ -108,7 +108,7 @@ def test_a_saved_agent_starts_with_its_own_configuration_narrowed(agent):
 def test_nothing_can_be_added_to_a_saved_agent(agent, fixed):
     other_expert = '00000000-0000-0000-0000-000000000009'
     for body, message in (
-        ({'tools': ['get_service_info']}, "get_service_info is not one of this agent's tools."),
+        ({'tools': ['get_resource']}, "get_resource is not one of this agent's tools."),
         ({'expert_ids': [other_expert]}, f'This expert is not available: {other_expert}.'),
         ({'subagents': True, 'agent_id': agent.no_subagents}, 'This agent does not allow subagents.'),
         ({'model_id': agent.other_model}, 'A saved agent uses its own model and prompt.'),

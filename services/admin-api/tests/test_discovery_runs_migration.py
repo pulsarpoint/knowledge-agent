@@ -60,6 +60,8 @@ def test_up_rewrites_the_untouched_prompt_to_version_2(store):
 
 def test_a_new_workspace_gets_version_2s_text_as_version_1(store):
     with store.connect() as conn:
+        conn.commit()
+        run(conn, '0106_resource_runs.down.sql')  # 0106 seeds its own text
         project = store.project(conn, f'shop-{uuid4().hex[:6]}')
         prompt = active(conn, project)
     assert (prompt['version'], prompt['versions'], prompt['next_version'], prompt['revision']) == (1, 1, 2, 1)

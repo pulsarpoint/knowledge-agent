@@ -146,3 +146,80 @@ def test_down_refuses_service_and_environment_runs(world):
         conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='started from a service or an environment'):
             run(conn, DOWN)
+
+
+OLD_TOOLS = ('get_server_info_basic', 'get_server_services', 'get_server_docs', 'get_service_info', 'get_service_docs')
+DISCOVERY = """SELECT p.revision,p.next_version,v.version,v.content,
+    (SELECT count(*) FROM ka.documentation_prompt_versions x WHERE x.prompt_id=p.id)::int AS versions
+    FROM ka.documentation_prompts p JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
+    WHERE p.project_id=%s AND p.name='Server discovery'"""
+
+
+def agent_tools(conn, agent_id) -> dict[str, str]:
+    rows = conn.execute('SELECT tool,mode FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)).fetchall()
+    return {row['tool']: row['mode'] for row in rows}
+
+
+def test_up_replaces_the_old_inventory_tools_with_get_resource_and_down_reverses(world):
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        conn.execute("DELETE FROM ka.agent_tools WHERE agent_id IN ('operations','search')")
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations','get_server_docs','on')")
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations','get_project_info','off')")
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('search','get_service_info','off')")
+        conn.commit()
+        run(conn, UP)
+        assert agent_tools(conn, 'operations') == {'get_resource': 'on'}
+        assert agent_tools(conn, 'search') == {}
+        assert (
+            conn.execute('SELECT count(*) AS n FROM ka.agent_tools WHERE tool=ANY(%s)', (list(OLD_TOOLS),)).fetchone()[
+                'n'
+            ]
+            == 0
+        )
+        conn.commit()
+        run(conn, DOWN)
+        assert agent_tools(conn, 'operations') == {'get_server_info_basic': 'on'}
+        assert agent_tools(conn, 'search') == {}
+
+
+def test_the_assistant_and_server_discovery_prompts_name_get_resource(world):
+    with world.store.connect() as conn:
+        prompts = conn.execute(
+            """SELECT p.name,v.content FROM ka.documentation_prompts p
+            JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id WHERE p.project_id=%s
+            AND (p.name='Server discovery' OR 'assistant'=ANY(p.tags))""",
+            (world.project,),
+        ).fetchall()
+    assert len(prompts) == 4
+    for prompt in prompts:
+        assert 'get_resource' in prompt['content'], prompt['name']
+        assert 'get_server_' not in prompt['content'] and 'get_service_' not in prompt['content']
+
+
+def test_an_unedited_server_discovery_prompt_gets_a_new_version_and_down_restores_it(world):
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        project = world.store.project(conn, f'shop-{uuid4().hex[:6]}')  # 0102's text as version 1
+        edited = world.store.project(conn, f'shop-{uuid4().hex[:6]}')
+        conn.execute(
+            "UPDATE ka.documentation_prompts SET revision=revision+1 WHERE project_id=%s AND name='Server discovery'",
+            (edited,),
+        )
+        before = conn.execute(DISCOVERY, (project,)).fetchone()
+        assert 'get_server_info_basic' in before['content']
+        conn.commit()
+        run(conn, UP)
+        after = conn.execute(DISCOVERY, (project,)).fetchone()
+        assert (after['version'], after['versions'], after['next_version'], after['revision']) == (2, 2, 3, 2)
+        assert 'get_resource' in after['content'] and 'get_server_info_basic' not in after['content']
+        assert 'get_server_info_basic' in conn.execute(DISCOVERY, (edited,)).fetchone()['content']
+        conn.commit()
+        run(conn, DOWN)
+        restored = conn.execute(DISCOVERY, (project,)).fetchone()
+        assert {key: restored[key] for key in ('version', 'versions', 'next_version', 'revision')} == {
+            key: before[key] for key in ('version', 'versions', 'next_version', 'revision')
+        }
+        assert restored['content'] == before['content']

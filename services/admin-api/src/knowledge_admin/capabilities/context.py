@@ -54,12 +54,22 @@ def require_given(config: dict[str, Any], kind: str) -> None:
 
 
 NOT_AVAILABLE = 'This {kind} is not available in this run.'
-KIND_NAMES = {'server': 'server', 'document': 'document', 'service': 'service', 'code_project': 'code project'}
+KIND_NAMES = {
+    'server': 'server',
+    'document': 'document',
+    'service': 'service',
+    'environment': 'environment',
+    'code_project': 'code project',
+}
 ACCESS = {
     'server': lambda config: config['ssh']['servers'] if config['ssh']['enabled'] else [],
     'document': lambda config: config.get('document_access', []),
     'service': lambda config: config['services']['items'] if config['services']['enabled'] else [],
     'code_project': lambda config: config['code']['projects'] if config['code']['enabled'] else [],
+    # the environments the run was started from or given (they bring their services and servers); a saved agent none
+    'environment': lambda config: [
+        {'id': item} for item in (config.get('chosen_resources') or {}).get('environment_ids', [])
+    ],
 }
 
 

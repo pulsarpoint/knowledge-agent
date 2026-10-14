@@ -37,7 +37,7 @@ def ask(sessions):
             'server_ids': [web['id']],
             'documents': [{'id': document['id'], 'editable': True}],
         },
-        'tools': ['ssh_run', 'get_service_info', 'get_document', 'save_document', 'edit_document'],
+        'tools': ['ssh_run', 'get_resource', 'get_document', 'save_document', 'edit_document'],
         'expert_ids': [],
         'subagents': False,
     }

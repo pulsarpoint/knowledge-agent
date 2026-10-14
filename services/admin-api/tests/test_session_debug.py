@@ -13,7 +13,7 @@ from knowledge_admin.sessions.start import assistant_prompt_id
 from test_discovery_runs import config_of
 from test_repositories import HEADERS
 
-PLAIN = ['ssh_run', 'get_server_info_basic', 'get_server_services', 'get_service_info', 'get_document']
+PLAIN = ['ssh_run', 'get_resource', 'get_document']
 MODEL_KEY = 'sk-debug-model-key-0123456789'
 
 
@@ -93,7 +93,7 @@ def test_debug_shows_the_instructions_and_tools_the_runner_sends(world):
     instructions, tools = runner_view(world, sid)
     assert shown['instructions'] == instructions
     assert shown['tools'] == tools
-    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_server_info_basic'}
+    assert {tool['name'] for tool in tools} >= {'ssh_run', 'get_resource'}
     assert shown['model'] == {'id': world.model, 'name': 'GPT'}
     assert shown['prompt_source'] == 'library' and shown['prompt'] is None  # no library prompt was chosen
     assert shown['agent_instructions'] == '' and shown['skills'] == []

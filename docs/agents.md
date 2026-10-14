@@ -41,11 +41,14 @@ limit, no per-turn time limit, no 300-second limit).
   until they promote or discard it. Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
-- Inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
-  `get_service_docs`, `get_project_info`) follow the same allowlist: they answer only about the servers, services and code
-  projects the run was given, and `get_document` reads documents the run was given or attached to those resources.
-  Anything else gets "This {server|service|code project|document} is not available in this run." — the same answer as
-  for something that does not exist. The proposal tools (`propose_service`, `propose_document`) exist only in a run
+- The inventory tool `get_resource(resource_type, resource_id)` (`server`, `service`, `environment` or `code_project`,
+  and its uuid) follows the same allowlist: it answers only about the resources the run was given — a resource linked
+  from one of them too — with everything recorded about it and links to follow; anything else, or a malformed id, gets
+  "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
+  `get_document` reads documents the run was given or attached to those resources. The prompt names a run's resource
+  in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
+  hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
+  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) exist only in a run
   started from a server. Accepting a document proposal creates a draft with the run's `session_id` (a brand-new draft,
   or a draft of the document it updates; it becomes the run's last draft); a person publishes or promotes it.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.

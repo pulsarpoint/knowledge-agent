@@ -60,9 +60,9 @@ export const options: AgentOptions = {
       requires: null,
     },
     {
-      name: "get_service_info",
-      label: "Service info",
-      summary: "A service",
+      name: "get_resource",
+      label: "Resource info",
+      summary: "A resource",
       group: "inventory",
       needs: null,
       requires: null,

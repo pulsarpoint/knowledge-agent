@@ -51,6 +51,7 @@ OUT_OF_RANGE = 'The document has {n} lines.'
 NOT_WRITTEN = 'Not written yet.'
 WRITE_FIRST = 'Write the document with save_document first.'
 NEW_PREFIX = 'new:'
+MAY_CHANGE = 'Documents you may change: {documents}.'
 MAX_READ = 50_000
 FENCE = re.compile(r'^ {0,3}(```|~~~)')
 HEADING = re.compile(r'^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$')
@@ -59,7 +60,7 @@ LIVE = """SELECT version,title,description,purpose,audience,tags,markdown FROM k
 # The run's working draft of a live document: its newest draft of it that no person edited.
 WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
     WHERE is_draft AND session_id=%s AND draft_of=%s AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1"""
-ATTACHED = 'SELECT server_id,service_id,code_project_id FROM ka.inventory_documents WHERE document_id=%s'
+ATTACHED = 'SELECT server_id,service_id,environment_id,code_project_id FROM ka.inventory_documents WHERE document_id=%s'
 # The run's working draft of its new document: the brand-new draft with the entry's folder and slug, or its draft of
 # the live document that folder and slug now name.
 NEW_WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
@@ -116,15 +117,20 @@ def _document_id(value: str) -> UUID:
 
 
 def _readable(conn, config: dict[str, Any], document: UUID) -> bool:
-    """A document the run was given, or one attached to a server, service or code project the run was given
-    (read-only). A document attached only elsewhere is not readable."""
+    """A document the run was given, or one attached to a server, service, environment or code project the run was
+    given (read-only; get_resource lists them). A document attached only elsewhere is not readable."""
     try:
         allowed(config, 'document', str(document))
         return True
     except ValueError:
         pass
     for row in conn.execute(ATTACHED, (document,)).fetchall():
-        for kind, column in (('server', 'server_id'), ('service', 'service_id'), ('code_project', 'code_project_id')):
+        for kind, column in (
+            ('server', 'server_id'),
+            ('service', 'service_id'),
+            ('environment', 'environment_id'),
+            ('code_project', 'code_project_id'),
+        ):
             if row[column] is None:
                 continue
             try:
@@ -231,8 +237,21 @@ def _save(config: dict[str, Any], document_id: str, change: Callable[[dict[str, 
         return _save_once(config, document_id, change)
 
 
+def _editable(config: dict[str, Any], document_id: str) -> dict[str, Any]:
+    """The run's entry of a document it may change; any other id is refused with the ones it may change (the tool
+    schemas are the same in every run, so they do not list them)."""
+    try:
+        return allowed(config, 'document', document_id, write=True)
+    except ValueError as exc:
+        editable = [entry for entry in config.get('document_access', []) if entry.get('editable')]
+        if not editable:
+            raise
+        names = ', '.join(f'{entry["title"]} ({entry["id"]})' for entry in editable)
+        raise ValueError(f'{exc} {MAY_CHANGE.format(documents=names)}') from None
+
+
 def _save_once(config: dict[str, Any], document_id: str, change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
-    entry = allowed(config, 'document', document_id, write=True)
+    entry = _editable(config, document_id)
     if str(document_id).startswith(NEW_PREFIX):
         return _save_new(config, entry, change)
     document = _document_id(document_id)

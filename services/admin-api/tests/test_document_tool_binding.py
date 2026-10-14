@@ -1,23 +1,51 @@
-"""The edit tools list only the run's editable documents in their schema; the prompt lists the run's documents."""
+"""Tool schemas are the same in every run: the editable documents are in the prompt (documents_in_this_run), not in the
+edit tools' schema or description; an edit tool given another id names the editable ones."""
 
-from knowledge_admin.tools.catalog import CATALOG
-from knowledge_admin.tools.sdk import ENUM_LIMIT, function_tool
+import asyncio
+
+import pytest
+
+from knowledge_admin.agents.runner import instructions_and_tools, ssh_servers
+from knowledge_admin.capabilities import document_tools
+from live_documents import write_live_document
+from test_generations import sessions  # noqa: F401  (fixture)
+from test_sessions_world import ask, post  # noqa: F401  (fixture)
 
 ACCESS = [{'id': 'd1', 'title': 'Runbook', 'editable': True}, {'id': 'd2', 'title': 'Overview', 'editable': False}]
+REFUSED = 'This document is not available in this run. Documents you may change: Runbook (d1).'
 
 
-def test_the_edit_tools_schema_lists_only_the_editable_documents():
-    tool = function_tool(CATALOG['save_document'], 'Save.', ACCESS)
-    assert tool.params_json_schema['properties']['document_id']['enum'] == ['d1']
-    assert 'Runbook (d1)' in tool.description and 'Overview' not in tool.description
+def schemas(config) -> list[tuple]:
+    _, tools, _, _ = instructions_and_tools(config, ssh_servers(config), subagents=False)
+    return [(tool.name, tool.description, tool.params_json_schema) for tool in tools]
 
 
-def test_without_choices_or_above_the_limit_there_is_no_enum():
-    assert (
-        'enum' not in function_tool(CATALOG['save_document'], 'Save.').params_json_schema['properties']['document_id']
+def test_two_runs_with_different_editable_documents_get_identical_tool_schemas(ask):
+    other = write_live_document(ask.s.store, 'payments-overview', 'Payments overview', '# Payments overview\n')
+    first = post(ask, '/preview')
+    second = post(
+        ask,
+        '/preview',
+        started_from={'document_id': other['id']},
+        resources={**ask.body['resources'], 'documents': [{'id': other['id'], 'editable': True}]},
     )
-    many = [{'id': f'd{n}', 'title': f'T{n}', 'editable': True} for n in range(ENUM_LIMIT + 1)]
-    assert (
-        'enum'
-        not in function_tool(CATALOG['save_document'], 'Save.', many).params_json_schema['properties']['document_id']
-    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    one, two = first.json()['config'], second.json()['config']
+    assert one['document_access'] != two['document_access']
+    assert {'save_document', 'edit_document'} <= {name for name, _, _ in schemas(one)}
+    assert schemas(one) == schemas(two)
+    edit = [entry for entry in schemas(one) if entry[0] in ('save_document', 'edit_document')]
+    assert all('enum' not in schema['properties']['document_id'] for _, _, schema in edit)
+    assert 'Payments runbook' not in str(edit) and 'Payments overview' not in str(edit)
+
+
+@pytest.mark.parametrize('document_id', ['d2', 'd3', 'not-an-id'])
+def test_an_edit_tool_given_another_id_names_the_editable_documents(document_id):
+    config = {'document_access': ACCESS}
+    with pytest.raises(ValueError) as refused:
+        asyncio.run(document_tools.save_document({'config': config}, document_id, '# Text'))
+    assert str(refused.value) == REFUSED
+    with pytest.raises(ValueError) as refused:
+        asyncio.run(document_tools.edit_document({'config': config}, document_id, 'a', 'b'))
+    assert str(refused.value) == REFUSED

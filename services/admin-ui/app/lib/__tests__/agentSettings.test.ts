@@ -29,12 +29,12 @@ test("defaults: the default model, the first tagged prompt, the usable linked re
     "ssh_run",
     "save_document",
     "get_document",
-    "get_service_info",
+    "get_resource",
   ]);
 });
 
 test("startInput sends only the shown tools that are on", () => {
-  const settings = { ...defaultSettings(options), off: ["get_service_info", "get_document", "save_document"] };
+  const settings = { ...defaultSettings(options), off: ["get_resource", "get_document", "save_document"] };
   expect(startInput(doc(), options, settings, "x").tools).toEqual(["ssh_run"]);
   expect(startInput(doc(), options, { ...settings, promptKey: OWN }, "x").prompt_id).toBeNull();
 });
@@ -118,7 +118,7 @@ test("settingsFromSession rebuilds the settings a run started with", () => {
         items: [
           { tool: "ssh_run", mode: "on" },
           { tool: "read_file", mode: "off" },
-          { tool: "get_service_info", mode: "on" },
+          { tool: "get_resource", mode: "on" },
           { tool: "run_subagent", mode: "on" },
           { tool: "get_doc", mode: "on" },
         ],
@@ -349,7 +349,7 @@ test("a new document: the start body names it as started_from and as the one edi
       collection_ids: [],
       documents: [{ new: { folder: "payments", name: "Payments API" }, editable: true }],
     },
-    tools: ["ssh_run", "save_document", "get_document", "get_service_info"],
+    tools: ["ssh_run", "save_document", "get_document", "get_resource"],
     expert_ids: [],
     subagents: false,
   });

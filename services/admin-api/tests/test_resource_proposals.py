@@ -6,7 +6,7 @@ from test_discovery_review import decide, propose, publish
 from test_discovery_runs import config_of, ssh_ready
 from test_repositories import HEADERS
 
-TOOLS = ['get_server_info_basic', 'get_service_info', 'get_document']
+TOOLS = ['get_resource', 'get_document']
 
 
 def start(world, started_from: dict, tools: list[str]) -> str:
