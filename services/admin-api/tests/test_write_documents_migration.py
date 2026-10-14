@@ -19,6 +19,18 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
+# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
+# and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
+
+
 def test_every_workspace_gets_the_write_prompt_with_the_writing_rules(store):
     with store.connect() as conn:
         project = store.project(conn, f'shop-{uuid4().hex[:6]}')
@@ -88,3 +100,4 @@ def test_down_refuses_a_customized_prompt_then_round_trips(store):
         assert conn.execute(PROMPT, (project,)).fetchone() is None
         run(conn, UP)
         assert conn.execute(PROMPT, (project,)).fetchone() is not None
+        run(conn, DOCUMENT_MODEL[1])

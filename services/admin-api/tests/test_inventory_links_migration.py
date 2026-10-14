@@ -15,6 +15,18 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
+# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
+# and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
+
+
 def inventory(conn, project):
     ids = {}
     for name in ('api', 'worker'):
@@ -232,6 +244,7 @@ def test_down_and_up_keep_dependencies_and_code_projects(store):
         ).fetchone()['back']
         run(conn, UP)
         assert conn.execute('SELECT count(*) AS n FROM ka.inventory_links').fetchone()['n'] == 2
+        run(conn, DOCUMENT_MODEL[1])
 
 
 def test_service_assets_lists_connects_to_links_from_both_sides(store):

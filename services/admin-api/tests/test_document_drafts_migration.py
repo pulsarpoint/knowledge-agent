@@ -15,6 +15,18 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
+# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
+# and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
+
+
 def world(conn, store):
     project = store.project(conn, 'shop')
     runbook = save_document(conn, project, None, DocumentInput(slug='runbook', title='Runbook', markdown='# Runbook'))
@@ -140,3 +152,4 @@ def test_down_refuses_while_open_drafts_sources_or_links_exist_then_round_trips(
         assert conn.execute("SELECT to_regclass('ka.document_drafts') IS NULL AS gone").fetchone()['gone']
         run(conn, UP)
         assert conn.execute("SELECT to_regclass('ka.document_links') IS NOT NULL AS back").fetchone()['back']
+        run(conn, DOCUMENT_MODEL[1])

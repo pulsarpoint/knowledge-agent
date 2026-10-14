@@ -14,6 +14,18 @@ def run(conn, name: str):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
+# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
+# and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
+
+
 def document(conn, project, slug: str, folder: str | None = None, *, with_folder: bool = True):
     doc, version = uuid4(), uuid4()
     if with_folder:
@@ -93,3 +105,5 @@ def test_down_restores_project_wide_slugs_and_refuses_shared_slugs(db):
     conn.commit()
     run(conn, UP)
     document(conn, project, 'runbook', 'other')
+    conn.commit()
+    run(conn, DOCUMENT_MODEL[1])

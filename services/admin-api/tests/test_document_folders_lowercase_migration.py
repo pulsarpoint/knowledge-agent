@@ -3,9 +3,17 @@
 import psycopg
 import pytest
 
-from test_document_folders_migration import document, run
+from test_document_folders_migration import DOCUMENT_MODEL, document, run
 
 UP, DOWN = '0069_document_folders_lowercase.up.sql', '0069_document_folders_lowercase.down.sql'
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    """These tests use the 0103 document tables: 0104 is rolled back first (see test_document_folders_migration)."""
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
 
 
 @pytest.fixture

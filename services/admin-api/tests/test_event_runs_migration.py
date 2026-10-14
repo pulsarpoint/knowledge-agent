@@ -3,6 +3,8 @@ notification; finished tasks stay as they were. The down migration leaves them f
 
 from pathlib import Path
 
+import pytest
+
 from test_agent_tasks_migration import a_notification, a_task
 from test_events_migration import an_event
 
@@ -13,6 +15,18 @@ NOT_RUN = 'Not run: event handlers start agent runs now. Send the event again.'
 
 def run(conn, name: str) -> None:
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
+
+
+# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
+# and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+@pytest.fixture(autouse=True)
+def before_0104(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[0])
+        conn.commit()
 
 
 def task(conn, task_id) -> dict:
@@ -77,3 +91,4 @@ def test_open_tasks_fail_with_a_notification_each_and_finished_ones_stay(store):
         assert task(conn, queued['id'])['status'] == 'failed'
         run(conn, UP)
         assert conn.execute('SELECT count(*) AS n FROM ka.notifications').fetchone()['n'] == 3
+        run(conn, DOCUMENT_MODEL[1])
