@@ -1,7 +1,8 @@
-"""What a run started from a server (purpose discovery) proposes for the inventory: services (with their deployment on
-the run's server) and documents. Each call is checked and stored at once as a pending proposal (ka.discovery_proposals)
-for an administrator to accept or reject (discovery.py). A proposal of the same service or document while the earlier
-one is still pending replaces it."""
+"""What a run started from a server, service or environment (purpose resource) proposes for the inventory: services
+(with their deployment on the run's server; server runs only) and documents (about the run's resource or a service).
+Each call is checked and stored at once as a pending proposal (ka.discovery_proposals) for an administrator to accept
+or reject (discovery.py). A proposal of the same service or document while the earlier one is still pending replaces
+it."""
 
 import asyncio
 from typing import Any
@@ -11,7 +12,11 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.inventory import connect
 
-NOT_DISCOVERY = 'The proposal tools work only in a run started from a server.'
+NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
+NOT_FROM_SERVER = 'propose_service works only in a run started from a server.'
+# Where a document about the run's resource is attached: the inventory_documents column of each resource type.
+RESOURCE_COLUMNS = {'server': 'server_id', 'service': 'service_id', 'environment': 'environment_id'}
+RESOURCE_TABLES = {'server': 'ka.servers', 'service': 'ka.services', 'environment': 'ka.environments'}
 SELF = 'A service cannot depend on itself.'
 SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner', 'operations_notes')
 DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
@@ -63,22 +68,28 @@ def _entries(conn, query: str, project, names: list[str], what: str) -> list[dic
 
 
 def _run(conn, config: dict[str, Any]) -> tuple[dict, dict]:
-    """The run's session (config['session_id'], set by the worker; a run started from a server), locked so its proposals
-    are numbered and replaced one at a time, and its server."""
+    """The run's session (config['session_id'], set by the worker; a run started from a resource), locked so its
+    proposals are numbered and replaced one at a time, and the resource it started from as its pinned configuration
+    records it (`started_from`: {type, id, name}, the name as it is now)."""
     session_id = config.get('session_id')
     session = (
         conn.execute(
-            """SELECT id,project_id,server_id FROM ka.agent_sessions WHERE id=%s AND purpose='discovery'
-        FOR UPDATE""",
+            """SELECT id,project_id,server_id,agent_config->'started_from' AS started_from FROM ka.agent_sessions
+            WHERE id=%s AND purpose='resource' FOR UPDATE""",
             (session_id,),
         ).fetchone()
         if session_id
         else None
     )
-    if session is None:
+    started = session['started_from'] if session else None
+    if not started or started.get('type') not in RESOURCE_TABLES:
         raise ValueError(NOT_DISCOVERY)
-    server = conn.execute('SELECT id,name FROM ka.servers WHERE id=%s', (session['server_id'],)).fetchone()
-    return session, server
+    resource = conn.execute(
+        f'SELECT id,name FROM {RESOURCE_TABLES[started["type"]]} WHERE id=%s', (started['id'],)
+    ).fetchone()
+    if resource is None:
+        raise ValueError(NOT_DISCOVERY)
+    return session, {**resource, 'type': started['type']}
 
 
 def _save(
@@ -129,6 +140,8 @@ def _said(number: int, what: str, replaced: bool) -> str:
 def _propose_service(config: dict[str, Any], value: dict[str, Any]) -> str:
     with connect() as conn:
         session, server = _run(conn, config)
+        if server['type'] != 'server':
+            raise ValueError(NOT_FROM_SERVER)
         project = session['project_id']
         environments = conn.execute(
             """SELECT e.id,e.name FROM ka.environment_servers es JOIN ka.environments e
@@ -156,10 +169,12 @@ def _propose_service(config: dict[str, Any], value: dict[str, Any]) -> str:
 
 def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
     with connect() as conn:
-        session, server = _run(conn, config)
+        session, resource = _run(conn, config)
         about = (value['about_service'] or '').strip() or None
         service_id = service_proposal_id = document_id = None
-        target = f'server {server["name"]}'
+        if resource['type'] == 'service':
+            service_id = resource['id']
+        target = f'{resource["type"]} {resource["name"]}'
         if about:
             service = conn.execute(SERVICE_BY_NAME, (session['project_id'], about)).fetchone()
             if service is not None:
@@ -172,7 +187,9 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
                     )
                 service_proposal_id, target = proposal['id'], f'proposed service {about}'
         if service_proposal_id is None:
-            column, entry = ('service_id', service_id) if service_id else ('server_id', server['id'])
+            column, entry = (
+                ('service_id', service_id) if service_id else (RESOURCE_COLUMNS[resource['type']], resource['id'])
+            )
             found = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
                 WHERE a.{column}=%s AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1""",

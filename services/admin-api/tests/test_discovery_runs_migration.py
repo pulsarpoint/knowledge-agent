@@ -113,6 +113,8 @@ def test_a_customized_prompt_is_left_alone_both_ways(store):
 def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
     store = world.store
     with store.connect() as conn:
+        conn.commit()
+        run(conn, '0106_resource_runs.down.sql')  # discovery runs as 0102 saw them
         actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
         model = a_model(conn, actor)
         runs = {}
@@ -136,6 +138,7 @@ def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
         conn.commit()
         run(conn, DOWN)
         run(conn, UP)
+        run(conn, '0106_resource_runs.up.sql')  # today's routes see resource runs
         rows = {
             row['id']: row
             for row in conn.execute(

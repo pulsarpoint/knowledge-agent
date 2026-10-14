@@ -11,10 +11,13 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 # 0104 keeps documents and drafts in one table; tests of older migrations use the 0103 tables, so each starts with
 # 0104 rolled back and goes forward through it again where it rolls forward.
 DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+# 0106 turns discovery runs into resource runs: rolled back first, so older migrations see discovery runs.
+RESOURCE_RUNS = ('0106_resource_runs.down.sql', '0106_resource_runs.up.sql')
 
 
 def roll_back_0104(store) -> None:
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / RESOURCE_RUNS[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / DOCUMENT_MODEL[0]).read_text(), prepare=False)
         conn.commit()
 

@@ -1,0 +1,148 @@
+"""0106: discovery runs become resource runs tagged with their server (listed among the server's chats), sessions get
+tags, proposals may have no server, and the three assistant prompts are seeded; down restores discovery runs and
+refuses what it cannot keep (service and environment runs, customized assistant prompts)."""
+
+from pathlib import Path
+from uuid import uuid4
+
+import psycopg
+import pytest
+from psycopg.types.json import Jsonb
+
+from discovery_world import world  # noqa: F401  (fixture)
+from session_rows import a_model
+from test_discovery_runs import ssh_ready
+from test_repositories import HEADERS
+
+MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
+UP, DOWN = '0106_resource_runs.up.sql', '0106_resource_runs.down.sql'
+ASSISTANTS = """SELECT name FROM ka.documentation_prompts WHERE project_id=%s AND 'assistant'=ANY(tags) ORDER BY name"""
+TOOLS = [
+    {'tool': 'ssh_run', 'mode': 'on'},
+    {'tool': 'propose_document', 'mode': 'on'},
+    {'tool': 'propose_service', 'mode': 'on'},
+    {'tool': 'save_document', 'mode': 'off'},
+]
+
+
+def run(conn, name):
+    conn.execute((MIGRATIONS / name).read_text(), prepare=False)
+
+
+def discovery_run(conn, world, status='waiting'):
+    """A discovery run as 0105 stored it: purpose discovery, its server pinned as started_from_server."""
+    actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
+    config = {
+        'started_from_server': {'id': world.server['id'], 'name': 'web-1'},
+        'tools': {'items': TOOLS},
+        'ssh': {'enabled': True, 'servers': []},
+    }
+    return conn.execute(
+        """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        context_snapshot,purpose,server_id,agent_config,status)
+        VALUES (gen_random_uuid(),%s,NULL,%s,%s,'Discovery','{}','{}','discovery',%s,%s,%s) RETURNING id""",
+        (world.project, actor, a_model(conn, actor), world.server['id'], Jsonb(config), status),
+    ).fetchone()['id']
+
+
+def test_discovery_runs_become_resource_runs_listed_among_their_servers_chats(world):
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        old = discovery_run(conn, world)
+        conn.commit()
+        run(conn, UP)
+        row = conn.execute('SELECT purpose,tags,server_id,agent_config FROM ka.agent_sessions WHERE id=%s', (old,))
+        row = row.fetchone()
+    assert row['purpose'] == 'resource' and row['tags'] == [f'servers/{world.server["id"]}']
+    assert str(row['server_id']) == world.server['id']
+    assert row['agent_config']['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
+    assert row['agent_config']['proposal_tools'] == ['propose_service', 'propose_document']
+    assert 'started_from_server' not in row['agent_config']
+    listed = world.client.get('/api/sessions', headers=HEADERS, params={'tag': f'servers/{world.server["id"]}'})
+    assert [item['id'] for item in listed.json()['sessions']] == [str(old)]
+
+
+def test_down_restores_discovery_runs_and_up_again_round_trips(world):
+    ssh_ready(world)
+    created = world.client.post(
+        '/api/sessions',
+        headers=HEADERS,
+        json={
+            'started_from': {'server_id': world.server['id']},
+            'model_id': world.model,
+            'system_prompt': 'You answer.',
+            'message': 'Disk?',
+            'tools': ['ssh_run', 'propose_document'],
+            'tags': ['proposals'],
+        },
+    )
+    assert created.status_code == 201, created.text
+    sid = created.json()['id']
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        row = conn.execute('SELECT purpose,agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
+        assert row['purpose'] == 'discovery'
+        assert row['agent_config']['started_from_server'] == {'id': world.server['id'], 'name': 'web-1'}
+        assert 'started_from' not in row['agent_config'] and 'proposal_tools' not in row['agent_config']
+        assert conn.execute(ASSISTANTS, (world.project,)).fetchall() == []
+        columns = {
+            item['column_name']
+            for item in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name='agent_sessions'"
+            ).fetchall()
+        }
+        assert 'tags' not in columns
+        fresh = world.store.project(conn, f'shop-{uuid4().hex[:6]}')  # no trigger after down
+        assert conn.execute(ASSISTANTS, (fresh,)).fetchall() == []
+        conn.commit()
+        run(conn, UP)
+        row = conn.execute('SELECT purpose,tags,agent_config FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
+        assert [item['name'] for item in conn.execute(ASSISTANTS, (fresh,)).fetchall()] == [
+            'Environment assistant',
+            'Server assistant',
+            'Service assistant',
+        ]
+    assert row['purpose'] == 'resource' and row['tags'] == [f'servers/{world.server["id"]}']
+    assert row['agent_config']['proposal_tools'] == ['propose_document']
+
+
+def test_up_seeds_the_assistant_prompts_for_existing_workspaces(world):
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        project = world.store.project(conn, f'shop-{uuid4().hex[:6]}')
+        conn.commit()
+        run(conn, UP)
+        names = [item['name'] for item in conn.execute(ASSISTANTS, (project,)).fetchall()]
+    assert names == ['Environment assistant', 'Server assistant', 'Service assistant']
+
+
+def test_down_refuses_a_customized_assistant_prompt(world):
+    with world.store.connect() as conn:
+        conn.execute(
+            "UPDATE ka.documentation_prompts SET revision=revision+1 WHERE project_id=%s AND name='Service assistant'",
+            (world.project,),
+        )
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match='Service assistant prompt has been customized'):
+            run(conn, DOWN)
+
+
+def test_down_refuses_service_and_environment_runs(world):
+    created = world.client.post(
+        '/api/sessions',
+        headers=HEADERS,
+        json={
+            'started_from': {'service_id': str(world.nginx)},
+            'model_id': world.model,
+            'system_prompt': 'You answer.',
+            'message': 'Alive?',
+        },
+    )
+    assert created.status_code == 201, created.text
+    with world.store.connect() as conn:
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match='started from a service or an environment'):
+            run(conn, DOWN)

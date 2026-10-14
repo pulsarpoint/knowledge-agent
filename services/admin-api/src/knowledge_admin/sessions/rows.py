@@ -14,7 +14,7 @@ NO_MODEL = 'Choose an enabled model.'
 CLOSED = 'This session is closed. Start a new session.'
 NOTHING_TO_STOP = 'The agent is not working, so there is nothing to stop.'
 
-SessionPurpose = Literal['documents', 'test', 'event', 'discovery', 'revision']
+SessionPurpose = Literal['documents', 'test', 'event', 'resource', 'revision']
 
 SELECTION = ('code_project_ids', 'collection_ids', 'environment_ids', 'service_ids', 'server_ids')
 
@@ -50,7 +50,7 @@ class MessageInput(BaseModel):
 
 def _select(extra: str = '') -> str:
     return f"""SELECT s.id,s.title,s.agent_id,coalesce(a.name, '{AD_HOC_NAME}') AS agent_name,m.name AS model_name,s.status,s.status_message,s.turns,
-        s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
+        s.input_tokens,s.output_tokens,s.cached_tokens,s.purpose,s.tags,s.model_calls,s.reasoning_tokens,s.document_id,d.title AS document_title,s.folder,
         coalesce(s.lease_expires_at > now(), false) AS worker_active,
         (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
         s.created_at,s.last_activity_at,s.closed_at,{SESSION_DRAFT}{extra}

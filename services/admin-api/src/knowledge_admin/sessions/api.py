@@ -77,11 +77,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         purpose: SessionPurpose | None = None,
         document_id: UUID | None = None,
         agent_id: str | None = None,
-        server_id: UUID | None = None,
+        tag: str | None = Query(None, max_length=120),
         offset: int = Query(0, ge=0),
     ) -> dict:
-        """Runs, newest first: those started from a document (open first, then by activity), of one purpose, an
-        agent's Test and event sessions, or the runs started from a server (with their proposal counts)."""
+        """Runs, newest first: those started from a document or having a tag (both open first, then by activity; a
+        tag's runs with their proposal counts: a resource's chats), of one purpose, or an agent's Test and event
+        sessions."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
@@ -96,11 +97,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if agent_id is not None:
                 where.append("s.agent_id=%s AND s.purpose IN ('test','event')")
                 values.append(agent_id)
-            if server_id is not None:
-                where.append("s.server_id=%s AND s.purpose='discovery'")
-                values.append(server_id)
-            query = LIST_WITH_PROPOSALS if server_id is not None else LIST
-            order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
+            if tag is not None:
+                where.append('s.tags @> ARRAY[%s]::text[]')
+                values.append(tag)
+            query = LIST_WITH_PROPOSALS if tag is not None else LIST
+            order = (
+                "s.status='closed',s.last_activity_at DESC,s.id"
+                if document_id or tag is not None
+                else 's.created_at DESC,s.id'
+            )
             return {
                 'sessions': conn.execute(
                     f'{query} WHERE {" AND ".join(where)} ORDER BY {order} LIMIT %s OFFSET %s',
@@ -115,10 +120,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         agent_id: str | None = Query(None),
         new_document: bool = Query(False),
         server_id: UUID | None = Query(None),
+        service_id: UUID | None = Query(None),
+        environment_id: UUID | None = Query(None),
     ) -> dict:
         db = database()
-        starts = sum((document_id is not None, new_document, server_id is not None))
-        if starts > 1 or (agent_id is not None and (new_document or server_id is not None)):
+        resources = sum(item is not None for item in (server_id, service_id, environment_id))
+        starts = sum((document_id is not None, new_document)) + resources
+        if starts > 1 or (agent_id is not None and (new_document or resources)):
             raise HTTPException(400, start.ONE_START)
         if agent_id is not None and document_id is not None:
             raise HTTPException(400, 'Choose a document or an agent.')
@@ -130,7 +138,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 'SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)
             ).fetchone()
             return start.options(
-                conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document, server_id
+                conn,
+                db.project(conn, app_name),
+                actor['id'] if actor else None,
+                document_id,
+                new_document,
+                server_id,
+                service_id,
+                environment_id,
             )
 
     @router.post('/preview')

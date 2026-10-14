@@ -39,8 +39,9 @@ def run(conn, name):
 
 
 def before(conn):
-    """Roll 0104 back so old-shape rows can be written."""
+    """Roll 0104 back (0106 first: discovery runs) so old-shape rows can be written."""
     conn.commit()
+    run(conn, '0106_resource_runs.down.sql')
     run(conn, DOWN)
 
 

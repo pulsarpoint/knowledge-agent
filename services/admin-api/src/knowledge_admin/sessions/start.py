@@ -3,6 +3,7 @@ every run; where it is started from is a label (started_from), and what it may u
 (agent_id) starts from its own configuration, which the request can only narrow (narrow)."""
 
 import hashlib
+import re
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -33,12 +34,19 @@ from knowledge_admin.knowledge_agents.run_resources import (
 )
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
-from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, PROPOSAL_TOOLS, SUBAGENT, needs_met
+from knowledge_admin.tools.catalog import (
+    CATALOG,
+    DOCUMENT_EDIT_TOOLS,
+    PROPOSAL_STARTS,
+    PROPOSAL_TOOLS,
+    SUBAGENT,
+    needs_met,
+)
 
 REVISION_TAG = 'document-revision'
 WRITE_TAG = 'documentation'
-DISCOVERY_TAG = 'server-discovery'
-ONE_START = 'Choose one starting point: a document, a new document or a server.'
+ASSISTANT_TAG = 'assistant'  # with the resource type's tag (server, service, environment): a chat prompt for it
+ONE_START = 'Choose one starting point: a document, a new document, a server, a service or an environment.'
 ID_OR_NEW = 'Give a document id or a new document.'
 ONE_NEW = 'One new document per run.'
 NOT_THE_START = 'The new document must be the one the run starts from.'
@@ -53,9 +61,21 @@ REQUIRES = {
     'documents': 'a collection',
     'ssh': 'at least one server',
     'editable_document': 'a document to edit',
-    'started_from_server': 'a run started from a server',
+    'server_proposals': 'a run started from a server',
+    'resource_proposals': 'a run started from a server, service or environment',
 }
 SERVER_FACTS = 'Server: {name} (hostname {hostname}, id {id}).'
+SERVICE_FACTS = 'Service: {name} (id {id}).'
+ENVIRONMENT_FACTS = 'Environment: {name} (id {id}). Services: {services}. Servers: {servers}.'
+# A chat on a resource: its tag (lists find its chats by it) and the table its id is in.
+RESOURCE_TYPES = {'server': 'servers', 'service': 'services', 'environment': 'environments'}
+RESOURCE_NOT_FOUND = {'service': 'Service not found.', 'environment': 'Environment not found.'}
+TAG = re.compile(r'^[a-z0-9_-]+(/[a-z0-9_-]+)*$')
+TAG_LENGTH = 120
+MAX_TAGS = 10
+BAD_TAG = 'A tag is lowercase letters, digits, _ and -, in parts separated by /, at most 120 characters: {tag}'
+TOO_MANY_TAGS = 'A run takes at most 10 tags.'
+RESOURCE_TAG = 'A resource tag comes from where the run starts: {tag}'
 NO_EXPERT = 'This expert is not available: {id}.'
 NOT_SET_UP = 'SSH is not set up for this server.'
 NOT_ALLOWED = 'SSH is not allowed for this server.'
@@ -112,12 +132,28 @@ class StartedFrom(BaseModel):
     document_id: UUID | None = None
     new_document: NewDocument | None = None
     server_id: UUID | None = None
+    service_id: UUID | None = None
+    environment_id: UUID | None = None
 
     @model_validator(mode='after')
     def valid(self):
-        if sum(item is not None for item in (self.document_id, self.new_document, self.server_id)) != 1:
+        starts = (self.document_id, self.new_document, self.server_id, self.service_id, self.environment_id)
+        if sum(item is not None for item in starts) != 1:
             raise ValueError(ONE_START)
         return self
+
+    def resource(self) -> tuple[str, UUID] | None:
+        """(type, id) of the server, service or environment the run starts from; None for a document start."""
+        for kind in RESOURCE_TYPES:
+            value = getattr(self, f'{kind}_id')
+            if value is not None:
+                return kind, value
+        return None
+
+
+def resource_tag(kind: str, resource_id) -> str:
+    """The tag of a run started from a resource: servers/<id>, services/<id> or environments/<id>."""
+    return f'{RESOURCE_TYPES[kind]}/{resource_id}'
 
 
 class StartInput(BaseModel):
@@ -136,6 +172,7 @@ class StartInput(BaseModel):
     tools: list[str] = Field(default_factory=list, max_length=100)
     expert_ids: list[UUID] = Field(default_factory=list, max_length=50)
     subagents: bool = False
+    tags: list[str] = Field(default_factory=list, max_length=100)  # at most MAX_TAGS with the resource tag (valid)
 
     @model_validator(mode='after')
     def valid(self):
@@ -155,6 +192,15 @@ class StartInput(BaseModel):
                 raise ValueError('Enter a system prompt')
         self.tools = list(dict.fromkeys(self.tools))
         self.expert_ids = list(dict.fromkeys(self.expert_ids))
+        self.tags = list(dict.fromkeys(tag.strip() for tag in self.tags))
+        own = self.resource_tag()
+        for tag in self.tags:
+            if len(tag) > TAG_LENGTH or not TAG.match(tag):
+                raise ValueError(BAD_TAG.format(tag=tag[:TAG_LENGTH]))
+            if tag != own and tag.split('/', 1)[0] in RESOURCE_TYPES.values():
+                raise ValueError(RESOURCE_TAG.format(tag=tag))
+        if len(self.run_tags()) > MAX_TAGS:
+            raise ValueError(TOO_MANY_TAGS)
         merged: dict[UUID, bool] = {}
         new = [entry for entry in self.resources.documents if entry.new is not None]
         if len(new) > 1:
@@ -165,10 +211,26 @@ class StartInput(BaseModel):
         self.resources.documents = [DocumentAccess(id=key, editable=value) for key, value in merged.items()] + new
         return self
 
+    def resource(self) -> tuple[str, UUID] | None:
+        """The resource an ad-hoc run starts from (a saved agent starts from its own configuration)."""
+        if self.agent_id is not None or self.started_from is None:
+            return None
+        return self.started_from.resource()
+
+    def resource_tag(self) -> str | None:
+        found = self.resource()
+        return resource_tag(*found) if found else None
+
+    def run_tags(self) -> list[str]:
+        """The run's tags: the request's and the tag of the resource it starts from."""
+        own = self.resource_tag()
+        return [*self.tags, *([own] if own and own not in self.tags else [])]
+
 
 def choosable() -> list:
     """The tools a person can switch on for a run: not "Answer only from documents", not run_subagent (its own
-    switch). The proposal tools work only in a run started from a server (their need says so)."""
+    switch). The proposal tools work only in a run started from a resource whose request turns them on (their need
+    says so)."""
     return [spec for spec in CATALOG.values() if spec.needs != 'grounded' and spec.name != SUBAGENT]
 
 
@@ -182,9 +244,14 @@ def write_prompt_id(project: UUID) -> UUID:
     return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:write-document:{project}'.encode()).hexdigest())
 
 
-def discovery_prompt_id(project: UUID) -> UUID:
-    """The seeded "Server discovery" prompt's id (migration 0097: md5(...)::uuid)."""
-    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:server-discovery:{project}'.encode()).hexdigest())
+def assistant_prompt_id(project: UUID, kind: str) -> UUID:
+    """The seeded "<Type> assistant" prompt's id of a resource type (migration 0106: md5(...)::uuid)."""
+    return UUID(hashlib.md5(f'knowledge-agent-v3:prompts:{kind}-assistant:{project}'.encode()).hexdigest())
+
+
+def proposals_offered(kind: str | None) -> tuple[str, ...]:
+    """The proposal tools a run started from this resource type may ask for (none for other runs)."""
+    return tuple(name for name in PROPOSAL_TOOLS if kind is not None and kind in PROPOSAL_STARTS[CATALOG[name].needs])
 
 
 def start_server(conn, project: UUID, server_id: UUID) -> dict:
@@ -196,11 +263,48 @@ def start_server(conn, project: UUID, server_id: UUID) -> dict:
     return server
 
 
-def server_context(value: 'StartInput', server: dict | None) -> str:
-    """The run's context: the request's, or for a run started from a server the facts about it."""
-    if value.context or server is None:
+def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
+    """The service or environment a run starts from, with the facts its context gives: it exists in this workspace.
+    No SSH is needed: what it brings that the run cannot reach is left out (inventory and documents still work)."""
+    if kind == 'service':
+        row = conn.execute(
+            'SELECT id,name FROM ka.services WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
+        row['facts'] = SERVICE_FACTS.format(name=row['name'], id=row['id'])
+        return row
+    row = conn.execute(
+        'SELECT id,name FROM ka.environments WHERE id=%s AND project_id=%s FOR SHARE', (resource_id, project)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
+
+    def names(query: str) -> str:
+        return ', '.join(item['name'] for item in conn.execute(query, (resource_id,)).fetchall()) or 'none'
+
+    row['facts'] = ENVIRONMENT_FACTS.format(
+        name=row['name'],
+        id=row['id'],
+        services=names(
+            """SELECT s.name FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
+            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id"""
+        ),
+        servers=names(
+            """SELECT s.name FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
+            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id"""
+        ),
+    )
+    return row
+
+
+def resource_context(value: 'StartInput', origin: dict | None) -> str:
+    """The run's context: the request's, or for a run started from a resource the facts about it."""
+    if value.context or origin is None or value.resource() is None:
         return value.context
-    return SERVER_FACTS.format(name=server['name'], hostname=server['hostname'], id=server['id'])
+    if 'facts' in origin:
+        return origin['facts']
+    return SERVER_FACTS.format(name=origin['name'], hostname=origin['hostname'], id=origin['id'])
 
 
 def server_reason(row: dict) -> str | None:
@@ -372,19 +476,29 @@ def usable_tools(conn, project: UUID, agent_id: str, conninfo: str) -> list[str]
 def build(
     conn, project: UUID, value: StartInput, session_id: UUID | None, conninfo: str
 ) -> tuple[dict, dict, dict | None]:
-    """(pinned configuration, model, where it starts: the document or the server; None for a saved agent or a new
+    """(pinned configuration, model, where it starts: the document or the resource; None for a saved agent or a new
     document): preview and start share it, so they pin the same configuration except the random `new:` id of a new
-    document. A run started from a server has SSH to it (added to the chosen servers when missing), reads the services
-    deployed on it (pinned without what they would bring) and records it as `started_from_server`."""
+    document. A run started from a resource records it as `started_from` ({type, id, name}) and is chosen for it
+    (`chosen_resources`). A server run has SSH to it (added to the chosen servers when missing) and reads the services
+    deployed on it (pinned without what they would bring); a service brings its code projects and the servers it is
+    deployed on, an environment its services and servers (what the run cannot reach is left out). The proposal tools
+    the request turns on are recorded as `proposal_tools`: their need is met only there."""
     if value.agent_id is not None:
         pinned, model = narrow(conn, project, value.agent_id, value, conninfo)
         return pinned, model, None
-    server = None
+    server = origin = None
     selection = value.resources
-    if value.started_from.server_id is not None:
-        server = start_server(conn, project, value.started_from.server_id)
+    resource = value.resource()
+    if resource is not None and resource[0] == 'server':
+        server = origin = start_server(conn, project, resource[1])
         if server['id'] not in selection.server_ids:
             selection = selection.model_copy(update={'server_ids': [*selection.server_ids, server['id']]})
+    elif resource is not None:
+        kind, resource_id = resource
+        origin = start_resource(conn, project, kind, resource_id)
+        key = f'{kind}_ids'
+        if origin['id'] not in getattr(selection, key):
+            selection = selection.model_copy(update={key: [*getattr(selection, key), origin['id']]})
     started = value.started_from.new_document
     entries = list(value.resources.documents)
     new = next((entry.new for entry in entries if entry.new is not None), None)
@@ -413,7 +527,7 @@ def build(
     unknown = [name for name in value.tools if name not in names]
     if unknown:
         raise HTTPException(400, UNKNOWN_TOOL.format(names=', '.join(unknown)))
-    context = server_context(value, server)
+    context = resource_context(value, origin)
     system_prompt = value.system_prompt + (f'\n\n# Context\n\n{context}' if context else '')
     try:
         pinned = ad_hoc_config(conn, project, model=model, system_prompt=system_prompt, selection=selection)
@@ -424,7 +538,9 @@ def build(
             'SELECT DISTINCT service_id FROM ka.service_deployments WHERE server_id=%s', (server['id'],)
         ).fetchall()
         pinned = pin_services(conn, project, pinned, [row['service_id'] for row in deployed])
-        pinned['started_from_server'] = {'id': str(server['id']), 'name': server['name']}
+    if resource is not None:
+        pinned['started_from'] = {'type': resource[0], 'id': str(origin['id']), 'name': origin['name']}
+        pinned['proposal_tools'] = [name for name in PROPOSAL_TOOLS if name in value.tools]
     keyed = [server for server in pinned['ssh']['servers'] if server.get('private_key_ref') is not None]
     if len(keyed) != len(pinned['ssh']['servers']):  # a server a service or environment brought in, without an SSH key
         pinned['ssh'] = {**pinned['ssh'], 'servers': keyed, 'enabled': pinned['ssh']['enabled'] and bool(keyed)}
@@ -456,7 +572,7 @@ def build(
             raise HTTPException(400, NO_EXPERT.format(id=expert_id))
     pinned['experts'] = [experts[str(expert_id)] for expert_id in value.expert_ids]
     pinned['project_id'] = str(project)
-    return jsonable_encoder(pinned), model, server if server is not None else target
+    return jsonable_encoder(pinned), model, origin if origin is not None else target
 
 
 def start_run(
@@ -472,29 +588,32 @@ def start_run(
     title: str | None = None,
 ) -> UUID:
     """Start a run: build its configuration, insert the session (purpose by where it starts: a document → revision,
-    a new document → documents, a server → discovery, a saved agent → test, or `purpose` for a saved agent, as an
-    event handler starts it with its event and handler), its first input, and audit it. POST /api/sessions and the
+    a new document → documents, a server, service or environment → resource (tagged with it; server_id for a server),
+    a saved agent → test, or `purpose` for a saved agent, as an event handler starts it with its event and handler),
+    its tags (the request's and its resource's), its first input, and audit it. POST /api/sessions and the
     event processor share it. The title is the message's first line unless one is given (an event run's names its event)."""
     if value.agent_id is None and (purpose, event_id, handler_id, title) != (None, None, None, None):
         raise ValueError('Only a saved agent run takes a purpose, an event, a handler or a title.')
     session_id = uuid4()
     pinned, model, origin = build(conn, project, value, session_id, conninfo)
     title = (title or value.message.splitlines()[0])[:TITLE_LENGTH]
-    # the proposal tools are offered only for a run started from a server: audited as off only there
-    from_server = value.started_from is not None and value.started_from.server_id is not None
+    resource = value.resource()
+    # the proposal tools are offered only for runs started from a resource they work on: audited as off only there
+    offered = proposals_offered(resource[0] if resource else None)
     tools_off = sorted(
         item['tool']
         for item in pinned['tools']['items']
         if item['tool'] in CATALOG
         and item['mode'] != 'on'
-        and (from_server or CATALOG[item['tool']].needs != 'started_from_server')
+        and (item['tool'] not in PROPOSAL_TOOLS or item['tool'] in offered)
     )
+    tags = value.run_tags()
     if value.agent_id is not None:
         snapshot = {'system_prompt': agent_system_prompt(pinned), 'context': value.context}
         conn.execute(
-            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
             target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources,event_id,handler_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s)""",
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
@@ -503,6 +622,7 @@ def start_run(
                 model['id'],
                 title,
                 purpose or 'test',
+                tags,
                 Jsonb(snapshot),
                 Jsonb({'folders': [], 'code_project_ids': []}),
                 Jsonb(pinned),
@@ -518,33 +638,36 @@ def start_run(
             'expert_ids': [entry['id'] for entry in pinned['experts']],
             'subagents': value.subagents,
             'resources': pinned.get('run_resources'),
+            'tags': tags,
         }
-    elif value.started_from.server_id is not None:
-        server_id = value.started_from.server_id
+    elif resource is not None:
+        kind, resource_id = resource
         snapshot = {
             'system_prompt': value.system_prompt,
-            'context': server_context(value, origin),
+            'context': resource_context(value, origin),
             'prompt_id': value.prompt_id,
         }
         conn.execute(
-            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
             server_id,target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
-            VALUES (%s,%s,NULL,%s,%s,%s,'discovery',%s,NULL,%s,%s,%s,%s)""",
+            VALUES (%s,%s,NULL,%s,%s,%s,'resource',%s,%s,NULL,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
                 actor,
                 model['id'],
                 title,
-                server_id,
+                tags,
+                resource_id if kind == 'server' else None,
                 Jsonb(jsonable_encoder(snapshot)),
-                Jsonb({'server_id': str(server_id)}),
+                Jsonb({f'{kind}_id': str(resource_id)}),
                 Jsonb(pinned),
                 Jsonb(pinned['run_resources']),
             ),
         )
         details = {
-            'server_id': server_id,
+            f'{kind}_id': resource_id,
+            'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'tools_off': tools_off,
@@ -555,15 +678,16 @@ def start_run(
         new = value.started_from.new_document.model_dump()
         snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
         conn.execute(
-            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
             target_document_id,folder,document_name,prompt_snapshot,context_snapshot,agent_config,run_resources)
-            VALUES (%s,%s,NULL,%s,%s,%s,'documents',NULL,%s,%s,%s,%s,%s,%s)""",
+            VALUES (%s,%s,NULL,%s,%s,%s,'documents',%s,NULL,%s,%s,%s,%s,%s,%s)""",
             (
                 session_id,
                 project,
                 actor,
                 model['id'],
                 title,
+                tags,
                 new['folder'],
                 new['name'],
                 Jsonb(jsonable_encoder(snapshot)),
@@ -574,6 +698,7 @@ def start_run(
         )
         details = {
             'new_document': new,
+            'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'tools_off': tools_off,
@@ -585,15 +710,16 @@ def start_run(
         snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
         try:
             conn.execute(
-                """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,
+                """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
                 target_document_id,prompt_snapshot,context_snapshot,agent_config,run_resources)
-                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s)""",
+                VALUES (%s,%s,NULL,%s,%s,%s,'revision',%s,%s,%s,%s,%s,%s)""",
                 (
                     session_id,
                     project,
                     actor,
                     model['id'],
                     title,
+                    tags,
                     document_id,
                     Jsonb(jsonable_encoder(snapshot)),
                     Jsonb({'document_id': str(document_id)}),
@@ -607,6 +733,7 @@ def start_run(
             raise HTTPException(404, DOCUMENT_NOT_FOUND) from None
         details = {
             'document_id': document_id,
+            'tags': tags,
             'model_id': model['id'],
             'prompt_id': value.prompt_id,
             'tools_off': tools_off,
@@ -632,13 +759,28 @@ def options(
     document_id: UUID | None,
     new_document: bool = False,
     server_id: UUID | None = None,
+    service_id: UUID | None = None,
+    environment_id: UUID | None = None,
 ) -> dict:
     """What a start panel offers: models (the last one used first), prompts tagged for revision (for a new document,
-    tagged documentation; for a server, server-discovery), resources (marked linked to the starting document or
-    server), the choosable tools (the proposal tools only for a server; for a server, none that edits a document) and
-    experts."""
+    tagged documentation; for a server, service or environment, the prompts tagged assistant and with its type, its
+    seeded assistant prompt the first choice), resources (marked linked to the starting document or resource), the choosable
+    tools (the proposal tools only where a resource run may ask for them; for a resource, none that edits a
+    document) and experts."""
     document = target_document(conn, project, document_id) if document_id is not None else None
     server = server_row(conn, project, server_id) if server_id is not None else None
+    started = (
+        ('server', server_id)
+        if server_id is not None
+        else ('service', service_id)
+        if service_id is not None
+        else ('environment', environment_id)
+        if environment_id is not None
+        else None
+    )
+    kind = started[0] if started else None
+    if kind in ('service', 'environment'):
+        start_resource(conn, project, kind, started[1])  # 404 when it is not in this workspace
 
     def links(key: str) -> list:
         return (document[key] or []) if document else []
@@ -656,11 +798,11 @@ def options(
             ORDER BY created_at DESC LIMIT 1""",
             (document_id, actor),
         ).fetchone()
-    elif server_id is not None:
+    elif started is not None:
         last = conn.execute(
-            """SELECT model_id FROM ka.agent_sessions WHERE server_id=%s AND actor_id=%s
+            """SELECT model_id FROM ka.agent_sessions WHERE tags @> ARRAY[%s]::text[] AND actor_id=%s
             ORDER BY created_at DESC LIMIT 1""",
-            (server_id, actor),
+            (resource_tag(*started), actor),
         ).fetchone()
     else:
         last = conn.execute(
@@ -670,15 +812,23 @@ def options(
         ).fetchone()
     ids = [item['id'] for item in models]
     default_model = last['model_id'] if last and last['model_id'] in ids else (ids[0] if ids else None)
-    prompts = conn.execute(
-        """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
-        JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-        WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s]::text[] ORDER BY lower(p.name),p.id""",
-        (project, DISCOVERY_TAG if server else WRITE_TAG if new_document else REVISION_TAG),
-    ).fetchall()
+    if kind is not None:
+        prompts = conn.execute(
+            """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
+            JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
+            WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s,%s]::text[] ORDER BY lower(p.name),p.id""",
+            (project, ASSISTANT_TAG, kind),
+        ).fetchall()
+    else:
+        prompts = conn.execute(
+            """SELECT p.id,p.name,v.content FROM ka.documentation_prompts p
+            JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
+            WHERE p.project_id=%s AND p.enabled AND p.tags @> ARRAY[%s]::text[] ORDER BY lower(p.name),p.id""",
+            (project, WRITE_TAG if new_document else REVISION_TAG),
+        ).fetchall()
     seeded = (
-        discovery_prompt_id(project)
-        if server
+        assistant_prompt_id(project, kind)
+        if kind
         else write_prompt_id(project)
         if new_document
         else revise_prompt_id(project)
@@ -694,6 +844,10 @@ def options(
 
     servers = []
     linked_servers = {str(i) for i in links('server_ids')} | ({str(server['id'])} if server else set())
+    linked_services = {str(i) for i in links('service_ids')} | ({str(service_id)} if service_id else set())
+    linked_environments = {str(i) for i in links('environment_ids')} | (
+        {str(environment_id)} if environment_id else set()
+    )
     for row in conn.execute(
         """SELECT id,name,enabled,ssh_allowed,credential_id FROM ka.servers WHERE project_id=%s
             ORDER BY lower(name),id""",
@@ -723,13 +877,13 @@ def options(
     resources = {
         'servers': servers,
         'services': brings(
-            listed('SELECT id,name FROM ka.services WHERE project_id=%s ORDER BY lower(name),id', links('service_ids')),
+            listed('SELECT id,name FROM ka.services WHERE project_id=%s ORDER BY lower(name),id', linked_services),
             False,
         ),
         'environments': brings(
             listed(
                 'SELECT id,name FROM ka.environments WHERE project_id=%s ORDER BY lower(name),id',
-                links('environment_ids'),
+                linked_environments,
             ),
             True,
         ),
@@ -767,7 +921,8 @@ def options(
                     'requires': REQUIRES.get(spec.needs) if spec.needs else None,
                 }
                 for spec in choosable()
-                if (spec.needs != 'editable_document' if server else spec.name not in PROPOSAL_TOOLS)
+                if (spec.name in proposals_offered(kind) if spec.name in PROPOSAL_TOOLS else True)
+                and (kind is None or spec.needs != 'editable_document')
             ],
             'experts': experts,
         }

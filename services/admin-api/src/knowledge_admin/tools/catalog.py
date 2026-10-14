@@ -16,7 +16,15 @@ from knowledge_admin.capabilities.shell import client as shell
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
 Need = Literal[
-    'files', 'code', 'code_graph', 'documents', 'grounded', 'ssh', 'started_from_server', 'editable_document'
+    'files',
+    'code',
+    'code_graph',
+    'documents',
+    'grounded',
+    'ssh',
+    'server_proposals',
+    'resource_proposals',
+    'editable_document',
 ]
 
 
@@ -412,14 +420,14 @@ class ProposeDocument(Proposal):
     title: str = Field(
         min_length=1,
         max_length=240,
-        description='The document title. A document with this title already attached to the same server or service gets a new version.',
+        description='The document title. A document with this title already attached to the same server, service or environment gets a new version.',
     )
     markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
     description: str = Field('', max_length=4000, description='One or two sentences on what the document covers.')
     about_service: str | None = Field(
         None,
         max_length=200,
-        description='The service the document is about (recorded, or proposed earlier in this run); empty: the server.',
+        description='The service the document is about (recorded, or proposed earlier in this run); empty: what the run started from.',
     )
 
 
@@ -450,9 +458,9 @@ PROPOSE_SERVICE = (
     'service again replaces your earlier proposal. If the call is refused, correct what it says and call again.'
 )
 PROPOSE_DOCUMENT = (
-    'Propose a document about this server, or about one of its services (about_service), for an '
-    'administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same '
-    'title for the same server or service again replaces your earlier proposal.'
+    'Propose a document about the server, service or environment this run started from, or about a service '
+    '(about_service), for an administrator to accept or reject. Never include passwords, keys or tokens. '
+    'Proposing the same title about the same resource again replaces your earlier proposal.'
 )
 SAVE_DOCUMENT = (
     'Save your draft of the document with this id: the complete text (optionally a new title or description). '
@@ -687,22 +695,22 @@ CATALOG: dict[str, ToolSpec] = {
             'propose_service',
             'inventory',
             'Propose service',
-            'Propose a service for review (runs started from a server).',
+            'Propose a service for review (runs started from a server that turn it on).',
             PROPOSE_SERVICE,
             ProposeService,
             _call(discovery_tools.propose_service),
-            'started_from_server',
+            'server_proposals',
             _never,
         ),
         ToolSpec(
             'propose_document',
             'inventory',
             'Propose document',
-            'Propose a document for review (runs started from a server).',
+            'Propose a document for review (runs started from a server, service or environment that turn it on).',
             PROPOSE_DOCUMENT,
             ProposeDocument,
             _call(discovery_tools.propose_document),
-            'started_from_server',
+            'resource_proposals',
             _never,
         ),
         ToolSpec(
@@ -743,8 +751,11 @@ CATALOG: dict[str, ToolSpec] = {
 
 DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
 PROPOSAL_TOOLS = ('propose_service', 'propose_document')
-# Never chosen for a saved agent: a run is started from a server, and documents are given, per run.
-RUN_ONLY_NEEDS = ('started_from_server', 'editable_document')
+# Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), and documents are
+# given, per run.
+RUN_ONLY_NEEDS = ('server_proposals', 'resource_proposals', 'editable_document')
+# Where each proposal tool works: the resource types a run may start from to ask for it.
+PROPOSAL_STARTS = {'server_proposals': ('server',), 'resource_proposals': ('server', 'service', 'environment')}
 NEED_REASONS: dict[str, str] = {
     'files': 'Needs code projects, or documents without "Answer only from documents"',
     'code': 'Needs code projects',
@@ -752,7 +763,8 @@ NEED_REASONS: dict[str, str] = {
     'documents': 'Needs documents',
     'grounded': 'Needs "Answer only from documents"',
     'ssh': 'Needs SSH servers',
-    'started_from_server': 'Needs a run started from a server',
+    'server_proposals': 'Needs a run started from a server that turns it on',
+    'resource_proposals': 'Needs a run started from a server, service or environment that turns it on',
     'editable_document': 'Needs a document to edit',
 }
 NEED_TABS: dict[str, str] = {
@@ -780,8 +792,10 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
         return _documents(config)
     if need == 'grounded':
         return _grounded(config)
-    if need == 'started_from_server':
-        return bool(config.get('started_from_server'))
+    if need in PROPOSAL_STARTS:  # only a run started from such a resource whose request turned the tool on
+        started = config.get('started_from') or {}
+        tool = 'propose_service' if need == 'server_proposals' else 'propose_document'
+        return started.get('type') in PROPOSAL_STARTS[need] and tool in config.get('proposal_tools', [])
     if need == 'editable_document':
         return any(entry.get('editable') for entry in config.get('document_access', []))
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)

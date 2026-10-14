@@ -370,7 +370,7 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
     [
         (
             {'started_from': {'new_document': NEW, 'document_id': str(uuid4())}},
-            'Choose one starting point: a document, a new document or a server.',
+            'Choose one starting point: a document, a new document, a server, a service or an environment.',
         ),
         ({'started_from': {'new_document': {**NEW, 'name': '!!!'}}}, 'Use letters or digits in the document name'),
         ({'started_from': {'new_document': {**NEW, 'folder': '../docs'}}}, FOLDER_RULE),

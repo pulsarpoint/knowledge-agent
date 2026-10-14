@@ -110,7 +110,7 @@ def test_a_run_needs_ssh_set_up_and_allowed(world):
 def test_one_starting_point(world):
     both = start(world, started_from={'server_id': world.server['id'], 'document_id': str(uuid4())})
     assert both.status_code == 400 and ONE_START in both.json()['error']['message']
-    assert ONE_START == 'Choose one starting point: a document, a new document or a server.'
+    assert ONE_START == 'Choose one starting point: a document, a new document, a server, a service or an environment.'
 
 
 def test_a_run_pins_its_server_and_the_context_facts(world):
@@ -120,7 +120,8 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
     sid = created.json()['id']
     config = pinned_of(world, sid)
     assert [server['id'] for server in config['ssh']['servers']] == [world.server['id']]
-    assert config['started_from_server'] == {'id': world.server['id'], 'name': 'web-1'}
+    assert config['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
+    assert config['proposal_tools'] == ['propose_service', 'propose_document']
     assert 'discovery' not in config and 'session_id' not in config
     assert config['project_id'] == str(world.project)
     assert config['system_prompt']['content'] == (
@@ -139,7 +140,7 @@ def test_a_run_pins_its_server_and_the_context_facts(world):
         ).fetchone()
         [first] = conn.execute('SELECT text FROM ka.agent_session_inputs WHERE session_id=%s', (sid,)).fetchall()
     assert (
-        session['purpose'] == 'discovery'
+        session['purpose'] == 'resource'
         and str(session['server_id']) == world.server['id']
         and session['agent_id'] is None
     )
@@ -230,11 +231,11 @@ def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts
     ).json()
     ssh_ready(world, other)
     start(world, other)
-    runs = world.client.get(f'/api/sessions?server_id={world.server["id"]}', headers=HEADERS).json()['sessions']
+    runs = world.client.get(f'/api/sessions?tag=servers/{world.server["id"]}', headers=HEADERS).json()['sessions']
     assert [run['id'] for run in runs] == [second, first]
     assert (runs[1]['pending'], runs[1]['accepted'], runs[1]['rejected']) == (1, 0, 1)
     assert (runs[0]['pending'], runs[0]['accepted'], runs[0]['rejected']) == (0, 0, 0)
-    assert runs[1]['status'] == 'working' and runs[0]['model_name'] == 'GPT' and runs[0]['purpose'] == 'discovery'
+    assert runs[1]['status'] == 'working' and runs[0]['model_name'] == 'GPT' and runs[0]['purpose'] == 'resource'
 
 
 def test_a_run_has_only_the_experts_it_chose(world):
@@ -271,11 +272,11 @@ def test_the_options_for_a_server(world):
     assert server['linked'] and server['id'] == world.server['id'] and server['reason'] == NOT_CONFIGURED
     with world.store.connect() as conn:
         seeded = conn.execute(
-            """SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND name='Server discovery'""",
+            """SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND name='Server assistant'""",
             (world.project,),
         ).fetchone()['id']
     assert options['default_prompt_id'] == str(seeded)
-    assert [prompt['name'] for prompt in options['prompts']] == ['Server discovery']
+    assert [prompt['name'] for prompt in options['prompts']] == ['Server assistant']
     tools = {tool['name']: tool for tool in options['tools']}
     assert {'propose_service', 'propose_document', 'ssh_run'} <= set(tools)
     assert tools['propose_service']['requires'] == 'a run started from a server'
@@ -322,4 +323,4 @@ def test_the_old_discovery_routes_are_gone(world):
 def test_a_started_run_is_found_by_its_id(world):
     ssh_ready(world)
     detail = start(world).json()
-    assert UUID(detail['id']) and detail['purpose'] == 'discovery'
+    assert UUID(detail['id']) and detail['purpose'] == 'resource'

@@ -1,5 +1,5 @@
 """Server discovery: the server page's data and reviewing the proposals of discovery runs. A discovery run is an ordinary
-run started from a server through /api/sessions (sessions/start.py: started_from.server_id, purpose discovery); its
+run started from a server through /api/sessions (sessions/start.py: started_from.server_id, purpose resource); its
 proposal tools are in capabilities/discovery.py. What it does is its prompt's text ("Server discovery")."""
 
 from functools import partial
@@ -419,7 +419,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             if (
                 conn.execute(
-                    "SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s AND purpose='discovery'",
+                    "SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s AND purpose='resource'",
                     (session_id, project),
                 ).fetchone()
                 is None
