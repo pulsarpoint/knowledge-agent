@@ -17,7 +17,9 @@ from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 NEW = {'folder': 'payments-api-docs', 'name': 'Payments – API reference'}
-COLUMNS = 'document_id,status,edited,origin,markdown,title,description,revision,base_version_id,folder,slug,session_id'
+COLUMNS = (
+    'draft_of AS document_id,edited,origin,markdown,title,description,revision,base_version,folder,slug,session_id'
+)
 
 
 def body(s, **change):
@@ -49,14 +51,14 @@ def started(s) -> tuple[dict, dict, str]:
 def drafts(s, session_id) -> list[dict]:
     with s.store.connect() as conn:
         return conn.execute(
-            f'SELECT {COLUMNS} FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id',
+            f'SELECT {COLUMNS} FROM ka.documents WHERE is_draft AND session_id=%s ORDER BY created_at,id',
             (UUID(str(session_id)),),
         ).fetchall()
 
 
 def all_drafts(s) -> int:
     with s.store.connect() as conn:
-        return conn.execute('SELECT count(*) AS n FROM ka.document_drafts').fetchone()['n']
+        return conn.execute('SELECT count(*) AS n FROM ka.documents WHERE is_draft').fetchone()['n']
 
 
 def test_a_new_document_start_pins_a_new_entry_and_records_purpose_documents(sessions):
@@ -91,14 +93,13 @@ def test_the_first_save_creates_the_new_document_draft_and_later_saves_update_it
     run = UUID(session['id'])
     first = {
         'document_id': None,
-        'status': 'open',
         'edited': False,
-        'origin': 'agent',
+        'origin': 'generated',
         'markdown': '# API\n\nFirst.',
         'title': 'Payments – API reference',
         'description': '',
         'revision': 1,
-        'base_version_id': None,
+        'base_version': None,
         'folder': 'payments-api-docs',
         'slug': 'payments-api-reference',
         'session_id': run,
@@ -154,12 +155,7 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
             ),
             folder='payments-api-docs',
         )
-        document, version = (
-            saved['id'],
-            conn.execute('SELECT current_version_id FROM ka.documents WHERE id=%s', (saved['id'],)).fetchone()[
-                'current_version_id'
-            ],
-        )
+        document, version = saved['id'], saved['version']
     session, config, new_id = started(s)
     run = UUID(session['id'])
     assert call(config, 'get_document', document_id=new_id) == 'Not written yet.'
@@ -168,14 +164,13 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
     assert call(config, 'save_document', document_id=new_id, markdown='# New') == 'Saved draft (1 lines).'
     first = {
         'document_id': UUID(str(document)),
-        'status': 'open',
         'edited': False,
-        'origin': 'agent',
+        'origin': 'generated',
         'markdown': '# New',
         'title': 'Payments API',
         'description': 'The public API',
         'revision': 1,
-        'base_version_id': version,
+        'base_version': version,
         'folder': None,
         'slug': None,
         'session_id': run,
@@ -192,7 +187,7 @@ def metadata(s, session_id) -> list[tuple]:
         return [
             (row['purpose'], row['audience'], row['tags'])
             for row in conn.execute(
-                'SELECT purpose,audience,tags FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id',
+                'SELECT purpose,audience,tags FROM ka.documents WHERE is_draft AND session_id=%s ORDER BY created_at,id',
                 (UUID(str(session_id)),),
             ).fetchall()
         ]
@@ -212,7 +207,8 @@ def draft_ids(s, session_id) -> list[UUID]:
         return [
             row['id']
             for row in conn.execute(
-                'SELECT id FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id', (UUID(str(session_id)),)
+                'SELECT id FROM ka.documents WHERE is_draft AND session_id=%s ORDER BY created_at,id',
+                (UUID(str(session_id)),),
             )
         ]
 
@@ -235,6 +231,7 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
     )
     [draft] = draft_ids(s, run)
     document = UUID(str(promote(s, draft)['document_id']))
+    assert document == draft  # a brand-new draft becomes the document itself
     with s.store.connect() as conn:  # a person sets its metadata after the promote
         project = s.store.project(conn, 'shop')
         live = conn.execute('SELECT revision FROM ka.document_details WHERE id=%s', (document,)).fetchone()
@@ -255,29 +252,23 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
             ),
             document,
         )
-        version = conn.execute(
-            'SELECT v.id,v.version FROM ka.documents d JOIN ka.document_versions v '
-            'ON v.id=d.current_version_id WHERE d.id=%s',
-            (document,),
-        ).fetchone()
+        version = conn.execute('SELECT version FROM ka.documents WHERE id=%s', (document,)).fetchone()
     assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (
         f'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version {version["version"]}.'
     )
-    rows = drafts(s, run)
-    assert [row['status'] for row in rows] == ['promoted', 'open']
+    [row] = drafts(s, run)  # the promoted draft is the live document now
     assert {
-        key: rows[1][key]
-        for key in ('document_id', 'base_version_id', 'title', 'description', 'markdown', 'folder', 'slug')
+        key: row[key] for key in ('document_id', 'base_version', 'title', 'description', 'markdown', 'folder', 'slug')
     } == {
         'document_id': document,
-        'base_version_id': version['id'],
+        'base_version': version['version'],
         'title': 'API reference',
         'description': 'Endpoints',
         'markdown': '# API v2',
         'folder': None,
         'slug': None,
     }
-    assert metadata(s, run)[1] == ('reference', 'people', ['payments'])
+    assert metadata(s, run) == [('reference', 'people', ['payments'])]
     assert json.loads(call(config, 'get_document', document_id=new_id))['markdown'] == '# API v2'
 
 
@@ -308,10 +299,18 @@ def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions
 
 
 def resource_ids(s, draft_id) -> dict:
+    """The brand-new draft's built-for links as resource_ids."""
     with s.store.connect() as conn:
-        return conn.execute('SELECT resource_ids FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()[
-            'resource_ids'
-        ]
+        row = conn.execute(
+            """SELECT code_project_ids,environment_ids,service_ids,server_ids,deployment_ids
+            FROM ka.document_drafts_view WHERE id=%s""",
+            (draft_id,),
+        ).fetchone()
+        assert {
+            r['connection']
+            for r in conn.execute('SELECT connection FROM ka.document_resources WHERE document_id=%s', (draft_id,))
+        } == {'built_for'}
+    return {key: [str(item) for item in value] for key, value in row.items()}
 
 
 def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sessions, monkeypatch):
@@ -410,3 +409,17 @@ def test_options_for_a_new_document(sessions):
 def test_options_for_a_new_document_and_a_document_are_refused(sessions):
     response = sessions.client.get(f'/api/sessions/options?new_document=1&document_id={uuid4()}', headers=HEADERS)
     assert response.status_code == 400 and response.json()['error']['message'] == ONE_START
+
+
+def test_two_runs_cannot_draft_the_same_new_document(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    _, config, new_id = started(s)
+    second, other, other_id = started(s)
+    assert call(config, 'save_document', document_id=new_id, markdown='# Mine') == 'Saved draft (1 lines).'
+    with pytest.raises(ValueError) as refused:
+        call(other, 'save_document', document_id=other_id, markdown='# Theirs')
+    assert str(refused.value) == (
+        'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
+    )
+    assert drafts(s, second['id']) == [] and all_drafts(s) == 1

@@ -35,8 +35,7 @@ LIVE_UNAVAILABLE = 'Live session updates are not running.'
 LIST = SUMMARY.replace(
     'FROM ka.agent_sessions s',
     """,p.email AS started_by,
-        (SELECT x.id FROM ka.document_drafts x WHERE x.session_id=s.id AND x.status='open'
-         ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS draft_id
+        (SELECT x.id FROM ka.documents x WHERE x.id=s.last_draft_id AND x.is_draft) AS draft_id
         FROM ka.agent_sessions s LEFT JOIN ka.principals p ON p.id=s.actor_id""",
     1,
 )

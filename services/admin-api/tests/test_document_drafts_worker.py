@@ -5,8 +5,9 @@ from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents import drafts as document_drafts
 from knowledge_admin.documents.api import DocumentInput, save_document
+from knowledge_admin.documents.drafts import NEW_DEFAULTS
+from knowledge_admin.documents.store import Provenance, create_draft
 from knowledge_admin.knowledge_agents import session_worker as shared
 from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -21,8 +22,8 @@ def runner(sessions) -> tuple[UUID, shared.SessionRunner]:
 def drafts_of(sessions, sid) -> list[dict]:
     with sessions.store.connect() as conn:
         return conn.execute(
-            """SELECT id,document_id,slug,folder,title,purpose,markdown,origin,edited,revision,resource_ids,
-            base_version_id FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id""",
+            """SELECT id,draft_of,slug,folder,title,purpose,markdown,origin,edited,revision,base_version
+            FROM ka.documents WHERE is_draft AND session_id=%s ORDER BY created_at,id""",
             (sid,),
         ).fetchall()
 
@@ -88,15 +89,14 @@ def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions)
             alpha['id'],
         )
     with sessions.store.connect() as conn:  # the draft the run's save_document tool wrote
-        document_drafts.create_draft(
+        create_draft(
             conn,
             sessions.store.project(conn, 'shop'),
-            None,
-            {**document_drafts.NEW_DEFAULTS, 'title': 'Payments', 'markdown': '# Agent text'},
-            origin='agent',
+            Provenance('agent_run', None, sid),
+            {**NEW_DEFAULTS, 'title': 'Payments', 'markdown': '# Agent text'},
+            origin='generated',
             slug='payments',
             folder='team',
-            session_id=sid,
         )
     run.finish_turn(1, 'waiting', '', usage=None)
     [draft] = drafts_of(sessions, sid)

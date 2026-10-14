@@ -36,8 +36,9 @@ def make_document(docs, slug: str, title: str) -> str:
     return response.json()['id']
 
 
-def version_of(docs, document_id: str) -> str:
-    return docs.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()['current_version_id']
+def version_of(docs, document_id: str) -> int:
+    """The document's live version number."""
+    return docs.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()['version']
 
 
 def new_draft(docs, **body) -> dict:

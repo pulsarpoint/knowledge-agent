@@ -61,7 +61,7 @@ def call(rev, tool: str, **arguments) -> str:
 def run_drafts(rev) -> list[dict]:
     with rev.docs.store.connect() as conn:
         return conn.execute(
-            """SELECT id,document_id,status,edited,origin,markdown,title,description,revision,base_version_id
-            FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id""",
+            """SELECT id,document_id,edited,origin,markdown,title,description,revision,base_version
+            FROM ka.document_drafts_view WHERE session_id=%s ORDER BY created_at,id""",
             (rev.sid,),
         ).fetchall()

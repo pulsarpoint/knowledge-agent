@@ -62,14 +62,20 @@ def test_save_document_creates_the_runs_draft_then_updates_it(rev):
         == 'Saved draft (3 lines).'
     )
     [draft] = run_drafts(rev)
-    assert (str(draft['document_id']), draft['origin'], draft['status'], draft['title'], draft['markdown']) == (
+    assert (str(draft['document_id']), draft['origin'], draft['title'], draft['markdown']) == (
         rev.docs.runbook,
-        'agent',
-        'open',
+        'generated',
         'Runbook',
         '# Runbook\n\nNew text.\n',
     )
-    assert str(draft['base_version_id']) == version_of(rev.docs, rev.docs.runbook)
+    assert draft['base_version'] == version_of(rev.docs, rev.docs.runbook) == 2
+    with rev.docs.store.connect() as conn:
+        assert (
+            conn.execute('SELECT last_draft_id FROM ka.agent_sessions WHERE id=%s', (rev.sid,)).fetchone()[
+                'last_draft_id'
+            ]
+            == draft['id']
+        )
     assert json.loads(call(rev, 'get_document', document_id=str(rev.docs.runbook)))['reads'] == 'your draft'
     call(
         rev,
@@ -111,7 +117,8 @@ def test_a_decided_or_edited_draft_makes_the_next_save_a_new_draft(rev):
     assert call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Two') == (
         'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version 3.'
     )
-    second = run_drafts(rev)[-1]
+    [second] = run_drafts(rev)  # the promote deleted the first; the new draft starts from the new live version
+    assert (second['markdown'], second['base_version']) == ('# Two', 3)
     rev.docs.client.post(f'{API}/drafts/{second["id"]}/discard', headers=HEADERS, json={'revision': second['revision']})
     assert call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Three').endswith(
         'Your earlier draft was discarded; this is a new draft based on version 3.'
@@ -134,13 +141,26 @@ def test_a_decided_or_edited_draft_makes_the_next_save_a_new_draft(rev):
     assert call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Four').endswith(
         'A person edited your earlier draft; this is a new draft, and get_document now reads it.'
     )
-    assert [d['markdown'] for d in run_drafts(rev)] == ['# One', '# Two', '# Three, edited by a person', '# Four']
+    assert [d['markdown'] for d in run_drafts(rev)] == ['# Three, edited by a person', '# Four']
+
+
+def session_draft(rev) -> tuple[dict | None, str | None]:
+    """The run's document_draft (session detail) and its draft_id in the document's run list."""
+    detail = rev.docs.client.get(f'/api/sessions/{rev.sid}', headers=HEADERS).json()
+    [listed] = rev.docs.client.get('/api/sessions', params={'document_id': rev.docs.runbook}, headers=HEADERS).json()[
+        'sessions'
+    ]
+    return detail['document_draft'], listed['draft_id']
 
 
 def test_promoting_a_revision_draft_leaves_the_run_alone(rev):
+    assert session_draft(rev) == (None, None)
     call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Promoted')
     [draft] = run_drafts(rev)
+    opened = {'id': str(draft['id']), 'document_id': rev.docs.runbook, 'status': 'open'}
+    assert session_draft(rev) == (opened, str(draft['id']))
     assert promote(rev.docs, draft).status_code == 200
+    assert session_draft(rev) == ({**opened, 'status': 'promoted'}, None)
     with rev.docs.store.connect() as conn:
         row = conn.execute(
             'SELECT document_id,target_document_id FROM ka.agent_sessions WHERE id=%s', (rev.sid,)
@@ -333,3 +353,32 @@ def test_a_subagent_gets_no_document_access_so_the_edit_tools_are_unmet():
     assert needs_met('editable_document', lead, None)
     sub = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
     assert 'document_access' not in sub and not needs_met('editable_document', sub, None)
+
+
+def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev):
+    from drafts_world import new_draft
+
+    by_person = new_draft(rev.docs, document_id=rev.docs.runbook, markdown="# A person's draft")
+    other_run = dict(rev.config, session_id=str(uuid4()))  # another run's session (its draft would be its own)
+    with rev.docs.store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+            context_snapshot,purpose,target_document_id,agent_config,turns)
+            SELECT %s,project_id,agent_id,actor_id,model_id,'Other','{}','{}','revision',target_document_id,
+            agent_config,1 FROM ka.agent_sessions WHERE id=%s""",
+            (other_run['session_id'], rev.sid),
+        )
+    other = rev.__class__(**{**vars(rev), 'config': other_run})
+    call(other, 'save_document', document_id=str(rev.docs.runbook), markdown='# The other run')
+    read = json.loads(call(rev, 'get_document', document_id=str(rev.docs.runbook)))
+    assert (read['reads'], read['markdown'].startswith('# Runbook')) == ('the live version 2', True)
+    assert json.loads(call(other, 'get_document', document_id=str(rev.docs.runbook)))['markdown'] == '# The other run'
+    call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# Mine')
+    [mine] = run_drafts(rev)
+    assert json.loads(call(rev, 'get_document', document_id=str(rev.docs.runbook)))['markdown'] == '# Mine'
+    for draft_id in (str(mine['id']), by_person['id']):
+        assert call(rev, 'get_document', document_id=draft_id) == NOT_AVAILABLE.format(kind='document')
+        given = dict(rev.config, document_access=[*rev.config['document_access'], {'id': draft_id, 'title': 'D'}])
+        refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=draft_id)
+        assert refused == 'Document not found'  # pinned or not, a draft id is never read as a document
+    assert NOT_AVAILABLE.format(kind='document') == 'This document is not available in this run.'

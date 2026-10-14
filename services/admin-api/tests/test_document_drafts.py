@@ -1,20 +1,27 @@
-"""Document drafts: create, save, discard and promote — fresh, stale (confirmed), a new document, and a new document
-whose name was taken meanwhile."""
+"""Document drafts: create, save, discard and promote — fresh, stale (confirmed), a new document, a name a brand-new
+draft holds, and promote deleting the document's other drafts."""
 
 from uuid import UUID, uuid4
 
 from drafts_world import API, audit, docs, make_document, new_draft, promote, save_live, version_of  # noqa: F401
-from knowledge_admin.documents.drafts import (
+from knowledge_admin.documents.drafts import NAME_IN_USE, NEW_DEFAULTS
+from knowledge_admin.documents.store import (
     DRAFT_CHANGED,
-    DRAFT_DECIDED,
-    NAME_TAKEN,
-    NEW_DEFAULTS,
+    DRAFT_NOT_FOUND,
     STALE_BASE,
     STALE_MESSAGE,
+    Provenance,
     create_draft,
+    draft_outcome,
 )
 from session_rows import a_model, add_ad_hoc_session
 from test_repositories import HEADERS
+
+
+def outcome(docs, draft_id) -> str | None:
+    with docs.store.connect() as conn:
+        found = draft_outcome(conn, UUID(str(draft_id)))
+    return found and found['status']
 
 
 def test_a_draft_of_a_document_starts_from_its_live_version(docs):
@@ -26,13 +33,13 @@ def test_a_draft_of_a_document_starts_from_its_live_version(docs):
         '# Runbook v1',
         'manual',
     )
-    assert (draft['base_version'], draft['live_version'], draft['stale'], draft['author'], draft['status']) == (
+    assert (draft['base_version'], draft['live_version'], draft['stale'], draft['author']) == (
         1,
         1,
         False,
         'admin@example.test',
-        'open',
     )
+    assert 'status' not in draft and 'base_version_id' not in draft
     assert [
         (s['kind'], s['source_document_id'], s['source_title'], s['source_version'], s['deleted'])
         for s in draft['sources']
@@ -67,14 +74,26 @@ def test_a_new_document_draft_needs_its_name_and_text(docs):
         None,
         [],
     )
-    # A name that is already a document's: the draft revises that document.
+    # A name that is already a document's: the draft revises that document (and shows its slug).
     named = new_draft(docs, slug='runbook', title='Runbook again', markdown='# Again')
     assert (named['document_id'], named['slug'], named['base_version'], named['title']) == (
         docs.runbook,
-        None,
+        'runbook',
         1,
         'Runbook again',
     )
+    # A brand-new draft holds its folder and slug: a second brand-new draft of that name is refused.
+    taken = docs.client.post(
+        f'{API}/drafts',
+        headers=HEADERS,
+        json={'slug': 'disk-layout', 'folder': 'servers/web-1', 'title': 'D', 'markdown': '# D'},
+    )
+    assert taken.status_code == 409 and taken.json()['error']['message'] == NAME_IN_USE.format(slug='disk-layout')
+    assert (
+        NAME_IN_USE.format(slug='x')
+        == 'A document or draft named x already exists in this folder. Choose another name.'
+    )
+    assert new_draft(docs, slug='disk-layout', title='D', markdown='# D')['folder'] is None  # another folder is free
 
 
 def test_saving_a_draft_needs_its_revision_and_marks_it_edited(docs):
@@ -99,38 +118,44 @@ def test_promote_saves_a_live_version_with_the_drafts_sources(docs):
     draft = new_draft(docs, document_id=docs.runbook, markdown='# Runbook v2')
     with docs.store.connect() as conn:  # the author read the overview while writing
         conn.execute(
-            """INSERT INTO ka.document_sources(project_id,draft_id,kind,source_document_id,source_version_id,
-            source_title,source_version) VALUES (%s,%s,'read',%s,%s,'Overview',1)""",
+            """INSERT INTO ka.document_sources(project_id,document_id,kind,source_document_id,source_title,
+            source_version) VALUES (%s,%s,'read',%s,'Overview',%s)""",
             (docs.project, draft['id'], overview, version_of(docs, overview)),
         )
     promoted = promote(docs, draft)
     assert promoted.status_code == 200, promoted.text
-    result = promoted.json()
-    assert (result['document_id'], result['revision'], result['export_error']) == (docs.runbook, 2, None)
-    assert (result['draft']['status'], result['draft']['promoted_version_id']) == ('promoted', result['version_id'])
+    assert promoted.json() == {
+        'document_id': docs.runbook,
+        'version': 2,
+        'revision': 2,
+        'deleted_drafts': 1,
+        'export_error': None,
+    }
+    assert docs.client.get(f'{API}/drafts/{draft["id"]}', headers=HEADERS).status_code == 404  # the draft is gone
+    assert outcome(docs, draft['id']) == 'promoted'
     document = docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()
     assert (
         document['version'],
         document['slug'],
         document['description'],
-        document['current_version']['markdown'],
-        document['current_version']['origin'],
+        document['markdown'],
+        document['origin'],
     ) == (2, 'runbook', 'How to run it', '# Runbook v2', 'manual')
     assert (docs.out / 'runbook' / 'README.md').read_text() == '# Runbook v2'
     with docs.store.connect() as conn:
         copied = conn.execute(
-            """SELECT kind,source_title,source_version FROM ka.document_sources WHERE version_id=%s
+            """SELECT kind,source_title,source_version FROM ka.document_sources WHERE document_id=%s
             ORDER BY kind""",
-            (UUID(result['version_id']),),
+            (UUID(docs.runbook),),
         ).fetchall()
     assert copied == [
         {'kind': 'parent', 'source_title': 'Runbook', 'source_version': 1},
         {'kind': 'read', 'source_title': 'Overview', 'source_version': 1},
     ]
     assert audit(docs, draft['id']) == ['document.draft.created', 'document.draft.promoted']
-    # Review focus 1: Promote clicked twice — one version, the second answers "already promoted".
+    # Review focus 1: Promote clicked twice — one version, the second finds the draft gone.
     again = promote(docs, draft)
-    assert again.status_code == 409 and again.json()['error']['message'] == DRAFT_DECIDED
+    assert again.status_code == 404 and again.json()['error']['message'] == DRAFT_NOT_FOUND
     assert len(docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()['versions']) == 2
 
 
@@ -146,11 +171,8 @@ def test_a_stale_draft_is_promoted_only_when_confirmed(docs):
     assert refused.status_code == 409 and refused.json()['error'] == {'message': message, 'code': STALE_BASE}
     confirmed = promote(docs, draft, confirm_stale=True)
     assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()['revision'] == 3
-    assert (
-        docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()['current_version']['markdown']
-        == '# Draft text'
-    )
+    assert (confirmed.json()['revision'], confirmed.json()['version']) == (3, 3)
+    assert docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()['markdown'] == '# Draft text'
 
 
 def test_a_new_document_draft_creates_the_document_with_the_resources_that_still_exist(docs):
@@ -179,57 +201,60 @@ def test_a_new_document_draft_creates_the_document_with_the_resources_that_still
         [],
     )
     assert (docs.out / 'servers/web-1/disk-layout/README.md').read_text() == '# Disks'
-    assert (promoted.json()['draft']['document_id'], promoted.json()['draft']['slug']) == (created['id'], None)
+    assert (created['id'], created['version'], promoted.json()['deleted_drafts']) == (draft['id'], 1, 0)  # same id
+    assert outcome(docs, draft['id']) == 'promoted'
 
 
-def test_a_new_document_whose_name_was_taken_meanwhile_becomes_a_draft_of_it(docs):
+def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
     draft = new_draft(docs, slug='overview', title='Overview draft', markdown='# Draft overview')
-    created = docs.client.post(
+    taken = docs.client.post(
         f'{API}/documents',
         headers=HEADERS,
         json={'slug': 'overview', 'title': 'Overview', 'markdown': '# Overview by a person'},
-    ).json()
-    refused = promote(docs, draft)
-    assert NAME_TAKEN.format(slug='overview') == (
-        'A document named overview was created in this folder meanwhile. '
-        'The draft is now a draft of it. Review it again.'
     )
-    assert refused.status_code == 409 and refused.json()['error']['message'] == NAME_TAKEN.format(slug='overview')
-    converted = docs.client.get(f'{API}/drafts/{draft["id"]}', headers=HEADERS).json()
-    assert (
-        converted['document_id'],
-        converted['slug'],
-        converted['folder'],
-        converted['revision'],
-        converted['base_version'],
-        converted['stale'],
-    ) == (created['id'], None, None, 2, 1, False)
-    assert converted['live_markdown'] == '# Overview by a person'
-    assert [s['kind'] for s in converted['sources']] == ['parent']
-    assert promote(docs, draft).status_code == 409  # its old revision
-    promoted = promote(docs, converted)
-    assert promoted.status_code == 200 and promoted.json()['revision'] == 2
+    assert taken.status_code == 409, taken.text
+    promoted = promote(docs, draft)
+    assert promoted.status_code == 200 and promoted.json()['document_id'] == draft['id']
 
 
-def test_a_discarded_draft_is_kept_but_never_changes_again(docs):
+def test_promote_deletes_the_documents_other_drafts(docs):
+    chosen = new_draft(docs, document_id=docs.runbook, markdown='# Chosen')
+    others = [new_draft(docs, document_id=docs.runbook, markdown=f'# Other {n}') for n in (1, 2)]
+    elsewhere = new_draft(docs, document_id=make_document(docs, 'overview', 'Overview'))
+    assert docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()['draft_count'] == 3
+    promoted = promote(docs, chosen)
+    assert promoted.status_code == 200 and promoted.json()['deleted_drafts'] == 3  # the promoted draft included
+    for other in others:
+        assert docs.client.get(f'{API}/drafts/{other["id"]}', headers=HEADERS).status_code == 404
+    assert docs.client.get(f'{API}/drafts/{elsewhere["id"]}', headers=HEADERS).status_code == 200
+    assert docs.client.get(f'{API}/documents/{docs.runbook}/drafts', headers=HEADERS).json()['drafts'] == []
+    assert [outcome(docs, other['id']) for other in others] == [None, None]  # deleted by the promote, not decided
+
+
+def test_a_discarded_draft_is_deleted(docs):
     draft = new_draft(docs, document_id=docs.runbook)
     url = f'{API}/drafts/{draft["id"]}'
     stale = docs.client.post(url + '/discard', headers=HEADERS, json={'revision': 2})
     assert stale.status_code == 409 and stale.json()['error']['message'] == DRAFT_CHANGED
     discarded = docs.client.post(url + '/discard', headers=HEADERS, json={'revision': 1})
-    assert discarded.status_code == 200 and discarded.json()['status'] == 'discarded'
+    assert discarded.status_code == 200 and discarded.json() == {}
+    assert outcome(docs, draft['id']) == 'discarded'
     for response in (
-        docs.client.post(url + '/discard', headers=HEADERS, json={'revision': 2}),
-        docs.client.put(url, headers=HEADERS, json={'revision': 2, 'title': 'T', 'markdown': '# T'}),
-        promote(docs, discarded.json()),
+        docs.client.post(url + '/discard', headers=HEADERS, json={'revision': 1}),
+        docs.client.put(url, headers=HEADERS, json={'revision': 1, 'title': 'T', 'markdown': '# T'}),
+        promote(docs, draft),
+        docs.client.get(url, headers=HEADERS),
     ):
-        assert response.status_code == 409 and response.json()['error']['message'] == DRAFT_DECIDED
-    assert docs.client.get(url, headers=HEADERS).json()['status'] == 'discarded'
+        assert response.status_code == 404 and response.json()['error']['message'] == DRAFT_NOT_FOUND
     assert audit(docs, draft['id']) == ['document.draft.created', 'document.draft.discarded']
     assert docs.client.get(f'{API}/drafts/{uuid4()}', headers=HEADERS).status_code == 404
+    fresh = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disks')
+    gone = docs.client.post(f'{API}/drafts/{fresh["id"]}/discard', headers=HEADERS, json={'revision': 1})
+    assert gone.status_code == 200
+    assert new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Again')['slug'] == 'disk-layout'
 
 
-def test_promoting_a_draft_drops_the_documents_archived_code_project(docs):
+def test_promoting_a_draft_keeps_the_links_and_drops_an_archived_code_project_from_the_snapshot(docs):
     kept, archived = uuid4(), uuid4()
     with docs.store.connect() as conn:
         conn.execute(
@@ -253,7 +278,8 @@ def test_promoting_a_draft_drops_the_documents_archived_code_project(docs):
     promoted = promote(docs, draft)
     assert promoted.status_code == 200, promoted.text
     document = docs.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()
-    assert (document['version'], document['code_project_ids']) == (2, [str(kept)])
+    assert (document['version'], sorted(document['code_project_ids'])) == (2, sorted([str(kept), str(archived)]))
+    assert [row['id'] for row in document['source_snapshot']['code_projects']] == [str(kept)]
 
 
 def test_an_agent_draft_is_promoted_as_generated_text_of_its_run(docs):
@@ -263,12 +289,11 @@ def test_an_agent_draft_is_promoted_as_generated_text_of_its_run(docs):
         draft_id = create_draft(
             conn,
             docs.project,
-            None,
+            Provenance('agent_run', None, session),
             {**NEW_DEFAULTS, 'title': 'Payments', 'markdown': '# Payments'},
-            origin='agent',
+            origin='generated',
             slug='payments',
             folder='payments',
-            session_id=session,
         )
     draft = docs.client.get(f'{API}/drafts/{draft_id}', headers=HEADERS).json()
     assert (draft['origin'], draft['session_id'], draft['session_title'], draft['author']) == (
@@ -280,7 +305,7 @@ def test_an_agent_draft_is_promoted_as_generated_text_of_its_run(docs):
     promoted = promote(docs, draft)
     assert promoted.status_code == 200, promoted.text
     document = docs.client.get(f'{API}/documents/{promoted.json()["document_id"]}', headers=HEADERS).json()
-    assert (document['folder'], document['current_version']['origin']) == ('payments', 'generated')
+    assert (document['folder'], document['origin']) == ('payments', 'generated')
     with docs.store.connect() as conn:
         assert conn.execute('SELECT document_id FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()[
             'document_id'

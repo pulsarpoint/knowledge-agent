@@ -1,27 +1,26 @@
-"""Document drafts: unpublished versions of a document, or of a new document, that a person promotes to the live
-version or discards. Agents only ever write drafts. Drafts live in ka.document_drafts, apart from
-ka.document_versions, so version history, document_details, exports and folder statistics see live versions only."""
+"""Document drafts: rows of ka.documents (is_draft) that revise a live document (draft_of) or are a brand-new
+document, which a person promotes to the live version or discards (both delete the draft). Agents only ever write
+drafts. Readers of live documents (document_details, live_documents, exports, folder statistics) never see drafts. The
+lifecycle itself is documents/store.py; this module is the drafts API, a run's sources and document links."""
 
 from functools import partial
 import json
 import logging
-from typing import Literal
 from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
 from knowledge_admin.db import audit, storage, workspace
+from knowledge_admin.documents import store as lifecycle
 from knowledge_admin.documents.api import (
     DOCUMENT_RESOURCE_FIELDS,
     Audience,
     Description,
-    DocumentInput,
     Markdown,
     Purpose,
     ResourceIds,
@@ -31,26 +30,16 @@ from knowledge_admin.documents.api import (
     export_args,
     export_document,
     export_input,
-    save_document,
 )
+from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, Provenance
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
 
-DRAFT_NOT_FOUND = 'Draft not found.'
-DOCUMENT_NOT_FOUND = 'Document not found'
-DRAFT_CHANGED = 'This draft changed. Reload it before saving; your text has not been overwritten.'
-DRAFT_DECIDED = 'This draft was already promoted or discarded.'
-STALE_BASE = 'STALE_BASE'
-STALE_MESSAGE = (
-    "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
-)
-NAME_TAKEN = (
-    'A document named {slug} was created in this folder meanwhile. The draft is now a draft of it. Review it again.'
-)
+NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
+RESOURCE_GONE = 'A selected resource is no longer available. Reload resources and update the selection.'
 SAVED_MEANWHILE = 'Another document was saved with this name at the same time. Try again.'
 EXPORT_FAILED = 'Saved. Writing the document file failed; use Export to folder to retry.'
-CONTENT = ('title', 'description', 'purpose', 'audience', 'tags', 'markdown')
 NEW_DEFAULTS = {'description': '', 'purpose': 'explanation', 'audience': 'both', 'tags': []}
 
 
@@ -71,7 +60,7 @@ class DraftUpdate(DraftContent):
 
 
 class Resources(BaseModel):
-    """What a new document links on promote."""
+    """The resources a brand-new document is built for."""
 
     model_config = ConfigDict(extra='forbid')
     code_project_ids: ResourceIds = Field(default_factory=list)
@@ -122,16 +111,26 @@ class Promotion(Decision):
     confirm_stale: bool = Field(default=False, strict=True)
 
 
-# {extra}: more columns; the only placeholder (no other braces in the SQL).
-SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,x.origin,x.session_id,s.title AS session_title,s.purpose AS session_purpose,
-    p.email AS author,x.edited,x.status,x.revision,x.base_version_id,bv.version AS base_version,lv.version AS live_version,
-    (x.document_id IS NOT NULL AND x.status='open' AND lv.id IS DISTINCT FROM x.base_version_id) AS stale,
+# {extra}: more columns; the only placeholder (no other braces in the SQL). A run's draft (session_id) reports origin
+# 'agent', a person's 'manual'; l is the live document a draft revises.
+SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,
+    CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,s.title AS session_title,
+    s.purpose AS session_purpose,p.email AS author,x.edited,x.revision,x.base_version,x.live_version,x.stale,
     x.created_at,x.updated_at{extra}
-    FROM ka.document_drafts x LEFT JOIN ka.document_versions bv ON bv.id=x.base_version_id
-    LEFT JOIN ka.documents d ON d.id=x.document_id LEFT JOIN ka.document_versions lv ON lv.id=d.current_version_id
+    FROM ka.document_drafts_view x LEFT JOIN ka.documents l ON l.id=x.document_id
     LEFT JOIN ka.agent_sessions s ON s.id=x.session_id LEFT JOIN ka.principals p ON p.id=x.created_by"""
-DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.tags,x.markdown,x.resource_ids,x.promoted_version_id,x.decided_at,
-    lv.markdown AS live_markdown,lv.title AS document_title"""
+DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.tags,x.markdown,
+    jsonb_build_object('code_project_ids',x.code_project_ids,'service_ids',x.service_ids,'server_ids',x.server_ids,
+    'deployment_ids',x.deployment_ids,'environment_ids',x.environment_ids) AS resource_ids,
+    l.markdown AS live_markdown,x.document_title"""
+# GET /drafts filters: query parameter → the view's link array (fixed identifiers, never taken from a request).
+RESOURCE_FILTERS = {
+    'environment_id': 'environment_ids',
+    'service_id': 'service_ids',
+    'server_id': 'server_ids',
+    'code_project_id': 'code_project_ids',
+    'deployment_id': 'deployment_ids',
+}
 
 
 LINK_SELF = 'A document cannot depend on itself.'
@@ -148,10 +147,7 @@ class LinkInput(BaseModel):
 
 def connections(conn, project: UUID, document_id: UUID) -> dict:
     """What a document depends on, what depends on it (links people add) and what its live version was built from."""
-    row = conn.execute(
-        'SELECT current_version_id FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)
-    ).fetchone()
-    if row is None:
+    if live_document(conn, project, document_id) is None:
         raise HTTPException(404, DOCUMENT_NOT_FOUND)
     return {
         'depends_on': conn.execute(
@@ -160,39 +156,41 @@ def connections(conn, project: UUID, document_id: UUID) -> dict:
         'used_by': conn.execute(
             LINKED.format(this='to_document_id', other='from_document_id'), (document_id,)
         ).fetchall(),
-        'built_from': sources_of(conn, 'version_id', row['current_version_id']),
+        'built_from': sources_of(conn, document_id),
     }
 
 
-def sources_of(conn, column: Literal['draft_id', 'version_id'], owner: UUID) -> list[dict]:
-    """What a draft or a live version was built from, the parent first; `deleted` when the source document is gone.
-    `column` is fixed by the caller, never taken from a request."""
-    if column not in ('draft_id', 'version_id'):
-        raise ValueError(column)
+def live_document(conn, project: UUID, document_id: UUID) -> dict | None:
     return conn.execute(
-        f"""SELECT kind,source_document_id,source_version_id,source_title,source_version,
-        source_document_id IS NULL AS deleted FROM ka.document_sources WHERE {column}=%s
-        ORDER BY kind='parent' DESC,lower(source_title),source_title,id""",
-        (owner,),
+        'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft', (document_id, project)
+    ).fetchone()
+
+
+def project_draft(conn, project: UUID, draft_id: UUID) -> dict:
+    """The draft's session and whether it revises a live document, 404 unless it is a draft of `project`."""
+    row = conn.execute(
+        'SELECT id,session_id,draft_of FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft',
+        (draft_id, project),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, DRAFT_NOT_FOUND)
+    return row
+
+
+def sources_of(conn, document_id: UUID) -> list[dict]:
+    """What a draft or a live document's current version was built from, the parent first; `deleted` when the source
+    document is gone."""
+    return conn.execute(
+        """SELECT kind,source_document_id,source_title,source_version,source_document_id IS NULL AS deleted
+        FROM ka.document_sources WHERE document_id=%s ORDER BY kind='parent' DESC,lower(source_title),source_title,id""",
+        (document_id,),
     ).fetchall()
-
-
-def add_parent_source(conn, project: UUID, draft_id: UUID, version_id: UUID | None) -> None:
-    """The document a draft revises, at the version it started from."""
-    if version_id is None:
-        return
-    conn.execute(
-        """INSERT INTO ka.document_sources(project_id,draft_id,kind,source_document_id,source_version_id,
-        source_title,source_version) SELECT %s,%s,'parent',document_id,id,title,version FROM ka.document_versions
-        WHERE id=%s ON CONFLICT DO NOTHING""",
-        (project, draft_id, version_id),
-    )
 
 
 def live_content(conn, project: UUID, document_id: UUID) -> dict:
     row = conn.execute(
-        """SELECT v.title,v.description,v.purpose,v.audience,v.tags,v.markdown FROM ka.documents d
-        JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s""",
+        """SELECT title,description,purpose,audience,tags,markdown FROM ka.documents
+        WHERE id=%s AND project_id=%s AND NOT is_draft""",
         (document_id, project),
     ).fetchone()
     if row is None:
@@ -201,75 +199,12 @@ def live_content(conn, project: UUID, document_id: UUID) -> dict:
 
 
 def document_named(conn, project: UUID, folder: str | None, slug: str) -> dict | None:
-    """The document (id, current_version_id) a folder and slug name, or None."""
+    """The live document (id, version) a folder and slug name, or None."""
     return conn.execute(
-        """SELECT id,current_version_id FROM ka.documents WHERE project_id=%s
+        """SELECT id,version FROM ka.documents WHERE project_id=%s AND NOT is_draft
         AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
         (project, folder, slug),
     ).fetchone()
-
-
-def create_draft(
-    conn,
-    project: UUID,
-    actor: UUID | None,
-    content: dict,
-    *,
-    origin: str,
-    document_id: UUID | None = None,
-    slug: str | None = None,
-    folder: str | None = None,
-    resources: dict | None = None,
-    session_id: UUID | None = None,
-) -> UUID:
-    """Insert an open draft (and, for a draft of a document, its parent source). A new document whose folder and slug
-    already name a document becomes a draft of that document."""
-    if document_id is None:
-        existing = document_named(conn, project, folder, slug)
-        if existing is not None:
-            document_id = existing['id']
-    base = None
-    if document_id is not None:
-        row = conn.execute(
-            'SELECT current_version_id FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)
-        ).fetchone()
-        if row is None:
-            raise HTTPException(404, DOCUMENT_NOT_FOUND)
-        base, slug, folder, resources = row['current_version_id'], None, None, {}
-    draft_id = conn.execute(
-        """INSERT INTO ka.document_drafts(project_id,document_id,slug,folder,resource_ids,
-        base_version_id,title,description,purpose,audience,tags,markdown,origin,session_id,created_by,updated_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (
-            project,
-            document_id,
-            slug,
-            folder,
-            Jsonb(resources or {}),
-            base,
-            content['title'],
-            content['description'],
-            content['purpose'],
-            content['audience'],
-            content['tags'],
-            content['markdown'],
-            origin,
-            session_id,
-            actor,
-            actor,
-        ),
-    ).fetchone()['id']
-    add_parent_source(conn, project, draft_id, base)
-    audit(
-        conn,
-        project,
-        actor,
-        'document.draft.created',
-        'document_draft',
-        draft_id,
-        {'document_id': document_id, 'origin': origin, 'session_id': session_id},
-    )
-    return draft_id
 
 
 def draft_detail(conn, project: UUID, draft_id: UUID) -> dict:
@@ -278,21 +213,7 @@ def draft_detail(conn, project: UUID, draft_id: UUID) -> dict:
     ).fetchone()
     if row is None:
         raise HTTPException(404, DRAFT_NOT_FOUND)
-    row['sources'] = sources_of(conn, 'draft_id', draft_id)
-    return row
-
-
-def open_draft(conn, project: UUID, draft_id: UUID, revision: int) -> dict:
-    """The draft locked for a change: 404 when missing, 409 when decided (checked first) or changed."""
-    row = conn.execute(
-        'SELECT * FROM ka.document_drafts WHERE id=%s AND project_id=%s FOR UPDATE', (draft_id, project)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(404, DRAFT_NOT_FOUND)
-    if row['status'] != 'open':
-        raise HTTPException(409, DRAFT_DECIDED)
-    if row['revision'] != revision:
-        raise HTTPException(409, DRAFT_CHANGED)
+    row['sources'] = sources_of(conn, draft_id)
     return row
 
 
@@ -325,99 +246,18 @@ def available_resources(conn, project: UUID, wanted: dict) -> dict:
     return result
 
 
-def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bool) -> dict:
-    """Save the open, locked draft `row` as the live version (save_document), mark it promoted and copy its sources to
-    the version. A stale draft needs `confirm_stale`; a new document whose name was taken meanwhile is converted into a
-    draft of that document, committed, and refused."""
-    origin = 'generated' if row['origin'] == 'agent' else 'manual'
-    content = {key: row[key] for key in CONTENT}
-    if row['document_id'] is not None:
-        live = conn.execute(
-            """SELECT current_version_id,version,slug,revision,code_project_ids,service_ids,server_ids,
-            deployment_ids,environment_ids FROM ka.document_details WHERE id=%s""",
-            (row['document_id'],),
-        ).fetchone()
-        if live['current_version_id'] != row['base_version_id'] and not confirm_stale:
-            base = conn.execute(
-                'SELECT version FROM ka.document_versions WHERE id=%s', (row['base_version_id'],)
-            ).fetchone()
-            raise HTTPException(
-                409,
-                {
-                    'message': STALE_MESSAGE.format(base=base['version'] if base else '?', live=live['version']),
-                    'code': STALE_BASE,
-                },
-            )
-        # The document's links that still exist: an archived code project drops out instead of refusing the save.
-        linked = available_resources(conn, project, {key: live[key] for key in DOCUMENT_RESOURCE_FIELDS})
-        saved = save_document(
-            conn,
-            project,
-            actor,
-            DocumentInput(slug=live['slug'], **content, **linked, revision=live['revision']),
-            row['document_id'],
-            origin=origin,
-        )
-    else:
-        clash = document_named(conn, project, row['folder'], row['slug'])
-        if clash is not None:
-            conn.execute(
-                """UPDATE ka.document_drafts SET document_id=%s,base_version_id=%s,slug=NULL,folder=NULL,
-                resource_ids='{}',revision=revision+1 WHERE id=%s""",
-                (clash['id'], clash['current_version_id'], row['id']),
-            )
-            conn.execute(
-                'DELETE FROM ka.document_sources WHERE draft_id=%s AND source_document_id=%s', (row['id'], clash['id'])
-            )
-            add_parent_source(conn, project, row['id'], clash['current_version_id'])
-            conn.commit()  # kept although the request fails, so the reload shows the converted draft
-            raise HTTPException(409, NAME_TAKEN.format(slug=row['slug']))
-        saved = save_document(
-            conn,
-            project,
-            actor,
-            DocumentInput(slug=row['slug'], **content, **available_resources(conn, project, row['resource_ids'])),
-            None,
-            folder=row['folder'],
-            origin=origin,
-        )
-    conn.execute(
-        """UPDATE ka.document_drafts SET status='promoted',promoted_version_id=%s,document_id=%s,slug=NULL,
-        folder=NULL,decided_by=%s,decided_at=now(),revision=revision+1 WHERE id=%s""",
-        (saved['version_id'], saved['id'], actor, row['id']),
-    )
-    conn.execute(
-        """INSERT INTO ka.document_sources(project_id,version_id,kind,source_document_id,source_version_id,
-        source_title,source_version) SELECT project_id,%s,kind,source_document_id,source_version_id,source_title,
-        source_version FROM ka.document_sources WHERE draft_id=%s""",
-        (saved['version_id'], row['id']),
-    )
-    if row['session_id'] is not None:  # a new-document run records the document it wrote
-        conn.execute(
-            "UPDATE ka.agent_sessions SET document_id=%s WHERE id=%s AND purpose='documents'",
-            (saved['id'], row['session_id']),
-        )
-    audit(
-        conn,
-        project,
-        actor,
-        'document.draft.promoted',
-        'document_draft',
-        row['id'],
-        {
-            'document_id': saved['id'],
-            'version': saved['revision'],
-            'version_id': saved['version_id'],
-            'stale_confirmed': confirm_stale,
-        },
-    )
-    return saved
-
-
-# The session `s`'s latest document draft of any status (open, promoted or discarded), for session rows and the live
-# session state: a run has one once its agent saved a document with save_document or edit_document.
-SESSION_DRAFT = """(SELECT jsonb_build_object('id',x.id,'document_id',x.document_id,'status',x.status)
-    FROM ka.document_drafts x WHERE x.session_id=s.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS document_draft"""
+# The session `s`'s last draft (agent_sessions.last_draft_id) as {id, document_id, status}, for session rows and the
+# live session state: open while the draft exists, else promoted or discarded from the audit log — the SQL form of
+# store.draft_outcome. A run has one once its agent saved a document with save_document or edit_document.
+SESSION_DRAFT = """(SELECT CASE
+        WHEN x.id IS NOT NULL THEN jsonb_build_object('id',x.id,'document_id',COALESCE(x.draft_of,x.id),'status','open')
+        WHEN e.action IS NOT NULL THEN jsonb_build_object('id',s.last_draft_id,'document_id',e.details->'document_id',
+            'status',CASE e.action WHEN 'document.draft.promoted' THEN 'promoted' ELSE 'discarded' END)
+        END
+    FROM (SELECT 1) one LEFT JOIN ka.documents x ON x.id=s.last_draft_id AND x.is_draft
+    LEFT JOIN LATERAL (SELECT a.action,a.details FROM ka.audit_events a WHERE a.resource_type='document_draft'
+        AND a.resource_id=s.last_draft_id AND a.action IN ('document.draft.promoted','document.draft.discarded')
+        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) e ON true) AS document_draft"""
 DOCUMENT_TOOLS = ['get_document', 'read_document']
 
 
@@ -447,21 +287,21 @@ def export_key(path: str) -> tuple[str | None, str] | None:
     return '/'.join(parts[:-2]) or None, parts[-2]
 
 
+# The version of a live document that was live at a moment: the live row or an archive row, by when it went live.
+VERSION_AT = """SELECT version,title FROM (
+    SELECT version,title,version_created_at AS live_from FROM ka.documents WHERE id=%s AND NOT is_draft
+    UNION ALL SELECT version,title,created_at FROM ka.document_archive WHERE document_id=%s) v
+    WHERE live_from<=%s ORDER BY version DESC LIMIT 1"""
+
+
 def record_run_sources(
-    conn,
-    project: UUID,
-    draft_id: UUID,
-    document_id: UUID | None,
-    base_version_id: UUID | None,
-    session_id: UUID,
-    turn: int,
+    conn, project: UUID, draft_id: UUID, document_id: UUID | None, session_id: UUID, turn: int
 ) -> None:
-    """Recompute a run draft's sources: its parent, and every document the run read with get_document or
-    read_document (an export path) in turns 1..turn, at the version live at its first read. Reads only: no row of
-    ka.documents or ka.projects is locked."""
-    conn.execute('DELETE FROM ka.document_sources WHERE draft_id=%s', (draft_id,))
-    if document_id is not None:
-        add_parent_source(conn, project, draft_id, base_version_id)
+    """Recompute a run draft's read sources: every document the run read with get_document or read_document (an
+    export path) in turns 1..turn, at the version live at its first read. The parent source (the document the draft
+    revises, `document_id`) stays as create_draft wrote it. Reads only: no row of ka.projects or of a live document is
+    locked."""
+    conn.execute("DELETE FROM ka.document_sources WHERE document_id=%s AND kind='read'", (draft_id,))
     keys = [f'cc:{session_id}:{number}' for number in range(1, turn + 1)]
     calls = conn.execute(
         """SELECT payload,created_at FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'
@@ -475,31 +315,25 @@ def record_run_sources(
                 wanted = UUID(str(arguments.get('document_id', '')))
             except ValueError:
                 continue
-            found = conn.execute(
-                'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s', (wanted, project)
-            ).fetchone()
+            found = live_document(conn, project, wanted)
         else:
             key = export_key(str(arguments.get('path', '')))
             if key is None:
                 continue
             found = conn.execute(
-                """SELECT id FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s
+                """SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft AND folder IS NOT DISTINCT FROM %s
                 AND slug=%s AND phase_metadata IS NULL""",
                 (project, *key),
             ).fetchone()
         if found is None or found['id'] == document_id:
             continue
-        version = conn.execute(
-            """SELECT id,version,title FROM ka.document_versions WHERE document_id=%s AND created_at<=%s
-            ORDER BY version DESC LIMIT 1""",
-            (found['id'], call['created_at']),
-        ).fetchone()
+        version = conn.execute(VERSION_AT, (found['id'], found['id'], call['created_at'])).fetchone()
         if version is None:  # read before the document existed
             continue
         conn.execute(
-            """INSERT INTO ka.document_sources(project_id,draft_id,kind,source_document_id,source_version_id,
-            source_title,source_version) VALUES (%s,%s,'read',%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
-            (project, draft_id, found['id'], version['id'], version['title'], version['version']),
+            """INSERT INTO ka.document_sources(project_id,document_id,kind,source_document_id,source_title,
+            source_version) VALUES (%s,%s,'read',%s,%s,%s) ON CONFLICT DO NOTHING""",
+            (project, draft_id, found['id'], version['title'], version['version']),
         )
 
 
@@ -509,20 +343,12 @@ def refresh_run_sources_safely(conn, session_id: UUID, turn: int) -> None:
     try:
         with conn.transaction():
             drafts = conn.execute(
-                """SELECT id,project_id,document_id,base_version_id FROM ka.document_drafts
-                WHERE session_id=%s AND status='open' AND NOT edited ORDER BY created_at,id FOR UPDATE""",
+                """SELECT id,project_id,draft_of FROM ka.documents WHERE is_draft AND session_id=%s AND NOT edited
+                ORDER BY created_at,id FOR UPDATE""",
                 (session_id,),
             ).fetchall()
             for draft in drafts:
-                record_run_sources(
-                    conn,
-                    draft['project_id'],
-                    draft['id'],
-                    draft['document_id'],
-                    draft['base_version_id'],
-                    session_id,
-                    turn,
-                )
+                record_run_sources(conn, draft['project_id'], draft['id'], draft['draft_of'], session_id, turn)
     except Exception:  # any failure, a bug included, rolls back only the savepoint
         logger.exception('Session %s turn %s: the draft sources were not refreshed', session_id, turn)
 
@@ -535,27 +361,31 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/drafts', status_code=201)
     def create(value: DraftCreate, request: Request) -> dict:
         db = database()
-        with workspace(db, app_name) as (conn, project):
-            conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
-            actor = db.actor(conn, *request_actor(request))
-            given = value.model_dump(include=set(CONTENT), exclude_none=True)
-            if value.document_id is not None:
-                content = {**live_content(conn, project, value.document_id), **given}
-            else:
-                content = {**NEW_DEFAULTS, **given}
-            resources = value.resource_ids.model_dump(mode='json') if value.resource_ids else {}
-            draft_id = create_draft(
-                conn,
-                project,
-                actor,
-                content,
-                origin='manual',
-                document_id=value.document_id,
-                slug=value.slug,
-                folder=value.folder,
-                resources=resources,
-            )
-            return jsonable_encoder(draft_detail(conn, project, draft_id))
+        try:
+            with workspace(db, app_name) as (conn, project):
+                conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
+                actor = db.actor(conn, *request_actor(request))
+                given = value.model_dump(include=set(CONTENT), exclude_none=True)
+                if value.document_id is not None:
+                    content = {**live_content(conn, project, value.document_id), **given}
+                else:
+                    content = {**NEW_DEFAULTS, **given}
+                draft_id = lifecycle.create_draft(
+                    conn,
+                    project,
+                    Provenance('person', actor),
+                    content,
+                    origin='manual',
+                    document_id=value.document_id,
+                    slug=value.slug,
+                    folder=value.folder,
+                    links=value.resource_ids.model_dump() if value.resource_ids else None,
+                )
+                return jsonable_encoder(draft_detail(conn, project, draft_id))
+        except psycopg.errors.UniqueViolation:  # a brand-new draft already holds this folder and slug
+            raise HTTPException(409, NAME_IN_USE.format(slug=value.slug)) from None
+        except psycopg.errors.ForeignKeyViolation:  # a chosen resource is gone or not this workspace's
+            raise HTTPException(400, RESOURCE_GONE) from None
 
     @router.get('/drafts/{draft_id}')
     def get_draft(draft_id: UUID) -> dict:
@@ -568,111 +398,113 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
-            row = open_draft(conn, project, draft_id, value.revision)
-            conn.execute(
-                """UPDATE ka.document_drafts SET title=%s,description=%s,purpose=%s,audience=%s,tags=%s,
-                markdown=%s,edited=true,updated_by=%s,revision=revision+1 WHERE id=%s""",
-                (
-                    value.title,
-                    value.description,
-                    value.purpose,
-                    value.audience,
-                    value.tags,
-                    value.markdown,
-                    actor,
-                    draft_id,
-                ),
-            )
-            audit(
+            project_draft(conn, project, draft_id)
+            revision = lifecycle.update_draft(
                 conn,
-                project,
-                actor,
-                'document.draft.updated',
-                'document_draft',
                 draft_id,
-                {'revision': row['revision'] + 1},
+                actor,
+                value.model_dump(include=set(CONTENT)),
+                revision=value.revision,
+                edited=True,
             )
+            audit(conn, project, actor, 'document.draft.updated', 'document_draft', draft_id, {'revision': revision})
             return jsonable_encoder(draft_detail(conn, project, draft_id))
+
+    def lock_for_decision(conn, project: UUID, draft_id: UUID) -> dict:
+        """The project, then the draft's run (the order a run's turn locks them in); the caller then locks the draft."""
+        conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
+        row = project_draft(conn, project, draft_id)
+        if row['session_id'] is not None:
+            conn.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE', (row['session_id'],))
+        return row
 
     @router.post('/drafts/{draft_id}/discard')
     def discard(draft_id: UUID, value: Decision, request: Request) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
+            lock_for_decision(conn, project, draft_id)
             actor = db.actor(conn, *request_actor(request))
-            open_draft(conn, project, draft_id, value.revision)
-            conn.execute(
-                """UPDATE ka.document_drafts SET status='discarded',decided_by=%s,decided_at=now(),
-                revision=revision+1 WHERE id=%s""",
-                (actor, draft_id),
-            )
-            audit(conn, project, actor, 'document.draft.discarded', 'document_draft', draft_id, {})
-            return jsonable_encoder(draft_detail(conn, project, draft_id))
+            lifecycle.discard_draft(conn, project, actor, draft_id, revision=value.revision)
+            return {}
 
     @router.post('/drafts/{draft_id}/promote')
     def promote(draft_id: UUID, value: Promotion, request: Request) -> dict:
         db = database()
         try:
             with workspace(db, app_name) as (conn, project):
-                conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
+                row = lock_for_decision(conn, project, draft_id)
                 actor = db.actor(conn, *request_actor(request))
-                # The run's session before the draft, the order a run's turn locks them in.
-                run = conn.execute(
-                    'SELECT session_id FROM ka.document_drafts WHERE id=%s AND project_id=%s', (draft_id, project)
-                ).fetchone()
-                if run is not None and run['session_id'] is not None:
-                    conn.execute('SELECT id FROM ka.agent_sessions WHERE id=%s FOR UPDATE', (run['session_id'],))
-                row = open_draft(conn, project, draft_id, value.revision)
-                saved = promote_draft(conn, project, actor, row, value.confirm_stale)
-                detail = draft_detail(conn, project, draft_id)
+                # The export lock save_document takes before a live row, so a promote cannot deadlock with a save.
+                conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
+                result = lifecycle.promote_draft(
+                    conn, project, actor, draft_id, revision=value.revision, confirm_stale=value.confirm_stale
+                )
+                if row['session_id'] is not None:  # a new-document run records the document it wrote
+                    conn.execute(
+                        "UPDATE ka.agent_sessions SET document_id=%s WHERE id=%s AND purpose='documents'",
+                        (result['document_id'], row['session_id']),
+                    )
         except ValidationError as exc:
             raise HTTPException(400, '; '.join(error['msg'] for error in exc.errors())) from None
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, SAVED_MEANWHILE) from None
         try:  # after the commit, as the editor's save: a failed export never undoes the version
             with db.connect() as conn:
-                current = export_input(conn, saved['id'])
+                current = export_input(conn, result['document_id'])
             export_document(**export_args(current))
             export_error = None
         except (OSError, ValueError):
             export_error = EXPORT_FAILED
         return jsonable_encoder(
             {
-                'draft': detail,
-                'document_id': saved['id'],
-                'version_id': saved['version_id'],
-                'revision': saved['revision'],
+                'document_id': result['document_id'],
+                'version': result['version'],
+                'revision': result['revision'],
+                'deleted_drafts': result['deleted_drafts'],
                 'export_error': export_error,
             }
         )
 
     @router.get('/drafts')
-    def drafts(new: bool = False) -> dict:
-        """Open drafts, newest first; new=true: only drafts of new documents (the Documents page's New drafts)."""
+    def drafts(
+        new: bool = False,
+        environment_id: UUID | None = None,
+        service_id: UUID | None = None,
+        server_id: UUID | None = None,
+        code_project_id: UUID | None = None,
+        deployment_id: UUID | None = None,
+    ) -> dict:
+        """Drafts, newest first; new=true: only brand-new documents (the Documents page's New drafts). A resource
+        filter keeps the drafts linked to it: brand-new drafts by their own links, drafts of a document by its links."""
         db = database()
+        given = {
+            'environment_id': environment_id,
+            'service_id': service_id,
+            'server_id': server_id,
+            'code_project_id': code_project_id,
+            'deployment_id': deployment_id,
+        }
+        where, values = ['x.project_id=%s', '(NOT %s OR x.document_id IS NULL)'], [new]
+        for name, resource_id in given.items():
+            if resource_id is not None:
+                where.append(f'%s=ANY(x.{RESOURCE_FILTERS[name]})')
+                values.append(resource_id)
         with db.connect() as conn:
             rows = conn.execute(
-                SUMMARY.format(extra='')
-                + """ WHERE x.project_id=%s AND x.status='open'
-                AND (NOT %s OR x.document_id IS NULL) ORDER BY x.updated_at DESC,x.id""",
-                (db.project(conn, app_name), new),
+                SUMMARY.format(extra='') + f' WHERE {" AND ".join(where)} ORDER BY x.updated_at DESC,x.id',
+                (db.project(conn, app_name), *values),
             ).fetchall()
             return jsonable_encoder({'drafts': rows})
 
     @router.get('/documents/{document_id}/drafts')
     def drafts_of_document(document_id: UUID) -> dict:
+        """The document's drafts, newest first."""
         db = database()
         with workspace(db, app_name) as (conn, project):
-            if (
-                conn.execute(
-                    'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)
-                ).fetchone()
-                is None
-            ):
+            if live_document(conn, project, document_id) is None:
                 raise HTTPException(404, DOCUMENT_NOT_FOUND)
             rows = conn.execute(
-                SUMMARY.format(extra='')
-                + """ WHERE x.document_id=%s AND x.status='open'
-                ORDER BY x.updated_at DESC,x.id""",
+                SUMMARY.format(extra='') + ' WHERE x.document_id=%s ORDER BY x.created_at DESC,x.id',
                 (document_id,),
             ).fetchall()
             return jsonable_encoder({'drafts': rows})
@@ -691,7 +523,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             found = conn.execute(
-                'SELECT count(*) AS n FROM ka.documents WHERE project_id=%s AND id=ANY(%s)',
+                'SELECT count(*) AS n FROM ka.documents WHERE project_id=%s AND NOT is_draft AND id=ANY(%s)',
                 (project, [document_id, value.to_document_id]),
             ).fetchone()['n']
             if found != 2:

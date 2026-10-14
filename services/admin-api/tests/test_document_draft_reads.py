@@ -55,7 +55,7 @@ def test_drafts_are_never_documents(docs, monkeypatch):
     new_draft(docs, document_id=docs.runbook, markdown='# DRAFT ONLY TEXT')
     new_draft(docs, slug='secret-plan', folder='plans', title='Secret plan', markdown='# DRAFT ONLY TEXT')
     document = docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()
-    assert (document['version'], document['current_version']['markdown'], len(document['versions'])) == (
+    assert (document['version'], document['markdown'], len(document['versions'])) == (
         1,
         '# Runbook v1',
         1,
@@ -142,8 +142,8 @@ def test_connections_show_what_the_live_version_was_built_from_even_when_a_sourc
     draft = new_draft(docs, document_id=docs.runbook, markdown='# Runbook v2')
     with docs.store.connect() as conn:
         conn.execute(
-            """INSERT INTO ka.document_sources(project_id,draft_id,kind,source_document_id,source_version_id,
-            source_title,source_version) VALUES (%s,%s,'read',%s,%s,'Overview',1)""",
+            """INSERT INTO ka.document_sources(project_id,document_id,kind,source_document_id,source_title,
+            source_version) VALUES (%s,%s,'read',%s,'Overview',%s)""",
             (docs.project, draft['id'], overview, version_of(docs, overview)),
         )
     assert promote(docs, draft).status_code == 200
@@ -159,8 +159,6 @@ def test_connections_show_what_the_live_version_was_built_from_even_when_a_sourc
         ('parent', 'Runbook', 1, False),
         ('read', 'Overview', 1, True),
     ]
-    detail = docs.client.get(f'{API}/drafts/{draft["id"]}', headers=HEADERS).json()
-    assert [s['deleted'] for s in detail['sources']] == [False, True]
     versions = docs.client.get(f'{API}/documents/{docs.runbook}', headers=HEADERS).json()['versions']
     assert [(v['version'], v['from_draft']) for v in versions] == [(2, True), (1, False)]
 
@@ -177,3 +175,51 @@ def test_deleting_a_document_deletes_its_drafts_and_links(docs):
     )
     assert docs.client.get(f'{API}/drafts/{draft["id"]}', headers=HEADERS).status_code == 404
     assert docs.client.get(f'{API}/documents/{docs.runbook}/connections', headers=HEADERS).json()['depends_on'] == []
+
+
+def test_drafts_are_found_by_the_resources_they_are_for(docs):
+    with docs.store.connect() as conn:
+        production, staging = (
+            conn.execute(
+                'INSERT INTO ka.environments(project_id,name) VALUES (%s,%s) RETURNING id', (docs.project, name)
+            ).fetchone()['id']
+            for name in ('Production', 'Staging')
+        )
+    built = new_draft(
+        docs, slug='prod-runbook', title='Prod', markdown='# Prod', resource_ids={'environment_ids': [str(production)]}
+    )
+    linked = docs.client.post(
+        f'{API}/documents',
+        headers=HEADERS,
+        json={'slug': 'prod-notes', 'title': 'Notes', 'markdown': '# Notes', 'environment_ids': [str(production)]},
+    ).json()['id']
+    of_linked = new_draft(docs, document_id=linked, markdown='# Notes v2')
+    new_draft(docs, document_id=docs.runbook)  # not linked to anything
+    new_draft(docs, slug='staging', title='Staging', markdown='# S', resource_ids={'environment_ids': [str(staging)]})
+    found = docs.client.get(f'{API}/drafts', params={'environment_id': str(production)}, headers=HEADERS).json()
+    assert sorted(d['id'] for d in found['drafts']) == sorted([built['id'], of_linked['id']])
+    only_new = docs.client.get(
+        f'{API}/drafts', params={'environment_id': str(production), 'new': 'true'}, headers=HEADERS
+    ).json()
+    assert [d['id'] for d in only_new['drafts']] == [built['id']]
+    assert docs.client.get(f'{API}/drafts', params={'service_id': str(uuid4())}, headers=HEADERS).json() == {
+        'drafts': []
+    }
+    assert len(docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts']) == 4
+    detail = docs.client.get(f'{API}/drafts/{built["id"]}', headers=HEADERS).json()
+    assert detail['resource_ids'] == {
+        'code_project_ids': [],
+        'service_ids': [],
+        'server_ids': [],
+        'deployment_ids': [],
+        'environment_ids': [str(production)],
+    }
+    assert docs.client.get(f'{API}/drafts/{of_linked["id"]}', headers=HEADERS).json()['resource_ids'][
+        'environment_ids'
+    ] == [str(production)]
+    gone = docs.client.post(
+        f'{API}/drafts',
+        headers=HEADERS,
+        json={'slug': 'x', 'title': 'X', 'markdown': '# X', 'resource_ids': {'service_ids': [str(uuid4())]}},
+    )
+    assert gone.status_code == 400, gone.text
