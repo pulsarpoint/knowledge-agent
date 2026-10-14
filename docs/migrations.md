@@ -334,3 +334,32 @@ NULL`, indexed), the draft an accepted document proposal made; it may name a dra
 `document_id` only). Publishing a brand-new draft attaches it to the inventory entry of the accepted proposals with
 that `draft_id`. Proposals accepted before 0105 keep `draft_id` NULL (their documents were written live). The down
 migration drops the column; drafts made by accepting proposals stay as drafts.
+
+## 0106_resource_runs
+
+A chat on a server, a service or an environment is a run with purpose `resource`, tagged with that resource.
+`ka.agent_sessions` gains `tags` (`text[]`, default empty, GIN-indexed): at most 10 distinct labels of lowercase
+letters, digits, `_` and `-` in parts separated by `/`, at most 120 characters each (`servers/<id>`, `services/<id>`,
+`environments/<id>`, and `proposals` for a Propose wizard run). Purpose `discovery` becomes `resource`; `server_id` may
+be set only for a resource run (the server it started from) and is null for one started from a service or an
+environment. Every discovery run becomes a resource run tagged `servers/<server_id>`: its pinned `started_from_server`
+becomes `started_from` (`{type: 'server', id, name}`) and the proposal tools it had on are kept as `proposal_tools`;
+a discovery run from before `started_from_server` (0097–0101, closed by 0102) gets its `started_from` from `server_id`
+and the server's name (marked `started_from_backfilled`), so its document proposals can still be accepted.
+`ka.discovery_proposals.server_id` becomes nullable (proposals of service and environment runs). Prompts may have the
+input kind `environment`, and every workspace (existing ones, and new ones by a trigger on `ka.projects`) gets three
+seeded, editable prompts tagged `assistant` and their type: **Server assistant**, **Service assistant** and
+**Environment assistant**, the default prompt of a new chat on that type. `get_resource` replaces
+`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`, `get_service_docs` and
+`get_project_info`; it is not chosen per agent (every run with resources has it), so the old tools' `ka.agent_tools`
+rows are deleted. The seeded **Server discovery** prompt gets a new version that reads with `get_resource`, but only
+when nobody changed it (its active version is the newest and holds 0102's text); new workspaces get that text as
+version 1.
+
+The down migration refuses while runs started from a service or an environment, or proposals without a server, exist
+(delete them first), and while an assistant prompt has been customized (more than its one version or a changed
+revision); otherwise it deletes the assistant prompts and their trigger. A prompt you created with input kind
+`environment` must be changed or deleted first. Resource runs become discovery runs again with
+`started_from_server` (backfilled runs lose their `started_from`), and their tags are dropped. The Server discovery
+prompt's `get_resource` version is removed when it is still active and untouched, and new workspaces get 0102's text
+again. The old inventory tools' rows are not restored, so those tools are off for every agent.

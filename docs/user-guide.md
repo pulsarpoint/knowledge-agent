@@ -892,7 +892,9 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
 lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
-and a chat on a server, service or environment offers the prompts of that input kind. Type a tag and press Enter to add it;
+and a chat on a server, service or environment offers the enabled prompts tagged `assistant` and with its type
+(`server`, `service` or `environment`), the seeded **Server assistant**, **Service assistant** or **Environment
+assistant** first. Type a tag and press Enter to add it;
 existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,
@@ -1043,7 +1045,7 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
 | `get_resource`, `get_document` | Inventory tools. `get_resource` is on in every run that has servers, services, environments or code projects (it is not listed on the **Tools** tab); `get_document` when chosen for a run or switched on in the **Tools** tab | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or attached to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
-| Proposal tools | Runs started from a server | Exist only in a run started from a server (discovery); they record proposals that you accept or reject, and write nothing to the inventory themselves |
+| Proposal tools | **Propose…** wizard runs | Exist only in a run started from a server, service or environment whose start asks for them (the **Propose…** wizard does); `propose_service` only in a run started from a server. A plain chat or a saved agent's run never has them. They record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |

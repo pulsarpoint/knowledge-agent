@@ -24,9 +24,20 @@ limit, no per-turn time limit, no 300-second limit).
 - Everything else is the session API: `GET /api/sessions/{id}` (with `purpose`, `model_calls`,
   `reasoning_tokens` and, for Test and (pre-0090) event sessions, `config` — the pinned configuration — and
   `reviews`), `POST …/messages` (Send works while the agent works), `POST …/stop`, `POST …/close`, `GET …/events/history` and `GET …/events`.
-  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `server_id`, `offset`; with `server_id` each row has proposal counts); `GET /api/sessions/options` and
-  `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent, Ask agent on a server and the
-  agent's Test tab use it). `started_from.server_id` starts a server discovery run (purpose `discovery`); the options take `?server_id=`.
+  `GET /api/sessions` lists runs (filters `agent_id`, `purpose`, `document_id`, `tag`, `offset`; with `tag` each row
+  has proposal counts and open runs come first); every row has its `tags`. `GET /api/sessions/options` and
+  `POST /api/sessions/preview` describe and preview a run, and `POST /api/sessions` starts it (Ask agent, a chat on a
+  server, service or environment, the Propose wizard and the agent's Test tab use it). `started_from.server_id`,
+  `service_id` or `environment_id` starts a resource run (purpose `resource`) tagged `servers/<id>`, `services/<id>`
+  or `environments/<id>` and pinned with `started_from` ({type, id, name}); a server run also has `server_id`. A start
+  may add its own `tags` (lowercase parts separated by `/`, at most 10 with the resource tag; a resource tag must be
+  the one of where it starts); the Propose wizard adds `proposals`. The options take `?server_id=`, `?service_id=` or
+  `?environment_id=`: their prompts are the enabled ones tagged `assistant` and with the type (the seeded
+  "<Type> assistant" prompt first). The preview returns the pinned `config`, the `first_message` and the same view as
+  `GET /api/sessions/{id}/debug`: the run's `instructions` and `tools` as its turns give them to the model, the
+  library `prompt` it came from (`prompt_source` `wizard` for a run tagged `proposals`), `agent_instructions`,
+  `skills`, `resources` by name and `model`. `GET /api/discovery/proposals?tag=&status=` lists the proposals of the
+  runs with a tag, grouped by run, newest run first.
 - Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
   when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
@@ -42,15 +53,21 @@ limit, no per-turn time limit, no 300-second limit).
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
 - The inventory tool `get_resource(resource_type, resource_id)` (`server`, `service`, `environment` or `code_project`,
-  and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given — a resource linked
-  from one of them too — with everything recorded about it and links to follow; anything else, or a malformed id, gets
-  "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
+  and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given, with everything recorded
+  about it and links to related resources; a linked resource the run was not given, anything else, or a malformed id,
+  gets "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
   `get_document` reads documents the run was given or attached to those resources. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
   hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
-  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) exist only in a run
-  started from a server. Accepting a document proposal creates a draft with the run's `session_id` (a brand-new draft,
-  or a draft of the document it updates; it becomes the run's last draft); a person publishes or promotes it.
+  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) exist only in a resource
+  run whose start request asks for them (`tools`; recorded as `proposal_tools`), which is what the Propose wizard
+  does: `propose_document` in a run started from a server, service or environment, `propose_service` only from a
+  server. A plain chat, a saved agent's run or any other run never has them. Accepting a document proposal creates a
+  draft with the run's `session_id` (a brand-new draft, or a draft of the document it updates; it becomes the run's
+  last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
+  run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's
+  folder (`servers/<slug>`, `service-documents/<slug>`, `environments/<slug>`); a document about a service is accepted
+  even when the run's resource is gone (then in the service's folder).
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per
