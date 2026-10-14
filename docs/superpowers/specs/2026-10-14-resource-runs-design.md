@@ -92,7 +92,7 @@ Rules from the person using it:
 ## Resource pages and URLs
 
 - `/servers/:id`, `/services/:id` (new), `/environments/:id` (new). `?chat=<sessionId>` opens that chat; no `chat`
-  parameter = no chat open. `/servers/:id/discovery/:runId` redirects to `/servers/:id?chat=:runId`.
+  parameter = no chat open. `/servers/:id/discovery/:runId` is removed (development version: no redirect).
 - Page content: the resource's **Info** (what the list and edit forms show today, its documents, its deployments /
   services / servers) and the **Chats** list (open first, then recent; title, status, last activity, a `proposals`
   badge for wizard runs) with **New chat** and **Propose…**, and a link **Proposals** to the proposals page.
@@ -136,5 +136,5 @@ Rules from the person using it:
 - Debug: preview `instructions` equal what the runner passes the SDK for the same configuration (build both and
   compare); `GET /sessions/{id}/debug` matches the pinned configuration; no secrets.
 - UI: resource pages (Info, Chats list, chat hidden until Chat, `?chat=` opens a chat, 2xl two columns vs tabs),
-  old discovery URL redirect, Propose wizard (steps, generated prompt editable, tools listed, Start opens the chat),
+  the discovery route is gone, Propose wizard (steps, generated prompt editable, tools listed, Start opens the chat),
   proposals page (grouping, filter, accept/reject), Debug tab before/after the first message.
