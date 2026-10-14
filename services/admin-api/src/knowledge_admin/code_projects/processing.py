@@ -124,7 +124,7 @@ def process_code(project: dict) -> dict:
                 folder = Path(parent) / name
                 if '.codegraph' not in folder.relative_to(source).parts and not any(folder.iterdir()):
                     folder.rmdir()
-        bridge = Path(os.environ.get('CODEGRAPH_BRIDGE', str(Path(__file__).resolve().parents[3] / 'code-graph/index.cjs')))
+        bridge = Path(os.environ.get('CODEGRAPH_BRIDGE', str(Path(__file__).resolve().parents[4] / 'code-graph/index.cjs')))
         output = directory / 'index-result.json'
         # Upstream's package is pinned. Disable telemetry, daemons and global Git config.
         env = {'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
