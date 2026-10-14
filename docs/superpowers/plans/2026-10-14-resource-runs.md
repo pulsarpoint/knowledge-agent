@@ -52,6 +52,8 @@ Tailwind / vitest.
 4. Proposals from a service or environment run, accepted and published, must be built for and attached to that
    service/environment — not to a server.
 5. The migration's tag for old discovery runs must make them appear in their server's Chats list.
+6. `get_resource` must refuse every resource the run was not given, including one linked from a given resource; the
+   prompt must no longer carry server details (hostname, username, instructions).
 
 ---
 
@@ -136,7 +138,56 @@ Tailwind / vitest.
 
 ---
 
-### Task 3: UI — resource pages, chats by tag, `?chat=`, layout; remove the discovery route
+### Task 3: Resource context — one prompt line, `get_resource`, fixed tool schemas
+
+Spec section "Resource context: one line and `get_resource`". Done before the UI so the assistant prompts, the
+Propose wizard's tool list and the Debug tab show the final tools.
+
+**Files:**
+- Modify: `services/admin-api/src/knowledge_admin/capabilities/inventory.py` (one `get_resource(context, resource_type, resource_id)`
+  built from the existing `_server_*`/`_service_*`/`_project_info` queries plus an environment query; a malformed
+  uuid is refused; access through the existing allowlist checks `_given`/`_first_given`, by id instead of name;
+  remove the six old functions), `tools/catalog.py` (one `get_resource` ToolSpec in group `inventory`, needs `None`;
+  remove the six specs, `InventoryHost`/`InventoryName`, their usage texts; `ssh_run` unchanged), `agents/runner.py` `get_prompt` (the `Resource:` line from
+  `pinned['started_from']`; servers and services as index entries), `tools/sdk.py` (drop `choices`, the enum and the
+  description list; `function_tool(spec, usage)`), `capabilities/document_tools.py` (refusal names the editable
+  documents), `sessions/start.py` (any default tool lists naming the old tools), `tools/README.md`, `docs/agents.md`,
+  `docs/user-guide.md`
+- Modify: `db/migrations/0106_resource_runs.up.sql`/`.down.sql` (not merged yet — edit in place): assistant prompt
+  texts use `get_resource`; a new version of the seeded Server discovery prompt (first step `get_resource`; down
+  restores the previous version when unedited); `ka.agent_tools`: delete rows of the six tools, insert
+  `get_resource` `on` for agents that had any of them on (down: the reverse — `get_server_info_basic` on for agents
+  with `get_resource` on)
+- Test: new `tests/test_get_resource.py`; update `test_inventory_tools.py` (fold into the new file or delete),
+  `test_discovery_tools.py`, `test_resource_runs.py`, `test_session_debug.py`, `test_scoped_reads.py`, the sessions
+  tests and migration tests that name the old tools; UI fixtures `agentOptionsFixture.ts`, `agentSettings.test.ts`,
+  `agentPane.test.tsx` (tool names only)
+
+**Interfaces:**
+- Consumes: Task 1 (`pinned['started_from']`, tags), Task 2 (`instructions_and_tools`, Debug builders — unchanged, they
+  pick up the new prompt and tools).
+- Produces:
+  - `get_resource(resource_type: Literal['server', 'service', 'environment', 'code_project'], resource_id: str)` →
+    JSON per the spec; index and link entries `{type, id, name, ...}`; refusal text
+    `The <type> <id> is not available in this run.`
+  - `function_tool(spec, usage)` (no `choices`).
+
+- [ ] **Step 1: Failing tests:** `get_resource` for a server, a service, an environment and a code project returns
+  the spec's fields and links; every link's `type` and `id` are accepted by `get_resource` when the run was given it; a
+  resource not given to the run, a linked resource outside the allowlist and a bad uuid are refused with the exact
+  text, a type outside the enum fails schema validation; a server run's instructions contain `Resource: server <id> (<name>)` and the index entry, and no
+  hostname, username or server instructions (Review Focus 6); `ssh_run` with the index entry's `id` runs; the catalog has no old inventory tools; migration up replaces the rows (agent with `get_server_docs` on →
+  `get_resource` on), down reverses; the assistant and Server discovery prompts name `get_resource`; two runs with
+  different editable documents get identical tool schemas; an edit tool given a non-editable id names the editable
+  ones.
+- [ ] **Step 2: Run** them — expected failures.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the new and updated files, then the full backend suite and the UI checks (fixtures).
+- [ ] **Step 5: Commit** `feat(inventory): one get_resource tool; resources named in the prompt, details on demand; fixed tool schemas`
+
+---
+
+### Task 4: UI — resource pages, chats by tag, `?chat=`, layout; remove the discovery route
 
 **Files:**
 - Modify: `services/admin-ui/app/routes.ts` (remove `servers/:serverId/discovery/:runId`; add `services/:serviceId`,
@@ -152,7 +203,7 @@ Tailwind / vitest.
 **Interfaces:**
 - Consumes: Task 1 API (`started_from`, `tags`, `GET /api/sessions?tag=`).
 - Produces: `ResourceChats` props `{ resource: {type: 'server'|'service'|'environment', id, name}, info: ReactNode,
-  actions?: ReactNode }` (Task 4 passes the Propose button and Proposals link through `actions`).
+  actions?: ReactNode }` (Task 5 passes the Propose button and Proposals link through `actions`).
 
 - [ ] **Step 1: Failing UI tests:** each resource page shows Info and the Chats list (`GET /api/sessions?tag=…`),
   no chat panel until `Chat` / `New chat` / a list item is clicked; clicking sets `?chat=<id>`; loading the page with
@@ -167,7 +218,7 @@ Tailwind / vitest.
 
 ---
 
-### Task 4: UI — proposals page, Propose wizard, Debug tab
+### Task 5: UI — proposals page, Propose wizard, Debug tab
 
 **Files:**
 - Create: `features/sessions/ProposeWizard.tsx`, `features/servers/ProposalsPage.tsx` (used for all three resource
@@ -179,7 +230,7 @@ Tailwind / vitest.
 
 **Interfaces:**
 - Consumes: Task 2 API (`GET /api/discovery/proposals?tag=`, `GET /api/sessions/{id}/debug`, preview `instructions`/
-  `tools`), Task 3 `ResourceChats`.
+  `tools`), Task 3 tools (`get_resource`), Task 4 `ResourceChats`.
 
 - [ ] **Step 1: Failing UI tests:**
   - Wizard: server offers `Services on this server` and `Documents`, service/environment only `Documents`; Options per

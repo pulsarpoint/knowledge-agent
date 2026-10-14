@@ -46,16 +46,54 @@ Rules from the person using it:
 - Seeded, editable, versioned prompts (Administration → Prompts), `input_kind` = resource type:
   - **Server assistant** — answer the person's question about the server in the context with the smallest read-only
     command that answers it (ssh_run: `df -h` for disk usage, `free -h` for memory, `uptime` for load,
-    `systemctl is-active <unit>` for a service), show the result; read what is recorded (get_server_info_basic,
-    get_server_services, get_server_docs) when it helps; do not explore beyond the question; never show passwords,
-    keys or tokens.
-  - **Service assistant**, **Environment assistant** — the same for a service (get_service_info, get_service_docs, its
-    deployments' servers) and for an environment (its services and servers).
+    `systemctl is-active <unit>` for a service), show the result; read what is recorded with `get_resource` when it
+    helps; do not explore beyond the question; never show passwords, keys or tokens.
+  - **Service assistant**, **Environment assistant** — the same for a service (`get_resource` on it, then on the
+    servers it is deployed on) and for an environment (its services and servers, through `get_resource`).
+  - The seeded **Server discovery** prompt gets a new version whose first step reads the server with `get_resource`
+    (instead of the three server tools).
 - A new chat's prompt is its resource type's assistant prompt. The settings sheet still lets a person pick another
   prompt of that `input_kind`.
 - **Server discovery** stays in the library as the base text the wizard builds from (see below); it is no longer the
   default of any chat.
 - Migration down removes the seeded assistant prompts when unedited (repo convention: refuse when customized).
+
+## Resource context: one line and `get_resource`
+
+Added 2026-10-14 with the person using it: a resource reaches the agent the way an MCP server does — a short mention
+in the prompt, details through a tool — instead of the full resource JSON.
+
+- **A resource is a type and an id**: `resource_type` one of `server`, `service`, `environment`, `code_project`
+  (singular, as the prompts' `input_kind`) and `resource_id` the plain uuid. Tags (`servers/<id>`) stay the
+  session/URL format and never reach the model.
+- **Prompt.** A run started from a resource gets one line before the resources: `Resource: server <uuid> (<name>)`.
+  In the resources JSON, servers (`ssh_servers`) and services become an index only — `{"type": "server", "id",
+  "name", "description"}` (description shortened, as the inventory tools do) — for every run, not only resource
+  runs. Hostname, port, username, tags, `allow_sudo`, per-server instructions, skills and MCP ids leave the prompt.
+  Code projects, document collections, skills and the rest of the JSON are unchanged (a later step).
+- **`get_resource(resource_type, resource_id)`** (group `inventory`, no need, the one inventory tool) returns everything recorded about
+  one resource as JSON:
+  - server: name, hostname, port, username, description, tags, `allow_sudo`, instructions, environments, its skills
+    (when skills are on) and MCP server ids (when MCP is on), its services with their deployment (environment,
+    runtime, port, version) as `links`, its documents (id, title);
+  - service: name, type, role, description, owner, operations notes, its servers (deployments) and code projects
+    (`built_from`) as `links`, `connects_to` links, its documents;
+  - environment: name, description, its services and servers as `links`, its documents;
+  - code project: name, remote URL, ref, current commit, its services as `links`, its documents.
+  Each link is `{"type", "id", "name", "relation"}`, so the model follows it by passing `type` and `id` to
+  `get_resource` again. `resource_type` is a fixed enum in the schema (the same in every run), so a wrong type fails
+  validation before the tool runs. Lists are capped (`MAX_ITEMS`, `truncated`); document bodies stay behind `get_document`.
+- **Access** is checked in the tool, as the inventory tools do today: only resources the run was given (its
+  allowlist — the pinned resources, i.e. the starting resource and what it brings). Anything else, or a malformed id,
+  answers `The <type> <id> is not available in this run.`
+- **Replaced:** `get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,
+  `get_service_docs`, `get_project_info` are removed from the catalog (their `ka.agent_tools` rows deleted; a saved
+  agent that had any of them on gets `get_resource` on).
+- **`ssh_run`** is unchanged: `server_id` is the same plain uuid `get_resource` and the index give.
+- **Fixed tool schemas.** Tool descriptions and argument schemas are the same in every run: the per-run
+  `document_id` enum and the "Documents you may change" list in `tools/sdk.function_tool` are removed (the editable
+  documents are in the prompt as `documents_in_this_run`; the edit tools refuse other ids with a message naming the
+  editable ones).
 
 ## Proposals wizard
 
@@ -131,6 +169,11 @@ Rules from the person using it:
 - Prompts: the three assistant prompts seeded; a new chat uses its type's assistant prompt; down refuses when edited.
 - Tools: a plain chat has no proposal tools; a run whose request turns them on has exactly those; `propose_service`
   refused for service/environment runs.
+- Resource context: a resource run's instructions contain `Resource: <type> <id> (<name>)` and no hostname, username or
+  server instructions; `get_resource` returns the documented fields for each type, links that `get_resource` accepts,
+  and refuses a resource outside the run (including a linked one the run was not given); the six inventory tools are
+  gone from the catalog and from saved agents (migration); tool schemas are identical
+  for two runs with different editable documents.
 - Proposals: list across runs by tag and status; a document proposal from a service/environment run, accepted and
   published, is built for and attached to that resource.
 - Debug: preview `instructions` equal what the runner passes the SDK for the same configuration (build both and
