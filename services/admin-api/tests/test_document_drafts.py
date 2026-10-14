@@ -213,6 +213,7 @@ def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
         json={'slug': 'overview', 'title': 'Overview', 'markdown': '# Overview by a person'},
     )
     assert taken.status_code == 409, taken.text
+    assert taken.json()['error']['message'] == NAME_IN_USE.format(slug='overview')
     promoted = promote(docs, draft)
     assert promoted.status_code == 200 and promoted.json()['document_id'] == draft['id']
     # Its export folder is checked on promote, as a save checks it: a folder named like the document is refused.
@@ -233,6 +234,19 @@ def test_promote_deletes_the_documents_other_drafts(docs):
     assert docs.client.get(f'{API}/drafts/{elsewhere["id"]}', headers=HEADERS).status_code == 200
     assert docs.client.get(f'{API}/documents/{docs.runbook}/drafts', headers=HEADERS).json()['drafts'] == []
     assert [outcome(docs, other['id']) for other in others] == ['replaced', 'replaced']  # deleted by the promote
+
+
+def test_the_drafts_list_is_newest_created_first(docs):
+    older = new_draft(docs, document_id=docs.runbook, markdown='# Older')
+    newer = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disk')
+    edited = docs.client.put(
+        f'{API}/drafts/{older["id"]}',
+        headers=HEADERS,
+        json={'revision': 1, 'title': 'Runbook', 'markdown': '# Older, edited later'},
+    )
+    assert edited.status_code == 200, edited.text
+    listed = docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts']
+    assert [draft['id'] for draft in listed] == [newer['id'], older['id']]
 
 
 def test_a_discarded_draft_is_deleted(docs):

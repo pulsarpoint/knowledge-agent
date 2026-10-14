@@ -46,7 +46,9 @@ same ID) and **deletes every draft of L**, D included; when D's `base_version` i
 answers 409 `STALE_BASE` until confirmed. Promoting a brand-new draft makes that row live as version 1 with its ID,
 slug, folder, sources and built-for links. **Discarding** a draft deletes it (a brand-new draft with its links: the
 document never existed). Deleting a live document deletes its drafts, archive rows and links. Stale saves (wrong
-`revision`) return 409 without losing anything.
+`revision`) return 409 without losing anything. Promote audits `document.draft.promoted` for D,
+`document.draft.replaced` for each other draft it deleted, and `document.updated` (`document.created` for a brand-new
+draft) for the document.
 
 Historical versions retain inventory names and IDs in `source_snapshot` even when inventory is subsequently renamed or
 removed. These are save-time inventory descriptions, not evidence that a live server was inspected. Removing an

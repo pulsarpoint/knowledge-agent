@@ -21,6 +21,7 @@ from knowledge_admin.documents.api import (
     DOCUMENT_RESOURCE_FIELDS,
     Audience,
     Description,
+    NAME_IN_USE,
     Markdown,
     Purpose,
     ResourceIds,
@@ -37,7 +38,6 @@ from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
 
-NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
 RESOURCE_GONE = 'A selected resource is no longer available. Reload resources and update the selection.'
 SAVED_MEANWHILE = 'Another document was saved with this name at the same time. Try again.'
 EXPORT_FAILED = 'Saved. Writing the document file failed; use Export to folder to retry.'
@@ -488,7 +488,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 values.append(resource_id)
         with db.connect() as conn:
             rows = conn.execute(
-                SUMMARY.format(extra='') + f' WHERE {" AND ".join(where)} ORDER BY x.updated_at DESC,x.id',
+                SUMMARY.format(extra='') + f' WHERE {" AND ".join(where)} ORDER BY x.created_at DESC,x.id',
                 (db.project(conn, app_name), *values),
             ).fetchall()
             return jsonable_encoder({'drafts': rows})

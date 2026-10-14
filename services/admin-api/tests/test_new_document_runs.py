@@ -425,6 +425,29 @@ def test_two_runs_cannot_draft_the_same_new_document(sessions, monkeypatch):
     assert drafts(s, second['id']) == [] and all_drafts(s) == 1
 
 
+def test_a_new_document_run_is_refused_when_a_brand_new_draft_holds_its_name(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    session, config, new_id = started(s)
+    call(config, 'save_document', document_id=new_id, markdown='# Mine')
+    [draft] = draft_ids(s, session['id'])
+    with s.store.connect() as conn:
+        before = conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n']
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s))
+    assert response.status_code == 409
+    assert response.json()['error']['message'] == (
+        'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
+    )
+    with s.store.connect() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM ka.agent_sessions').fetchone()['n'] == before
+    # once promoted, the name is a live document's: a run starts and drafts that document
+    promote(s, draft)
+    again, other, other_id = started(s)
+    assert call(other, 'save_document', document_id=other_id, markdown='# Next') == 'Saved draft (1 lines).'
+    [row] = drafts(s, again['id'])
+    assert (row['document_id'], row['base_version'], row['slug']) == (draft, 1, None)
+
+
 def edit_by_person(s, draft_id) -> dict:
     draft = s.client.get(f'/api/documentation/drafts/{draft_id}', headers=HEADERS).json()
     edited = s.client.put(

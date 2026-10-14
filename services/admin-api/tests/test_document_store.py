@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from knowledge_admin.documents.store import (
+    DRAFT_OUTCOME,
     Provenance,
     build_snapshot,
     create_draft,
@@ -131,8 +132,24 @@ def test_promote_archives_the_live_content_keeps_the_id_and_deletes_every_draft(
             'version': 2,
             'stale_confirmed': False,
             'deleted_drafts': 2,
-            'deleted_draft_ids': [str(other)],
         }
+        # the other draft gets its own 'replaced' row (read by resource, indexed); the document gets 'updated'
+        assert conn.execute(
+            "SELECT resource_type,resource_id,details FROM ka.audit_events WHERE action='document.draft.replaced'"
+        ).fetchall() == [
+            {
+                'resource_type': 'document_draft',
+                'resource_id': other,
+                'details': {'document_id': str(live['id']), 'version': 2},
+            }
+        ]
+        assert conn.execute(
+            "SELECT resource_type,resource_id,details FROM ka.audit_events WHERE action='document.updated'"
+        ).fetchall() == [
+            {'resource_type': 'document', 'resource_id': live['id'], 'details': {'version': 2, 'from_draft': True}}
+        ]
+        assert draft_outcome(conn, other) == {'id': other, 'document_id': live['id'], 'status': 'replaced'}
+        assert draft_outcome(conn, first)['status'] == 'promoted'
 
 
 def test_promote_moves_sources_live_to_archive_and_draft_to_live(store):
@@ -487,6 +504,23 @@ def test_promote_checks_the_draft_revision(store):
         )
 
 
+def test_promote_does_not_wait_on_a_key_share_of_the_live_row(store):
+    # a run's turn-end source refresh inserts a document_sources row pointing at the live document (FK: KEY SHARE on
+    # it) while holding its own draft; promote locks the live row FOR NO KEY UPDATE, which KEY SHARE does not block
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        live = new_live(conn, project)
+        draft = create_draft(
+            conn, project, Provenance('person', None), content('# Two'), origin='manual', document_id=live['id']
+        )
+    with store.connect() as holder:
+        holder.execute('SELECT id FROM ka.documents WHERE id=%s FOR KEY SHARE', (live['id'],))
+        with store.connect() as conn:
+            conn.execute("SET LOCAL lock_timeout = '2s'")
+            result = promote_draft(conn, project, None, draft, revision=1, confirm_stale=False)
+        assert result['version'] == 2
+
+
 def test_two_concurrent_promotes_of_one_document_archive_each_version_once(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
@@ -598,6 +632,10 @@ def test_draft_outcome_open_promoted_discarded_unknown(store):
         assert draft_outcome(conn, brand_new) == {'id': brand_new, 'document_id': brand_new, 'status': 'open'}
         promote_draft(conn, project, None, brand_new, revision=1, confirm_stale=False)
         assert draft_outcome(conn, brand_new)['status'] == 'promoted'
+        assert conn.execute(
+            "SELECT resource_type,details FROM ka.audit_events WHERE action='document.created' AND resource_id=%s",
+            (brand_new,),
+        ).fetchall() == [{'resource_type': 'document', 'details': {'version': 1, 'from_draft': True}}]
         assert draft_outcome(conn, uuid4()) is None
         chosen, replaced = (
             create_draft(conn, project, prov, content(f'# {n}'), origin='manual', document_id=live['id'])
@@ -606,6 +644,26 @@ def test_draft_outcome_open_promoted_discarded_unknown(store):
         promote_draft(conn, project, None, chosen, revision=1, confirm_stale=False)
         assert draft_outcome(conn, replaced) == {'id': replaced, 'document_id': live['id'], 'status': 'replaced'}
         assert draft_outcome(conn, chosen)['status'] == 'promoted'
+
+
+def test_draft_outcome_reads_the_audit_log_by_resource_only_when_the_draft_is_gone(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        live = new_live(conn, project)
+        draft = create_draft(
+            conn, project, Provenance('person', None), content('# P'), origin='manual', document_id=live['id']
+        )
+        conn.execute('SET LOCAL enable_seqscan = off')
+        query = (
+            f'EXPLAIN (ANALYZE, COSTS OFF) SELECT {DRAFT_OUTCOME.format(draft="q.id")} FROM (SELECT %s::uuid AS id) q'
+        )
+        plan = '\n'.join(row['QUERY PLAN'] for row in conn.execute(query, (draft,)).fetchall())
+        # the draft row exists: the audit log is not read at all
+        assert 'audit_events_document_draft on audit_events a (never executed)' in plan
+        discard_draft(conn, project, None, draft, revision=1)
+        plan = '\n'.join(row['QUERY PLAN'] for row in conn.execute(query, (draft,)).fetchall())
+        assert 'Index Scan using audit_events_document_draft on audit_events a (actual' in plan
+        assert 'Seq Scan' not in plan
 
 
 def test_versions_are_newest_first_and_version_reads_by_number(store):

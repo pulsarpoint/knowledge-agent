@@ -23,9 +23,11 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `services`, `service_deployments` | Applications and server/environment deployments |
 | `inventory_links`, `inventory_documents` | Connections between inventory entries (`depends_on`, `built_from`, `connects_to`, with description and string attributes; they replaced `service_dependencies` and `service_repositories` in migration 0095) and documents attached to entries |
 | `servers` | Host inventory and SSH connection settings |
-| `documents`, `document_versions` | Stable document IDs, canonical Markdown, immutable versions, hashes and source snapshots. `documents.phase_metadata` holds the service phase export layout (`services/<service>/<phase>/`); `document_versions.generation_id` is history without a foreign key since migration 0073 |
-| `document_drafts`, `document_sources`, `document_links` | Drafts (unpublished versions of a document or a new document, promoted or discarded by a person; never exported or listed as documents), what a draft or live version was built from, and `depends_on` links between documents |
-| `document_code_projects`, `document_services`, `document_servers`, `document_deployments` | Current document associations to inventory |
+| `documents` | Live documents and drafts in one table (migration 0104). A live row (`is_draft` false) has a stable ID, slug and folder, its current content (canonical Markdown, hash, `version`, source snapshot) and `phase_metadata` (the service phase export layout, `services/<service>/<phase>/`). A draft row (`is_draft`) is either a draft of a live document (`draft_of`, `base_version`) or a brand-new document with its own slug and folder; drafts are promoted or discarded by a person and never exported or listed as documents. Folder and slug are unique across live documents and brand-new drafts |
+| `document_archive` | Earlier live contents of a document (`document_id`, `version`, content, source snapshot), one immutable row per replaced version; promote and save move the live content here |
+| `document_resources` | Links between a document (live or brand-new draft) and an environment, service, server, code project or deployment: `connection` (`built_for`, which cannot be removed, or `linked`), `added_how` (`person`, `agent_run`, `discovery`, `migrated`), who and which run added it, and `removed_at`/`removed_by` (removed links stay as history) |
+| `document_sources`, `document_links` | What a live document, archived version or draft was built from (`document_id` or `archive_id`), and `depends_on` links between documents |
+| `live_documents`, `document_details`, `document_drafts_view` (views) | Live document rows; live documents with their active link ids and draft count; drafts with their document's name, live version, staleness and the links that apply |
 | `discovery_proposals` | What a server discovery run (an agent session with `purpose = 'discovery'` and a `server_id`) proposes: services and documents, accepted or rejected by an administrator |
 | `documentation_prompts`, `documentation_prompt_versions` | Editable analysis templates, draft versions and explicit active selection |
 | `jobs`, `job_events`, `job_questions` | Work lifecycle, worker leases, input/results, progress and questions |
@@ -34,8 +36,8 @@ selector. Keycloak identities and Phoenix traces remain external state.
 | `rag_folders` | Kept only for old processing-job history; nothing new writes to it |
 | `jira_connections`, `jira_tickets` | Jira Data Center access settings and imported tickets |
 | `agents` and agent configuration/association tables | Agent definitions, prompt/model assignments, skills, tools and resources |
-| `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | New-document (`documents`; earlier Generate documents), Test, event, server discovery and `revision` runs (Ask agent on a document, `target_document_id`) sessions (`purpose`; a discovery run has a `server_id`), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
-| `audit_events` | Immutable attributed configuration events |
+| `agent_sessions`, `agent_session_inputs`, `agent_session_reviews` | `agent_sessions.last_draft_id` is the run's last draft (no foreign key: drafts are deleted on promote and discard; its outcome is read from `audit_events`). New-document (`documents`; earlier Generate documents), Test, event, server discovery and `revision` runs (Ask agent on a document, `target_document_id`) sessions (`purpose`; a discovery run has a `server_id`), their queued messages and tuning suggestions; changes to a session, its queued messages and its `cc:<session>:<turn>` run events are announced on the channel `ka_sessions` (0083) |
+| `audit_events` | Immutable attributed configuration events; a partial index on `(resource_id, created_at)` for `resource_type = 'document_draft'` serves a deleted draft's outcome (`document.draft.promoted`, `.discarded`, `.replaced`) |
 
 See [documentation administration](documentation.md) for the document model,
 version lifecycle and API. Migrations 39–40 replace the old, unused document-set,
@@ -47,15 +49,17 @@ Migration 0100 seeds the "Revise a document" prompt (tag `document-revision`, th
 
 ```mermaid
 erDiagram
-    documents ||--|{ document_versions : versions
-    documents ||--o{ document_code_projects : describes
-    repositories ||--o{ document_code_projects : linked
-    documents ||--o{ document_services : describes
-    services ||--o{ document_services : linked
-    documents ||--o{ document_servers : describes
-    servers ||--o{ document_servers : linked
-    documents ||--o{ document_deployments : describes
-    service_deployments ||--o{ document_deployments : linked
+    documents ||--o{ documents : "draft_of (drafts)"
+    documents ||--o{ document_archive : "earlier versions"
+    documents ||--o{ document_sources : "built from"
+    document_archive ||--o{ document_sources : "built from"
+    documents ||--o{ document_resources : links
+    environments ||--o{ document_resources : linked
+    services ||--o{ document_resources : linked
+    servers ||--o{ document_resources : linked
+    repositories ||--o{ document_resources : linked
+    service_deployments ||--o{ document_resources : linked
+    agent_sessions |o--o| documents : "last_draft_id"
     documentation_prompts ||--o{ documentation_prompt_versions : versions
 ```
 
@@ -65,10 +69,12 @@ Composite foreign keys keep related inventory and credentials in one workspace.
 Credential types prevent using a Jira token as an SSH key. The backoffice encrypts
 secrets before storage and exposes only their configured state.
 
-Documents require a current version belonging to that document. Every save takes
-a row lock, checks the submitted revision and inserts a complete version. Saved
-Markdown is immutable and its SHA-256 must match its UTF-8 bytes. Current resource
-links are foreign keys; historical names and IDs stay in each version's snapshot.
+A live document holds its current version in its own row. Every save takes a row
+lock, checks the submitted revision, moves the previous content to the immutable
+`document_archive` and writes the new version in place, so the document's ID never
+changes. A Markdown hash must match its UTF-8 bytes. Current resource links are
+foreign keys in `document_resources`; historical names and IDs stay in each
+version's snapshot.
 Prompt activation also uses a parent lock and expected revision. Saved prompt text
 cannot be changed, and the active version cannot be deleted independently.
 

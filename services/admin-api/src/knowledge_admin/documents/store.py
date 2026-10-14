@@ -444,7 +444,9 @@ def promote_draft(
     document (version 1). A stale draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision',
     'deleted_drafts', 'new'}; the caller exports after commit."""
     # The live row before the draft: two promotes of drafts of one document queue on the live row, and the second
-    # then finds its draft deleted (404) instead of deadlocking on the drafts the first deletes.
+    # then finds its draft deleted (404) instead of deadlocking on the drafts the first deletes. FOR NO KEY UPDATE
+    # (the live row's key never changes) lets a run's turn-end source refresh hold KEY SHARE on it through a
+    # document_sources foreign key without a lock cycle.
     peek = conn.execute(
         'SELECT draft_of FROM ka.documents WHERE id=%s AND project_id=%s AND is_draft', (draft_id, project)
     ).fetchone()
@@ -453,7 +455,7 @@ def promote_draft(
     live = None
     if peek['draft_of'] is not None:
         live = conn.execute(
-            'SELECT * FROM ka.documents WHERE id=%s AND NOT is_draft FOR UPDATE', (peek['draft_of'],)
+            'SELECT * FROM ka.documents WHERE id=%s AND NOT is_draft FOR NO KEY UPDATE', (peek['draft_of'],)
         ).fetchone()
     draft = _locked_draft(conn, draft_id, revision, project)
     if draft['draft_of'] is None:
@@ -506,7 +508,7 @@ def promote_draft(
             row['id']
             for row in conn.execute('DELETE FROM ka.documents WHERE draft_of=%s RETURNING id', (live['id'],)).fetchall()
         ]
-        replaced = [str(item) for item in deleted if item != draft_id]
+        replaced = [item for item in deleted if item != draft_id]
         result = {
             'document_id': live['id'],
             'version': live['version'] + 1,
@@ -526,8 +528,26 @@ def promote_draft(
             'version': result['version'],
             'stale_confirmed': confirm_stale,
             'deleted_drafts': result['deleted_drafts'],
-            'deleted_draft_ids': replaced,  # the document's other drafts: their outcome is 'replaced'
         },
+    )
+    for other in replaced:  # the document's other drafts: their outcome is 'replaced'
+        audit(
+            conn,
+            project,
+            actor,
+            'document.draft.replaced',
+            'document_draft',
+            other,
+            {'document_id': result['document_id'], 'version': result['version']},
+        )
+    audit(
+        conn,
+        project,
+        actor,
+        'document.created' if result['new'] else 'document.updated',
+        'document',
+        result['document_id'],
+        {'version': result['version'], 'from_draft': True},
     )
     return result
 
@@ -591,22 +611,21 @@ def resource_history(conn, document_id: UUID) -> list[dict]:
 
 # A draft's outcome as jsonb {id, document_id, status} for the draft id expression {draft}: open while its row exists
 # (document_id: the live document it revises, or its own id when brand-new); else from the audit log: promoted or
-# discarded (its own event), or replaced (deleted by the promote of another draft of its document); NULL when unknown.
-# The one definition behind draft_outcome and the sessions' document_draft (drafts.SESSION_DRAFT).
+# discarded (its own event), or replaced (its document.draft.replaced event, written by the promote of another draft
+# of its document); NULL when unknown. The audit log is read (by resource, indexed: audit_events_document_draft) only
+# when {draft} is set and its row is gone. The one definition behind draft_outcome and the sessions' document_draft
+# (drafts.SESSION_DRAFT).
 DRAFT_OUTCOME = """(SELECT CASE
         WHEN x.id IS NOT NULL THEN jsonb_build_object('id',x.id,'document_id',COALESCE(x.draft_of,x.id),'status','open')
         WHEN own.action IS NOT NULL THEN jsonb_build_object('id',{draft},'document_id',own.details->'document_id',
-            'status',CASE own.action WHEN 'document.draft.promoted' THEN 'promoted' ELSE 'discarded' END)
-        WHEN other.details IS NOT NULL THEN jsonb_build_object('id',{draft},'document_id',other.details->'document_id',
-            'status','replaced')
+            'status',CASE own.action WHEN 'document.draft.promoted' THEN 'promoted'
+                WHEN 'document.draft.replaced' THEN 'replaced' ELSE 'discarded' END)
         END
     FROM (SELECT 1) one LEFT JOIN ka.documents x ON x.id={draft} AND x.is_draft
-    LEFT JOIN LATERAL (SELECT a.action,a.details FROM ka.audit_events a WHERE a.resource_type='document_draft'
-        AND a.resource_id={draft} AND a.action IN ('document.draft.promoted','document.draft.discarded')
-        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) own ON true
-    LEFT JOIN LATERAL (SELECT a.details FROM ka.audit_events a WHERE a.action='document.draft.promoted'
-        AND a.resource_type='document_draft' AND a.details->'deleted_draft_ids' @> jsonb_build_array({draft}::text)
-        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) other ON own.action IS NULL)"""
+    LEFT JOIN LATERAL (SELECT a.action,a.details FROM ka.audit_events a WHERE {draft} IS NOT NULL AND x.id IS NULL
+        AND a.resource_type='document_draft' AND a.resource_id={draft}
+        AND a.action IN ('document.draft.promoted','document.draft.discarded','document.draft.replaced')
+        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) own ON true)"""
 
 
 def draft_outcome(conn, draft_id: UUID) -> dict | None:

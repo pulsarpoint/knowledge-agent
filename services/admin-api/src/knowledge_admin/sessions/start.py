@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.servers.discovery import readiness, server_row
-from knowledge_admin.documents.api import document_slug
+from knowledge_admin.documents.api import NAME_IN_USE, document_slug
 
 from knowledge_admin.knowledge_agents.config import (
     get_agent_config,
@@ -224,16 +224,25 @@ def target_document(conn, project: UUID, document_id: UUID) -> dict:
 
 def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[dict]:
     """The documents the run may read (and edit, when editable), with their current titles, and the new document it
-    may write (an id of its own, 'new:<uuid>', its name, folder and slug)."""
+    may write (an id of its own, 'new:<uuid>', its name, folder and slug). A brand-new draft already holding the new
+    document's folder and slug refuses the run (409): every save would fail. A live document of that name does not:
+    the run drafts that document."""
     access = []
     for entry in entries:
         if entry.new is not None:
+            slug = document_slug(entry.new.name)
+            if conn.execute(
+                """SELECT 1 FROM ka.documents WHERE project_id=%s AND is_draft AND draft_of IS NULL
+                AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
+                (project, entry.new.folder, slug),
+            ).fetchone():
+                raise HTTPException(409, NAME_IN_USE.format(slug=slug))
             access.append(
                 {
                     'id': f'new:{uuid4()}',
                     'title': entry.new.name,
                     'folder': entry.new.folder,
-                    'slug': document_slug(entry.new.name),
+                    'slug': slug,
                     'editable': True,
                     'new': True,
                 }

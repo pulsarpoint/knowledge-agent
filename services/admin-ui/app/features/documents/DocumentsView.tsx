@@ -218,7 +218,7 @@ export default function DocumentsView() {
                     <TableHead>Draft</TableHead>
                     <TableHead>Document</TableHead>
                     <TableHead>Written by</TableHead>
-                    <TableHead>Updated</TableHead>
+                    <TableHead>Created</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -249,7 +249,7 @@ export default function DocumentsView() {
                       <TableCell>
                         <DraftAuthor draft={draft} />
                       </TableCell>
-                      <TableCell>{new Date(draft.updated_at).toLocaleString()}</TableCell>
+                      <TableCell>{new Date(draft.created_at).toLocaleString()}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
                           <Button asChild size="sm" variant="outline">

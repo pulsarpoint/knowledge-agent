@@ -132,6 +132,9 @@ CREATE UNIQUE INDEX documents_folder_slug ON documents(project_id, folder, slug)
 CREATE INDEX documents_drafts ON documents(draft_of, created_at) WHERE is_draft;
 CREATE INDEX documents_new_drafts ON documents(project_id, created_at) WHERE is_draft AND draft_of IS NULL;
 CREATE INDEX documents_session ON documents(session_id) WHERE session_id IS NOT NULL;
+-- A draft's outcome (promoted, discarded, replaced) is read from its audit rows once the draft row is gone.
+CREATE INDEX audit_events_document_draft ON audit_events(resource_id, created_at DESC)
+    WHERE resource_type = 'document_draft';
 COMMENT ON TABLE documents IS
     'Live documents (is_draft false; version, content) and drafts (is_draft; draft_of a live document, or a brand-new document with its own slug). Earlier live contents are in document_archive.';
 

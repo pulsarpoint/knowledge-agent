@@ -12,6 +12,7 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+DROP INDEX audit_events_document_draft;
 DROP VIEW document_drafts_view;
 DROP VIEW document_details;
 DROP VIEW live_documents;

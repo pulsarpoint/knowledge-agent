@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
 SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
+NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
 
 
 def _text(value: str, *, blank: bool = False, strip: bool = True) -> str:
@@ -519,7 +520,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         old_slug, old_folder = old['slug'], old['folder']
                 saved = save_document(conn, project, actor, value, document_id)
         except psycopg.errors.UniqueViolation:
-            raise HTTPException(409, 'A document with this slug already exists') from None
+            raise HTTPException(409, NAME_IN_USE.format(slug=value.slug)) from None
         try:
             with db.connect() as conn:
                 current = export_input(conn, saved['id'])

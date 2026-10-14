@@ -338,6 +338,8 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
   expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/drafts/d9");
   expect(list.getByText("New document in servers/web-1/")).toBeInTheDocument();
   expect(list.getByText("ana@example.com")).toBeInTheDocument();
+  expect(list.getByRole("columnheader", { name: "Created" })).toBeInTheDocument();
+  expect(list.queryByRole("columnheader", { name: "Updated" })).toBeNull();
   expect(screen.queryByLabelText("Search documents")).toBeNull();
   await router.navigate("/documents?view=drafts&environment_id=env-1");
   await waitFor(() =>
