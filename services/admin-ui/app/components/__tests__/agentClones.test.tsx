@@ -13,7 +13,7 @@ vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib
   getAgents: vi.fn(), getAgentOptions: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
 vi.mock('../../lib/clones');
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
-vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => null }));
 
 const base: profiles.AgentProfile = { id: 'operations', name: 'SSH agent', description: '', when_to_use: '', enabled: true,

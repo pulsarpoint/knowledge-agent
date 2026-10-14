@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { X } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { saveEnvironment, type EnvironmentAsset } from "../lib/environments";
-import { type ServiceAsset } from "../lib/services";
-import { type ServerAsset } from "../lib/servers";
-import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
+import { ApiError } from "~/lib/api";
+import { saveEnvironment, type EnvironmentAsset } from "./environments";
+import { type ServiceAsset } from "./services";
+import { type ServerAsset } from "./api";
+import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";

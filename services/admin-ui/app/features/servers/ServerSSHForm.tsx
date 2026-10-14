@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError } from '../lib/api';
-import { getSSH, saveSSH, testSSH, deleteAgentSSH, type SSHServer, type SSHInput, type SSHTestResult } from '../lib/operations';
+import { ApiError } from '~/lib/api';
+import { getSSH, saveSSH, testSSH, deleteAgentSSH, type SSHServer, type SSHInput, type SSHTestResult } from './operations';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';

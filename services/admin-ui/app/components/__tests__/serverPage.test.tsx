@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
-import ServerPage from "../ServerPage";
+import ServerPage from "~/features/servers/ServerPage";
 import { WidePageContext } from "~/lib/widePage";
 import { options as shared } from "~/lib/__tests__/agentOptionsFixture";
 

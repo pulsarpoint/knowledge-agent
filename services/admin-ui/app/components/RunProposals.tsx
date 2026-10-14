@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getProposals, type Proposal } from "~/lib/discovery";
+import { getProposals, type Proposal } from "~/features/servers/discovery";
 import ProposalSheet, { proposalLabel } from "./ProposalSheet";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";

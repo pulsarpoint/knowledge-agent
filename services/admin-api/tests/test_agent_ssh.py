@@ -6,7 +6,7 @@ import asyncssh
 import pytest
 from fastapi import HTTPException
 
-from knowledge_admin.operations_store import OperationsStore
+from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured
 from test_repositories import HEADERS

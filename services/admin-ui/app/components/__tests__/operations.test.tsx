@@ -2,13 +2,13 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import OperationsView from '../OperationsView';
-import ServerSSHForm from '../ServerSSHForm';
-import * as api from '../../lib/operations';
+import OperationsView from '~/features/servers/OperationsView';
+import ServerSSHForm from '~/features/servers/ServerSSHForm';
+import * as api from '~/features/servers/operations';
 import { getAgentConfig, type AgentProfile } from '../../lib/profiles';
 import { getSessionOptions, getSessions, startSession, type SessionDetail } from '../../lib/sessions';
 import { agentOptions } from '../../lib/__tests__/agentScopeFixture';
-vi.mock('../../lib/operations');
+vi.mock('~/features/servers/operations');
 vi.mock('../../lib/profiles');
 vi.mock('../../lib/sessions', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/sessions')>(), startSession: vi.fn(), getSessionOptions: vi.fn(), getSessions: vi.fn() }));
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));

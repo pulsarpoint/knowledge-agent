@@ -12,7 +12,7 @@ import { ApiError } from '../../lib/api';
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
 vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
-vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'payments', name: 'Payments analyst', description: '', when_to_use: '', enabled: true,
   documents_enabled: false, repositories_enabled: true,

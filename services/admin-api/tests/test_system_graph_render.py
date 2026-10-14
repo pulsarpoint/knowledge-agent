@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from knowledge_admin import system_graph_render as render
+from knowledge_admin.servers import system_graph_render as render
 
 
 def node(id, name, parent=None, kind='module'):

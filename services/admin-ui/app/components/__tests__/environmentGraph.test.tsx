@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
-import EnvironmentsView from "../EnvironmentsView";
-import type { EnvironmentAsset } from "../../lib/environments";
-import type { ServiceAsset } from "../../lib/services";
+import EnvironmentsView from "~/features/servers/EnvironmentsView";
+import type { EnvironmentAsset } from "~/features/servers/environments";
+import type { ServiceAsset } from "~/features/servers/services";
 
 const engine = vi.hoisted(() => ({ compile: vi.fn(), render: vi.fn(), dispose: vi.fn() }));
 vi.mock("@d2lang/d2", () => ({ D2: vi.fn(function () { return engine; }) }));

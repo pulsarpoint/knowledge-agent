@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { RefreshCw } from 'lucide-react';
-import { type AgentProfile } from '../lib/profiles';
-import { ApiError } from '../lib/api';
-import { getOperationsSettings, saveOperationsSettings, saveOperationsServerConfig, deleteOperationsServerConfig, type OperationsConfiguration, type OperationsSettings, type ServerConfigInput } from '../lib/operations';
-import AgentTestView from './AgentTestView';
+import { type AgentProfile } from '~/lib/profiles';
+import { ApiError } from '~/lib/api';
+import { getOperationsSettings, saveOperationsSettings, saveOperationsServerConfig, deleteOperationsServerConfig, type OperationsConfiguration, type OperationsSettings, type ServerConfigInput } from './operations';
+import AgentTestView from '~/components/AgentTestView';
 import ServerSSHForm from './ServerSSHForm';
 import MCPSelection from "~/features/llm/MCPSelection";
 import { Alert, AlertDescription } from '~/components/ui/alert';

@@ -16,8 +16,8 @@ from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
                                        save_document)
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.service_api import save_service
-from knowledge_admin.services import DeploymentInput, ServiceDependencyInput, ServiceInput
+from knowledge_admin.servers.service_api import save_service
+from knowledge_admin.servers.services import DeploymentInput, ServiceDependencyInput, ServiceInput
 
 NOT_FOUND = 'Server not found.'
 NOT_CONFIGURED = 'Set up SSH for this server first (SSH settings).'

@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
-import { acceptProposal, rejectProposal, SERVICE_FIELD_LABELS, type Proposal, type ServiceField, type ServiceProposal } from "~/lib/discovery";
+import { acceptProposal, rejectProposal, SERVICE_FIELD_LABELS, type Proposal, type ServiceField, type ServiceProposal } from "~/features/servers/discovery";
 import Markdown from "./Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,

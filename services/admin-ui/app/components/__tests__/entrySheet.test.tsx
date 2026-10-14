@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import EntrySheet from "../EntrySheet";
+import EntrySheet from "~/features/servers/EntrySheet";
 
 const api = { kind: "service" as const, id: "api", name: "api" };
 const link = { id: "l1", kind: "connects_to", from: { kind: "service", id: "api", name: "api" }, to: { kind: "server", id: "s1", name: "prod-1" },

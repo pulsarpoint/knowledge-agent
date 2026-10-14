@@ -8,7 +8,7 @@ import pytest
 from knowledge_llm.prompts import DEFAULT_PROMPTS
 
 from knowledge_admin.agents import get_agent_config
-from knowledge_admin.operations_store import OperationsStore
+from knowledge_admin.servers.operations_store import OperationsStore
 from test_agent_ssh import save
 from test_api import _client
 from test_operations import configured

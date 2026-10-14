@@ -1,9 +1,9 @@
 import { FileJson, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { type ServiceAsset } from "../lib/services";
-import { getStorage } from "../lib/storage";
-import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
+import { type ServiceAsset } from "./services";
+import { getStorage } from "~/lib/storage";
+import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";

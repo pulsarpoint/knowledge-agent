@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "../lib/environments";
-import { getServices, type ServiceAsset } from "../lib/services";
-import { getServers, type ServerAsset } from "../lib/servers";
+import { ApiError } from "~/lib/api";
+import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "./environments";
+import { getServices, type ServiceAsset } from "./services";
+import { getServers, type ServerAsset } from "./api";
 import EnvironmentForm from "./EnvironmentForm";
 import ServiceDependencyGraph from "./ServiceDependencyGraph";
 import ServiceDetails from "./ServiceDetails";

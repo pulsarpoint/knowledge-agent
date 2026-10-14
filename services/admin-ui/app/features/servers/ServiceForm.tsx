@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { ChevronDown, Plus, Server, Trash2, X } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { saveService, type DeploymentInput, type ServiceAsset } from "../lib/services";
-import { type EnvironmentAsset } from "../lib/environments";
+import { ApiError } from "~/lib/api";
+import { saveService, type DeploymentInput, type ServiceAsset } from "./services";
+import { type EnvironmentAsset } from "./environments";
 import { type Repository } from "~/features/codeProjects/api";
-import { type ServerAsset } from "../lib/servers";
+import { type ServerAsset } from "./api";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -16,7 +16,7 @@ import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import ServerForm from "./ServerForm";
 import ServiceDependencyFields from "./ServiceDependencyFields";
-import { serviceTypes, serviceRoles, type ServiceType, type ServiceRole } from "../lib/serviceClassification";
+import { serviceTypes, serviceRoles, type ServiceType, type ServiceRole } from "./serviceClassification";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 

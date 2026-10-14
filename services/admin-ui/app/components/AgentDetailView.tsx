@@ -8,7 +8,7 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import AgentProfileSettings from './AgentProfileSettings';
-import OperationsView from './OperationsView';
+import OperationsView from '~/features/servers/OperationsView';
 import AgentPromptCard from './AgentPromptCard';
 import AgentToolsView from './AgentToolsView';
 import AgentActions from './AgentActions';

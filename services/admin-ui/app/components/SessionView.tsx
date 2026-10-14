@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { draftPath } from '~/lib/drafts';
-import { runPagePath } from '~/lib/discovery';
+import { runPagePath } from '~/features/servers/discovery';
 import { agentRunPath, closeSession, sendMessage, statusLabels, stopSession } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';
 import { useFillViewport } from '~/lib/useFillViewport';

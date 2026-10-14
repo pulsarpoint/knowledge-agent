@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { tomorrow } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import Mermaid from './Mermaid';
-import ServiceTalaGraph from './ServiceTalaGraph';
+import ServiceTalaGraph from '~/features/servers/ServiceTalaGraph';
 
 interface MarkdownProps {
   content: string;

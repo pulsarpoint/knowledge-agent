@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export type MapName = "infrastructure" | "services";
 export const MAPS: MapName[] = ["infrastructure", "services"];

@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import { serviceDependencyGraph } from '../serviceGraph';
+import { serviceDependencyGraph } from '~/features/servers/serviceGraph';
 
 const services = [
   { id: 'api', name: 'Payments', service_role: 'application' as const, dependencies: [{ service_id: 'db', name: 'PostgreSQL', description: 'Stores payments' }] },

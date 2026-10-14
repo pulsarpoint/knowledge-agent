@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link as RouterLink } from "react-router";
-import { ApiError } from "../lib/api";
-import { getDocuments, type DocumentSummary } from "../lib/documents";
+import { ApiError } from "~/lib/api";
+import { getDocuments, type DocumentSummary } from "~/lib/documents";
 import { ENTRY_LABELS, ENTRY_PAGES, LINK_LABELS, attachDocument, createLink, deleteLink, detachDocument, formatAttributes, getAttachments,
   getLinks, linkKindsFrom, parseAttributes, searchEntries, targetKinds, updateLink,
-  type Attachment, type EntryHit, type Link, type LinkKind, type MapEntry } from "../lib/inventoryMap";
+  type Attachment, type EntryHit, type Link, type LinkKind, type MapEntry } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";

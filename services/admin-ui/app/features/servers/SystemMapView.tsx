@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { ArrowRight, Copy } from "lucide-react";
-import { ApiError } from "../lib/api";
+import { ApiError } from "~/lib/api";
 import { ENTRY_LABELS, MAPS, MAP_LABELS, LAYOUTS, MAX_DEPTH, VIEWS, VIEW_LABELS, getView, getViewText, mapQuery, readMapState,
-  type Layout, type MapEntry, type MapGraph, type MapName, type MapState, type MapView } from "../lib/inventoryMap";
-import Mermaid from "./Mermaid";
+  type Layout, type MapEntry, type MapGraph, type MapName, type MapState, type MapView } from "./inventoryMap";
+import Mermaid from "~/components/Mermaid";
 import EntrySheet from "./EntrySheet";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";

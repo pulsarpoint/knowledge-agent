@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import asyncssh
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.discovery import NOT_ALLOWED, NOT_CONFIGURED
+from knowledge_admin.servers.discovery import NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG, effective_tools
 from test_profiles import create, update

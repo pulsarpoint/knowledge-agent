@@ -1,6 +1,6 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 import type { ServiceType, ServiceRole } from "./serviceClassification";
-import type { ServerAsset } from "./servers";
+import type { ServerAsset } from "./api";
 
 export interface ServiceRepository {
   id: string; name: string; remote_url: string | null; requested_ref: string | null;

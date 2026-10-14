@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.data_root import documentation_folder
-from knowledge_admin.discovery import readiness, server_row
+from knowledge_admin.servers.discovery import readiness, server_row
 from knowledge_admin.documents import document_slug
 
 from knowledge_admin.knowledge_agents.config import get_agent_config, load_model, model_fits, per_run, require_run_resources

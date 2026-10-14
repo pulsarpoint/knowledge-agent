@@ -8,7 +8,7 @@ import * as llm from "~/features/llm/api";
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(),
   getAgentOptions: vi.fn(), saveAgentPrompt: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
-vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'custom', name: 'Payments analyst', description: '', when_to_use: '',
   enabled: true, documents_enabled: false, repositories_enabled: false, ssh_enabled: false,

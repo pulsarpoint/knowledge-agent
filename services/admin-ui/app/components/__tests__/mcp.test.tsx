@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import MCPServersView from "~/features/llm/MCPServersView";
-import OperationsView from '../OperationsView';
+import OperationsView from '~/features/servers/OperationsView';
 import * as api from "~/features/llm/mcp";
-import * as operations from '../../lib/operations';
+import * as operations from '~/features/servers/operations';
 vi.mock("~/features/llm/mcp");
-vi.mock('../../lib/operations');
+vi.mock('~/features/servers/operations');
 vi.mock('../Markdown', () => ({ default: () => null }));
 const connection: api.MCPServer = { id: 'mcp-1', name: 'Deployment tools', url: 'https://mcp.test/mcp', description: 'Read deployments', enabled: true, revision: 2, has_token: true, tools: [{ name: 'read_info', description: 'Read deployment information' }], last_tested_at: '2026-09-10T12:00:00Z', last_test_error: null };
 beforeEach(() => {

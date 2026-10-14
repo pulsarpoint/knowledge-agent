@@ -4,9 +4,9 @@ import asyncio
 import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.discovery import (ACCEPT_SERVICE_FIRST, DECIDED, DOCUMENT_ADDED, SERVICE_ADDED, SERVICE_CHANGED,
+from knowledge_admin.servers.discovery import (ACCEPT_SERVICE_FIRST, DECIDED, DOCUMENT_ADDED, SERVICE_ADDED, SERVICE_CHANGED,
                                        SERVICE_GONE, STALE)
-from knowledge_admin.discovery import DOCUMENT_CHANGED
+from knowledge_admin.servers.discovery import DOCUMENT_CHANGED
 from knowledge_admin.documents import DocumentInput, save_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start

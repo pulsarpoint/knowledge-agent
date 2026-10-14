@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
-from knowledge_admin import inventory_map, system_graph_render
+from knowledge_admin.servers import inventory_map, system_graph_render
 from knowledge_admin.events.templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 

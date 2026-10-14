@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.services import ServerInput, ServiceInput
+from knowledge_admin.servers.services import ServerInput, ServiceInput
 
 
 def save_service(conn, project_id: UUID, actor_id: UUID, value: ServiceInput, service_id: UUID | None,

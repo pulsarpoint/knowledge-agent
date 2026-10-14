@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { serviceDependencyD2 } from "../serviceGraph";
+import { serviceDependencyD2 } from "~/features/servers/serviceGraph";
 
 test("real TALA compilation preserves labels, cycles, isolated services and dependency direction", () => {
   const unusualName = 'API "prod" ${untrusted} \\ <img src=x onerror=alert(1)>\n# @import';

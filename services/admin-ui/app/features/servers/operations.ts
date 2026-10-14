@@ -1,5 +1,5 @@
 import type { MCPServer } from "~/features/llm/mcp";
-import { request } from './api';
+import { request } from '~/lib/api';
 export interface SSHServer {
   id: string; name: string; hostname: string; port: number; username: string | null; revision: number;
   server_revision?: number; connection_source?: 'server' | 'agent';

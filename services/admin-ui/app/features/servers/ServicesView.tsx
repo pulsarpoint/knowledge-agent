@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { deleteService, getServices, type ServiceAsset } from "../lib/services";
-import { getEnvironments, type EnvironmentAsset } from "../lib/environments";
+import { ApiError } from "~/lib/api";
+import { deleteService, getServices, type ServiceAsset } from "./services";
+import { getEnvironments, type EnvironmentAsset } from "./environments";
 import { getRepositories, type Repository } from "~/features/codeProjects/api";
-import { getServers, type ServerAsset } from "../lib/servers";
+import { getServers, type ServerAsset } from "./api";
 import ServiceForm from "./ServiceForm";
 import ServiceDetails from "./ServiceDetails";
-import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
+import { serviceTypes, serviceRoles } from "./serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";

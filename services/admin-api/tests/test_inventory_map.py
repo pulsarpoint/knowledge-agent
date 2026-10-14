@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.inventory_map import Inventory, ViewError, build_view, search
+from knowledge_admin.servers.inventory_map import Inventory, ViewError, build_view, search
 
 E = {name: uuid4() for name in ('production', 'staging', 'prod-1', 'spare', 'api', 'worker', 'db', 'code', 'old-code')}
 

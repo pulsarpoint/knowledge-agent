@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from test_api import _client
 from test_repositories import HEADERS
 from knowledge_admin.capabilities import ssh
-from knowledge_admin.operations_store import OperationsStore
+from knowledge_admin.servers.operations_store import OperationsStore
 
 
 def setup(client):

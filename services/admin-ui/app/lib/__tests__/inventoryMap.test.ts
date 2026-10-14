@@ -1,4 +1,4 @@
-import { formatAttributes, linkKindsFrom, mapQuery, parseAttributes, readMapState, targetKinds, viewUrl } from "../inventoryMap";
+import { formatAttributes, linkKindsFrom, mapQuery, parseAttributes, readMapState, targetKinds, viewUrl } from "~/features/servers/inventoryMap";
 
 test("reads and writes the page state with defaults", () => {
   expect(readMapState(new URLSearchParams(""))).toEqual({ map: "infrastructure", root: null, depth: 1, view: "diagram", layout: "tala" });

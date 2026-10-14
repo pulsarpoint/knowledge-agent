@@ -10,7 +10,7 @@ import * as llm from "~/features/llm/api";
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgents: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
 vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
-vi.mock('../OperationsView', () => ({ default: () => null }));
+vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
 vi.mock('../AgentWizard', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'caller', name: 'Caller', description: '', when_to_use: '', enabled: true,

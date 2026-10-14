@@ -11,7 +11,7 @@ import * as profiles from '../../lib/profiles';
 vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
 vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
-vi.mock('../OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
+vi.mock('~/features/servers/OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {
   const [task, setTask] = useState('');
   return <div hidden={view !== 'test'}><span>SSH test {agentId}</span><label>SSH task<input value={task} onChange={event => setTask(event.target.value)} /></label></div>;
 } }));
