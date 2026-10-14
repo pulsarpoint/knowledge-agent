@@ -118,6 +118,8 @@ ALTER TABLE documents
     ADD CONSTRAINT documents_content_hash_check
         CHECK (content_hash = encode(sha256(convert_to(markdown, 'UTF8')), 'hex')),
     ADD CONSTRAINT documents_origin_check CHECK (origin IN ('manual', 'generated', 'uploaded')),
+    -- Drafts keep 0098's tag limit; live rows never had one (document_versions).
+    ADD CONSTRAINT documents_draft_tags_limit CHECK (NOT is_draft OR cardinality(tags) <= 30),
     ADD CONSTRAINT documents_kind CHECK (
         (NOT is_draft AND draft_of IS NULL AND slug IS NOT NULL AND version IS NOT NULL
             AND version_created_at IS NOT NULL AND base_version IS NULL)

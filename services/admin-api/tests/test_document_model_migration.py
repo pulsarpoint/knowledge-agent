@@ -491,6 +491,30 @@ def test_drafts_cannot_be_used_as_documents(store):
         session(conn, project, person, purpose='revision', target_document_id=doc)
 
 
+def test_drafts_keep_at_most_30_tags_and_live_documents_have_no_limit(store):
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        before(conn)
+        doc, _ = old_document(conn, project, 'runbook', ['# One'])
+        conn.commit()
+        run(conn, UP)
+        add = """INSERT INTO ka.documents(project_id,slug,is_draft,version,version_created_at,title,description,purpose,
+            audience,tags,markdown,content_hash,origin) VALUES (%s,%s,%s,%s,%s,'Doc','','explanation','both',%s,'# D',
+            encode(sha256(convert_to('# D','UTF8')),'hex'),'manual')"""
+        tags = [f'tag-{number}' for number in range(31)]
+        with pytest.raises(psycopg.errors.CheckViolation, match='documents_draft_tags_limit'), conn.transaction():
+            conn.execute(add, (project, 'new-draft', True, None, None, tags))
+        conn.execute(add, (project, 'new-draft', True, None, None, tags[:30]))
+        conn.execute(add, (project, 'live', False, 1, EPOCH, tags))
+        with pytest.raises(psycopg.errors.CheckViolation, match='documents_draft_tags_limit'), conn.transaction():
+            conn.execute(
+                """INSERT INTO ka.documents(project_id,is_draft,draft_of,title,description,purpose,audience,tags,
+                markdown,content_hash,origin) VALUES (%s,true,%s,'Doc','','explanation','both',%s,'# D',
+                encode(sha256(convert_to('# D','UTF8')),'hex'),'manual')""",
+                (project, doc, tags),
+            )
+
+
 def test_a_built_for_link_cannot_be_removed(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')

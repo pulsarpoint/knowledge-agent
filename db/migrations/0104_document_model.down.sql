@@ -263,7 +263,7 @@ DROP FUNCTION document_draft_of_live();
 DROP FUNCTION document_stays_live();
 DROP INDEX documents_folder_slug;
 ALTER TABLE documents
-    DROP CONSTRAINT documents_kind, DROP CONSTRAINT documents_draft_of_fk,
+    DROP CONSTRAINT documents_kind, DROP CONSTRAINT documents_draft_of_fk, DROP CONSTRAINT documents_draft_tags_limit,
     DROP COLUMN is_draft, DROP COLUMN draft_of, DROP COLUMN version, DROP COLUMN base_version,
     DROP COLUMN title, DROP COLUMN description, DROP COLUMN purpose, DROP COLUMN audience, DROP COLUMN tags,
     DROP COLUMN markdown, DROP COLUMN content_hash, DROP COLUMN source_snapshot, DROP COLUMN origin,
