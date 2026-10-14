@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
 from knowledge_admin.documents.api import backfill_exports
-from knowledge_admin.live.session_hub import SessionHub
+from knowledge_admin.sessions.hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ def create_app(cfg: Config, *, server: ServerConfig,
 
     app.include_router(build_api({a.name: a for a in cfg.apps}, server, backoffice_client, repository_store, jira_transport))
     if repository_store is not None:
-        from knowledge_admin import run_record
+        from knowledge_admin.sessions import run_record
         run_record.configure(repository_store, cfg.apps[0].name)
         from knowledge_admin.capabilities import inventory
         inventory.configure(repository_store)

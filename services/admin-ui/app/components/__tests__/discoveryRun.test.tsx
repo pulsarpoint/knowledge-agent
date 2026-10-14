@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import routes from "~/routes";
 import DiscoveryRunRoute from "~/routes/discoveryRun";
 import { runPagePath } from "~/features/servers/discovery";
-import SessionView from "../SessionView";
+import SessionView from "~/features/sessions/SessionView";
 
 vi.mock("../Markdown", () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 

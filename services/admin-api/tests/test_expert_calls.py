@@ -9,8 +9,8 @@ from agents.tool_context import ToolContext
 from psycopg.types.json import Jsonb
 
 from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, llm, message, tool
-from knowledge_admin import run_record
-from knowledge_admin.agent_activity import tool_failed
+from knowledge_admin.sessions import run_record
+from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
@@ -19,7 +19,7 @@ from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError
 from knowledge_admin.knowledge_agents.subagents import (LIMIT, MAX_PER_TURN, NOT_FOR_SUBAGENTS, Subagents,
                                                         subagent_config)
-from knowledge_admin.run_record import RunRecorder
+from knowledge_admin.sessions.run_record import RunRecorder
 from knowledge_admin.tools.catalog import item
 from knowledge_admin.tools.sdk import NOT_OFFERED, expert_tool
 from run_helpers import post, wait_for

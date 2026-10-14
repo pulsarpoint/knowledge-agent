@@ -6,7 +6,7 @@ import { options } from '~/lib/__tests__/agentOptionsFixture';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
-vi.mock('~/lib/useSessionEvents', async () => {
+vi.mock('~/features/sessions/useSessionEvents', async () => {
   const { useState } = await import('react');
   return {
     useSessionEvents: (id: string | null) => {
@@ -18,7 +18,7 @@ vi.mock('~/lib/useSessionEvents', async () => {
     useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
   };
 });
-vi.mock('../RunWorkspace', () => ({ default: ({ heading, headerActions, empty, composer }: Record<string, any>) => <div>
+vi.mock('~/features/sessions/RunWorkspace', () => ({ default: ({ heading, headerActions, empty, composer }: Record<string, any>) => <div>
   {heading}{headerActions}{empty}
   <label>Message<textarea value={composer.value} onChange={e => composer.onChange(e.target.value)} /></label>
   {composer.blockedReason && <p>{composer.blockedReason}</p>}

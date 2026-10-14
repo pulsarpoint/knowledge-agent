@@ -1,5 +1,5 @@
-import { OWN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput, withScope } from '../agentSettings';
-import type { SessionDetail } from '../sessions';
+import { OWN, defaultSettings, restoreSettings, settingsFromSession, settingsSummary, shownTools, startInput, withScope } from '~/features/sessions/agentSettings';
+import type { SessionDetail } from '~/features/sessions/api';
 import { options } from './agentOptionsFixture';
 import { agentOptions } from './agentScopeFixture';
 
@@ -90,7 +90,7 @@ test('the summary names the model, up to three resources and the tools on', () =
 
 test('switching the document never writes the first document\'s settings under the second\'s key', async () => {
   const { renderHook, waitFor, act } = await import('@testing-library/react');
-  const { useAgentSettings } = await import('../agentSettings');
+  const { useAgentSettings } = await import('~/features/sessions/agentSettings');
   const store = new Map<string, string>();
   const writes: [string, string][] = [];
   vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null,

@@ -11,7 +11,7 @@ from opentelemetry import trace as otel
 from openinference.instrumentation import OITracer, TraceConfig
 from openinference.instrumentation.openai_agents._processor import OpenInferenceTracingProcessor
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 
 # This application exports to its configured Phoenix instance, not OpenAI's backend.
 set_trace_processors([])

@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
-import RunWorkspace, { type RunWorkspaceProps } from '../RunWorkspace';
-import type { SessionDetail, SessionEvent } from '~/lib/sessions';
-import type { SessionRun } from '~/lib/useSessionEvents';
+import RunWorkspace, { type RunWorkspaceProps } from '~/features/sessions/RunWorkspace';
+import type { SessionDetail, SessionEvent } from '~/features/sessions/api';
+import type { SessionRun } from '~/features/sessions/useSessionEvents';
 
 const detail: SessionDetail = {
   id: 's1', title: 'How many retries?', agent_id: 'custom', agent_name: 'Payments helper', model_name: 'GPT',

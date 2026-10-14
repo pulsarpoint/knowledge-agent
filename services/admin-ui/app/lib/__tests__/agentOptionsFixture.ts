@@ -1,4 +1,4 @@
-import type { AgentOptions } from '../sessions';
+import type { AgentOptions } from '~/features/sessions/api';
 
 export const options: AgentOptions = {
   models: [{ id: 'm1', name: 'GPT' }, { id: 'm2', name: 'Claude' }], default_model_id: 'm2',

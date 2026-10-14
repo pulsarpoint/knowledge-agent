@@ -6,8 +6,8 @@ import time
 from uuid import UUID
 
 from knowledge_admin.sessions import api as sessions_api
-from knowledge_admin.live import session_hub
-from knowledge_admin.run_record import RunRecorder
+from knowledge_admin.sessions import hub as session_hub
+from knowledge_admin.sessions.run_record import RunRecorder
 from test_generations import live, parse, record, sessions, start  # noqa: F401  (fixtures)
 from test_repositories import HEADERS
 

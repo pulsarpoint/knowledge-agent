@@ -1,4 +1,4 @@
-"""The session hub (knowledge_admin.live.session_hub) against the disposable PostgreSQL: migration 0083's notices drive
+"""The session hub (knowledge_admin.sessions.hub) against the disposable PostgreSQL: migration 0083's notices drive
 reads, a burst becomes one read, and each subscriber gets exactly what it is missing."""
 import asyncio
 import time
@@ -8,8 +8,8 @@ import psycopg
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.live import session_hub
-from knowledge_admin.live.session_hub import SessionHub
+from knowledge_admin.sessions import hub as session_hub
+from knowledge_admin.sessions.hub import SessionHub
 from session_rows import a_model, add_ad_hoc_session
 
 

@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { SessionStatus } from '../sessions';
-import { sentNotice, STOPPING, UNAVAILABLE, useSessionEvents, useSessionNotice } from '../useSessionEvents';
+import type { SessionStatus } from '~/features/sessions/api';
+import { sentNotice, STOPPING, UNAVAILABLE, useSessionEvents, useSessionNotice } from '~/features/sessions/useSessionEvents';
 
 class Stream extends EventTarget {
   static instances: Stream[] = [];

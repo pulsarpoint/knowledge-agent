@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '~/lib/api';
-import { previewSession, type AgentOptions, type ChatScope, type SessionDetail } from '~/lib/sessions';
+import { previewSession, type AgentOptions, type ChatScope, type SessionDetail } from './api';
 import { AGENT_KINDS } from '~/lib/resources';
 import ResourcePicker from '~/components/ResourcePicker';
-import { OWN, shownTools, startInput, withScope, type AgentSettings } from '~/lib/agentSettings';
+import { OWN, shownTools, startInput, withScope, type AgentSettings } from './agentSettings';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';

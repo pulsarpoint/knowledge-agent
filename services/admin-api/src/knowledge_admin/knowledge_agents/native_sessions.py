@@ -19,8 +19,8 @@ from agents import RunHooks
 from agents.run_config import CallModelData, ModelInputData
 from cryptography.exceptions import InvalidTag
 
-from knowledge_admin import agent_tracing, grounding, run_record
-from knowledge_admin.agent_activity import tool_failed
+from knowledge_admin.sessions import tracing as agent_tracing, grounding, run_record
+from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
@@ -29,7 +29,7 @@ from knowledge_admin.knowledge_agents.session_worker import (END_STATUS, IDLE_RE
                                                              MAX_TOOL_OUTPUT, PREVIEW_LINES, STOPPED, capped, clean_text,
                                                              run_key)
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.run_record import RunRecorder
+from knowledge_admin.sessions.run_record import RunRecorder
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 import { request } from '~/lib/api';
 import type { DocumentInput } from './api';
 import type { DocumentKey, ResourceIds } from '~/lib/resources';
-import type { SessionPurpose } from '~/lib/sessions';
+import type { SessionPurpose } from '~/features/sessions/api';
 
 export type DraftOrigin = 'manual' | 'agent';
 export interface DraftSource {

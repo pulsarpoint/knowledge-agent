@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AGENT_KINDS, emptyIds } from './resources';
-import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type ChatScope, type SessionDetail, type StartInput } from './sessions';
+import { AGENT_KINDS, emptyIds } from '~/lib/resources';
+import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type ChatScope, type SessionDetail, type StartInput } from './api';
 
 /** The prompt choice for "my own text, no library prompt". */
 export const OWN = 'own';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from '../lib/runs';
+import { getRunRecord, toolUsageLine, type RunEvent, type RunRecord } from './runs';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Skeleton } from '~/components/ui/skeleton';

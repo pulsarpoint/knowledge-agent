@@ -37,7 +37,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
 
     router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
     router.include_router(storage.build_api())
-    from knowledge_admin import agent_runs_api
+    from knowledge_admin.sessions import runs_api as agent_runs_api
     router.include_router(agent_runs_api.build_api(app_name, repository_store))
     router.include_router(sessions_api.build_api(app_name, repository_store))
     router.include_router(discovery.build_api(app_name, repository_store))
@@ -69,7 +69,7 @@ def build_api(apps: dict[str, App], server: ServerConfig,
     router.include_router(notifications_api.build_api(app_name, repository_store))
 
     router.include_router(rag_api.build_api(app_name, repository_store, backoffice_client))
-    from knowledge_admin import agent_tracing
+    from knowledge_admin.sessions import tracing as agent_tracing
     agent_tracing.setup()
 
     @router.get("/session")

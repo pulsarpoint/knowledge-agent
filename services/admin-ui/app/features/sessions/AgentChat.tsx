@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { MessageSquarePlus, Settings2 } from 'lucide-react';
-import { agentRunPath, closeSession, getSessions, savedIn, sendMessage, startSession, statusLabels, stopSession, type ChatScope, type RunSummary, type SessionDetail } from '~/lib/sessions';
-import { settingsFromSession, settingsSummary, startInput, withScope, type useAgentSettings } from '~/lib/agentSettings';
-import { runPath } from '~/lib/runs';
+import { agentRunPath, closeSession, getSessions, savedIn, sendMessage, startSession, statusLabels, stopSession, type ChatScope, type RunSummary, type SessionDetail } from './api';
+import { settingsFromSession, settingsSummary, startInput, withScope, type useAgentSettings } from './agentSettings';
+import { runPath } from './runs';
 import { useFillViewport } from '~/lib/useFillViewport';
-import { useSessionEvents, useSessionNotice } from '~/lib/useSessionEvents';
+import { useSessionEvents, useSessionNotice } from './useSessionEvents';
 import AgentSettingsSheet from './AgentSettingsSheet';
 import RunSuggestions from './RunSuggestions';
 import RunWorkspace from './RunWorkspace';

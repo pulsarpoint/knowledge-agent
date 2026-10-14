@@ -18,7 +18,7 @@ from knowledge_admin.knowledge_agents.config import get_agent_config, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config, pin_services
 from knowledge_admin.knowledge_agents.experts import offered, pin
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, bring, options as run_options, resolve
-from knowledge_admin.session_text import agent_system_prompt
+from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import CATALOG, DOCUMENT_EDIT_TOOLS, PROPOSAL_TOOLS, SUBAGENT, needs_met
 

@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from agents import ModelBehaviorError
 
-from knowledge_admin.agent_sessions import NO_RESPONSE, NO_TURNS, NOT_A_TEST, REVIEW_BUSY
+from knowledge_admin.sessions.review import NO_RESPONSE, NO_TURNS, NOT_A_TEST, REVIEW_BUSY
 from test_generations import record
 from test_repositories import HEADERS
 from test_test_sessions import start, tester  # noqa: F401  (fixture)
@@ -52,7 +52,7 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
     async def review(config, task, **kwargs):
         calls.append((config, json.loads(task), kwargs))
         return SimpleNamespace(final_output=kwargs['output_type'].model_validate(PROPOSAL))
-    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', review)
+    monkeypatch.setattr('knowledge_admin.sessions.review.agent', review)
     response = chat.client.post(chat.review, headers=HEADERS, json={'comment': 'Cite your sources.', 'turn': 1})
     assert response.status_code == 200, response.text
     saved = response.json()
@@ -75,7 +75,7 @@ def test_feedback_reviews_the_conversation_built_from_the_events(chat, monkeypat
 def test_a_secret_in_the_feedback_is_not_stored(chat, monkeypatch):
     async def review(config, task, **kwargs):
         return SimpleNamespace(final_output=kwargs['output_type'].model_validate(PROPOSAL))
-    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', review)
+    monkeypatch.setattr('knowledge_admin.sessions.review.agent', review)
     response = chat.client.post(chat.review, headers=HEADERS, json={'comment': 'The key is tester-model-secret.'})
     assert response.status_code == 200, response.text
     assert 'tester-model-secret' not in response.json()['comment']
@@ -88,7 +88,7 @@ def test_a_secret_in_the_feedback_is_not_stored(chat, monkeypatch):
 def test_feedback_is_refused_for_other_sessions_turns_and_while_the_agent_works(chat, monkeypatch):
     async def never(*args, **kwargs):
         pytest.fail('No review may run')
-    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', never)
+    monkeypatch.setattr('knowledge_admin.sessions.review.agent', never)
 
     def post(path, body, status):
         response = chat.client.post(path, headers=HEADERS, json=body)
@@ -123,7 +123,7 @@ def test_invalid_tuning_output_is_corrected_once_before_saving(chat, monkeypatch
         if len(calls) == 1:
             raise ModelBehaviorError('Invalid model output')
         return SimpleNamespace(final_output=kwargs['output_type'].model_validate(PROPOSAL))
-    monkeypatch.setattr('knowledge_admin.agent_sessions.agent', review)
+    monkeypatch.setattr('knowledge_admin.sessions.review.agent', review)
     result = chat.client.post(chat.review, headers=HEADERS, json={'comment': 'Be concise.'})
     assert result.status_code == 200, result.text
     assert len(calls) == 2 and 'correction' in calls[1] and 'output_schema' in calls[0]

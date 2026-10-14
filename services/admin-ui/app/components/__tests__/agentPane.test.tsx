@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import AgentChat from '../AgentChat';
-import { defaultSettings } from '~/lib/agentSettings';
+import AgentChat from '~/features/sessions/AgentChat';
+import { defaultSettings } from '~/features/sessions/agentSettings';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[], loading: new Set<string>() }));
-vi.mock('~/lib/useSessionEvents', async () => {
+vi.mock('~/features/sessions/useSessionEvents', async () => {
   const { useState } = await import('react');
   return {
   useSessionEvents: (id: string | null) => {
@@ -18,7 +18,7 @@ vi.mock('~/lib/useSessionEvents', async () => {
   useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
   };
 });
-vi.mock('../RunWorkspace', () => ({ default: ({ run, heading, headerActions, empty, composer, compact }: Record<string, any>) => <div data-compact={String(compact)}>
+vi.mock('~/features/sessions/RunWorkspace', () => ({ default: ({ run, heading, headerActions, empty, composer, compact }: Record<string, any>) => <div data-compact={String(compact)}>
   {heading}{headerActions}{run.error && <p>{run.error}</p>}{empty}
   <label>Message<textarea value={composer.value} onChange={e => composer.onChange(e.target.value)} placeholder={composer.placeholder} /></label>
   {composer.blockedReason && <p>{composer.blockedReason}</p>}

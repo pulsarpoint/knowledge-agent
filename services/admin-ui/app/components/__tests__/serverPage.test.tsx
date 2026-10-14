@@ -10,7 +10,7 @@ const options = { ...shared, tools: [...shared.tools.filter(tool => tool.needs !
   { name: "propose_document", label: "Propose document", summary: "Propose a document", group: "inventory", needs: "started_from_server", requires: "a run started from a server" }] };
 
 const live = vi.hoisted(() => ({ sessions: {} as Record<string, any>, requested: [] as (string | null)[] }));
-vi.mock("~/lib/useSessionEvents", async () => {
+vi.mock("~/features/sessions/useSessionEvents", async () => {
   const { useState } = await import("react");
   return {
     useSessionEvents: (id: string | null) => {
@@ -22,7 +22,7 @@ vi.mock("~/lib/useSessionEvents", async () => {
     useSessionNotice: () => ({ notice: null, clear: vi.fn(), stopping: vi.fn(), sent: vi.fn() }),
   };
 });
-vi.mock("../RunWorkspace", () => ({ default: ({ heading, headerActions, empty, composer, answerActions }: Record<string, any>) => <div>
+vi.mock("~/features/sessions/RunWorkspace", () => ({ default: ({ heading, headerActions, empty, composer, answerActions }: Record<string, any>) => <div>
   {heading}{headerActions}{empty}
   <div data-testid="answer-actions">{answerActions({ turn: 1, work: [] })}</div>
   <label>Message<textarea placeholder={composer.placeholder} value={composer.value} onChange={e => composer.onChange(e.target.value)} /></label>

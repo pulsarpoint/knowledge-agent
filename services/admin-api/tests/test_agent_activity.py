@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from agents.stream_events import RawResponsesStreamEvent
 from openai.types.responses import ResponseTextDeltaEvent, ResponseTextDoneEvent
 
-from knowledge_admin.agent_activity import SdkActivity, redact
+from knowledge_admin.sessions.activity import SdkActivity, redact
 
 
 def delta(text):

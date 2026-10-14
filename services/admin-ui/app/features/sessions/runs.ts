@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 
 export interface ToolCount { name: string; calls: number }
 /** "code_graph 12 · read_file 31", or "No tools used". */

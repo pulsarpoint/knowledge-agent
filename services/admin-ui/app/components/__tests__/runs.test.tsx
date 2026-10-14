@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
-import RunsView from '../RunsView';
-import RunRecordView from '../RunRecordView';
+import RunsView from '~/features/sessions/RunsView';
+import RunRecordView from '~/features/sessions/RunRecordView';
 
 afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });

@@ -10,11 +10,11 @@ from fastapi.encoders import jsonable_encoder
 
 from native_fakes import FakeAgent, llm, message
 from session_rows import add_test_session
-from knowledge_admin import run_record
+from knowledge_admin.sessions import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.session_text import IDLE_CLOSED
+from knowledge_admin.sessions.text import IDLE_CLOSED
 from run_helpers import post, session_row, wait_for
 from test_event_processor import a_handler, an_event
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)

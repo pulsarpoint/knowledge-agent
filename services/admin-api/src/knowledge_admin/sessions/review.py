@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.agents.reviews import TuningSuggestion
 from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents.session_worker import run_key

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { getRuns, runPath, topTools, toolUsageLine, type RunSummary } from '../lib/runs';
+import { getRuns, runPath, topTools, toolUsageLine, type RunSummary } from './runs';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

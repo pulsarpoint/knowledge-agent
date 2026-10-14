@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { useAgentSettings } from '~/lib/agentSettings';
-import type { ChatScope } from '~/lib/sessions';
-import AgentChat from '~/components/AgentChat';
+import { useAgentSettings } from '~/features/sessions/agentSettings';
+import type { ChatScope } from '~/features/sessions/api';
+import AgentChat from '~/features/sessions/AgentChat';
 
 /** The agent Test tab: the shared agent chat for this saved agent, full width. The first message starts a run of the
  * agent (narrowed by the settings sheet); the run is kept in the URL (?view=test&session_id=…). Settings load only while

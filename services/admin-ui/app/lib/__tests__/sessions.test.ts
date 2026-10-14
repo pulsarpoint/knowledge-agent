@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { getSessionOptions, getSessions, reviewSession, savedIn, sessionPath, startSession } from '../sessions';
-import type { Turn } from '../turns';
+import { getSessionOptions, getSessions, reviewSession, savedIn, sessionPath, startSession } from '~/features/sessions/api';
+import type { Turn } from '~/features/sessions/turns';
 
 afterEach(() => vi.unstubAllGlobals());
 function api() {

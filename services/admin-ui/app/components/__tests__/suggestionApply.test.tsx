@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import SuggestionApply from '../SuggestionApply';
+import SuggestionApply from '~/features/sessions/SuggestionApply';
 import * as api from '~/features/agents/reviews';
 import { ApiError } from '../../lib/api';
 vi.mock('~/features/agents/reviews');

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.ast_grep import scan_source
 from knowledge_admin.capabilities.files import _path

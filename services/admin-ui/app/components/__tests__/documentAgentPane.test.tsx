@@ -5,7 +5,7 @@ import { WidePageContext } from '~/lib/widePage';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const pane = vi.hoisted(() => ({ mounts: 0, props: [] as any[] }));
-vi.mock('../AgentChat', async () => {
+vi.mock('~/features/sessions/AgentChat', async () => {
   const { useEffect } = await import('react');
   return { default: (props: any) => {
     useEffect(() => { pane.mounts += 1; }, []);

@@ -5,7 +5,7 @@ import dataclasses
 from types import SimpleNamespace
 
 from native_fakes import Recorder, call, message, reasoning, response
-from knowledge_admin.agent_activity import tool_failed
+from knowledge_admin.sessions.activity import tool_failed
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.session_worker import MAX_PREVIEW_CHARS, MAX_TOOL_OUTPUT, TOOL_TRUNCATED
 

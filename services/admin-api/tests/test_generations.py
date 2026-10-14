@@ -11,7 +11,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.sessions import api as sessions_api
-from knowledge_admin.session_text import IDLE_CLOSED
+from knowledge_admin.sessions.text import IDLE_CLOSED
 from knowledge_admin.sessions.rows import NO_MODEL
 from session_rows import add_test_session
 from test_api import _client

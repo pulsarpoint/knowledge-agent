@@ -1,7 +1,7 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 import type { ToolCount } from './runs';
 import type { RunResourcesInput } from '~/features/agents/api';
-import type { AgentKey, ResourceIds } from './resources';
+import type { AgentKey, ResourceIds } from '~/lib/resources';
 import type { Turn } from './turns';
 
 export const formatTokens = (value: number) => value.toLocaleString('en-US');

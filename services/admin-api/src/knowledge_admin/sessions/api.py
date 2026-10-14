@@ -10,10 +10,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.agent_sessions import ReviewInput, review_session
+from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.session_text import close_idle, notify_closed_before_first_turn
+from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
 from knowledge_admin.sessions import start
 from knowledge_admin.sessions.rows import (CLOSED, NOTHING_TO_STOP, SUMMARY, MessageInput, SessionPurpose, session_detail,
                                            stream_event)

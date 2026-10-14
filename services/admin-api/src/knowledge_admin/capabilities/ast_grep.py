@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.files import _path
 

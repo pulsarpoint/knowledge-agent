@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div> }));
-import SessionView from '../SessionView';
+import SessionView from '~/features/sessions/SessionView';
 
 class Stream extends EventTarget {
   static instances: Stream[] = [];

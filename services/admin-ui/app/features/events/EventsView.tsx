@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "l
 import { ApiError } from "~/lib/api";
 import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TASK_STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
   type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "./api";
-import { statusLabels } from "~/lib/sessions";
+import { statusLabels } from "~/features/sessions/api";
 import NewEventSheet, { type Prefill } from "./NewEventSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";

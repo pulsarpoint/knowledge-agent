@@ -1,4 +1,4 @@
-import type { AgentOptions } from '../sessions';
+import type { AgentOptions } from '~/features/sessions/api';
 
 /** Options for the saved agent "Operations" (a per-run agent: it brings no resources of its own). */
 export const agentOptions: AgentOptions = {

@@ -16,13 +16,13 @@ from agents.mcp import MCPServerStreamableHttp, create_static_tool_filter
 from agents.run_config import CallModelInputFilter
 from pydantic import BaseModel
 
-from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
-from knowledge_admin.agent_tracing import trace_secrets
+from knowledge_admin.sessions.activity import ActivityCallback, SdkActivity, UsageCallback, redact
+from knowledge_admin.sessions.tracing import trace_secrets
 from knowledge_admin.rag.collections import document_collections
-from knowledge_admin import grounding
+from knowledge_admin.sessions import grounding
 from knowledge_admin.llm.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.run_record import CompositeHooks, RunRecorder
+from knowledge_admin.sessions.run_record import CompositeHooks, RunRecorder
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.files import available_documents, mounted
 from knowledge_admin.tools.catalog import DOCUMENT_EDIT_TOOLS, SUBAGENT, effective_tools, mcp_allowed, mcp_blocked, mcp_notes

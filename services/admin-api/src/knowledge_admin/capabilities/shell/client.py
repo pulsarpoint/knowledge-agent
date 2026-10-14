@@ -5,7 +5,7 @@ import os
 
 import httpx
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _roots
 

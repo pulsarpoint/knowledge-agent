@@ -5,7 +5,7 @@ agents and agent run records. All `/api` routes require the forwarded `docs-admi
 admin OAuth gateway may expose this service; `/health` is its internal health check.
 
 Startup configuration lives in `knowledge_admin/config.py` (`DOCS_WIKI_RAG_URL`,
-`DOCS_WIKI_ADMIN_GROUP`) and Phoenix tracing in `knowledge_admin/agent_tracing.py`
+`DOCS_WIKI_ADMIN_GROUP`) and Phoenix tracing in `knowledge_admin/sessions/tracing.py`
 (`DOCS_WIKI_PHOENIX_*`); the variable names are unchanged. Docker binds no API host port.
 
 ```sh
@@ -217,7 +217,7 @@ excluded. Credentials are redacted before activity or span export, including
 secret prefixes split across streamed message chunks.
 
 Phoenix stores the execution history. The SDK creates agent, model, and tool spans; OpenInference exports them to
-Phoenix. `agent_tracing.py` adds credential/error filtering before export and disables OpenAI's default trace
+Phoenix. `sessions/tracing.py` adds credential/error filtering before export and disables OpenAI's default trace
 exporter. `SdkActivity` only publishes UI previews. Inputs, outputs, token counts, errors, and timings are recorded
 with bounded text sizes. Traces go to the Phoenix project `docs-wiki` (name kept from earlier versions) using the
 `DOCS_WIKI_PHOENIX_*` OTLP configuration. Phoenix handles its own login.

@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import RunProposals from "../RunProposals";
+import RunProposals from "~/features/sessions/RunProposals";
 
 let version = "r1:1:waiting";
 

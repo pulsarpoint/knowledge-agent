@@ -5,7 +5,7 @@ from functools import partial
 from fastapi import APIRouter, HTTPException, Query
 
 from knowledge_admin.db import storage
-from knowledge_admin.run_record import tool_counts
+from knowledge_admin.sessions.run_record import tool_counts
 
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
     s.payload->>'title' AS title, p.email AS "user", s.created_at AS started_at,

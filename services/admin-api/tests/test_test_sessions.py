@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from knowledge_admin.agent_sessions import NO_MODEL
+from knowledge_admin.sessions.review import NO_MODEL
 from test_api import _client
 from test_profiles import create
 from test_repositories import HEADERS

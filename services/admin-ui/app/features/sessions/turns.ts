@@ -1,4 +1,4 @@
-import type { SessionEvent } from './sessions';
+import type { SessionEvent } from './api';
 import { SUBAGENT_TOOL } from '~/features/agents/tools';
 
 export type TurnStatus = 'working' | 'completed' | 'failed' | 'stopped';

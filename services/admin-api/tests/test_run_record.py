@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from knowledge_admin import run_record
+from knowledge_admin.sessions import run_record
 from knowledge_admin.agents.runner import agent
-from knowledge_admin.run_record import RunRecorder
+from knowledge_admin.sessions.run_record import RunRecorder
 from test_sdk_agent import config, responses_api  # noqa: F401 (fixtures)
 
 

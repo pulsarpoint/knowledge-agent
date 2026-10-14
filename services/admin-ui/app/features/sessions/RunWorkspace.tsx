@@ -1,11 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PanelRight } from 'lucide-react';
-import { formatTokens, statusLabels } from '~/lib/sessions';
-import { toolUsageLine } from '~/lib/runs';
-import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from '~/lib/turns';
-import type { SessionRun } from '~/lib/useSessionEvents';
+import { formatTokens, statusLabels } from './api';
+import { toolUsageLine } from './runs';
+import { SUBAGENT_STATUS_LABELS, compactTokens, groupTurns, type Subagent, type Turn, type WorkItem } from './turns';
+import type { SessionRun } from './useSessionEvents';
 import GroundingSources from './GroundingSources';
-import Markdown from './Markdown';
+import Markdown from '~/components/Markdown';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '~/components/ui/breadcrumb';

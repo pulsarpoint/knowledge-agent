@@ -9,7 +9,7 @@ from fastapi.encoders import jsonable_encoder
 
 from native_fakes import FakeAgent, call, hang, llm, message, tool
 from session_rows import add_test_session
-from knowledge_admin import run_record
+from knowledge_admin.sessions import run_record
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import get_agent_config

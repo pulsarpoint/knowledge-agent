@@ -15,15 +15,15 @@ from agents import RunHooks
 from agents.tool_context import ToolContext
 
 from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, hang, llm, message, stubborn, together, tool
-from knowledge_admin import agent_tracing, run_record
-from knowledge_admin.agent_activity import tool_failed
-from knowledge_admin.agent_tracing import trace_secrets
+from knowledge_admin.sessions import tracing as agent_tracing, run_record
+from knowledge_admin.sessions.activity import tool_failed
+from knowledge_admin.sessions.tracing import trace_secrets
 from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
 from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, NOT_OFFERED, PROMPT, Subagents, run_subagent
-from knowledge_admin.run_record import RunRecorder
+from knowledge_admin.sessions.run_record import RunRecorder
 from knowledge_admin.tools.catalog import CATALOG, item
 from knowledge_admin.tools.sdk import function_tool
 from run_helpers import events as run_events, post, session_row, wait_for

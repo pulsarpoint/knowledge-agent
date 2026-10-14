@@ -2,7 +2,7 @@
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.run_record import tool_counts
+from knowledge_admin.sessions.run_record import tool_counts
 from test_agent_runs_api import seed
 from test_api import _client
 from test_generations import sessions, start  # noqa: F401  (fixture)

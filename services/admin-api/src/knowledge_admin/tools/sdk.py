@@ -10,7 +10,7 @@ from agents.strict_schema import ensure_strict_json_schema
 from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.tools.catalog import ToolSpec
 

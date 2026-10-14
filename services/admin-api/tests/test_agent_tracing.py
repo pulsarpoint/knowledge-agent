@@ -8,7 +8,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from knowledge_admin.agent_tracing import instrument, trace_secrets
+from knowledge_admin.sessions.tracing import instrument, trace_secrets
 
 
 def test_native_traces_redact_inputs_outputs_errors_and_concurrent_credentials():

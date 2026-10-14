@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { getSession, getSessionHistory, sessionEventsUrl, type SessionDetail, type SessionEvent, type SessionState, type SessionStatus } from './sessions';
+import { getSession, getSessionHistory, sessionEventsUrl, type SessionDetail, type SessionEvent, type SessionState, type SessionStatus } from './api';
 import { withLaterCalls, type ToolCount } from './runs';
 
 /** Shown while the server cannot reach the database; the stream stays open and its next message clears it. */

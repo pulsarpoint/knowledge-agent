@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import asyncssh
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, RunContext, allowed, require_given
 
 

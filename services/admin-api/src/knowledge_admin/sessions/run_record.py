@@ -8,7 +8,7 @@ from agents import RunHooks
 from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.agent_activity import redact
+from knowledge_admin.sessions.activity import redact
 
 MAX_TEXT = 1_000_000
 TRUNCATED = '\n[truncated]'

@@ -3,7 +3,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import AgentTestView from '~/features/agents/AgentTestView';
 import * as reviews from '~/features/agents/reviews';
-import type { RunSummary, SessionDetail } from '../../lib/sessions';
+import type { RunSummary, SessionDetail } from '~/features/sessions/api';
 import { agentOptions } from '../../lib/__tests__/agentScopeFixture';
 vi.mock('~/features/agents/reviews');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));

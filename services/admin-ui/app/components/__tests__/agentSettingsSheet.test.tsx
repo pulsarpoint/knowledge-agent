@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
-import AgentSettingsSheet from '../AgentSettingsSheet';
-import { defaultSettings, type AgentSettings } from '~/lib/agentSettings';
-import type { SessionDetail } from '~/lib/sessions';
+import AgentSettingsSheet from '~/features/sessions/AgentSettingsSheet';
+import { defaultSettings, type AgentSettings } from '~/features/sessions/agentSettings';
+import type { SessionDetail } from '~/features/sessions/api';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 import { agentOptions } from '~/lib/__tests__/agentScopeFixture';
-import type { AgentOptions, ChatScope } from '~/lib/sessions';
+import type { AgentOptions, ChatScope } from '~/features/sessions/api';
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -1,6 +1,6 @@
 import { useParams } from 'react-router';
 import AdminLayout from '../components/AdminLayout';
-import SessionView from '../components/SessionView';
+import SessionView from '~/features/sessions/SessionView';
 
 export default function Page() {
   const { sessionId } = useParams();
