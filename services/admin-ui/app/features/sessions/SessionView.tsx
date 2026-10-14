@@ -1,8 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { draftPath } from "~/features/documents/drafts";
-import { runPagePath } from "~/features/servers/discovery";
-import { agentRunPath, closeSession, sendMessage, statusLabels, stopSession } from "./api";
+import {
+  agentRunPath,
+  closeSession,
+  resourceChatPath,
+  resourceOf,
+  sendMessage,
+  statusLabels,
+  stopSession,
+} from "./api";
 import { runPath } from "./runs";
 import { useFillViewport } from "~/lib/useFillViewport";
 import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
@@ -61,6 +68,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     ) : (
       <Skeleton className="h-60" />
     );
+  const resource = resourceOf(session.tags);
   const startedFrom =
     session.purpose === "documents" && session.document_name ? (
       <>the new document {session.document_name}</>
@@ -68,9 +76,9 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       <Link className="underline" to={agentRunPath(session.target_document_id, session.id)}>
         the document
       </Link>
-    ) : session.server_id ? (
-      <Link className="underline" to={runPagePath(session.server_id, session.id)}>
-        the server
+    ) : resource ? (
+      <Link className="underline" to={resourceChatPath(resource, session.id)}>
+        the {resource.type}
       </Link>
     ) : session.agent_id ? (
       <Link

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "~/lib/api";
-import { previewSession, type AgentOptions, type ChatScope, type SessionDetail } from "./api";
+import { isResourceScope, previewSession, type AgentOptions, type ChatScope, type SessionDetail } from "./api";
 import { AGENT_KINDS } from "~/lib/resources";
 import ResourcePicker from "~/components/ResourcePicker";
 import { OWN, shownTools, startInput, withScope, type AgentSettings } from "./agentSettings";
@@ -48,8 +48,8 @@ export default function AgentSettingsSheet({
   onStartNew: () => void;
 }) {
   // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
-  const scopeServer = scope.kind === "server" ? scope.id : null;
-  const settings = useMemo(() => withScope(scope, given), [scopeServer, given]);
+  const scopeResource = isResourceScope(scope) ? `${scope.kind}:${scope.id}` : null;
+  const settings = useMemo(() => withScope(scope, given), [scopeResource, given]);
   const agent = options.agent;
   const locked = session !== null && session.status !== "closed";
   // A saved agent's model and prompt: the run's own while it is open, else the agent's current ones.
@@ -104,8 +104,8 @@ export default function AgentSettingsSheet({
                 ? "What the agent may use in the next conversation."
                 : scope.kind === "new-document"
                   ? `What the agent may use for “${scope.title}”.`
-                  : scope.kind === "server"
-                    ? `What the agent may use to explore “${scope.name}”.`
+                  : isResourceScope(scope)
+                    ? `What the agent may use in a chat on “${scope.name}”.`
                     : `What the agent may use in the next conversation on “${scope.kind === "document" ? scope.title : ""}”.`}
           </SheetDescription>
         </SheetHeader>
@@ -176,9 +176,9 @@ export default function AgentSettingsSheet({
                       const server =
                         key === "servers" ? options.resources.servers.find((entry) => entry.id === item.id) : undefined;
                       const unusable = server !== undefined && !server.usable;
-                      // A server scope's run is about its server: always on.
+                      // A server, service or environment scope's run is about it: always on.
                       return {
-                        locked: key === "servers" && scope.kind === "server" && item.id === scope.id,
+                        locked: isResourceScope(scope) && key === `${scope.kind}s` && item.id === scope.id,
                         disabled: unusable,
                         note: unusable ? server.reason : null,
                       };

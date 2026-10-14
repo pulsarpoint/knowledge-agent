@@ -11,7 +11,7 @@ const json = (method: string, value: unknown) => ({
   body: JSON.stringify(value),
 });
 
-export type SessionPurpose = "documents" | "test" | "event" | "discovery" | "revision";
+export type SessionPurpose = "documents" | "test" | "event" | "resource" | "revision";
 export type SessionStatus = "starting" | "working" | "waiting" | "stopped" | "failed" | "closed";
 export const statusLabels: Record<SessionStatus, string> = {
   starting: "Starting",
@@ -30,13 +30,34 @@ export interface SessionReview {
   created_at: string;
   changes?: unknown;
 }
-/** What a chat is about: a document (Ask agent), a saved agent (its Test tab) or a new document (Documents → New: the
- * Title and Folder the editor holds now). */
+/** A server, service or environment: the resources whose pages have chats. */
+export type ResourceType = "server" | "service" | "environment";
+export const RESOURCE_TYPES: ResourceType[] = ["server", "service", "environment"];
+/** The tag of a resource's chats: servers/<id>, services/<id>, environments/<id>. */
+export const resourceTag = (resource: { type: ResourceType; id: string }) => `${resource.type}s/${resource.id}`;
+/** The resource a run's tags name (its first resource tag), or null. */
+export function resourceOf(tags: readonly string[] | undefined): { type: ResourceType; id: string } | null {
+  for (const tag of tags ?? []) {
+    const [plural, id, ...rest] = tag.split("/");
+    const type = RESOURCE_TYPES.find((item) => `${item}s` === plural);
+    if (type && id && rest.length === 0) return { type, id };
+  }
+  return null;
+}
+/** A resource's page, with one of its chats open (`?chat=`) or none. */
+export const resourceChatPath = (resource: { type: ResourceType; id: string }, chatId?: string | null) =>
+  `/${resource.type}s/${encodeURIComponent(resource.id)}${chatId ? `?chat=${encodeURIComponent(chatId)}` : ""}`;
+
+/** What a chat is about: a document (Ask agent), a saved agent (its Test tab), a new document (Documents → New: the
+ * Title and Folder the editor holds now) or a server, service or environment (its page's chats). */
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
   | { kind: "new-document"; folder: string; title: string }
-  | { kind: "server"; id: string; name: string };
+  | { kind: ResourceType; id: string; name: string };
+export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
+export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
+  (RESOURCE_TYPES as string[]).includes(scope.kind);
 
 export interface SessionFolder {
   path: string;
@@ -57,6 +78,8 @@ export interface SessionSummary {
   output_tokens: number;
   cached_tokens: number;
   purpose: SessionPurpose;
+  /** A resource's chats carry its tag (servers/<id>, …); wizard runs also `proposals`. */
+  tags?: string[];
   model_calls: number;
   reasoning_tokens: number;
   document_id: string | null;
@@ -165,15 +188,22 @@ const query = (values: Record<string, string | number | undefined>) => {
   return text ? `?${text}` : "";
 };
 export const getSessions = (
-  filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; serverId?: string; offset?: number },
+  filter: { agentId?: string; purpose?: SessionPurpose; documentId?: string; tag?: string; offset?: number },
   signal?: AbortSignal,
 ) =>
   request<{ sessions: RunSummary[] }>(
-    `/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, server_id: filter.serverId, purpose: filter.purpose, offset: filter.offset })}`,
+    `/api/sessions${query({ agent_id: filter.agentId, document_id: filter.documentId, tag: filter.tag, purpose: filter.purpose, offset: filter.offset })}`,
     { signal },
   );
 export const getSessionOptions = (
-  scope: { documentId?: string; agentId?: string; serverId?: string; newDocument?: boolean },
+  scope: {
+    documentId?: string;
+    agentId?: string;
+    serverId?: string;
+    serviceId?: string;
+    environmentId?: string;
+    newDocument?: boolean;
+  },
   signal?: AbortSignal,
 ) =>
   request<AgentOptions>(
@@ -181,6 +211,8 @@ export const getSessionOptions = (
       document_id: scope.documentId,
       agent_id: scope.agentId,
       server_id: scope.serverId,
+      service_id: scope.serviceId,
+      environment_id: scope.environmentId,
       new_document: scope.newDocument ? 1 : undefined,
     })}`,
     { signal },
@@ -247,7 +279,14 @@ export interface NewDocument {
   name: string;
 }
 export interface StartInput {
-  started_from?: { document_id: string } | { new_document: NewDocument } | { server_id: string };
+  started_from?:
+    | { document_id: string }
+    | { new_document: NewDocument }
+    | { server_id: string }
+    | { service_id: string }
+    | { environment_id: string };
+  /** Tags the run gets besides its resource's (the backend adds that one), e.g. `proposals`. */
+  tags?: string[];
   agent_id?: string;
   message: string;
   model_id?: string;
@@ -261,7 +300,7 @@ export interface StartInput {
   expert_ids: string[];
   subagents: boolean;
 }
-/** A server's discovery runs also carry their proposal counts. */
+/** A resource's chats (listed by tag) also carry their proposal counts. */
 export type RunSummary = SessionSummary & {
   started_by: string | null;
   draft_id: string | null;
@@ -290,8 +329,9 @@ export function toolApplies(tool: AgentTool, chosen: AgentResources, resources: 
       );
     case "editable_document":
       return true; // the Ask agent always gives one
-    case "started_from_server":
-      return true; // the backend offers these only for a server scope
+    case "server_proposals":
+    case "resource_proposals":
+      return false; // proposal tools: only the Propose wizard turns them on, never a chat's settings
     case "documents":
       return chosen.collection_ids.length > 0;
     case "files":

@@ -25,16 +25,11 @@ test("defaults: the default model, the first tagged prompt, the usable linked re
     subagents: false,
     experts: [],
   });
-  expect(shownTools(options, settings).map((tool) => tool.name)).toEqual([
-    "ssh_run",
-    "save_document",
-    "get_document",
-    "get_resource",
-  ]);
+  expect(shownTools(options, settings).map((tool) => tool.name)).toEqual(["ssh_run", "save_document", "get_document"]);
 });
 
 test("startInput sends only the shown tools that are on", () => {
-  const settings = { ...defaultSettings(options), off: ["get_resource", "get_document", "save_document"] };
+  const settings = { ...defaultSettings(options), off: ["get_document", "save_document"] };
   expect(startInput(doc(), options, settings, "x").tools).toEqual(["ssh_run"]);
   expect(startInput(doc(), options, { ...settings, promptKey: OWN }, "x").prompt_id).toBeNull();
 });
@@ -212,7 +207,7 @@ test("settingsFromSession: a saved agent that no longer allows subagents gets th
 });
 
 test("the summary names the model, up to three resources and the tools on", () => {
-  expect(settingsSummary(options, defaultSettings(options))).toBe("Claude · web-1, Payments · 4 tools");
+  expect(settingsSummary(options, defaultSettings(options))).toBe("Claude · web-1, Payments · 3 tools");
   const many = {
     ...defaultSettings(options),
     chosen: {
@@ -224,14 +219,14 @@ test("the summary names the model, up to three resources and the tools on", () =
     },
   };
   expect(settingsSummary(options, { ...many, chosen: { ...many.chosen, server_ids: ["s1", "s2"] } })).toBe(
-    "Claude · web-1, prod-1, Payments +1 · 5 tools",
+    "Claude · web-1, prod-1, Payments +1 · 4 tools",
   );
   expect(
     settingsSummary(options, {
       ...defaultSettings(options),
       chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] },
     }),
-  ).toBe("Claude · no resources · 3 tools");
+  ).toBe("Claude · no resources · 2 tools");
 });
 
 test("switching the document never writes the first document's settings under the second's key", async () => {
@@ -349,7 +344,7 @@ test("a new document: the start body names it as started_from and as the one edi
       collection_ids: [],
       documents: [{ new: { folder: "payments", name: "Payments API" }, editable: true }],
     },
-    tools: ["ssh_run", "save_document", "get_document", "get_resource"],
+    tools: ["ssh_run", "save_document", "get_document"],
     expert_ids: [],
     subagents: false,
   });

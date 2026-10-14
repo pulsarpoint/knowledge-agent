@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AGENT_KINDS, emptyIds } from "~/lib/resources";
 import {
   getSessionOptions,
+  isResourceScope,
   toolApplies,
   type AgentOptions,
   type AgentResources,
@@ -13,15 +14,14 @@ import {
 
 /** The prompt choice for "my own text, no library prompt". */
 export const OWN = "own";
-/** Where a scope's settings are remembered in this browser: per document, per saved agent, one for every new document. */
+/** Where a scope's settings are remembered in this browser: per document, per saved agent, per server, service or
+ * environment, one for every new document. */
 const STORAGE = (scope: ChatScope) =>
   scope.kind === "document"
     ? `ask-agent-settings:${scope.id}`
-    : scope.kind === "agent"
-      ? `agent-settings:agent:${scope.id}`
-      : scope.kind === "server"
-        ? `agent-settings:server:${scope.id}`
-        : "agent-settings:new-document";
+    : scope.kind === "new-document"
+      ? "agent-settings:new-document"
+      : `agent-settings:${scope.kind}:${scope.id}`;
 const EMPTY: AgentResources = emptyIds(AGENT_KINDS);
 
 /** What the next Ask agent run on a document starts with. */
@@ -159,10 +159,14 @@ export const shownTools = (options: AgentOptions, settings: AgentSettings): Agen
     ? options.tools
     : options.tools.filter((tool) => toolApplies(tool, settings.chosen, options.resources));
 
-/** A server scope always has its server chosen (the run is about it), so the tools that need a server show and are sent. */
+const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
+/** A server, service or environment scope always has its resource chosen (the run is about it), so the tools that need
+ * it show and are sent. */
 export function withScope(scope: ChatScope, settings: AgentSettings): AgentSettings {
-  if (scope.kind !== "server" || settings.chosen.server_ids.includes(scope.id)) return settings;
-  return { ...settings, chosen: { ...settings.chosen, server_ids: [...settings.chosen.server_ids, scope.id] } };
+  if (!isResourceScope(scope)) return settings;
+  const field = SCOPE_FIELD[scope.kind];
+  if (settings.chosen[field].includes(scope.id)) return settings;
+  return { ...settings, chosen: { ...settings.chosen, [field]: [...settings.chosen[field], scope.id] } };
 }
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
@@ -182,10 +186,15 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       resources: { ...settings.chosen, environment_ids: [], documents: [] },
     };
   }
-  if (scope.kind === "server") {
-    // a discovery run from the server: the server is always among its resources
+  if (isResourceScope(scope)) {
+    // a chat on a server, service or environment: the resource is always among its resources (no proposal tools)
     return {
-      started_from: { server_id: scope.id },
+      started_from:
+        scope.kind === "server"
+          ? { server_id: scope.id }
+          : scope.kind === "service"
+            ? { service_id: scope.id }
+            : { environment_id: scope.id },
       message: message.trim(),
       model_id: settings.modelId,
       prompt_id: settings.promptKey === OWN ? null : settings.promptKey,
@@ -275,7 +284,11 @@ export function useAgentSettings(scope: ChatScope | null, revision?: number) {
           ? { documentId: id! }
           : kind === "server"
             ? { serverId: id! }
-            : { agentId: id! };
+            : kind === "service"
+              ? { serviceId: id! }
+              : kind === "environment"
+                ? { environmentId: id! }
+                : { agentId: id! };
     getSessionOptions(which, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;

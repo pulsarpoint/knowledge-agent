@@ -533,3 +533,8 @@ test("services remains an inventory page without a graph tab", async () => {
   expect(screen.queryByRole("tab", { name: "Dependency graph" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Service dependency graph" })).toBeNull();
 });
+
+test("a service's name links to its page", async () => {
+  setup([service]);
+  expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/services/service-1");
+});

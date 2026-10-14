@@ -590,17 +590,14 @@ test("a Test run is shown here, not redirected, and links to its agent", async (
   );
 });
 
-test("a discovery run links to its server", async () => {
-  serve({ ...detail, purpose: "discovery", server_id: "srv 1", agent_id: null });
+test("a resource chat links to its resource's page on that chat", async () => {
+  serve({ ...detail, purpose: "resource", tags: ["services/srv 1"], server_id: null, agent_id: null });
   render(
     <MemoryRouter>
       <SessionView sessionId="s1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("link", { name: "the server" })).toHaveAttribute(
-    "href",
-    "/servers/srv%201/discovery/s1",
-  );
+  expect(await screen.findByRole("link", { name: "the service" })).toHaveAttribute("href", "/services/srv%201?chat=s1");
 });
 
 test("a refused tool call shows as an error on that call", async () => {

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { MessageSquarePlus, Settings2 } from "lucide-react";
 import {
   agentRunPath,
   closeSession,
   getSessions,
+  isResourceScope,
+  resourceTag,
   savedIn,
   sendMessage,
   startSession,
@@ -48,9 +50,10 @@ import {
  * onDraftChange reports the run's document draft with a version that changes after each of the agent's turns. Saved
  * agents: blockedReason blocks starting a run; Add feedback, Suggestions and Review and apply tune the agent. A new document
  * (Documents → New): one conversation per page visit (no run list, no Earlier runs), started with the Title and Folder of
- * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. A server
- * (its page): discovery runs of that server; blockedReason (SSH not ready) blocks starting one; onSessionChange reports the
- * shown run with the same version (the page shows its proposals). */
+ * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. A server,
+ * service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane has neither
+ * New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run; blockedReason (a server
+ * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version. */
 const NEEDS_NAME = "Give the document a title and folder first.";
 export default function AgentChat({
   scope,
@@ -62,6 +65,7 @@ export default function AgentChat({
   onSessionChange,
   blockedReason = null,
   onAgentChanged,
+  fresh = false,
 }: {
   scope: ChatScope;
   settings: ReturnType<typeof useAgentSettings>;
@@ -72,26 +76,31 @@ export default function AgentChat({
   onSessionChange?: (runId: string | null, version: string) => void;
   blockedReason?: string | null;
   onAgentChanged?: () => void;
+  fresh?: boolean;
 }) {
   const isAgent = scope.kind === "agent";
   const isNew = scope.kind === "new-document";
+  const resource = isResourceScope(scope) ? scope : null;
+  const tag = resource ? resourceTag({ type: resource.kind, id: resource.id }) : null;
   const scopeId = scope.kind === "new-document" ? null : scope.id;
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[] | null>(isNew ? [] : null);
   const [runId, setRunId] = useState<string | null>(initialRunId);
-  const [chosen, setChosen] = useState(initialRunId !== null); // the person (or the link) picked a run or New chat
+  const [chosen, setChosen] = useState(initialRunId !== null || fresh); // the person (or the link) picked a run or New chat
+  const chosenNow = useRef(chosen); // read when the run list arrives: a pick made while it loaded wins
+  chosenNow.current = chosen;
   const run = useSessionEvents(runId);
   // useSessionEvents resets the session on an id change and fills it after the load: only a session of the selected run counts.
   const loaded = run.session?.id === runId ? run.session : null;
   // A run of another document (or not an Ask agent run) is not this document's: it is not shown, and its draft never reaches
   // the page. For a saved agent: a run of another agent, or not a Test or event run. A new document's runs are only the
-  // ones this page started.
+  // ones this page started. A server's, service's or environment's: a run without its tag.
   const foreign =
     loaded !== null &&
     (scope.kind === "document"
       ? loaded.purpose !== "revision" || loaded.target_document_id !== scope.id
-      : scope.kind === "server"
-        ? loaded.purpose !== "discovery" || loaded.server_id !== scope.id
+      : tag !== null
+        ? !(loaded.tags ?? []).includes(tag)
         : scope.kind === "agent" &&
           (loaded.agent_id !== scope.id || (loaded.purpose !== "test" && loaded.purpose !== "event")))
       ? loaded
@@ -116,17 +125,13 @@ export default function AgentChat({
     const controller = new AbortController();
     setListFailed(false);
     getSessions(
-      scope.kind === "document"
-        ? { documentId: scopeId }
-        : scope.kind === "server"
-          ? { serverId: scopeId }
-          : { agentId: scopeId },
+      scope.kind === "document" ? { documentId: scopeId } : tag !== null ? { tag } : { agentId: scopeId },
       controller.signal,
     )
       .then((value) => {
         if (controller.signal.aborted) return;
         setRuns(value.sessions);
-        if (!chosen) setRunId(value.sessions.find((item) => item.status !== "closed")?.id ?? null);
+        if (!chosenNow.current) setRunId(value.sessions.find((item) => item.status !== "closed")?.id ?? null);
       })
       .catch(() => {
         if (!controller.signal.aborted) setListFailed(true);
@@ -260,8 +265,8 @@ export default function AgentChat({
                 : foreign
                   ? isAgent
                     ? "Another agent's run"
-                    : scope.kind === "server"
-                      ? "Another server's run"
+                    : resource
+                      ? "Another page's chat"
                       : "Another document's run"
                   : isNew && session
                     ? `Writing: ${session.folder ?? ""}/${session.document_name ?? ""}`
@@ -272,9 +277,9 @@ export default function AgentChat({
                 <Alert variant="destructive">
                   <AlertDescription>This run belongs to another agent.</AlertDescription>
                 </Alert>
-              ) : scope.kind === "server" ? (
+              ) : resource ? (
                 <Alert variant="destructive">
-                  <AlertDescription>This run does not belong to this server.</AlertDescription>
+                  <AlertDescription>This chat belongs to another page.</AlertDescription>
                 </Alert>
               ) : (
                 <Alert variant="destructive">
@@ -293,8 +298,8 @@ export default function AgentChat({
                 <AlertDescription>
                   {isAgent
                     ? "Could not load this agent's runs."
-                    : scope.kind === "server"
-                      ? "Could not load this server's runs."
+                    : resource
+                      ? `Could not load this ${resource.kind}'s chats.`
                       : "Could not load this document's runs."}{" "}
                   <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
                     Retry
@@ -332,16 +337,18 @@ export default function AgentChat({
               <Settings2 data-icon="inline-start" />
               Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy || (runId === null && !run.error)}
-              onClick={newChat}
-            >
-              New chat
-            </Button>
-            {!isNew && (
+            {!resource && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || (runId === null && !run.error)}
+                onClick={newChat}
+              >
+                New chat
+              </Button>
+            )}
+            {!isNew && !resource && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>
@@ -351,7 +358,7 @@ export default function AgentChat({
                 <DropdownMenuContent align="end">
                   {earlier.map((item) => (
                     <DropdownMenuItem key={item.id} onSelect={() => pick(item.id)}>
-                      {`${item.title} · ${statusLabels[item.status]}${item.purpose === "event" ? " · Event" : ""}${scope.kind === "server" && (item.pending ?? 0) > 0 ? ` · ${item.pending} pending` : ""}`}
+                      {`${item.title} · ${statusLabels[item.status]}${item.purpose === "event" ? " · Event" : ""}`}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -398,8 +405,8 @@ export default function AgentChat({
           <p className="text-sm text-muted-foreground">
             {isAgent
               ? "Send a message to test the agent."
-              : scope.kind === "server"
-                ? "Ask the agent to explore this server."
+              : resource
+                ? `Ask the agent about this ${resource.kind}.`
                 : isNew
                   ? "Tell the agent what to write."
                   : "Ask the agent to change this document."}
@@ -414,8 +421,12 @@ export default function AgentChat({
             ? "Ask a question or give a task…"
             : isNew
               ? "For example: document the payments API for new developers"
-              : scope.kind === "server"
-                ? "For example: check the nginx configuration"
+              : resource
+                ? resource.kind === "server"
+                  ? "For example: how much disk space is free?"
+                  : resource.kind === "service"
+                    ? "For example: is it running?"
+                    : "For example: which services run here?"
                 : "For example: add a section on log rotation",
           onSend: () => void send(),
           onStop: open
@@ -426,7 +437,9 @@ export default function AgentChat({
                 })
             : undefined,
           blockedReason: foreign
-            ? `This run belongs to another ${isAgent ? "agent" : scope.kind === "server" ? "server" : "document"}. Start a New chat.`
+            ? resource
+              ? "This chat belongs to another page. Start a New chat."
+              : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
             : session?.status === "closed"
               ? "This conversation is closed. Start a New chat."
               : !open

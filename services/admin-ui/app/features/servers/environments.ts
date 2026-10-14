@@ -20,6 +20,8 @@ export interface EnvironmentAsset {
 }
 export const getEnvironments = (signal?: AbortSignal) =>
   request<{ environments: EnvironmentAsset[] }>("/api/environments", { signal });
+export const getEnvironment = (id: string, signal?: AbortSignal) =>
+  request<EnvironmentAsset>(`/api/environments/${encodeURIComponent(id)}`, { signal });
 export const saveEnvironment = (value: EnvironmentInput, id?: string) =>
   request<EnvironmentAsset>(`/api/environments${id ? `/${encodeURIComponent(id)}` : ""}`, {
     method: id ? "PUT" : "POST",

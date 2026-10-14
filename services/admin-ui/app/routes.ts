@@ -19,7 +19,11 @@ export default [
   route("documentation/folders", "./routes/documentationFolders.tsx"),
   route("documentation/folders/*", "./routes/documentationFolder.tsx"),
   route("services", "./routes/services.tsx"),
+  route("services/:serviceId", "./routes/service.tsx"),
+  route("services/:serviceId/proposals", "./routes/resourceProposals.tsx", { id: "service-proposals" }),
   route("environments", "./routes/environments.tsx"),
+  route("environments/:environmentId", "./routes/environment.tsx"),
+  route("environments/:environmentId/proposals", "./routes/resourceProposals.tsx", { id: "environment-proposals" }),
   route("system-map", "./routes/systemMap.tsx"),
   route("agents/:agentId", "./routes/agentDetail.tsx"),
   route("agents", "./routes/agents.tsx"),
@@ -27,8 +31,9 @@ export default [
   route("skills", "./routes/skills.tsx"),
   route("llm-settings", "./routes/llmSettings.tsx"),
   route("servers", "./routes/servers.tsx"),
-  // A discovery run link is a child of the server page: following one (or the chat changing run) keeps the page mounted.
-  route("servers/:serverId", "./routes/server.tsx", [route("discovery/:runId", "./routes/discoveryRun.tsx")]),
+  // A resource page's chat is in its query (?chat=<id>): changing it keeps the page mounted.
+  route("servers/:serverId", "./routes/server.tsx"),
+  route("servers/:serverId/proposals", "./routes/resourceProposals.tsx", { id: "server-proposals" }),
   route("jira/settings", "./routes/jiraSettings.tsx"),
   route("jira/tickets", "./routes/jiraTickets.tsx"),
   route("jira/auto-pull", "./routes/jiraAutoPull.tsx"),

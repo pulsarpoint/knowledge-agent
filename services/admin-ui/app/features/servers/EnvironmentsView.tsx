@@ -246,14 +246,12 @@ export default function EnvironmentsView() {
                       {matching.map((environment) => (
                         <TableRow key={environment.id}>
                           <TableCell className="max-w-sm whitespace-normal align-top">
-                            <Button
-                              variant="link"
-                              className="h-auto whitespace-normal p-0 text-left"
-                              aria-label={`View ${environment.name}`}
-                              onClick={() => setSelected(environment.id)}
+                            <Link
+                              className="font-medium underline"
+                              to={`/environments/${encodeURIComponent(environment.id)}`}
                             >
                               {environment.name}
-                            </Button>
+                            </Link>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {environment.description || "No description"}
                             </p>
@@ -262,6 +260,14 @@ export default function EnvironmentsView() {
                           <TableCell className="align-top">{environment.servers.length}</TableCell>
                           <TableCell className="align-top">
                             <div className="flex flex-wrap justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`View ${environment.name}`}
+                                onClick={() => setSelected(environment.id)}
+                              >
+                                Details
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"

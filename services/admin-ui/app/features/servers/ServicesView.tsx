@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteService, getServices, type ServiceAsset } from "./services";
@@ -212,7 +213,9 @@ export default function ServicesView() {
                     {matching.map((service) => (
                       <TableRow key={service.id}>
                         <TableCell className="max-w-xs whitespace-normal align-top">
-                          <p className="font-medium">{service.name}</p>
+                          <Link className="font-medium underline" to={`/services/${encodeURIComponent(service.id)}`}>
+                            {service.name}
+                          </Link>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Badge variant="secondary">{serviceTypes[service.service_type]}</Badge>
                             <Badge variant="outline">{serviceRoles[service.service_role].label}</Badge>

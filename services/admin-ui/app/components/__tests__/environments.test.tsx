@@ -250,3 +250,8 @@ test("inventory errors disable creation and provide retry", async () => {
   expect(screen.getByRole("button", { name: "Add environment" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
 });
+
+test("an environment's name links to its page", async () => {
+  setup([{ ...development }]);
+  expect(await screen.findByRole("link", { name: "Development" })).toHaveAttribute("href", "/environments/development");
+});

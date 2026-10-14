@@ -88,8 +88,6 @@ const json = (method: string, body: unknown) => ({
   body: JSON.stringify(body),
 });
 const server = (id: string) => `/api/servers/${encodeURIComponent(id)}`;
-export const runPagePath = (serverId: string, runId: string) =>
-  `/servers/${encodeURIComponent(serverId)}/discovery/${encodeURIComponent(runId)}`;
 export const getServerPage = (id: string, signal?: AbortSignal) => request<ServerPageData>(server(id), { signal });
 export const getProposals = (runId: string, signal?: AbortSignal) =>
   request<{ proposals: Proposal[] }>(`/api/discovery/${encodeURIComponent(runId)}/proposals`, { signal });

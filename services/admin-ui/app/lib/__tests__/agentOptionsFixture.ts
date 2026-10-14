@@ -59,14 +59,6 @@ export const options: AgentOptions = {
       needs: null,
       requires: null,
     },
-    {
-      name: "get_resource",
-      label: "Resource info",
-      summary: "A resource",
-      group: "inventory",
-      needs: null,
-      requires: null,
-    },
   ],
   experts: [{ id: "e1", name: "Payments expert", when_to_use: "Payments questions" }],
 };

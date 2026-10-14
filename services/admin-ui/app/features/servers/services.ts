@@ -60,6 +60,11 @@ export interface ServiceAsset {
   environments: { id: string; name: string }[];
 }
 export const getServices = (signal?: AbortSignal) => request<{ services: ServiceAsset[] }>(`/api/services`, { signal });
+/** One service, as the services list shows it (its agent context carries the same record). */
+export const getService = (id: string, signal?: AbortSignal) =>
+  request<{ service: ServiceAsset }>(`/api/services/${encodeURIComponent(id)}/context`, { signal }).then(
+    (value) => value.service,
+  );
 export const saveService = (value: ServiceInput, id?: string) =>
   request<{ id: string; revision: number }>(`/api/services${id ? `/${id}` : ""}`, {
     method: id ? "PUT" : "POST",

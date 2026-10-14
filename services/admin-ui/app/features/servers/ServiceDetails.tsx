@@ -23,16 +23,19 @@ function useCodeFolder(needed: boolean) {
   return folder;
 }
 
-export default function ServiceDetails({ service, onClose }: { service: ServiceAsset; onClose: () => void }) {
+/** A service's saved details; onClose adds a close button (the services list), the service page has none. */
+export default function ServiceDetails({ service, onClose }: { service: ServiceAsset; onClose?: () => void }) {
   const codeFolder = useCodeFolder(service.repositories.some((repo) => repo.checkout_path));
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <CardTitle>{service.name}</CardTitle>
-          <Button variant="ghost" size="icon" aria-label="Close service details" onClick={onClose}>
-            <X />
-          </Button>
+          {onClose && (
+            <Button variant="ghost" size="icon" aria-label="Close service details" onClick={onClose}>
+              <X />
+            </Button>
+          )}
         </div>
         <CardDescription>
           Saved application context · Updated {new Date(service.updated_at).toLocaleString()}
