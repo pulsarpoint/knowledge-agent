@@ -46,17 +46,25 @@ ALTER TABLE ka.documents
   ADD COLUMN title text, description text, purpose text, audience text, tags text[], markdown text,
              content_hash sha256, source_snapshot jsonb,
   -- provenance
-  ADD COLUMN origin text,                -- 'manual' | 'agent' | 'uploaded' | 'discovery'
+  ADD COLUMN origin text,                -- 'manual' | 'generated' | 'uploaded' (today's version values; a run's draft
+                                         -- is 'generated'; the drafts API still reports 'agent' for a run's draft)
   ADD COLUMN session_id uuid,            -- the run that wrote it (drafts by agents; kept on the live row after promote)
+  ADD COLUMN edited boolean NOT NULL DEFAULT false,  -- draft: a person edited a run's draft (today's drafts.edited)
+  ADD COLUMN from_draft boolean NOT NULL DEFAULT false,  -- live: its content came from a promoted draft
+  ADD COLUMN version_created_at timestamptz,          -- live: when its current version went live
+  ADD COLUMN version_created_by uuid,                 -- live: who made its current version live
   ADD COLUMN created_by uuid, updated_by uuid;  -- REFERENCES ka.principals(id)
+-- `revision` stays on every row as the optimistic lock (live and drafts); it no longer equals `version`.
 -- same CHECKs on content as today (nonblank title ≤ 240, markdown ≤ 1 MB, content_hash = sha256(markdown), …)
 CHECK (NOT is_draft OR version IS NULL)
 CHECK (is_draft OR version IS NOT NULL)
 CHECK (draft_of IS NULL OR is_draft)                 -- only drafts point at a live document
 CHECK (draft_of IS NULL OR (slug IS NULL AND folder IS NULL))  -- a draft of a live document uses its document's slug/folder
 CHECK (is_draft OR slug IS NOT NULL)
--- slugs are unique among live documents and brand-new drafts, not among drafts of a live document
-CREATE UNIQUE INDEX documents_slug ON ka.documents(project_id, slug) WHERE slug IS NOT NULL;
+-- slugs are unique per folder among live documents and brand-new drafts (as today's
+-- documents_project_id_folder_slug_key), not among drafts of a live document
+CREATE UNIQUE INDEX documents_folder_slug ON ka.documents(project_id, folder, slug) NULLS NOT DISTINCT
+  WHERE slug IS NOT NULL;
 CREATE INDEX documents_drafts ON ka.documents(draft_of, created_at) WHERE is_draft;
 -- a draft of a live document must point at a live row (trigger: draft_of → is_draft = false)
 ```
@@ -140,24 +148,34 @@ Decisions:
 
 ## Lifecycle
 
-- **New document** (Documents → New run, discovery, `POST /api/documents`): insert a brand-new draft row (slug, folder,
-  content, `origin`, `session_id`) and its links as `built_for` (`added_how` agent_run / discovery / person). A run's
-  links are its `chosen_resources`.
+- **New document by a run** (Documents → New run, `save_document` tool): insert a brand-new draft row (slug, folder,
+  content, `origin = 'generated'`, `session_id`) and its links as `built_for` (`added_how = 'agent_run'`); the links are
+  the run's `chosen_resources`.
+- **New document by a person's "Save draft"** (`POST /api/documentation/drafts` with slug, folder, `resource_ids`): a
+  brand-new draft row with `built_for` links (`added_how = 'person'`). As today, a folder+slug that already names a live
+  document makes it a draft of that document instead.
+- **New document created live** (`POST /api/documentation/documents`, accepting a discovery proposal for a new
+  document): a live row, version 1, links `built_for` (`added_how` person / discovery). No draft step, as today.
 - **Draft of a live document** (Ask agent run, a person's edit): insert a draft row with `draft_of`, `base_version` =
   the live version, content. A document can have any number of drafts; the document page lists them by `created_at`.
   A run keeps updating its own draft row (found by `session_id` + `draft_of`), as today.
 - **Promote draft D of live document L** (one transaction, locking L):
   1. copy L's current content into `document_archive` (`document_id` = L, `version`, `created_at` = when it went live,
      `archived_by` = actor);
-  2. update L in place with D's content, `version = version + 1`, `origin`/`session_id`/`created_by` from D;
+  2. update L in place with D's content, `version = version + 1`, `origin`/`session_id` from D, `from_draft = true`,
+     `version_created_at = now()`, `version_created_by` = actor, `revision + 1`; D's sources move to L;
   3. delete all drafts of L (D included);
   4. `revision` bumps as today; stale check as today (D's `base_version` < L's `version` → confirm, as `confirm_stale`).
-- **Promote a brand-new draft D**: set `is_draft = false`, `version = 1`. Its id, slug, folder and built-for links stay.
+- **Promote a brand-new draft D**: set `is_draft = false`, `version = 1`, `from_draft = true`, `version_created_at`,
+  `version_created_by`. Its id, slug, folder, sources and built-for links stay. It is exported to the docs folder after
+  the commit, as today.
 - **Discard a draft of a live document**: delete the row.
 - **Discard a brand-new draft**: delete the row (and its links): the document never existed.
 - **Delete a live document**: deletes its drafts, archive rows and links (cascade), as today.
-- **Edit a live document directly** (the document editor's Save without a draft): same as promote from an implicit
-  draft — current content is archived, the row is updated, other drafts stay (only promote clears drafts).
+- **Edit a live document directly** (the document editor's Save, `PUT /api/documentation/documents/{id}`, and a
+  discovery proposal that updates a document): when the content changes, the current content is archived and the row
+  is updated with `version + 1`; other drafts stay (only promote clears drafts). A save that changes only links bumps
+  `revision`, not `version`.
 - A run whose draft was deleted by another promote starts a new draft (of the new live version) on its next save.
 
 ## Links
@@ -180,10 +198,12 @@ Decisions:
   export read it unchanged.
 - `ka.document_drafts_view` — every draft row with its document's title/slug/folder (brand-new: its own), `created_at`,
   `origin`, `session_id`, and the link arrays of the live document or of the brand-new draft.
-- Version history (`GET /api/documents/{id}/versions`) = archive rows + the live row, by version.
-- `GET /api/documents/{id}` adds `drafts` (newest first) and `resource_links` (active links with type, name, connection,
-  added_how, added_by, session_id, created_at). `GET /api/documents/{id}/resource-history` returns all link rows.
-- `GET /api/drafts?environment_id=…|service_id=…|server_id=…|code_project_id=…|deployment_id=…` — drafts for a
+- Version history = archive rows + the live row, by version: `GET /api/documentation/documents/{id}` returns
+  `versions[]` (`version, title, origin, created_at, from_draft, live`) and
+  `GET /api/documentation/documents/{id}/versions/{version}` (by number, not id) returns one version's content.
+- `GET /api/documentation/documents/{id}` adds `drafts` (newest first) and `resource_links` (active links with type, name, connection,
+  added_how, added_by, session_id, created_at). `GET /api/documentation/documents/{id}/resource-history` returns all link rows.
+- `GET /api/documentation/drafts?environment_id=…|service_id=…|server_id=…|code_project_id=…|deployment_id=…` — drafts for a
   resource: brand-new drafts linked to it, and drafts of live documents linked to it.
 - `documents/folders.py` statistics count live documents only.
 
@@ -201,7 +221,8 @@ Decisions:
 ## Migration 0104 (up)
 
 1. Add the new columns to `ka.documents`; copy each document's current version content into its row
-   (`version`, `title`, …, `origin`, `created_by` from that version).
+   (`version`, `title`, …, `origin`, `version_created_at`/`version_created_by` = that version's `created_at`/`created_by`,
+   `from_draft` = a promoted draft points at that version).
 2. Create `ka.document_archive`; copy every non-current version, keeping its id (`document_id`, `version`, content, `created_at`,
    `created_by`; `archived_at` = the next version's `created_at`, `archived_by` NULL).
 3. Turn every **open** `ka.document_drafts` row into a draft row: of a live document → `draft_of`, `base_version`
@@ -212,13 +233,34 @@ Decisions:
 5. `document_sources`: rows owned by a draft move to the new draft row id; rows owned by a version become
    `(document_id, version)`; `source_version_id` → `(source_document_id, source_version)` (the snapshot columns
    already hold title and version).
-6. Repoint `agent_sessions` draft references (a run's draft is found by `session_id`) and drop `ka.document_drafts`,
+6. Add `agent_sessions.last_draft_id` (filled with each session's latest draft id, any status) and drop `ka.document_drafts`,
    `ka.document_versions` and the five link tables; recreate `ka.document_details`; create `ka.live_documents` and
    `ka.document_drafts_view`.
 
-Down: rebuild `document_versions` (archive + live rows), `document_drafts` (open draft rows), the five link tables
-(active rows) and the previous views. Link provenance/history and archive timestamps are lost on rollback (stated in
-the down file).
+Down: see "Rolling back 0104".
+
+## What a draft or version was built from (`ka.document_sources`)
+
+- Owner becomes `document_id` (a draft row or a live row; `ON DELETE CASCADE`) **or** `archive_id` (an archive row;
+  `ON DELETE CASCADE`), exactly one. `source_version_id` is dropped; `source_document_id` + `source_version` (already
+  stored) name what was read.
+- Promote: the live row's sources move to the new archive row (`archive_id`), the promoted draft's sources move to the
+  live row; the other drafts' sources go with their rows.
+
+## A run's draft after promote or discard
+
+Drafts are deleted on promote and discard, so a run can no longer read its old draft's status. `ka.agent_sessions`
+gains `last_draft_id uuid` (no foreign key), set when the run creates a draft. The session's `document_draft`
+(`{id, document_id, status}`) is the row with that id when it still exists (`status = 'open'`), else the outcome from
+the audit log (`document.draft.promoted` / `document.draft.discarded` with `resource_id` = that id): `promoted` or
+`discarded`. The `save_document` / `edit_document` tool notes (promoted, discarded, edited by a person) use the same.
+
+## Rolling back 0104
+
+The down migration refuses ("… would be lost; …") when link provenance or history exists (any `document_resources`
+row that is not an active `linked`/`migrated` row) — the repository's convention for rollbacks that lose data.
+Otherwise it rebuilds `document_versions` (archive + live rows), `document_drafts` (draft rows as open drafts), the
+five link tables and the previous views, and drops the new tables and columns.
 
 ## Out of scope
 
@@ -243,7 +285,7 @@ Backend (disposable PostgreSQL):
 - links: create → `built_for` with `added_how`/`session_id` (run: exactly `chosen_resources`, environment included);
   edit → `linked` added, unticked rows get `removed_at`; unticking built-for → 409, no change; deleting a resource
   removes its rows.
-- reading: document details and filters see live rows only; `GET /api/drafts?environment_id=` finds brand-new drafts
+- reading: document details and filters see live rows only; `GET /api/documentation/drafts?environment_id=` finds brand-new drafts
   linked to it and drafts of documents linked to it; version history = archive + live; agents' document tools and RAG
   export unchanged.
 
