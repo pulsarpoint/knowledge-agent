@@ -1,0 +1,6 @@
+# Formatting-only commits; `git blame` skips them when blame.ignoreRevsFile points here:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# style: format Python with ruff
+62ef40e8ab267c30cb5d41abf88a65f10d5c2766
+# style: format the admin UI with Prettier
+0c12f746e5757ff7b99dbd3f0cbaa210a468d311

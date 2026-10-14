@@ -9,6 +9,7 @@ pnpm install --frozen-lockfile
 pnpm dev     # port 5174; proxies /api to the native admin API on port 8766
 pnpm build
 pnpm test
+pnpm format  # Prettier; `pnpm format:check` only reports
 ```
 
 Use `make up` from the repository root to run through Keycloak on port 8183.

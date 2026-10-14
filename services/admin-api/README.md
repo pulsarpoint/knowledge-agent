@@ -11,6 +11,7 @@ Startup configuration lives in `knowledge_admin/config.py` (`DOCS_WIKI_RAG_URL`,
 ```sh
 uv sync --frozen
 uv run --frozen pytest -q
+uv run --frozen ruff format   # settings in the repository root ruff.toml (shared with rag and packages/)
 # Native development; set the PostgreSQL and issuer variables described below first.
 uv run --frozen knowledge-admin "$DATA_ROOT/docs" --env-file ../../.env
 ```
