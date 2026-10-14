@@ -122,8 +122,11 @@ resource is chosen until it is ticked; experts and subagents are off; every tool
 The agent writes the document only with `save_document(document_id, markdown, title?, description?)` and
 `edit_document(document_id, old_text, new_text)`. Both write the run's draft. The agent's final answer is not turned into a
 draft. If a document with the title's slug already exists in the folder, the saves become a draft of that document.
-Otherwise the first save creates a draft of a new document, which links the run's code projects, environments, services
-and servers when it is promoted. Later saves update the same draft until a person saves (edits), promotes or discards it;
+Otherwise the first save creates a draft of a new document, which links the resources the run was started for when it is
+promoted: the environments, services, servers and code projects chosen (for a run started from a server page, that
+server). What they bring along for the agent (an environment's services and servers, a service's code projects and the
+servers it is deployed on) is not linked; the agent may use it, but the document is not about it. A save that drafts an
+existing document never changes that document's links. Later saves update the same draft until a person saves (edits), promotes or discards it;
 the next save then starts a new draft. The draft's sources are the documents the run read (`get_document`, or
 `read_document` of an export path), at the version live at the first read. Nothing goes live until a person promotes the draft.
 

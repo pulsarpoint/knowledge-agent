@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from knowledge_admin.capabilities.document_tools import _run_links
 from test_profiles import create, update
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_sessions_world import ask  # noqa: F401  (fixture)
@@ -234,3 +235,31 @@ def test_options_tell_what_a_service_brings(agent, ask):
     options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
     service = next(item for item in options['resources']['services'] if item['id'] == ask.s.service)
     assert service['brings_servers'] and service['brings_code']
+
+
+def test_a_document_of_a_saved_agent_run_links_the_chosen_service_and_not_what_it_brings(agent, ask):
+    with ask.s.store.connect() as conn:  # Payments is deployed on web-1 and built from both code projects
+        conn.execute(
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging','payments-api',8081)""",
+            (ask.s.store.project(conn, 'shop'), ask.s.service, agent.web),
+        )
+    response = start(agent.client, agent_id=agent.id, tools=['read_file'], resources={'service_ids': [ask.s.service]})
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session['run_resources']['server_ids'] == [agent.web]  # the tools still reach what it brought
+    assert sorted(session['run_resources']['code_project_ids']) == sorted([ask.s.repo, ask.s.worker])
+    assert session['chosen_resources'] == {
+        'code_project_ids': [],
+        'collection_ids': [],
+        'server_ids': [],
+        'service_ids': [ask.s.service],
+        'environment_ids': [],
+    }
+    assert _run_links(session['config']) == {
+        'code_project_ids': [],
+        'environment_ids': [],
+        'service_ids': [ask.s.service],
+        'server_ids': [],
+        'deployment_ids': [],
+    }

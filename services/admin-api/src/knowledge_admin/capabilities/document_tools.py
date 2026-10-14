@@ -276,8 +276,10 @@ def _note(previous: dict | None, version: int | None) -> str:
 
 
 def _run_links(config: dict[str, Any]) -> dict[str, list[str]]:
-    """The resources chosen for the run, as the resource_ids a new document links on promote."""
-    chosen = config.get('run_resources') or {}
+    """The resources the run was started for, as the resource_ids a new document links on promote: what the person
+    chose (an environment, not what it brings for the tools). A run started before chosen_resources was recorded links
+    its run_resources."""
+    chosen = config.get('chosen_resources') or config.get('run_resources') or {}
     return {
         key: [str(item) for item in chosen.get(key, [])]
         for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')

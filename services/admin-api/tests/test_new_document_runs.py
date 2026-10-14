@@ -8,6 +8,7 @@ import pytest
 
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.context import NOT_AVAILABLE
+from knowledge_admin.capabilities.document_tools import _run_links
 from knowledge_admin.data_root import FOLDER_RULE
 from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.sessions.start import ONE_START
@@ -302,7 +303,65 @@ def test_a_promoted_new_document_links_the_resources_chosen_for_the_run(sessions
     assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
     [draft] = draft_ids(s, session['id'])
     created = s.client.get(f'/api/documentation/documents/{promote(s, draft)["document_id"]}', headers=HEADERS).json()
-    assert s.repo in created['code_project_ids'] and created['service_ids'] == [s.service]
+    assert created['code_project_ids'] == [s.repo] and created['service_ids'] == [s.service]
+    assert created['server_ids'] == [] and created['environment_ids'] == []  # the worker Payments brought: not linked
+
+
+def resource_ids(s, draft_id) -> dict:
+    with s.store.connect() as conn:
+        return conn.execute('SELECT resource_ids FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()[
+            'resource_ids'
+        ]
+
+
+def test_a_new_document_links_the_chosen_environment_and_not_what_it_brings(sessions, monkeypatch):
+    s = sessions  # Production brings Payments, its code projects (Payments API, Payments worker) and prod-1
+    monkeypatch.setattr(inventory, '_store', s.store)
+    resources = {
+        'environment_ids': [s.environment],
+        'code_project_ids': [s.repo],
+        'documents': [{'new': NEW, 'editable': True}],
+    }
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, resources=resources))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session['run_resources']['service_ids'] == [s.service]  # the tools still reach what it brought
+    assert sorted(session['run_resources']['code_project_ids']) == sorted([s.repo, s.worker])
+    config = {**session['config'], 'session_id': session['id']}
+    new_id = session['config']['document_access'][0]['id']
+    assert call(config, 'save_document', document_id=new_id, markdown='# API') == 'Saved draft (1 lines).'
+    [draft] = draft_ids(s, session['id'])
+    assert resource_ids(s, draft) == {
+        'code_project_ids': [s.repo],
+        'environment_ids': [s.environment],
+        'service_ids': [],
+        'server_ids': [],
+        'deployment_ids': [],
+    }
+    created = s.client.get(f'/api/documentation/documents/{promote(s, draft)["document_id"]}', headers=HEADERS).json()
+    assert {key: created[key] for key in ('environment_ids', 'code_project_ids', 'service_ids', 'server_ids')} == {
+        'environment_ids': [s.environment],
+        'code_project_ids': [s.repo],
+        'service_ids': [],
+        'server_ids': [],
+    }
+
+
+def test_a_run_without_its_chosen_resources_links_what_it_was_given():
+    # a session started before chosen_resources was recorded links its run_resources, as it did
+    given = {'code_project_ids': ['p'], 'collection_ids': ['c'], 'server_ids': ['h'], 'service_ids': ['s']}
+    assert _run_links({'run_resources': given}) == {
+        'code_project_ids': ['p'],
+        'environment_ids': [],
+        'service_ids': ['s'],
+        'server_ids': ['h'],
+        'deployment_ids': [],
+    }
+    chosen = {**given, 'server_ids': [], 'service_ids': [], 'environment_ids': ['e']}
+    assert _run_links({'run_resources': given, 'chosen_resources': chosen})['environment_ids'] == ['e']
+    assert _run_links({}) == {
+        key: [] for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids', 'deployment_ids')
+    }
 
 
 def test_no_other_new_id_can_be_written(sessions, monkeypatch):

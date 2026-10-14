@@ -127,7 +127,10 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   const items = config.tools?.items ?? [];
   const choosable = new Set(options.tools.map((tool) => tool.name));
   const experts = new Set(options.experts.map((item) => item.id));
-  const resources = (session.run_resources ?? {}) as Partial<Record<keyof AgentResources, unknown>>;
+  // what the run was started for (an environment, not what it brought); runs started before it was recorded: what they were given
+  const resources = (session.chosen_resources ?? session.run_resources ?? {}) as Partial<
+    Record<keyof AgentResources, unknown>
+  >;
   const chosen = { ...EMPTY };
   for (const { key, field } of AGENT_KINDS) {
     const present = new Set(options.resources[key].filter(usable).map((item) => item.id));

@@ -137,6 +137,36 @@ test("settingsFromSession rebuilds the settings a run started with", () => {
   });
 });
 
+test("settingsFromSession restores what the run was started for, not what an environment brought", () => {
+  const withEnvironment = {
+    ...options,
+    resources: {
+      ...options.resources,
+      environments: [{ id: "e1", name: "Production", linked: false, brings_code: true, brings_servers: true }],
+    },
+  };
+  const session = {
+    model_id: "m1",
+    prompt_snapshot: { system_prompt: "Run prompt.", prompt_id: null },
+    run_resources: { server_ids: ["s1"], service_ids: ["v1"], code_project_ids: ["c1"], collection_ids: [] },
+    chosen_resources: {
+      server_ids: [],
+      service_ids: [],
+      environment_ids: ["e1"],
+      code_project_ids: ["c1"],
+      collection_ids: [],
+    },
+    config: { tools: { items: [] } },
+  } as unknown as SessionDetail;
+  expect(settingsFromSession(withEnvironment, session).chosen).toEqual({
+    server_ids: [],
+    service_ids: [],
+    environment_ids: ["e1"],
+    code_project_ids: ["c1"],
+    collection_ids: [],
+  });
+});
+
 test("settingsFromSession leaves out what today's options no longer have or cannot use", () => {
   const session = {
     model_id: "gone-model",

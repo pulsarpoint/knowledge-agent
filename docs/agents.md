@@ -32,7 +32,8 @@ limit, no per-turn time limit, no 300-second limit).
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
   work only on documents given to the run as editable, and write the run's draft, never the live version. A new document
   is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
-  saves it with `save_document`, which creates the draft of a new document (see [documentation](documentation.md)). Every
+  saves it with `save_document`, which creates the draft of a new document linked to the resources the run was started
+  for, not to what they bring along (see [documentation](documentation.md)). Every
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
 - Inventory tools (`get_server_info_basic`, `get_server_services`, `get_server_docs`, `get_service_info`,

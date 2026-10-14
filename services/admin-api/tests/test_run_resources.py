@@ -278,3 +278,29 @@ def test_a_brought_server_without_a_usable_connection_is_left_out_but_a_chosen_o
     brought = effective(s, None, environment_ids=[UUID(s.environment)])['run_resources']['server_ids']
     assert s.server['id'] not in brought
     assert 'Server prod-1 is not available' in refusal(s, RunResources(server_ids=[s.server['id']]))
+
+
+def test_a_run_records_what_was_chosen_apart_from_what_it_brings(per_run):
+    s = per_run  # an environment brings Payments (and its code projects and Test host): chosen records only it
+    with s.store.connect() as conn:
+        conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (s.analyst, s.worker))
+    environment = UUID(s.environment)
+    given = effective(s, RunResources(code_project_ids=[s.repo]), environment_ids=[environment, environment])
+    assert given['chosen_resources'] == {
+        **NOTHING,
+        'code_project_ids': [s.repo],
+        'environment_ids': [s.environment],
+    }
+    assert given['run_resources'] == {
+        'code_project_ids': [s.repo, s.worker],
+        'collection_ids': [],
+        'server_ids': [s.host['id']],
+        'service_ids': [s.service],
+    }  # unchanged: the tools still reach what the environment brought
+    service = effective(s, RunResources(service_ids=[s.service]))
+    assert service['chosen_resources'] == {**NOTHING, 'service_ids': [s.service], 'environment_ids': []}
+    assert service['run_resources']['server_ids'] == [s.host['id']]
+    assert effective(s, None)['chosen_resources'] == {**NOTHING, 'environment_ids': []}
+    with s.store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (s.analyst,))
+    assert 'chosen_resources' not in effective(s, None)  # a fixed agent: its own configuration, as before

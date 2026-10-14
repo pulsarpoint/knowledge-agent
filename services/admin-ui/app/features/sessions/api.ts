@@ -92,6 +92,9 @@ export interface SessionDetail extends SessionSummary {
   context_snapshot: { folders: SessionFolder[]; code_project_ids: string[]; instructions?: string };
   /** What a per-run agent was given for this session (null: an agent with fixed resources). */
   run_resources?: RunResourcesInput | null;
+  /** What the run was started for: the resources chosen, environments too, before what they bring (null: a fixed
+   *  agent, or a run started before it was recorded). A new document the run writes links these. */
+  chosen_resources?: (RunResourcesInput & { environment_ids: string[] }) | null;
   /** Test sessions: the configuration pinned when the session started (credential references only). */
   config?: Record<string, unknown>;
   /** Test sessions: their saved suggestions, oldest first. */

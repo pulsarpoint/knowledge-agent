@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import asyncssh
 
 from discovery_world import world  # noqa: F401  (fixture)
+from knowledge_admin.capabilities.document_tools import _run_links
 from knowledge_admin.servers.discovery import NOT_ALLOWED, NOT_CONFIGURED
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG, effective_tools
@@ -195,6 +196,21 @@ def test_the_services_on_the_server_are_pinned_without_bringing_their_other_serv
     config = config_of(world, sid)
     assert call(config, 'get_service_info', name='nginx')['name'] == 'nginx'
     assert call(config, 'get_service_info', name='postgres') == NO_SERVICE
+
+
+def test_a_document_of_a_server_run_links_its_server_and_not_the_services_on_it(world):
+    ssh_ready(world)
+    sid = start(world).json()['id']
+    pinned = pinned_of(world, sid)
+    assert pinned['chosen_resources']['server_ids'] == [world.server['id']]
+    assert pinned['run_resources']['server_ids'] == [world.server['id']]
+    assert _run_links(pinned) == {
+        'code_project_ids': [],
+        'environment_ids': [],
+        'service_ids': [],  # nginx runs on it: read by the run, not linked
+        'server_ids': [world.server['id']],
+        'deployment_ids': [],
+    }
 
 
 def test_two_runs_on_one_server_can_run_at_once_and_are_listed_with_their_counts(world):
