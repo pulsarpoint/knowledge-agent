@@ -1,4 +1,5 @@
 """Tuning reviews of a conversation: the reviewer's output (proposed prompt and instruction texts) and applying it."""
+from functools import partial
 import json
 from typing import Any, Literal
 from uuid import UUID
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_clones import NAME_TAKEN, clone
+from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import fingerprint, get_agent_config
 
 
@@ -79,10 +81,7 @@ def write_changes(conn, project_id, agent_id: str, changes: InstructionChanges, 
 def build_api(app_name, store):
     router = APIRouter(prefix='/agents/{agent_id}/reviews/{review_id}')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     def review_of(conn, agent_id: str, review_id: UUID) -> dict[str, Any]:
         row = conn.execute('''SELECT r.suggestion,r.context FROM ka.agent_session_reviews r

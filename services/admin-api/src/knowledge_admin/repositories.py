@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from knowledge_admin.code_paths import code_path, code_root, relative_code_path
+from knowledge_admin.db import workspace
 
 
 def github_url(value: str) -> str:
@@ -172,15 +173,13 @@ class RepositoryStore:
             RETURNING id""", (self.issuer, subject, email)).fetchone()["id"]
 
     def list(self, app: str) -> list[dict]:
-        with self.connect() as conn:
-            project_id = self.project(conn, app)
+        with workspace(self, app) as (conn, project_id):
             return conn.execute(f"""SELECT {REPOSITORY_FIELDS} FROM ka.repositories r {LATEST_JOB}
                 WHERE r.project_id=%s AND r.archived_at IS NULL ORDER BY r.created_at DESC""", (project_id,)).fetchall()
 
     def save(self, app: str, value: RepositoryInput, subject: str, email: str,
              repository_id: UUID | None = None) -> UUID:
-        with self.connect() as conn:
-            project_id = self.project(conn, app)
+        with workspace(self, app) as (conn, project_id):
             actor_id = self.actor(conn, subject, email)
             conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'code-projects:{project_id}',))
             existing = None
@@ -282,8 +281,7 @@ class RepositoryStore:
             raise HTTPException(409, "Wait for the current pull to finish before editing this repository")
 
     def enqueue(self, app: str, repository_id: UUID, subject: str, email: str) -> UUID:
-        with self.connect() as conn:
-            project_id = self.project(conn, app)
+        with workspace(self, app) as (conn, project_id):
             repo = conn.execute("""SELECT id,remote_url FROM ka.repositories WHERE id=%s AND project_id=%s
                 AND archived_at IS NULL FOR UPDATE""", (repository_id, project_id)).fetchone()
             if repo is None:

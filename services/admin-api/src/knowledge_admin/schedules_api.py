@@ -1,6 +1,7 @@
 """Administration → Schedules and Jira → Auto pull: create, list, edit, pause, run and delete schedules. repository-worker
 runs them (scheduler.py); this API only changes their rows."""
 from datetime import UTC, datetime
+from functools import partial
 from typing import Literal
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.jira_sync import DEFAULT_LIMIT
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.schedules import ScheduleError, describe, next_after, upcoming, validate
@@ -69,15 +71,11 @@ def jira_defaults(connection: dict) -> dict:
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Schedule storage is not configured')
-        return store
+    database = partial(storage, store, 'Schedule storage', message='Schedule storage is not configured')
 
     def audit(conn, project: UUID, request: Request, action: str, schedule_id: UUID, details: dict) -> None:
         actor = database().actor(conn, *request_actor(request))
-        conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,'schedule',%s,%s)""", (project, actor, action, schedule_id, Jsonb(details)))
+        write_audit(conn, project, actor, action, 'schedule', schedule_id, details)
 
     def jira_state(conn, project: UUID) -> tuple[dict | None, dict]:
         connection = conn.execute("""SELECT id,jql,last_fetch_limit FROM ka.jira_connections
@@ -93,8 +91,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/schedules')
     def list_schedules() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             rows = conn.execute(f'SELECT {FIELDS} FROM ka.schedules WHERE project_id=%s ORDER BY name,created_at', (project,)).fetchall()
         return {'schedules': [shown(row) for row in rows]}
 
@@ -106,8 +103,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/schedules/{schedule_id}/runs')
     def runs(schedule_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             if conn.execute('SELECT 1 FROM ka.schedules WHERE id=%s AND project_id=%s', (schedule_id, project)).fetchone() is None:
                 raise HTTPException(404, NOT_FOUND)
             rows = conn.execute("""SELECT id,trigger,started_at,finished_at,status,message FROM ka.schedule_runs
@@ -118,8 +114,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def create(value: NewSchedule, request: Request) -> dict:
         checked(value)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             connection, _ = jira_state(conn, project)
             if connection is None:
                 raise HTTPException(400, NO_JIRA)
@@ -136,8 +131,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.delete('/schedules/{schedule_id}', status_code=204)
     def delete(schedule_id: UUID, request: Request) -> Response:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             row = conn.execute('DELETE FROM ka.schedules WHERE id=%s AND project_id=%s RETURNING name,target_kind',
                                (schedule_id, project)).fetchone()
             if row is None:
@@ -149,8 +143,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def save(schedule_id: UUID, value: ScheduleInput, request: Request) -> dict:
         checked(value)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             current = conn.execute("""SELECT revision,run_requested,next_run_at FROM ka.schedules
                 WHERE id=%s AND project_id=%s FOR UPDATE""", (schedule_id, project)).fetchone()
             if current is None:
@@ -168,8 +161,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/schedules/{schedule_id}/run')
     def run_now(schedule_id: UUID, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             current = conn.execute("""SELECT coalesce(lease_expires_at > now(), false) AS running FROM ka.schedules
                 WHERE id=%s AND project_id=%s FOR UPDATE""", (schedule_id, project)).fetchone()
             if current is None:
@@ -191,8 +183,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def save_auto_pull(value: AutoPullInput, request: Request) -> dict:
         checked(value)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             connection, current = jira_state(conn, project)
             if connection is None:
                 raise HTTPException(400, NO_JIRA)

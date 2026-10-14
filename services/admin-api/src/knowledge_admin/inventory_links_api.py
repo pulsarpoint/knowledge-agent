@@ -1,6 +1,7 @@
 """Inventory → connections between entries (services, servers, environments, code projects) in ka.inventory_links, and
 documents attached to entries in ka.inventory_documents. The System map draws and edits both; the Services page edits a
 service's depends_on and built_from links through its own form too, so writes to those bump the services' revision."""
+from functools import partial
 from typing import Literal
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.event_templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 
@@ -98,15 +100,11 @@ def find_entry(conn, project: UUID, entry: Entry) -> None:
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Inventory storage is not configured')
-        return store
+    database = partial(storage, store, 'Inventory storage', message='Inventory storage is not configured')
 
     def audit(conn, project: UUID, request: Request, action: str, resource_type: str, resource_id: UUID, details: dict) -> None:
         actor = database().actor(conn, *request_actor(request))
-        conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,%s,%s,%s)""", (project, actor, action, resource_type, resource_id, Jsonb(details)))
+        write_audit(conn, project, actor, action, resource_type, resource_id, details)
 
     def link_row(conn, project: UUID, link_id: UUID) -> dict:
         row = conn.execute(LINK + ' WHERE l.id=%s AND l.project_id=%s', (link_id, project)).fetchone()
@@ -132,8 +130,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         if (entry_kind is None) != (entry_id is None):
             raise HTTPException(400, 'Give both entry_kind and entry_id, or neither.')
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             rows = conn.execute(LINK + ''' WHERE l.project_id=%s AND (%s::uuid IS NULL OR l.from_id=%s OR l.to_id=%s)
                 ORDER BY l.kind,lower(f.name),lower(t.name),l.id''', (project, entry_id, entry_id, entry_id)).fetchall()
         return {'links': rows}
@@ -147,8 +144,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
         if value.start.id == value.end.id:
             raise HTTPException(422, SELF)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             lock_inventory(conn, project)
             find_entry(conn, project, value.start)
             find_entry(conn, project, value.end)
@@ -170,8 +166,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def save(link_id: UUID, value: LinkChange, request: Request) -> dict:
         check_fields(value)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             lock_inventory(conn, project)
             current = locked(conn, project, link_id)
             if current['revision'] != value.revision:
@@ -185,8 +180,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.delete('/inventory/links/{link_id}', status_code=204)
     def delete(link_id: UUID, request: Request) -> Response:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             lock_inventory(conn, project)
             current = locked(conn, project, link_id)
             conn.execute('DELETE FROM ka.inventory_links WHERE id=%s', (link_id,))
@@ -199,8 +193,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/inventory/documents')
     def attachments(entry_kind: EntryKind, entry_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             rows = conn.execute(ATTACHMENT + ' WHERE a.project_id=%s AND a.entry_id=%s ORDER BY lower(d.title),a.id',
                                 (project, entry_id)).fetchall()
         return {'documents': rows}
@@ -208,8 +201,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/inventory/documents', status_code=201)
     def attach(value: AttachmentDraft, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             lock_inventory(conn, project)
             find_entry(conn, project, value.entry)
             if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s FOR SHARE',
@@ -228,8 +220,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.delete('/inventory/documents/{attachment_id}', status_code=204)
     def detach(attachment_id: UUID, request: Request) -> Response:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             lock_inventory(conn, project)
             removed = conn.execute('''DELETE FROM ka.inventory_documents WHERE id=%s AND project_id=%s
                 RETURNING entry_kind,entry_id,document_id''', (attachment_id, project)).fetchone()

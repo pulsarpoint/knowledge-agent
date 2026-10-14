@@ -1,6 +1,7 @@
 """Document drafts: unpublished versions of a document, or of a new document, that a person promotes to the live
 version or discards. Agents only ever write drafts. Drafts live in ka.document_drafts, apart from
 ka.document_versions, so version history, document_details, exports and folder statistics see live versions only."""
+from functools import partial
 import json
 import logging
 from typing import Literal
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
+from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
                                        Title, export_args, export_document, export_input, save_document)
 from knowledge_admin.repositories import RepositoryStore
@@ -133,11 +135,6 @@ def connections(conn, project: UUID, document_id: UUID) -> dict:
     return {'depends_on': conn.execute(LINKED.format(this='from_document_id', other='to_document_id'), (document_id,)).fetchall(),
             'used_by': conn.execute(LINKED.format(this='to_document_id', other='from_document_id'), (document_id,)).fetchall(),
             'built_from': sources_of(conn, 'version_id', row['current_version_id'])}
-
-
-def audit(conn, project, actor, action: str, resource_type: str, resource_id, details: dict) -> None:
-    conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-        VALUES (%s,%s,%s,%s,%s,%s)''', (project, actor, action, resource_type, resource_id, Jsonb(jsonable_encoder(details))))
 
 
 def sources_of(conn, column: Literal['draft_id', 'version_id'], owner: UUID) -> list[dict]:
@@ -379,16 +376,12 @@ def refresh_run_sources_safely(conn, session_id: UUID, turn: int) -> None:
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Document storage is not configured')
-        return store
+    database = partial(storage, store, 'Document storage', message='Document storage is not configured')
 
     @router.post('/drafts', status_code=201)
     def create(value: DraftCreate, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
             actor = db.actor(conn, *request_actor(request))
             given = value.model_dump(include=set(CONTENT), exclude_none=True)
@@ -410,8 +403,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.put('/drafts/{draft_id}')
     def update(draft_id: UUID, value: DraftUpdate, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             row = open_draft(conn, project, draft_id, value.revision)
             conn.execute('''UPDATE ka.document_drafts SET title=%s,description=%s,purpose=%s,audience=%s,tags=%s,
@@ -423,8 +415,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/drafts/{draft_id}/discard')
     def discard(draft_id: UUID, value: Decision, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             open_draft(conn, project, draft_id, value.revision)
             conn.execute('''UPDATE ka.document_drafts SET status='discarded',decided_by=%s,decided_at=now(),
@@ -436,8 +427,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def promote(draft_id: UUID, value: Promotion, request: Request) -> dict:
         db = database()
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project):
                 conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
                 actor = db.actor(conn, *request_actor(request))
                 # The run's session before the draft, the order a run's turn locks them in.
@@ -475,8 +465,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/documents/{document_id}/drafts')
     def drafts_of_document(document_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             if conn.execute('SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)).fetchone() is None:
                 raise HTTPException(404, DOCUMENT_NOT_FOUND)
             rows = conn.execute(SUMMARY.format(extra='') + """ WHERE x.document_id=%s AND x.status='open'
@@ -494,8 +483,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if value.to_document_id == document_id:
             raise HTTPException(400, LINK_SELF)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             found = conn.execute('SELECT count(*) AS n FROM ka.documents WHERE project_id=%s AND id=ANY(%s)',
                                  (project, [document_id, value.to_document_id])).fetchone()['n']
@@ -516,8 +504,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.delete('/documents/{document_id}/links/{to_document_id}')
     def remove_link(document_id: UUID, to_document_id: UUID, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             removed = conn.execute('''DELETE FROM ka.document_links WHERE project_id=%s AND from_document_id=%s
                 AND to_document_id=%s AND kind='depends_on' RETURNING id''', (project, document_id, to_document_id)).fetchone()

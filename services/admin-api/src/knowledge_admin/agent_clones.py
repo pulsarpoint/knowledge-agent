@@ -1,12 +1,13 @@
 """Clone an agent; apply a clone's configuration back to its original. An agent has one configuration (0080)."""
+from functools import partial
 from uuid import uuid4
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import changed_sections, fingerprint, get_agent_config
 from knowledge_admin.profiles_api import WORKING
 
@@ -110,14 +111,10 @@ def clone(conn, source_id: str, actor_id) -> dict[str, str]:
 def build_api(app_name, store):
     router = APIRouter(prefix='/agents/{agent_id}')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     def audit(conn, actor, action: str, details: dict) -> None:
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb(details)))
+        write_audit(conn, store.project(conn, app_name), actor, action, 'agent', None, details)
 
     @router.post('/clone', status_code=201)
     def clone_agent(agent_id: str, request: Request):

@@ -1,8 +1,10 @@
 """Administrator view of complete agent run records."""
 from collections import Counter
+from functools import partial
 
 from fastapi import APIRouter, HTTPException, Query
 
+from knowledge_admin.db import storage
 from knowledge_admin.run_record import tool_counts
 
 RUNS = """SELECT s.run_key, s.agent_id, s.payload->>'agent' AS agent, s.payload->>'kind' AS kind,
@@ -61,10 +63,7 @@ NESTED_CALLS = """SELECT DISTINCT e.payload->>'call_id' AS call_id FROM ka.agent
 def build_api(app_name: str, store) -> APIRouter:
     router = APIRouter(prefix='/agent-runs')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     @router.get('')
     def runs(agent_id: str | None = None, kind: str | None = None, user: str | None = None,

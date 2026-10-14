@@ -2,6 +2,7 @@
 
 import asyncio
 from agents import ModelBehaviorError
+from functools import partial
 import json
 from typing import Literal
 from uuid import UUID, uuid4
@@ -16,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agents import agent
+from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import model_fits
 from knowledge_admin.operations_store import SSHInput
 from knowledge_admin.profiles_api import PROMPT_LIMIT
@@ -172,10 +174,7 @@ def validate_resources(proposal, catalog):
 def build_api(app_name, store):
     router = APIRouter(prefix='/agents/wizard')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     @router.get('/options')
     def options(response: Response):

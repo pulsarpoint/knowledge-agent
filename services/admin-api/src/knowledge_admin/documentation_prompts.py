@@ -1,14 +1,15 @@
 """Versioned analysis and writing templates for documentation generation."""
 
+from functools import partial
 import re
 from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 
@@ -59,16 +60,12 @@ class PromptRevision(BaseModel):
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation/prompts')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Prompt storage is not configured')
-        return store
+    database = partial(storage, store, 'Prompt storage', message='Prompt storage is not configured')
 
     def audit(conn, db, request, project, prompt_id, action, details):
         subject,email = request_actor(request)
         actor = db.actor(conn,subject,email)
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,'documentation_prompt',%s,%s)''', (project,actor,action,prompt_id,Jsonb(details)))
+        write_audit(conn, project, actor, action, 'documentation_prompt', prompt_id, details)
         return actor
 
     def locked_prompt(conn, project, prompt_id, revision):
@@ -82,8 +79,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('')
     def list_prompts(tag: str | None = Query(None, max_length=40)) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             rows = conn.execute(f'''SELECT {', '.join('p.' + column for column in PROMPT_COLUMNS.split(','))},v.version AS active_version,
                 (SELECT count(*) FROM ka.documentation_prompt_versions WHERE prompt_id=p.id) AS version_count
                 FROM ka.documentation_prompts p LEFT JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
@@ -94,8 +90,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/tags')
     def tags_in_use() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             rows = conn.execute('''SELECT tag, count(*) AS count FROM ka.documentation_prompts, unnest(tags) AS tag
                 WHERE project_id=%s GROUP BY tag ORDER BY tag''', (project,)).fetchall()
         return {'tags':rows}
@@ -103,8 +98,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/{prompt_id}')
     def get_prompt(prompt_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             row = conn.execute(f'SELECT {PROMPT_COLUMNS} FROM ka.documentation_prompts WHERE id=%s AND project_id=%s', (prompt_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Documentation prompt not found')
@@ -116,8 +110,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         request_actor(request)
         try:
-            with db.connect() as conn:
-                project = db.project(conn,app_name)
+            with workspace(db, app_name) as (conn, project):
                 is_new = prompt_id is None
                 if is_new:
                     if value.revision is not None:
@@ -156,8 +149,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def activate(prompt_id: UUID, version_id: UUID, value: PromptRevision, request: Request) -> dict:
         request_actor(request)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             prompt = locked_prompt(conn,project,prompt_id,value.revision)
             version = conn.execute('SELECT version FROM ka.documentation_prompt_versions WHERE id=%s AND prompt_id=%s', (version_id,prompt_id)).fetchone()
             if version is None:
@@ -174,8 +166,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if not confirmed:
             raise HTTPException(400, 'Confirm prompt version deletion before continuing')
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             prompt = locked_prompt(conn,project,prompt_id,revision)
             if prompt['active_version_id'] == version_id:
                 raise HTTPException(409, 'Activate another version before deleting the active version')
@@ -192,8 +183,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if not confirmed:
             raise HTTPException(400, 'Confirm prompt deletion before continuing')
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             locked_prompt(conn,project,prompt_id,revision)
             conn.execute('UPDATE ka.documentation_prompts SET active_version_id=NULL WHERE id=%s', (prompt_id,))
             conn.execute('DELETE FROM ka.documentation_prompts WHERE id=%s', (prompt_id,))

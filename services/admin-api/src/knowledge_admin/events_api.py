@@ -1,5 +1,6 @@
 """Administration → Events: things that happened at a source (the scheduled Jira pull), that a handler emitted, or that
 someone made by hand to test handlers. Handlers (event_handlers_api.py) and the event processor act on them."""
+from functools import partial
 import json
 import re
 from typing import Any, Literal
@@ -10,6 +11,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 LISTED = 'id,source,type,subject,title,occurred_at,created_at,status,depth,parent_id,root_id,handler_id'
@@ -94,10 +96,7 @@ def like(text: str) -> str:
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Event storage is not configured')
-        return store
+    database = partial(storage, store, 'Event storage', message='Event storage is not configured')
 
     def detail(conn, project: UUID, event_id: int) -> dict | None:
         row = conn.execute(f'SELECT {LISTED},source_id,dedupe_key,payload,({MADE_BY_HAND}) AS created_manually FROM ka.events WHERE id=%s AND project_id=%s',
@@ -122,8 +121,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     def create(value: NewEvent, request: Request) -> dict:
         fields = check(value)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             with conn.transaction():
                 event_id = conn.execute("""INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at,status)
@@ -160,8 +158,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/events/facets')
     def facets() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             distinct = lambda column: [row[column] for row in conn.execute(
                 f'SELECT DISTINCT {column} FROM ka.events WHERE project_id=%s ORDER BY 1', (project,))]
             handlers = conn.execute('SELECT id,name FROM ka.event_handlers WHERE project_id=%s ORDER BY name', (project,)).fetchall()

@@ -1,5 +1,6 @@
 """Project-scoped Jira settings, connection checks, and cached ticket selections."""
 
+from functools import partial
 import os
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.access import request_actor
 from knowledge_admin import jira_sync
 from knowledge_admin.data_root import jira_folder
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.jira import JQL, JiraClient, JiraSettingsInput, TicketFetchInput
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.jira_export import TicketExportInput, publish_ticket, ticket_markdown
@@ -33,16 +35,12 @@ def build_api(app: str, store: RepositoryStore | None,
               backoffice_client: httpx.Client | None = None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, "Jira storage is not configured")
-        return store
+    database = partial(storage, store, "Jira storage", message="Jira storage is not configured")
 
     @router.get("/jira/settings")
     def settings() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             row = conn.execute(f"SELECT {SETTINGS_FIELDS} FROM ka.jira_connections WHERE project_id=%s AND name='primary'", (project,)).fetchone()
         return {"connection": row}
 
@@ -51,8 +49,7 @@ def build_api(app: str, store: RepositoryStore | None,
         db = database()
         subject, email = request_actor(request)
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app)
+            with workspace(db, app) as (conn, project):
                 actor = db.actor(conn, subject, email)
                 current = conn.execute("SELECT * FROM ka.jira_connections WHERE project_id=%s AND name='primary' FOR UPDATE", (project,)).fetchone()
                 if (current is None and value.revision is not None) or (current is not None and value.revision != current["revision"]):
@@ -134,8 +131,7 @@ def build_api(app: str, store: RepositoryStore | None,
     @router.get("/jira/tickets")
     def list_tickets() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             # Lock the connection while reading its snapshot metadata and rows together.
             config = conn.execute(f"SELECT {SETTINGS_FIELDS} FROM ka.jira_connections WHERE project_id=%s AND name='primary' FOR SHARE", (project,)).fetchone()
             rows = [] if config is None else conn.execute("""SELECT id,issue_key,jira_project_key,issue_type,labels,summary,status_name,priority,

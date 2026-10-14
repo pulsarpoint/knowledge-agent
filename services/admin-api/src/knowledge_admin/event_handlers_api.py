@@ -1,5 +1,6 @@
 """Administration → Events → Handlers: create, list, edit, delete and Preview handlers. The event processor
 (event_processor.py, in repository-worker) runs them; this API only changes their rows."""
+from functools import partial
 from typing import Literal
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin import event_matching, event_templates
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 NOT_FOUND = 'Handler not found.'
@@ -112,10 +114,7 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Event storage is not configured')
-        return store
+    database = partial(storage, store, 'Event storage', message='Event storage is not configured')
 
     def agent_usable(conn, agent_id: str) -> None:
         agent = conn.execute('SELECT resources FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
@@ -132,8 +131,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
 
     def audit(conn, project: UUID, request: Request, action: str, handler_id: UUID, details: dict) -> UUID:
         actor = database().actor(conn, *request_actor(request))
-        conn.execute("""INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,'event_handler',%s,%s)""", (project, actor, action, handler_id, Jsonb(details)))
+        write_audit(conn, project, actor, action, 'event_handler', handler_id, details)
         return actor
 
     @router.get('/event-handlers')
@@ -170,8 +168,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/event-handlers', status_code=201)
     def create(value: HandlerDraft, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             values = stored(conn, value)
             if values['agent_id']:
                 agent_usable(conn, values['agent_id'])
@@ -191,8 +188,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.put('/event-handlers/{handler_id}')
     def save(handler_id: UUID, value: HandlerInput, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             current = conn.execute('SELECT revision,enabled,agent_id FROM ka.event_handlers WHERE id=%s AND project_id=%s FOR UPDATE',
                                    (handler_id, project)).fetchone()
             if current is None:
@@ -220,8 +216,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     @router.delete('/event-handlers/{handler_id}', status_code=204)
     def delete(handler_id: UUID, request: Request) -> Response:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app)
+        with workspace(db, app) as (conn, project):
             row = conn.execute('DELETE FROM ka.event_handlers WHERE id=%s AND project_id=%s RETURNING name',
                                (handler_id, project)).fetchone()
             if row is None:

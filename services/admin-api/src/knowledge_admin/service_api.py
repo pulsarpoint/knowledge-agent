@@ -1,6 +1,7 @@
 """Admin-only service inventory and a read-only context resource for agent consumers."""
 
 from datetime import UTC, datetime
+from functools import partial
 from uuid import UUID, uuid4
 
 import psycopg
@@ -8,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.services import ServerInput, ServiceInput
 
@@ -140,24 +142,19 @@ def save_service(conn, project_id: UUID, actor_id: UUID, value: ServiceInput, se
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, "Asset storage is not configured")
-        return store
+    database = partial(storage, store, "Asset storage", message="Asset storage is not configured")
 
     @router.get("/services")
     def list_services() -> dict:
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             rows = conn.execute("SELECT * FROM ka.service_assets WHERE project_id=%s ORDER BY lower(name), id", (project_id,)).fetchall()
         return {"services": rows}
 
     @router.get("/services/{service_id}/context")
     def service_context(service_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             asset = conn.execute("SELECT * FROM ka.service_assets WHERE id=%s AND project_id=%s", (service_id, project_id)).fetchone()
             if asset is None:
                 raise HTTPException(404, "Service not found")
@@ -170,8 +167,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         subject, email = request_actor(request)
         try:
-            with db.connect() as conn:
-                project_id = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project_id):
                 # Lock the project before the principal upsert: every inventory writer takes them in this order.
                 conn.execute("SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE", (project_id,))
                 actor_id = db.actor(conn, subject, email)
@@ -193,8 +189,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if not confirmed:
             raise HTTPException(400, "Confirm service deletion before continuing")
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             conn.execute("SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE", (project_id,))
             service = conn.execute("SELECT name,revision FROM ka.services WHERE id=%s AND project_id=%s FOR UPDATE", (service_id, project_id)).fetchone()
             if service is None:
@@ -220,8 +215,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get("/servers")
     def list_servers() -> dict:
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             rows = conn.execute("SELECT * FROM ka.server_assets WHERE project_id=%s ORDER BY lower(name),id", (project_id,)).fetchall()
         return {"servers": rows}
 
@@ -229,8 +223,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         subject, email = request_actor(request)
         try:
-            with db.connect() as conn:
-                project_id = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project_id):
                 actor_id = db.actor(conn, subject, email)
                 if server_id is None:
                     if value.revision is not None:
@@ -272,8 +265,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if not confirmed:
             raise HTTPException(400, "Confirm server deletion before continuing")
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             server = conn.execute("SELECT name,hostname,revision FROM ka.servers WHERE id=%s AND project_id=%s FOR UPDATE", (server_id, project_id)).fetchone()
             if server is None:
                 raise HTTPException(404, "Server not found")

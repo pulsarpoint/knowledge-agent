@@ -1,5 +1,6 @@
 """Administrative skill library; storing instructions does not execute them."""
 
+from functools import partial
 from uuid import UUID
 
 import psycopg
@@ -8,6 +9,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 SUMMARY_FIELDS = 'id,name,description,enabled,revision,created_at,updated_at'
@@ -44,16 +46,12 @@ class SkillStatusInput(BaseModel):
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/skills')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Skill storage is not configured')
-        return store
+    database = partial(storage, store, 'Skill storage', message='Skill storage is not configured')
 
     @router.get('')
     def list_skills(enabled: bool | None = None) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             rows = conn.execute(f'''SELECT {SUMMARY_FIELDS} FROM ka.agent_skills
                 WHERE project_id=%s AND (%s::boolean IS NULL OR enabled=%s) ORDER BY name,id''',
                 (project, enabled, enabled)).fetchall()
@@ -62,8 +60,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/{skill_id}')
     def get_skill(skill_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             row = conn.execute(f'SELECT {DETAIL_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s', (skill_id, project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Skill not found')
@@ -73,8 +70,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         subject, email = request_actor(request)
         db = database()
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project):
                 actor = db.actor(conn, subject, email)
                 if skill_id is None:
                     if value.revision is not None:
@@ -112,8 +108,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def set_status(skill_id: UUID, value: SkillStatusInput, request: Request) -> dict:
         subject, email = request_actor(request)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             row = conn.execute(f'SELECT {SUMMARY_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s FOR UPDATE', (skill_id, project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Skill not found')

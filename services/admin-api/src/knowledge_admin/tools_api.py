@@ -1,4 +1,5 @@
 """An agent's tools: the catalog, the Tools tab (GET/PUT) and the rules that keep a selection consistent."""
+from functools import partial
 from typing import Any, Literal
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
 from knowledge_admin.tools.catalog import (CATALOG, SUBAGENT, NEED_REASONS, NEED_TABS, RUN_ONLY_NEEDS, capability_tools,
                                            catalog_listing, enabled_capability_tools, needs_met)
@@ -158,10 +160,7 @@ def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, 
 def build_api(app_name, store):
     router = APIRouter()
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     @router.get('/tools')
     def catalog():

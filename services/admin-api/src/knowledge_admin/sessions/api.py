@@ -1,16 +1,17 @@
 """/api/sessions: starting a run (options, preview, start), the run operations for every kind of run (detail, send,
 stop, close, the event stream) and the lists."""
 import asyncio
+from functools import partial
 import json
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from psycopg.types.json import Jsonb
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.agent_sessions import ReviewInput, review_session
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.session_text import close_idle, notify_closed_before_first_turn
 from knowledge_admin.sessions import start
@@ -37,14 +38,10 @@ assert LIST_WITH_PROPOSALS != LIST
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/sessions')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Agent session storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent session storage')
 
     def audit(conn, actor, action: str, resource_type: str, details: dict, resource_id=None) -> None:
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,%s,%s,%s)''', (store.project(conn, app_name), actor, action, resource_type, resource_id, Jsonb(details)))
+        write_audit(conn, store.project(conn, app_name), actor, action, resource_type, resource_id, details)
 
     def locked(conn, project, session_id: UUID) -> dict:
         row = conn.execute('SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
@@ -107,8 +104,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('', status_code=201)
     def start_session(value: start.StartInput, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))
             session_id = start.start_run(conn, project, actor, value, db.conninfo)
             return session_detail(conn, project, session_id)
@@ -148,8 +144,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/{session_id}/stop', status_code=202)
     def stop(session_id: UUID, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
             row = locked(conn, project, session_id)
             if row['status'] != 'working':
@@ -162,8 +157,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/{session_id}/close')
     def close(session_id: UUID, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
             row = locked(conn, project, session_id)
             if row['status'] != 'closed':

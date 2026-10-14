@@ -1,4 +1,5 @@
 """Named agent profiles and their explicit knowledge and asset selections."""
+from functools import partial
 from uuid import UUID
 from typing import Literal
 
@@ -6,10 +7,10 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 from knowledge_admin.tools.catalog import tools_summary
@@ -121,10 +122,7 @@ def delete_history(conn, agent_id) -> None:
 def build_api(app_name, store):
     router = APIRouter(prefix='/agents')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'Agent storage is not configured.')
-        return store
+    database = partial(storage, store, 'Agent storage')
 
     def read(conn, agent_id):
         try:
@@ -140,8 +138,7 @@ def build_api(app_name, store):
 
     def audit(conn, request, agent_id, action, **details):
         actor = store.actor(conn, *request_actor(request))
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-            VALUES (%s,%s,%s,'agent',%s)''', (store.project(conn, app_name), actor, action, Jsonb({'agent_id': agent_id, **details})))
+        write_audit(conn, store.project(conn, app_name), actor, action, 'agent', None, {'agent_id': agent_id, **details})
         return actor
 
     @router.get('')

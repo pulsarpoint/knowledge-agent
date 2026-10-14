@@ -1,5 +1,6 @@
 """Environment inventory and explicit service/server membership."""
 
+from functools import partial
 from uuid import UUID, uuid4
 
 import psycopg
@@ -8,6 +9,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 
@@ -37,24 +39,19 @@ class EnvironmentInput(BaseModel):
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, "Environment storage is not configured")
-        return store
+    database = partial(storage, store, "Environment storage", message="Environment storage is not configured")
 
     @router.get("/environments")
     def list_environments() -> dict:
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             rows = conn.execute("SELECT * FROM ka.environment_assets WHERE project_id=%s ORDER BY lower(name),id", (project_id,)).fetchall()
         return {"environments": rows}
 
     @router.get("/environments/{environment_id}")
     def get_environment(environment_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             environment = conn.execute("SELECT * FROM ka.environment_assets WHERE id=%s AND project_id=%s", (environment_id, project_id)).fetchone()
             if environment is None:
                 raise HTTPException(404, "Environment not found")
@@ -64,8 +61,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         subject, email = request_actor(request)
         try:
-            with db.connect() as conn:
-                project_id = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project_id):
                 conn.execute("SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE", (project_id,))
                 actor_id = db.actor(conn, subject, email)
                 if environment_id is None:
@@ -129,8 +125,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(400, "Confirm environment deletion before continuing")
         db = database()
         subject, email = request_actor(request)
-        with db.connect() as conn:
-            project_id = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project_id):
             conn.execute("SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE", (project_id,))
             current = conn.execute("SELECT name,revision FROM ka.environments WHERE id=%s AND project_id=%s FOR UPDATE", (environment_id, project_id)).fetchone()
             if current is None:

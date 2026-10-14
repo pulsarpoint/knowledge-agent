@@ -1,5 +1,6 @@
 """Managed Markdown documents, inventory associations and immutable versions."""
 
+from functools import partial
 import hashlib
 import io
 import json
@@ -18,6 +19,7 @@ from psycopg.types.json import Jsonb
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -333,16 +335,12 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Document storage is not configured')
-        return store
+    database = partial(storage, store, 'Document storage', message='Document storage is not configured')
 
     @router.get('/resources')
     def resources() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             return {
                 'environments': conn.execute('SELECT id,name FROM ka.environments WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
                 'code_projects': conn.execute('SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL ORDER BY lower(name),id', (project,)).fetchall(),
@@ -361,8 +359,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                        service_id: UUID | None = None, server_id: UUID | None = None,
                        deployment_id: UUID | None = None, environment_id: UUID | None = None, has_drafts: bool = False, offset: int = Query(default=0, ge=0)) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             where = '''project_id=%s AND (strpos(lower(title || ' ' || description || ' ' || slug),lower(%s))>0)
                 AND (%s::uuid IS NULL OR %s=ANY(code_project_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(service_ids))
@@ -380,8 +377,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/documents/{document_id}')
     def get_document(document_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             row = conn.execute('SELECT * FROM ka.document_details WHERE id=%s AND project_id=%s', (document_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Document not found')
@@ -417,8 +413,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/documents/{document_id}/versions/{version_id}')
     def get_version(document_id: UUID, version_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             row = conn.execute('SELECT * FROM ka.document_versions WHERE id=%s AND document_id=%s AND project_id=%s', (version_id,document_id,project)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Document version not found')
@@ -428,8 +423,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         subject,email = request_actor(request)
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project):
                 actor = db.actor(conn,subject,email)
                 old_slug = old_folder = None
                 if document_id is not None:
@@ -465,8 +459,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         if not confirmed:
             raise HTTPException(400, 'Confirm document deletion before continuing')
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn,app_name)
+        with workspace(db, app_name) as (conn, project):
             # The project first, as promote and create do: promote locks a draft, then the document; this delete locks
             # the document, then (cascade) its drafts. Without it the two could deadlock.
             conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))

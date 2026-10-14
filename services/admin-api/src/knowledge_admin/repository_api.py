@@ -1,5 +1,6 @@
 """Admin-only repository management routes."""
 
+from functools import partial
 import json
 import os
 import shutil
@@ -11,6 +12,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryInput, RepositoryStore
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import host_path
@@ -32,10 +34,7 @@ def overlaps(a: str, b: str) -> bool:
 def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: httpx.Client | None = None) -> APIRouter:
     router = APIRouter()
 
-    def repository_store() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, "Repository storage is not configured")
-        return store
+    repository_store = partial(storage, store, "Repository storage", message="Repository storage is not configured")
 
     @router.get("/repositories")
     def list_repositories():
@@ -62,8 +61,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
     @router.post('/code-projects/{repository_id}/process', status_code=202)
     def process_project(repository_id: UUID, request: Request):
         selected = repository_store()
-        with selected.connect() as conn:
-            project = selected.project(conn, app_name)
+        with workspace(selected, app_name) as (conn, project):
             repo = conn.execute('SELECT id FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL FOR UPDATE',
                 (repository_id,project)).fetchone()
             if repo is None:
@@ -102,8 +100,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
             with selected.connect() as conn:
                 project = selected.project(conn, app_name)
             connected = rag_paths(project)
-        with selected.connect() as conn:
-            project = selected.project(conn, app_name)
+        with workspace(selected, app_name) as (conn, project):
             repo = conn.execute('''SELECT id,clone_path FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL
                 FOR UPDATE''', (repository_id, project)).fetchone()
             if repo is None:
@@ -157,8 +154,7 @@ def build_api(app_name: str, store: RepositoryStore | None, backoffice_client: h
     def view_code_graph(repository_id: UUID, file: str = Query(default='', max_length=1000),
                         offset: int = Query(default=0, ge=0), source_hash: str | None = Query(default=None, pattern='^[a-f0-9]{64}$')):
         selected = repository_store()
-        with selected.connect() as conn:
-            project = selected.project(conn, app_name)
+        with workspace(selected, app_name) as (conn, project):
             if conn.execute('SELECT id FROM ka.repositories WHERE id=%s AND project_id=%s AND archived_at IS NULL', (repository_id,project)).fetchone() is None:
                 raise HTTPException(404, 'Code project not found')
         try:

@@ -1,8 +1,10 @@
 """Documentation folders under GENERATED_DOCS_FOLDER, for browsing. Indexing happens in RAG → Collections; these routes
 never call RAG."""
 from fastapi import APIRouter, HTTPException
+from functools import partial
 
 from knowledge_admin.data_root import FOLDER_RULE, documentation_folder, generated_docs_folder
+from knowledge_admin.db import storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 
 
@@ -16,16 +18,12 @@ def valid_folder(folder: str) -> str:
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/documentation/folders')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Document storage is not configured')
-        return store
+    database = partial(storage, store, 'Document storage', message='Document storage is not configured')
 
     @router.get('')
     def listing() -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             rows = conn.execute('''SELECT f.folder, f.document_count, f.updated_at,
                 (SELECT max(v.created_at) FROM ka.documents d JOIN ka.document_versions v ON v.document_id=d.id
                     WHERE d.project_id=%s AND d.folder=f.folder AND v.origin='generated') AS last_generated_at,
@@ -46,8 +44,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def folder_documents(folder: str) -> dict:
         folder = valid_folder(folder)
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             documents = conn.execute('''SELECT d.id,d.slug,d.title,d.version,d.updated_at,
                 (SELECT max(v.created_at) FROM ka.document_versions v WHERE v.document_id=d.id AND v.origin='generated') AS last_generated_at,
                 COALESCE((SELECT array_agg(r.name::text ORDER BY lower(r.name)) FROM ka.repositories r WHERE r.id=ANY(d.code_project_ids)),'{}') AS code_projects

@@ -1,6 +1,7 @@
 """Server discovery: the server page's data and reviewing the proposals of discovery runs. A discovery run is an ordinary
 run started from a server through /api/sessions (sessions/start.py: started_from.server_id, purpose discovery); its
 proposal tools are in capabilities/discovery.py. What it does is its prompt's text ("Server discovery")."""
+from functools import partial
 from typing import Literal
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
                                        save_document)
 from knowledge_admin.repositories import RepositoryStore
@@ -117,20 +119,12 @@ def free_folder(conn, project, server_slug: str) -> str:
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Server discovery storage is not configured.')
-        return store
-
-    def audit(conn, project, actor, action: str, resource_type: str, resource_id, details: dict) -> None:
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,%s,%s,%s)''', (project, actor, action, resource_type, resource_id, Jsonb(jsonable_encoder(details))))
+    database = partial(storage, store, 'Server discovery storage')
 
     @router.get('/servers/{server_id}')
     def server_page(server_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             access = server_row(conn, project, server_id)
             server = conn.execute('SELECT * FROM ka.server_assets WHERE id=%s', (server_id,)).fetchone()
             environments = conn.execute('''SELECT e.id,e.name FROM ka.environment_servers es JOIN ka.environments e
@@ -292,8 +286,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('/discovery/{session_id}/proposals')
     def proposals(session_id: UUID) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             if conn.execute("SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s AND purpose='discovery'",
                             (session_id, project)).fetchone() is None:
                 raise HTTPException(404, NO_RUN)
@@ -305,8 +298,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         db = database()
         kind = None
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project):
                 conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
                 actor = db.actor(conn, *request_actor(request))
                 row = pending(conn, project, proposal_id, value.revision)
@@ -332,8 +324,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/discovery/proposals/{proposal_id}/reject')
     def reject(proposal_id: UUID, value: Decision, request: Request) -> dict:
         db = database()
-        with db.connect() as conn:
-            project = db.project(conn, app_name)
+        with workspace(db, app_name) as (conn, project):
             conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
             actor = db.actor(conn, *request_actor(request))
             row = pending(conn, project, proposal_id, value.revision)

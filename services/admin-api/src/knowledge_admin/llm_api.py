@@ -1,5 +1,6 @@
 """Named model connections and agent assignments. Credentials are write-only."""
 import asyncio
+from functools import partial
 import math
 import os
 from typing import Literal
@@ -11,10 +12,10 @@ from fastapi import APIRouter, HTTPException, Request
 from knowledge_llm import code_compatible, completion_model, credential_aad, decode_model
 from knowledge_llm.bedrock_embeddings import embed_bedrock
 from openai import AsyncOpenAI
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.repositories import RepositoryStore
 
 PUBLIC = 'id,name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,enabled,revision,created_at,updated_at,(api_key_ciphertext IS NOT NULL) AS has_api_key'
@@ -115,17 +116,12 @@ async def probe_model(model) -> None:
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter(prefix='/llm')
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Model storage is not configured')
-        return store
+    database = partial(storage, store, 'Model storage', message='Model storage is not configured')
 
     def audit(conn, db, request, action, resource_id, details):
         subject, email = request_actor(request)
         actor = db.actor(conn, subject, email)
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,'llm_model',%s,%s)''',
-            (db.project(conn, app_name), actor, action, resource_id, Jsonb(details)))
+        write_audit(conn, db.project(conn, app_name), actor, action, 'llm_model', resource_id, details)
         return actor
 
     @router.get('')

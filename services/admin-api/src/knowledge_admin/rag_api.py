@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import workspace
 
 
 ALLOWED = {
@@ -32,8 +33,7 @@ def build_api(app_name: str, store, client):
         key = os.environ.get("RAG_BACKOFFICE_KEY")
         if store is None or client is None or not key:
             raise HTTPException(503, "RAG administration is not configured")
-        with store.connect() as conn:
-            project = store.project(conn, app_name)
+        with workspace(store, app_name) as (conn, project):
             principal = store.actor(conn, *actor)
         body = bytearray()
         async for chunk in request.stream():

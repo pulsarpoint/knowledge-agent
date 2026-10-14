@@ -1,10 +1,12 @@
 """Administration → Notifications: what event-triggered agent runs produced — the first turn's answer, or why it failed.
 One shared, read-only list for every user; the session worker writes it when an event run's first turn ends (rows from
 before 0103 came from agent tasks, kept as read-only history)."""
+from functools import partial
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
+from knowledge_admin.db import storage
 from knowledge_admin.events_api import like
 from knowledge_admin.repositories import RepositoryStore
 
@@ -19,10 +21,7 @@ FROM = """FROM ka.notifications n LEFT JOIN ka.agent_tasks t ON t.id=n.agent_tas
 def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
     router = APIRouter()
 
-    def database() -> RepositoryStore:
-        if store is None:
-            raise HTTPException(503, 'Notification storage is not configured')
-        return store
+    database = partial(storage, store, 'Notification storage', message='Notification storage is not configured')
 
     @router.get('/notifications')
     def list_notifications(status: Literal['succeeded', 'failed'] | None = None,

@@ -1,5 +1,6 @@
 """Administer HTTP MCP servers, encrypted tokens, discovery, and code assignments."""
 import asyncio
+from functools import partial
 import os
 from typing import Literal
 from urllib.parse import urlsplit
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 from knowledge_admin.access import request_actor
+from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.mcp_settings import PUBLIC_COLUMNS, credential_aad, save_selection
 
 
@@ -96,15 +98,11 @@ async def discover(url, token):
 def build_api(app_name, store):
     router = APIRouter(prefix='/mcp')
 
-    def database():
-        if store is None:
-            raise HTTPException(503, 'MCP storage is not configured.')
-        return store
+    database = partial(storage, store, 'MCP storage')
 
     def audit(conn, request, action, entity, payload):
         actor = store.actor(conn, *request_actor(request))
-        conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-            VALUES (%s,%s,%s,'mcp_server',%s,%s)''', (store.project(conn, app_name), actor, action, entity, Jsonb(payload)))
+        write_audit(conn, store.project(conn, app_name), actor, action, 'mcp_server', entity, payload)
         return actor
 
     @router.get('/servers')
@@ -118,8 +116,7 @@ def build_api(app_name, store):
         creating = server_id is None
         server_id = server_id or uuid4()
         try:
-            with db.connect() as conn:
-                project = db.project(conn, app_name)
+            with workspace(db, app_name) as (conn, project):
                 old = None if creating else conn.execute('SELECT * FROM ka.mcp_servers WHERE id=%s AND project_id=%s FOR UPDATE', (server_id, project)).fetchone()
                 if not creating and old is None:
                     raise HTTPException(404, 'MCP server not found')
