@@ -37,6 +37,9 @@ export default function ResourceChats({
   const tag = resourceTag(resource);
   const [open, setOpen] = useState(chat !== null);
   const [fresh, setFresh] = useState(0); // > 0: New chat was clicked (the chat starts on a new conversation)
+  // The chat shown when New chat was clicked: until the URL drops it, the new chat must not be handed it (it would reopen it).
+  const [left, setLeft] = useState<string | null>(null);
+  const initialRunId = left !== null && chat === left ? null : chat;
   const [tab, setTab] = useState<"info" | "chat">(chat !== null ? "chat" : "info");
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [listFailed, setListFailed] = useState(false);
@@ -59,8 +62,9 @@ export default function ResourceChats({
       });
     return () => controller.abort();
   }, [tag, listed]);
-  // A ?chat= link followed on this page opens the chat panel.
+  // A ?chat= link followed on this page opens the chat panel; once the URL has left the old chat, it no longer matters.
   useEffect(() => {
+    if (chat !== left) setLeft(null);
     if (chat !== null && !open) {
       setOpen(true);
       setTab("chat");
@@ -79,7 +83,7 @@ export default function ResourceChats({
     );
   /** The URL follows the chat's run (a reload reopens it). */
   const followRun = (id: string | null) => {
-    if (id !== chat) setChat(id);
+    if (id !== initialRunId) setChat(id);
     if (id !== null && !runs?.some((item) => item.id === id)) setListed((n) => n + 1); // a chat just started
   };
   const show = () => {
@@ -87,10 +91,12 @@ export default function ResourceChats({
     setTab("chat");
   };
   const pick = (id: string) => {
+    setLeft(null);
     show();
     if (id !== chat) setChat(id);
   };
   const newChat = () => {
+    setLeft(chat);
     setFresh((n) => n + 1);
     setChat(null);
     show();
@@ -98,6 +104,7 @@ export default function ResourceChats({
   const hide = () => {
     setOpen(false);
     setFresh(0);
+    setLeft(null);
     setTab("info");
     setChat(null);
   };
@@ -188,7 +195,7 @@ export default function ResourceChats({
               key={`${tag}:${fresh}`}
               scope={scope}
               settings={settings}
-              initialRunId={chat}
+              initialRunId={initialRunId}
               fresh={fresh > 0}
               blockedReason={blockedReason}
               onRunChange={followRun}

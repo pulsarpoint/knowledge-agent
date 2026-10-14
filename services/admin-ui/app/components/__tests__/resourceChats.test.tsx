@@ -431,3 +431,38 @@ test("a resource chat's session page links to its resource page on that chat", a
   );
   expect(await screen.findByRole("link", { name: "the server" })).toHaveAttribute("href", "/servers/s1?chat=r1");
 });
+
+test("New chat while a ?chat= is open shows an empty new chat; the URL gets the new chat once it starts", async () => {
+  live.sessions.r1 = detail("r1", "waiting");
+  let listed = [run("r1", "waiting", "Old one")];
+  const calls = api({
+    ...base(),
+    [RUNS]: () => [200, { sessions: listed }],
+    "POST /api/sessions": () => {
+      live.sessions.r9 = detail("r9", "starting");
+      listed = [run("r9", "starting", "Fresh"), ...listed];
+      return [201, detail("r9", "starting")];
+    },
+  });
+  show("/services/v1?chat=r1");
+  expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
+  const chats = screen.getByRole("region", { name: "Chats" });
+  fireEvent.click(within(chats).getByRole("button", { name: "New chat" }));
+  const pane = await screen.findByRole("region", { name: "Ask agent" });
+  expect(await within(pane).findByRole("heading", { name: "New conversation" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/services\/v1$/));
+  // it stays a new chat: the old one never comes back
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(screen.queryByRole("heading", { name: "Chat r1" })).toBeNull();
+  expect(screen.getByTestId("where")).toHaveTextContent(/^\/services\/v1$/);
+  await waitFor(() => expect(within(pane).getByRole("button", { name: "Settings" })).toBeEnabled());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Hello" } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(calls.filter((c) => c.key === "POST /api/sessions")).toHaveLength(1));
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r9"));
+  expect(await screen.findByRole("heading", { name: "Chat r9" })).toBeInTheDocument();
+  // the old chat still opens from the list
+  fireEvent.click(within(chats).getByRole("button", { name: /Old one/ }));
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r1"));
+  expect(await screen.findByRole("heading", { name: "Chat r1" })).toBeInTheDocument();
+});
