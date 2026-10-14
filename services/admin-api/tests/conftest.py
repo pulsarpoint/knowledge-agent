@@ -35,11 +35,17 @@ def postgres():
         capture_output=True,
     )
     try:
-        port = (
-            subprocess.run(['docker', 'port', name, '5432'], check=True, capture_output=True, text=True)
-            .stdout.strip()
-            .rsplit(':', 1)[1]
-        )
+        # A busy Docker can publish the port a few seconds after `docker run` returns.
+        for _ in range(80):
+            published = subprocess.run(
+                ['docker', 'port', name, '5432'], check=False, capture_output=True, text=True
+            ).stdout.strip()
+            if published:
+                break
+            time.sleep(0.25)
+        else:
+            pytest.fail('Disposable PostgreSQL did not publish its port')
+        port = published.splitlines()[0].rsplit(':', 1)[1]
         conninfo = f'host=127.0.0.1 port={port} user=postgres dbname=postgres connect_timeout=2'
         for _ in range(40):
             try:
