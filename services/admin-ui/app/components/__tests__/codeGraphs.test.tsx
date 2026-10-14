@@ -1,10 +1,10 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import CodeGraphsView from '../CodeGraphsView';
-import type { CodeProject } from '../../lib/codeProjects';
+import CodeGraphsView from '~/features/codeProjects/CodeGraphsView';
+import type { CodeProject } from '~/features/codeProjects/api';
 
-vi.mock('../CodeGraphExplorer', () => ({ default: ({ projectId, sourceHash }: { projectId: string; sourceHash: string }) => <div>Explorer {projectId} {sourceHash}</div> }));
+vi.mock('~/features/codeProjects/CodeGraphExplorer', () => ({ default: ({ projectId, sourceHash }: { projectId: string; sourceHash: string }) => <div>Explorer {projectId} {sourceHash}</div> }));
 
 const base = { description: '', remote_url: null, requested_ref: null, clone_path: null, current_commit: null, checkout_path: null,
   has_token: false, synced_at: null, sync_status: null, sync_error: null, sync_interval_minutes: null, next_sync_at: null, revision: 1 };

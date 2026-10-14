@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 
 export interface Repository {
   id: string; name: string; remote_url: string | null; requested_ref: string | null;

@@ -133,7 +133,7 @@ def test_a_folder_that_fails_to_delete_is_reported_after_removal(env, monkeypatc
         if str(path).endswith("/shared"):
             raise PermissionError("denied")
         return real(path, *args, **kwargs)
-    monkeypatch.setattr("knowledge_admin.repository_api.shutil.rmtree", flaky)
+    monkeypatch.setattr("knowledge_admin.code_projects.api.shutil.rmtree", flaky)
     removed = client.post(f"/api/code-projects/{project}/archive", headers=HEADERS, json={"delete_files": True})
     assert removed.status_code == 200
     body = removed.json()

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from knowledge_admin.code_paths import code_path, code_root, rebase_code_path
+from knowledge_admin.code_projects.paths import code_path, code_root, rebase_code_path
 
 ENGINE_VERSION = '1.6.0'
 PIPELINE_VERSION = 2

@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
-from knowledge_admin.code_paths import code_path, code_root, relative_code_path
+from knowledge_admin.code_projects.paths import code_path, code_root, relative_code_path
 from knowledge_admin.db import workspace
 
 

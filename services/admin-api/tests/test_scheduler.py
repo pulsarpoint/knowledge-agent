@@ -179,7 +179,7 @@ def test_a_schedule_with_an_unusable_time_zone_is_recorded_as_failed_and_stops(s
 def test_main_stops_the_scheduler_when_the_repository_loop_crashes(tmp_path, monkeypatch):
     import base64
     import pytest
-    from knowledge_admin import repository_worker
+    from knowledge_admin.code_projects import worker as repository_worker
 
     ended = threading.Event()
 

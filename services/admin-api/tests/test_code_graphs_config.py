@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from knowledge_admin import code_processing
+from knowledge_admin.code_projects import processing as code_processing
 from knowledge_admin.capabilities import code_graph
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve

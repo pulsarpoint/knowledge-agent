@@ -1,7 +1,7 @@
 import CodeGraphExplorer from './CodeGraphExplorer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Folder, MoreHorizontal, Plus, RefreshCw, X } from 'lucide-react';
-import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, removeCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from '../lib/codeProjects';
+import { getCodeDirectory, getCodeFile, getCodeProjects, pullCodeProject, processCodeProject, removeCodeProject, saveCodeProject, type CodeDirectory, type CodeProject, type CodeProjectInput } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
 import { Badge } from '~/components/ui/badge';

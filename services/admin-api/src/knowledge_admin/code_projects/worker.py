@@ -19,8 +19,8 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.events import processor as event_processor, scheduler, templates as event_templates
 from knowledge_admin.repositories import RepositoryStore, git_url
-from knowledge_admin.code_paths import code_path
-from knowledge_admin.code_processing import process_code, CodeProcessingError
+from knowledge_admin.code_projects.paths import code_path
+from knowledge_admin.code_projects.processing import process_code, CodeProcessingError
 
 
 class PullError(Exception):

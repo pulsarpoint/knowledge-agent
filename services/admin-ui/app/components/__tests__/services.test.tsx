@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import ServicesView from "../ServicesView";
 import type { EnvironmentAsset } from "../../lib/environments";
-import type { Repository } from "../../lib/codeProjects";
+import type { Repository } from "~/features/codeProjects/api";
 import type { ServerAsset } from "../../lib/servers";
 import type { ServiceAsset } from "../../lib/services";
 

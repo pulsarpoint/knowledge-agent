@@ -27,7 +27,7 @@ dependencies = [
 
 [project.scripts]
 knowledge-admin = "knowledge_admin.cli:main"
-knowledge-repo-worker = "knowledge_admin.repository_worker:main"
+knowledge-repo-worker = "knowledge_admin.code_projects.worker:main"
 knowledge-agent-session-worker = "knowledge_admin.knowledge_agents.native_sessions:main"
 
 [tool.uv.sources]

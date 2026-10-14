@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from knowledge_admin import git_askpass, repository_worker
+from knowledge_admin.code_projects import git_askpass, worker as repository_worker
 from knowledge_admin.repositories import RepositoryInput
 
 

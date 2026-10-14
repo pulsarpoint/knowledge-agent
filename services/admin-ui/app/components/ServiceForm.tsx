@@ -4,7 +4,7 @@ import { ChevronDown, Plus, Server, Trash2, X } from "lucide-react";
 import { ApiError } from "../lib/api";
 import { saveService, type DeploymentInput, type ServiceAsset } from "../lib/services";
 import { type EnvironmentAsset } from "../lib/environments";
-import { type Repository } from "../lib/codeProjects";
+import { type Repository } from "~/features/codeProjects/api";
 import { type ServerAsset } from "../lib/servers";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";

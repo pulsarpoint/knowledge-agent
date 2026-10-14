@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from agents.tool_context import ToolContext
 
-from knowledge_admin.code_processing import process_code, CodeProcessingError
+from knowledge_admin.code_projects.processing import process_code, CodeProcessingError
 from knowledge_admin.capabilities.code_graph import load_code_graph_hashing
 from tool_helpers import tool
 from test_api import _client
@@ -130,7 +130,7 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
 
 
 def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(store, tmp_path, monkeypatch):
-    from knowledge_admin import repository_worker
+    from knowledge_admin.code_projects import worker as repository_worker
     root = tmp_path / 'code'
     (root / 'app').mkdir(parents=True)
     monkeypatch.setenv('CODE_ROOT', str(root))
@@ -160,7 +160,7 @@ def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(s
 
 def _saved_before_data_root(tmp_path, monkeypatch):
     """A graph written while code lived at /work/code and graphs at /work/code-index."""
-    from knowledge_admin.code_processing import source_inventory
+    from knowledge_admin.code_projects.processing import source_inventory
     root = tmp_path / 'data' / 'code'
     (root / 'app').mkdir(parents=True)
     (root / 'app' / 'main.py').write_text('def handle():\n    return 1\n', encoding='utf-8')
@@ -190,7 +190,7 @@ def test_a_graph_saved_under_the_old_mounts_is_read_at_the_current_folders(tmp_p
 
 
 def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder(tmp_path, monkeypatch):
-    from knowledge_admin.code_paths import rebase_code_path
+    from knowledge_admin.code_projects.paths import rebase_code_path
     project, root, _, source_hash = _saved_before_data_root(tmp_path, monkeypatch)
     assert rebase_code_path('/work/code/app') == str(root / 'app')
     assert rebase_code_path(str(root / 'app')) == str(root / 'app')

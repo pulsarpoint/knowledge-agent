@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { RefreshCw } from 'lucide-react';
 import CodeGraphExplorer from './CodeGraphExplorer';
-import { getCodeProjects, processCodeProject, type CodeProject } from '../lib/codeProjects';
+import { getCodeProjects, processCodeProject, type CodeProject } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import CodeProjectsView from '../CodeProjectsView';
-import type { CodeProject } from '../../lib/codeProjects';
+import CodeProjectsView from '~/features/codeProjects/CodeProjectsView';
+import type { CodeProject } from '~/features/codeProjects/api';
 
 const project: CodeProject = { id:'code-1', name:'Payments', description:'Payment sources', remote_url:'https://github.com/example/payments.git',
   requested_ref:null, clone_path:'payments', folder_paths:['payments'], current_commit:'a'.repeat(40), checkout_path:'payments', has_token:true,

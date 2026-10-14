@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { ChevronDown, ChevronRight, Folder } from 'lucide-react';
-import { getCodeFolders, type CodeDirectory } from '../lib/codeProjects';
+import { getCodeFolders, type CodeDirectory } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Checkbox } from '~/components/ui/checkbox';
