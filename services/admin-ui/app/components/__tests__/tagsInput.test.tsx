@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import TagsInput from "../TagsInput";
+import TagsInput from "~/features/documents/TagsInput";
 
 function Harness({ initial = [] as string[] }) {
   const [tags, setTags] = useState(initial);

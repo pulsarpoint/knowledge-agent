@@ -1,5 +1,5 @@
-import { request } from './api';
-import type { DocumentKey, ResourceIds } from './resources';
+import { request } from '~/lib/api';
+import type { DocumentKey, ResourceIds } from '~/lib/resources';
 
 export interface DocumentResource { id: string; name: string; hostname?: string; service_id?: string; server_id?: string; environment?: string; git_commit?: string }
 export type DocumentResources = Record<Exclude<DocumentKey, 'environments'>, DocumentResource[]> & { environments?: DocumentResource[] };

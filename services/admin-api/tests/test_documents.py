@@ -256,7 +256,7 @@ def test_slug_rename_removes_old_files_but_not_subfolders(store, tmp_path, monke
 
 
 def test_cleanup_leaves_subdirectories_and_symlinks(tmp_path, monkeypatch):
-    from knowledge_admin.documents import export_document
+    from knowledge_admin.documents.api import export_document
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     target = tmp_path / 'target.txt'
     target.write_text('keep')
@@ -290,7 +290,7 @@ def test_deleting_a_document_removes_its_export(store, tmp_path, monkeypatch):
 
 
 def test_remove_export_of_a_phase_document_keeps_other_files(tmp_path, monkeypatch):
-    from knowledge_admin.documents import export_document, export_location, remove_export
+    from knowledge_admin.documents.api import export_document, export_location, remove_export
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     metadata = {'service_name': 'Payments API', 'service_id': str(uuid4()), 'phase': 'api'}
     document = {'slug': 'payments-api', 'markdown': '# API\n\n```d2\na -> b\n```\n', 'revision': 1}
@@ -309,7 +309,7 @@ def test_remove_export_of_a_phase_document_keeps_other_files(tmp_path, monkeypat
 
 def test_startup_backfill_writes_missing_exports_only(store, tmp_path, monkeypatch):
     import os
-    from knowledge_admin.documents import backfill_exports
+    from knowledge_admin.documents.api import backfill_exports
     client = _client(tmp_path, repository_store=store)
     out = tmp_path / 'generated'
     out.mkdir()
@@ -358,7 +358,7 @@ def test_app_starts_when_the_backfill_fails(store, tmp_path, monkeypatch):
 
 
 def test_document_slug_comes_from_the_name():
-    from knowledge_admin.documents import document_slug
+    from knowledge_admin.documents.api import document_slug
     assert document_slug('Payments – API reference') == 'payments-api-reference'
     assert document_slug('  Café v2.0 / Ops  ') == 'caf-v2-0-ops'
     assert document_slug('– –') == ''
@@ -366,7 +366,7 @@ def test_document_slug_comes_from_the_name():
 
 
 def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tmp_path, monkeypatch):
-    from knowledge_admin.documents import DocumentInput, export_args, export_document, export_input, save_document
+    from knowledge_admin.documents.api import DocumentInput, export_args, export_document, export_input, save_document
     client = _client(tmp_path, repository_store=store)
     out = tmp_path / 'generated'
     out.mkdir()
@@ -400,7 +400,7 @@ def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tm
 
 def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, tmp_path, monkeypatch):
     from fastapi import HTTPException
-    from knowledge_admin.documents import DocumentInput, save_document
+    from knowledge_admin.documents.api import DocumentInput, save_document
     client = _client(tmp_path, repository_store=store)
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     assert client.post('/api/documentation/documents', headers=HEADERS,
@@ -420,7 +420,7 @@ def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, 
 def test_colliding_folder_and_folderless_saves_are_serialized(store):
     import threading
     from fastapi import HTTPException
-    from knowledge_admin.documents import DocumentInput, save_document
+    from knowledge_admin.documents.api import DocumentInput, save_document
     outcome = {}
 
     def other(project):
@@ -443,7 +443,7 @@ def test_colliding_folder_and_folderless_saves_are_serialized(store):
 
 
 def test_exports_in_a_shared_folder_leave_siblings_alone_and_refuse_symlinked_parents(store, tmp_path, monkeypatch):
-    from knowledge_admin.documents import DocumentInput, export_args, export_document, export_input, save_document
+    from knowledge_admin.documents.api import DocumentInput, export_args, export_document, export_input, save_document
     out = tmp_path / 'generated'
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
@@ -471,7 +471,7 @@ def test_exports_in_a_shared_folder_leave_siblings_alone_and_refuse_symlinked_pa
 
 def test_renames_respect_folder_collisions_and_never_conflict_with_themselves(store, tmp_path, monkeypatch):
     from fastapi import HTTPException
-    from knowledge_admin.documents import DocumentInput, save_document
+    from knowledge_admin.documents.api import DocumentInput, save_document
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
     with store.connect() as conn:
         project = store.project(conn, 'shop')
@@ -486,7 +486,7 @@ def test_renames_respect_folder_collisions_and_never_conflict_with_themselves(st
 
 def test_nested_exports_never_share_a_folder_in_either_direction(store, tmp_path, monkeypatch):
     from fastapi import HTTPException
-    from knowledge_admin.documents import DocumentInput, export_conflict, save_document
+    from knowledge_admin.documents.api import DocumentInput, export_conflict, save_document
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
 
     def refused(conn, project, slug, folder, message):

@@ -7,7 +7,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents import export_input
+from knowledge_admin.documents.api import export_input
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0073_remove_documentation_generation.up.sql', '0073_remove_documentation_generation.down.sql'

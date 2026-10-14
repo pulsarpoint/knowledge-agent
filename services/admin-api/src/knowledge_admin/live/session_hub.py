@@ -13,7 +13,7 @@ import psycopg
 from fastapi.encoders import jsonable_encoder
 from psycopg.rows import dict_row
 
-from knowledge_admin.document_drafts import SESSION_DRAFT
+from knowledge_admin.documents.drafts import SESSION_DRAFT
 
 logger = logging.getLogger(__name__)
 

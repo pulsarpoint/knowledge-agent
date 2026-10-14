@@ -1,6 +1,6 @@
-import type { DocumentInput, DocumentResources } from '~/lib/documents';
+import type { DocumentInput, DocumentResources } from './api';
 import { DOCUMENT_KINDS } from '~/lib/resources';
-import ResourcePicker, { deploymentCascade } from './ResourcePicker';
+import ResourcePicker, { deploymentCascade } from '~/components/ResourcePicker';
 
 export default function DocumentResourceSelection({ resources, value, onChange }: {
   resources: DocumentResources; value: DocumentInput; onChange: (value: DocumentInput) => void;

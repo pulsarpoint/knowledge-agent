@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
-import { activateDocumentationPrompt, deleteDocumentationPrompt, getDocumentationPrompt, getDocumentationPrompts, getPromptTags, saveDocumentationPrompt, type DocumentationPrompt, type DocumentationPromptDetail, type DocumentationPromptInput, type DocumentationPromptVersion } from '~/lib/documents';
+import { activateDocumentationPrompt, deleteDocumentationPrompt, getDocumentationPrompt, getDocumentationPrompts, getPromptTags, saveDocumentationPrompt, type DocumentationPrompt, type DocumentationPromptDetail, type DocumentationPromptInput, type DocumentationPromptVersion } from './api';
 import TagsInput from './TagsInput';
 import UnsavedDocumentChanges from './UnsavedDocumentChanges';
 import { Alert, AlertDescription } from '~/components/ui/alert';

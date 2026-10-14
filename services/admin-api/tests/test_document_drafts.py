@@ -3,7 +3,7 @@ whose name was taken meanwhile."""
 from uuid import UUID, uuid4
 
 from drafts_world import API, audit, docs, make_document, new_draft, promote, save_live, version_of  # noqa: F401
-from knowledge_admin.document_drafts import (DRAFT_CHANGED, DRAFT_DECIDED, NAME_TAKEN, NEW_DEFAULTS, STALE_BASE,
+from knowledge_admin.documents.drafts import (DRAFT_CHANGED, DRAFT_DECIDED, NAME_TAKEN, NEW_DEFAULTS, STALE_BASE,
                                              STALE_MESSAGE, create_draft)
 from session_rows import a_model, add_ad_hoc_session
 from test_repositories import HEADERS

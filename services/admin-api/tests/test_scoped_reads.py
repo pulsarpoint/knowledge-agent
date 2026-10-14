@@ -9,7 +9,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import inventory
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
 from test_generations import sessions  # noqa: F401  (fixture)

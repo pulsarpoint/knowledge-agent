@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from drafts_world import API, audit, docs, make_document, new_draft, promote, save_live, version_of  # noqa: F401
 from knowledge_admin.capabilities import inventory
-from knowledge_admin.document_drafts import LINK_NOT_FOUND, LINK_SELF, LINK_TWICE
+from knowledge_admin.documents.drafts import LINK_NOT_FOUND, LINK_SELF, LINK_TWICE
 from knowledge_admin.tools.catalog import CATALOG
 from test_repositories import HEADERS
 

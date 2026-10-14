@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
 from knowledge_admin.db import audit, storage, workspace
-from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
+from knowledge_admin.documents.api import (DOCUMENT_RESOURCE_FIELDS, Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
                                        Title, export_args, export_document, export_input, save_document)
 from knowledge_admin.repositories import RepositoryStore
 

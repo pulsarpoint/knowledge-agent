@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
-import { draftPath, promotedNotice, type DraftDetail } from '~/lib/drafts';
+import { draftPath, promotedNotice, type DraftDetail } from './drafts';
 import DraftEditForm from './DraftEditForm';
 import DraftView from './DraftView';
 import { Alert, AlertDescription } from '~/components/ui/alert';

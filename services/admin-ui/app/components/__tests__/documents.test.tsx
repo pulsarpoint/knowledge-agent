@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import DocumentEditorView from '../DocumentEditorView';
-import DocumentsView from '../DocumentsView';
-import { DocumentationPromptEditorView } from '../DocumentationPromptsView';
+import DocumentEditorView from '~/features/documents/DocumentEditorView';
+import DocumentsView from '~/features/documents/DocumentsView';
+import { DocumentationPromptEditorView } from '~/features/documents/DocumentationPromptsView';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;

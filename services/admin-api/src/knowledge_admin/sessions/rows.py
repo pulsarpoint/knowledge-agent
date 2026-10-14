@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from knowledge_admin.document_drafts import SESSION_DRAFT
+from knowledge_admin.documents.drafts import SESSION_DRAFT
 from knowledge_admin.knowledge_agents.config import AD_HOC_NAME
 from knowledge_admin.run_record import tool_counts_through
 

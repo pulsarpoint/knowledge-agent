@@ -6,7 +6,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents.api import DocumentInput, save_document
 from session_rows import a_model
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'

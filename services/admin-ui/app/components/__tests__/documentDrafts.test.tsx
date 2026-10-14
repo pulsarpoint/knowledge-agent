@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import DocumentsView from '../DocumentsView';
-import DraftPageView from '../DraftPageView';
+import DocumentsView from '~/features/documents/DocumentsView';
+import DraftPageView from '~/features/documents/DraftPageView';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));
 const NativeRequest = globalThis.Request;

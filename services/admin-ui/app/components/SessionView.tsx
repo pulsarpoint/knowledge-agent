@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { draftPath } from '~/lib/drafts';
+import { draftPath } from '~/features/documents/drafts';
 import { runPagePath } from '~/features/servers/discovery';
 import { agentRunPath, closeSession, sendMessage, statusLabels, stopSession } from '~/lib/sessions';
 import { runPath } from '~/lib/runs';

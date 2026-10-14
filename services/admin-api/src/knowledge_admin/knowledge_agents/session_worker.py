@@ -13,7 +13,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.document_drafts import refresh_run_sources_safely
+from knowledge_admin.documents.drafts import refresh_run_sources_safely
 from knowledge_admin.session_text import close_idle, notify_event_run
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME
 from knowledge_admin.repositories import RepositoryStore

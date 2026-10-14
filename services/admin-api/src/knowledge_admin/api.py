@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from knowledge_admin.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin import document_drafts, documents, documentation_prompts, documentation_folders, skills, storage
+from knowledge_admin import skills, storage
+from knowledge_admin.documents import api as documents, drafts as document_drafts, folders as documentation_folders, prompts as documentation_prompts
 from knowledge_admin.servers import discovery, environments, inventory_links_api, map_api, service_api
 from knowledge_admin.code_projects import api as repository_api
 from knowledge_admin.events import api as events_api, handlers_api as event_handlers_api, notifications_api, schedules_api

@@ -4,8 +4,8 @@ from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import document_drafts
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents import drafts as document_drafts
+from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.knowledge_agents import session_worker as shared
 from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_repositories import HEADERS

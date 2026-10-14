@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.data_root import FOLDER_RULE
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents.api import DocumentInput, save_document
 from test_api import _client
 from test_repositories import HEADERS
 

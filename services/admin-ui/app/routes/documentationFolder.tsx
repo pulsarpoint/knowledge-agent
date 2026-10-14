@@ -1,6 +1,6 @@
 import { useParams } from 'react-router';
 import AdminLayout from '../components/AdminLayout';
-import { DocumentationFolderView } from '../components/DocumentationFoldersView';
+import { DocumentationFolderView } from '~/features/documents/DocumentationFoldersView';
 
 export default function Page() {
   const folder = useParams()['*'] ?? '';

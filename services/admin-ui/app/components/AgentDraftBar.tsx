@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { ApiError } from '~/lib/api';
-import { draftPath, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from '~/lib/drafts';
+import { draftPath, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from '~/features/documents/drafts';
 import type { SessionDetail } from '~/lib/sessions';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';

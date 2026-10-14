@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import DocumentEditorView from '../DocumentEditorView';
+import DocumentEditorView from '~/features/documents/DocumentEditorView';
 import { WidePageContext } from '~/lib/widePage';
 
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <article>{content}</article> }));

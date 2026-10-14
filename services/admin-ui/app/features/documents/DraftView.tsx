@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '~/lib/api';
 import { agentRunPath, sessionPath } from '~/lib/sessions';
-import { discardDraft, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type DraftSource, type DraftSummary, type PromoteResult } from '~/lib/drafts';
+import { discardDraft, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type DraftSource, type DraftSummary, type PromoteResult } from './drafts';
 import DiffView from './DiffView';
-import Markdown from './Markdown';
+import Markdown from '~/components/Markdown';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';

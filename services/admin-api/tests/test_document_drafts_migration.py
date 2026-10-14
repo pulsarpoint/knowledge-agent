@@ -4,7 +4,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents.api import DocumentInput, save_document
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0098_document_drafts.up.sql', '0098_document_drafts.down.sql'

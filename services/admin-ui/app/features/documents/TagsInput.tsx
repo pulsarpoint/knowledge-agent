@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
-import { MAX_TAGS, TAG_PATTERN } from "~/lib/documents";
+import { MAX_TAGS, TAG_PATTERN } from "./api";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { FieldDescription, FieldError } from "~/components/ui/field";

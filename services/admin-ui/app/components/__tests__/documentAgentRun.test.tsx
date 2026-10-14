@@ -2,8 +2,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { savedIn } from "~/lib/sessions";
-import DocumentAgentRuns from "../DocumentAgentRuns";
-import { DraftAuthor } from "../DraftView";
+import DocumentAgentRuns from "~/features/documents/DocumentAgentRuns";
+import { DraftAuthor } from "~/features/documents/DraftView";
 import type { Turn } from "~/lib/turns";
 
 const turn = (n: number, work: Turn["work"]): Turn => ({ turn: n, firstId: n, input: null, work, toolCalls: work.length, answer: "Done.",

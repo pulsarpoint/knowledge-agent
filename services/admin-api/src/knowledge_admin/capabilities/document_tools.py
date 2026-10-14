@@ -17,9 +17,9 @@ from pydantic import BaseModel, ValidationError
 
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
 from knowledge_admin.capabilities.inventory import connect, project_of
-from knowledge_admin.document_drafts import (NEW_DEFAULTS, audit, create_draft, document_named, live_content,
+from knowledge_admin.documents.drafts import (NEW_DEFAULTS, audit, create_draft, document_named, live_content,
                                              record_run_sources)
-from knowledge_admin.documents import Description, Markdown, Title
+from knowledge_admin.documents.api import Description, Markdown, Title
 
 NO_SESSION = 'The document tools work only in an agent session.'
 MAX_MARKDOWN = 50_000

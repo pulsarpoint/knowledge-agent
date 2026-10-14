@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDocumentDrafts, type DraftDetail, type DraftSummary, type PromoteResult } from '~/lib/drafts';
+import { getDocumentDrafts, type DraftDetail, type DraftSummary, type PromoteResult } from './drafts';
 import DraftView, { DraftAuthor } from './DraftView';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';

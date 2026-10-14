@@ -13,7 +13,7 @@ from starlette.exceptions import HTTPException
 
 from knowledge_admin.config import Config, ServerConfig
 from knowledge_admin.api import build_api
-from knowledge_admin.documents import backfill_exports
+from knowledge_admin.documents.api import backfill_exports
 from knowledge_admin.live.session_hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
 

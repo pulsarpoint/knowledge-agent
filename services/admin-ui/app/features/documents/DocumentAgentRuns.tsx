@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { agentRunPath, getSessions, type RunSummary } from "~/lib/sessions";
-import { draftPath } from "~/lib/drafts";
+import { draftPath } from "./drafts";
 import { statusLabels } from "~/lib/sessions";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";

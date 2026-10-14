@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit, storage, workspace
-from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
+from knowledge_admin.documents.api import (DOCUMENT_RESOURCE_FIELDS, DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
                                        save_document)
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.servers.service_api import save_service

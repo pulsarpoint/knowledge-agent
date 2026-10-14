@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateDraft, type DraftDetail } from '~/lib/drafts';
+import { updateDraft, type DraftDetail } from './drafts';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Field, FieldLabel } from '~/components/ui/field';

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { lineDiff } from '~/lib/lineDiff';
+import { lineDiff } from './lineDiff';
 
 /** The draft against the live version, line by line: added lines in <ins>, removed lines in <del>. */
 export default function DiffView({ before, after }: { before: string; after: string }) {

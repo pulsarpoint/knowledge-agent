@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import DocumentationPromptsView from "../DocumentationPromptsView";
+import DocumentationPromptsView from "~/features/documents/DocumentationPromptsView";
 import routes from "../../routes";
 
 const prompts = [

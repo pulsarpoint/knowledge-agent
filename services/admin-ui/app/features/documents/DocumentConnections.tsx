@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { getDocuments, type DocumentSummary } from '~/lib/documents';
-import { addLink, getConnections, removeLink, type Connections } from '~/lib/drafts';
+import { getDocuments, type DocumentSummary } from './api';
+import { addLink, getConnections, removeLink, type Connections } from './drafts';
 import { SourceList } from './DraftView';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';

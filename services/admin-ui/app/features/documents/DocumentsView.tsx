@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { FileText, Plus, RefreshCw } from 'lucide-react';
-import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from '~/lib/documents';
-import { discardDraft, getNewDrafts, type DraftSummary } from '~/lib/drafts';
+import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from './api';
+import { discardDraft, getNewDrafts, type DraftSummary } from './drafts';
 import { DraftAuthor } from './DraftView';
 import { kindsOf } from '~/lib/resources';
 import { Alert, AlertDescription } from '~/components/ui/alert';

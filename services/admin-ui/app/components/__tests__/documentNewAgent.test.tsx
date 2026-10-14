@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import DocumentEditorView from '../DocumentEditorView';
+import DocumentEditorView from '~/features/documents/DocumentEditorView';
 import { WidePageContext } from '~/lib/widePage';
 import { options } from '~/lib/__tests__/agentOptionsFixture';
 

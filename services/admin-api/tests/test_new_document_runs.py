@@ -8,7 +8,7 @@ import pytest
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.context import NOT_AVAILABLE
 from knowledge_admin.data_root import FOLDER_RULE
-from knowledge_admin.documents import DocumentInput, save_document
+from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG
 from test_generations import sessions  # noqa: F401  (fixture)

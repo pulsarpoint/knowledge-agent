@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, expect, test, vi } from 'vitest';
-import DocumentationFoldersView, { DocumentationFolderView } from '../DocumentationFoldersView';
+import DocumentationFoldersView, { DocumentationFolderView } from '~/features/documents/DocumentationFoldersView';
 
 afterEach(() => vi.unstubAllGlobals());
 const folders = { generated_folder: 'generated-documents', folders: [

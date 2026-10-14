@@ -1,4 +1,4 @@
-import { lineDiff, MAX_DIFF_CELLS } from '../lineDiff';
+import { lineDiff, MAX_DIFF_CELLS } from '~/features/documents/lineDiff';
 
 test('same, removed and added lines in order', () => {
   expect(lineDiff('a\nb\nc', 'a\nx\nc').lines).toEqual([
