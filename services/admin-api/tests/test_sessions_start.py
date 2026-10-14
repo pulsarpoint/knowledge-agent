@@ -200,3 +200,14 @@ def test_the_editable_document_must_exist_and_twice_listed_documents_are_one_edi
 def test_nothing_but_the_context_is_appended_to_the_prompt(ask):
     pinned = post(ask, '/preview', context='').json()['config']
     assert pinned['system_prompt']['content'] == 'You revise documents.'
+
+
+def test_a_draft_id_is_not_a_document_a_run_can_start_from_or_be_given(ask):
+    draft = ask.s.client.post('/api/documentation/drafts', headers=HEADERS, json={'document_id': ask.document['id']})
+    assert draft.status_code == 201, draft.text
+    for change in (
+        {'started_from': {'document_id': draft.json()['id']}},
+        {'resources': {**ask.body['resources'], 'documents': [{'id': draft.json()['id'], 'editable': True}]}},
+    ):
+        refused = post(ask, '/preview', **change)
+        assert refused.status_code == 404 and refused.json()['error']['message'] == 'Document not found', change

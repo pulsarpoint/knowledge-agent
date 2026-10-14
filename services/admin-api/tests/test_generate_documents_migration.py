@@ -8,6 +8,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from knowledge_admin.documents.api import export_input
+from old_documents import DOCUMENT_MODEL, before_0104  # noqa: F401  (fixture)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0073_remove_documentation_generation.up.sql', '0073_remove_documentation_generation.down.sql'
@@ -23,16 +24,7 @@ def run(conn, name: str):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
-# and goes forward through it again where it rolls forward.
-DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
-
-
-@pytest.fixture(autouse=True)
-def before_0104(store):
-    with store.connect() as conn:
-        run(conn, DOCUMENT_MODEL[0])
-        conn.commit()
+pytestmark = pytest.mark.usefixtures('before_0104')
 
 
 def count(conn, sql: str, *params) -> int:
@@ -138,7 +130,10 @@ def test_up_removes_the_generation_its_history_and_runs_but_keeps_documents(stor
             'SELECT origin,generation_id FROM ka.document_versions WHERE id=%s', (made['version'],)
         ).fetchone()
         assert (version['origin'], version['generation_id']) == ('generated', made['job'])  # history stays
-        # The service phase layout moved onto the document: its export folder does not change.
+        # The service phase layout moved onto the document: its export folder does not change, also once 0104 moved the
+        # content onto the document row (export_input reads that shape).
+        conn.commit()
+        run(conn, DOCUMENT_MODEL[1])
         assert export_input(conn, made['document'])['phase_metadata'] == {**made['metadata'], 'source_commits': {}}
         with pytest.raises(psycopg.errors.CheckViolation):
             with conn.transaction():

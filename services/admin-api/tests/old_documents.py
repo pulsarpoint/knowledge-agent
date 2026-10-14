@@ -1,0 +1,52 @@
+"""Documents in the 0103 shape (ka.documents + ka.document_versions), for migration tests that roll 0104 back to test
+an older migration. Today's save_document writes the 0104 shape and cannot be used there."""
+
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from psycopg.types.json import Jsonb
+
+MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
+# 0104 keeps documents and drafts in one table; tests of older migrations use the 0103 tables, so each starts with
+# 0104 rolled back and goes forward through it again where it rolls forward.
+DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
+
+
+def roll_back_0104(store) -> None:
+    with store.connect() as conn:
+        conn.execute((MIGRATIONS / DOCUMENT_MODEL[0]).read_text(), prepare=False)
+        conn.commit()
+
+
+@pytest.fixture
+def before_0104(store):
+    """Use with `pytestmark = pytest.mark.usefixtures('before_0104')` (import it into the test module)."""
+    roll_back_0104(store)
+
+
+def old_document(
+    conn, project, slug: str, title: str, markdown: str, *, folder: str | None = None, origin: str = 'manual'
+) -> dict:
+    """A live document with version 1 in the 0103 tables: {'id', 'revision', 'version_id'}."""
+    document, version = uuid4(), uuid4()
+    conn.execute(
+        'INSERT INTO ka.documents(id,project_id,slug,folder,current_version_id) VALUES (%s,%s,%s,%s,%s)',
+        (document, project, slug, folder, version),
+    )
+    conn.execute(
+        """INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
+        markdown,content_hash,source_snapshot,origin) VALUES (%s,%s,%s,1,%s,'','explanation','both',%s,
+        encode(sha256(convert_to(%s,'UTF8')),'hex'),%s,%s)""",
+        (
+            version,
+            document,
+            project,
+            title,
+            markdown,
+            markdown,
+            Jsonb({'code_projects': [], 'services': [], 'servers': [], 'deployments': [], 'environments': []}),
+            origin,
+        ),
+    )
+    return {'id': document, 'revision': 1, 'version_id': version}

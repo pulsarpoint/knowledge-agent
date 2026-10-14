@@ -7,8 +7,8 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents.api import DocumentInput, save_document
 from session_rows import a_model
+from old_documents import DOCUMENT_MODEL, before_0104, old_document  # noqa: F401  (fixture)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0099_document_agent.up.sql', '0099_document_agent.down.sql'
@@ -18,21 +18,12 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
-# and goes forward through it again where it rolls forward.
-DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
-
-
-@pytest.fixture(autouse=True)
-def before_0104(store):
-    with store.connect() as conn:
-        run(conn, DOCUMENT_MODEL[0])
-        conn.commit()
+pytestmark = pytest.mark.usefixtures('before_0104')
 
 
 def world(conn, store):
     project = store.project(conn, 'shop')
-    runbook = save_document(conn, project, None, DocumentInput(slug='runbook', title='Runbook', markdown='# Runbook'))
+    runbook = old_document(conn, project, 'runbook', 'Runbook', '# Runbook')
     return project, runbook['id']
 
 

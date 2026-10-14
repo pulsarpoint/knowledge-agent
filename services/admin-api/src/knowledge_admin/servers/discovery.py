@@ -351,6 +351,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 None,
                 folder=folder,
                 origin='generated',
+                how='discovery',
             )
             conn.execute(
                 f"""INSERT INTO ka.inventory_documents(project_id,{column},document_id) VALUES (%s,%s,%s)
@@ -387,6 +388,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 ),
                 row['document_id'],
                 origin='generated',
+                how='discovery',
             )
         try:
             export_document(**export_args(export_input(conn, saved['id'])))

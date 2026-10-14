@@ -409,6 +409,23 @@ After pulling this version, run the database migration (`make up` runs it, or `m
 - Agent tasks still queued or running when 0103 ran are failed with a notification each. Send their events again.
   Old tasks stay visible as history.
 
+## Upgrading to documents with drafts, archive and resource links
+
+After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0104 moves
+drafts into `ka.documents`, earlier versions into `ka.document_archive` and document links into
+`ka.document_resources`.
+
+- Rebuild and restart admin-api, agent-session-worker, repository-worker and admin-web together (`make up` does): the
+  old code reads tables 0104 drops.
+- Open drafts are kept; promoted and discarded drafts are not carried over (their versions and audit rows stay).
+  Promoting a draft now deletes the document's other drafts, and discarding deletes the draft.
+- `GET /api/documentation/documents/{id}/versions/{version}` takes a version number, not a version id; responses no
+  longer carry `version_id`, `current_version_id` or `published_version_id`. Update scripts that used them.
+- Existing links are ordinary links. Links of documents created from now on are "built for" their resource and cannot
+  be removed.
+- Rollback of 0104 refuses once any document has a link with provenance or history (built for it, added or removed
+  after the upgrade); restore the database backup instead.
+
 ## Upgrading to the system graph
 
 After pulling this version, run the database migration (`make up` runs it, or `make db-migrate`). Migration 0092 adds

@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
+from knowledge_admin.documents.api import DocumentInput, save_document
 from session_rows import add_review, add_test_session
 from test_api import _client
 from test_profiles import create
@@ -28,17 +29,12 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
         for _ in range(2)
     ]
     ids['review'] = add_review(conn, ids['tests'][0], actor, changes={})
-    document, version = uuid4(), uuid4()
-    conn.execute(
-        'INSERT INTO ka.documents(id,project_id,slug,current_version_id) VALUES (%s,%s,%s,%s)',
-        (document, project, f'payments-{document.hex[:6]}', version),
-    )
-    conn.execute(
-        """INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
-        markdown,content_hash,source_snapshot,origin,created_by) VALUES (%s,%s,%s,1,'Payments','','api','both',
-        '# Payments',encode(sha256(convert_to('# Payments','UTF8')),'hex'),%s,'manual',%s)""",
-        (version, document, project, Jsonb({'code_projects': []}), actor),
-    )
+    document = save_document(
+        conn,
+        project,
+        actor,
+        DocumentInput(slug=f'payments-{uuid4().hex[:6]}', title='Payments', markdown='# Payments'),
+    )['id']
     ids['document'] = document
     cc = uuid4()
     conn.execute(

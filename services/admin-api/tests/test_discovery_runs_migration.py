@@ -4,7 +4,6 @@ discovery runs from before are closed, and their proposals stay reviewable."""
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
 from psycopg.types.json import Jsonb
 
 from discovery_world import world  # noqa: F401  (fixture)
@@ -24,18 +23,6 @@ V1_START = 'Explore this server and propose what the inventory should record abo
 
 def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
-
-
-# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
-# and goes forward through it again where it rolls forward.
-DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
-
-
-@pytest.fixture(autouse=True)
-def before_0104(store):
-    with store.connect() as conn:
-        run(conn, DOCUMENT_MODEL[0])
-        conn.commit()
 
 
 def active(conn, project):
@@ -93,7 +80,6 @@ def test_down_restores_version_1_and_up_rewrites_again(store):
         run(conn, UP)
         assert active(conn, project)['content'].startswith(V2_START)
         assert active(conn, fresh)['content'].startswith(V2_START)
-        run(conn, DOCUMENT_MODEL[1])
 
 
 def test_a_customized_prompt_is_left_alone_both_ways(store):

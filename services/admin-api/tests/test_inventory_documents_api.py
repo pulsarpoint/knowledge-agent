@@ -1,6 +1,6 @@
 """Inventory → documents attached to services, servers, environments and code projects."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -140,3 +140,25 @@ def test_deleting_the_entry_or_the_document_removes_the_attachment(client, store
     assert count(store) == 0
     with store.connect() as conn:  # the entry stays
         assert conn.execute('SELECT count(*) AS n FROM ka.services WHERE id=%s', (service,)).fetchone()['n'] == 1
+
+
+def test_a_draft_is_never_attached_only_a_live_document(client, store):
+    server = client.post('/api/servers', headers=HEADERS, json={'name': 'prod-1', 'hostname': 'one.internal'}).json()[
+        'id'
+    ]
+    runbook = document(client)
+    of_live = client.post('/api/documentation/drafts', headers=HEADERS, json={'document_id': runbook})
+    brand_new = client.post(
+        '/api/documentation/drafts', headers=HEADERS, json={'slug': 'backups', 'title': 'Backups', 'markdown': '# B\n'}
+    )
+    assert of_live.status_code == 201 and brand_new.status_code == 201, (of_live.text, brand_new.text)
+    entry = {'kind': 'server', 'id': server}
+    for draft in (of_live.json()['id'], brand_new.json()['id']):
+        refused = client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': draft})
+        assert message(refused) == (404, 'Document not found.')
+    attached = client.post('/api/inventory/documents', headers=HEADERS, json={'entry': entry, 'document_id': runbook})
+    assert attached.status_code == 201, attached.text
+    with store.connect() as conn:
+        assert [
+            row['document_id'] for row in conn.execute('SELECT document_id FROM ka.inventory_documents').fetchall()
+        ] == [UUID(runbook)]

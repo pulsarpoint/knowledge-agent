@@ -274,7 +274,8 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             find_entry(conn, project, value.entry)
             if (
                 conn.execute(
-                    'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s FOR SHARE', (value.document_id, project)
+                    'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR SHARE',
+                    (value.document_id, project),
                 ).fetchone()
                 is None
             ):

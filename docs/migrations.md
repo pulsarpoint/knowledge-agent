@@ -299,3 +299,29 @@ handlers start agent runs now. Send the event again." and each gets a failed not
 start runs. `ka.agent_tasks` stays as read-only history (the Events and Notifications pages still show old tasks). The
 down migration refuses while runs started by an event exist (delete them first) and drops the new columns; the failed
 tasks stay failed.
+
+## 0104_document_model
+
+Live documents and drafts share `ka.documents`; earlier live contents move to `ka.document_archive`; links move to
+`ka.document_resources`, one row per link with provenance and history (see [documentation](documentation.md)).
+
+- Each document row gets its current version's content and number (`version`, title, …, `origin`, `from_draft`,
+  `version_created_at`/`version_created_by`); every other version becomes an archive row with its id and number.
+- Every **open** draft becomes a draft row: a draft of a document gets `draft_of` and `base_version`; a draft of a new
+  document becomes a brand-new draft with its slug and folder, and its `resource_ids` become `built_for` link rows
+  (ids that no longer exist are dropped). When a live document now has the brand-new draft's folder and slug, the draft
+  becomes a draft of that document instead. Promoted and discarded drafts are not carried over.
+- Rows of the five link tables become `linked` links with `added_how = 'migrated'`.
+- `ka.document_sources` rows move to the new owners (a draft row, a live row or an archive row); `source_version_id`
+  is replaced by `source_document_id` + `source_version`.
+- `ka.agent_sessions.last_draft_id` is filled with each run's latest draft; the run's draft status after the draft is
+  gone comes from the audit log.
+- `ka.document_versions`, `ka.document_drafts` and the five link tables are dropped; `ka.document_details` is
+  recreated over live rows and `ka.live_documents` and `ka.document_drafts_view` are added. Triggers refuse document
+  links, inventory attachments, discovery proposals and a run's document that point at a draft.
+
+The down migration refuses with "Document link provenance or history exists and would be lost; …" once any live
+document has a link that is not an active migrated link (a link built for it, added or removed by a person, a run or
+discovery). Otherwise it rebuilds `document_versions` from the archive and live rows, `document_drafts` from the draft
+rows (as open drafts), the five link tables and the previous views, and drops the new tables and columns. Drafts
+promoted or discarded after 0104 are deleted rows, so they do not come back.

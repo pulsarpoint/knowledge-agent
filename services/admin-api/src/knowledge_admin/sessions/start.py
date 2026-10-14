@@ -240,8 +240,7 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
             )
             continue
         row = conn.execute(
-            """SELECT d.id,v.title FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
-            WHERE d.id=%s AND d.project_id=%s""",
+            'SELECT id,title FROM ka.live_documents WHERE id=%s AND project_id=%s',
             (entry.id, project),
         ).fetchone()
         if row is None:
@@ -387,7 +386,7 @@ def build(
     target = None
     if value.started_from.document_id is not None:
         target = conn.execute(
-            'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s', (value.started_from.document_id, project)
+            'SELECT id FROM ka.live_documents WHERE id=%s AND project_id=%s', (value.started_from.document_id, project)
         ).fetchone()
         if target is None:
             raise HTTPException(404, DOCUMENT_NOT_FOUND)

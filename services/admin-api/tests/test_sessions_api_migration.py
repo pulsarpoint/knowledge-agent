@@ -7,6 +7,7 @@ import psycopg
 import pytest
 
 from test_document_agent_migration import session, world
+from old_documents import DOCUMENT_MODEL, before_0104  # noqa: F401  (fixture)
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0100_sessions_api.up.sql', '0100_sessions_api.down.sql'
@@ -18,16 +19,7 @@ def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
 
 
-# 0104 keeps documents and drafts in one table; these tests use the 0103 tables, so each starts with 0104 rolled back
-# and goes forward through it again where it rolls forward.
-DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
-
-
-@pytest.fixture(autouse=True)
-def before_0104(store):
-    with store.connect() as conn:
-        run(conn, DOCUMENT_MODEL[0])
-        conn.commit()
+pytestmark = pytest.mark.usefixtures('before_0104')
 
 
 def test_every_workspace_gets_the_revise_prompt_with_the_editing_rules(store):

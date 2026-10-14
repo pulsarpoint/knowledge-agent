@@ -173,19 +173,30 @@ def test_documents_are_created_attached_and_versioned(run):
     assert {item['title'] for item in attached} == {'web-1 overview', 'Disk layout'}
     with world.store.connect() as conn:
         row = conn.execute(
-            """SELECT d.folder,d.slug,v.origin,v.markdown FROM ka.documents d JOIN ka.document_versions v
-            ON v.id=d.current_version_id WHERE d.id=%s""",
-            (document_id,),
+            'SELECT folder,slug,origin,markdown,is_draft,version FROM ka.documents WHERE id=%s', (document_id,)
         ).fetchone()
+        links = conn.execute(
+            """SELECT server_id,service_id,connection,added_how,removed_at FROM ka.document_resources
+            WHERE document_id=%s""",
+            (document_id,),
+        ).fetchall()
     assert (row['folder'], row['slug'], row['origin']) == ('servers/web-1', 'web-1-disk-layout', 'generated')
+    assert (row['is_draft'], row['version']) == (False, 1)  # created live, no draft step
+    # A new document is built for its server (no service): a locked link added by discovery.
+    assert [
+        (str(link['server_id']), link['service_id'], link['connection'], link['added_how'], link['removed_at'])
+        for link in links
+    ] == [(world.server['id'], None, 'built_for', 'discovery', None)]
     assert decide(world, version, 'accept').status_code == 200
     with world.store.connect() as conn:
         latest = conn.execute(
-            """SELECT d.revision,v.markdown FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
-            WHERE d.id=%s""",
-            (version['document_id'],),
+            'SELECT revision,version,markdown FROM ka.documents WHERE id=%s', (version['document_id'],)
         ).fetchone()
-    assert latest['revision'] == 2 and latest['markdown'] == '# web-1, updated'
+        archived = conn.execute(
+            'SELECT version,markdown FROM ka.document_archive WHERE document_id=%s', (version['document_id'],)
+        ).fetchall()
+    assert latest['revision'] == 2 and latest['version'] == 2 and latest['markdown'] == '# web-1, updated'
+    assert [(item['version'], item['markdown']) for item in archived] == [(1, '# web-1 overview\n\nBody.')]
 
 
 def test_a_title_whose_slug_is_taken_gets_a_free_slug(run):
@@ -248,6 +259,15 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
         '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service', 'entry_id': redis['id']}
     ).json()['documents']
     assert [item['title'] for item in attached] == ['Redis']
+    with world.store.connect() as conn:
+        links = conn.execute(
+            """SELECT r.server_id,r.service_id,r.connection,r.added_how FROM ka.document_resources r
+            JOIN ka.document_details d ON d.id=r.document_id WHERE d.title='Redis'""",
+        ).fetchall()
+    # A new document about a service is built for the service, not the server.
+    assert [(link['server_id'], str(link['service_id']), link['connection'], link['added_how']) for link in links] == [
+        (None, redis['id'], 'built_for', 'discovery')
+    ]
 
 
 def test_a_stale_revision_and_unknown_ids_are_refused(run):
