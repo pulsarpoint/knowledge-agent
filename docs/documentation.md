@@ -29,17 +29,25 @@ with their active link arrays and `draft_count`) and `ka.document_drafts_view` (
 title, slug and folder, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
 document links, inventory attachments, discovery proposals and a run's document that point at a draft.
 
-**Links.** A document created live (`POST /documents`, a discovery proposal for a new document) or as a brand-new
-draft (a person's Save draft, a new-document run's first save) gets its links as `built_for`, with `added_how` person,
+**Links.** A document created live (a discovery proposal for a new document) or as a brand-new
+draft (a person's Save, a new-document run's first save) gets its links as `built_for`, with `added_how` person,
 discovery or agent_run. A built-for link cannot be removed: unticking it is a 409 "This document was built for
-{type} {name}; that link can't be removed." and nothing changes. Saving Linked resources compares the ticked ids with
-the active rows: unchanged rows stay as they are, newly ticked ones get a `linked` row, unticked `linked` rows get
-`removed_at`. Drafts of a live document use the live document's links. Promote never changes links. The save's audit
-row lists `links_added` and `links_removed`. The selected deployment must belong to a selected service and server.
+{type} {name}; that link can't be removed." and nothing changes. Links never go through drafts: **Save links**
+(`PUT /documents/{id}/links`, on a live document or a brand-new draft) applies them directly. It compares the ticked
+ids with the active rows: unchanged rows stay as they are, newly ticked ones get a `linked` row, unticked `linked` rows get
+`removed_at` and `removed_by`; `revision` goes up, `version` does not. Drafts of a live document use the live
+document's links (Save links on a draft of a document is a 404). Promote never changes links. The audit row
+(`document.links.updated`) lists `links_added` and `links_removed`. The selected deployment must belong to a selected service and server.
 
-**Lifecycle.** Editing a live document directly (the editor's Save, `PUT /documents/{id}`, a discovery proposal that
-updates a document) archives the current content and bumps `version` when the content, slug or a source commit
-changes; a save that changes only links bumps `revision`, not `version`. Other drafts stay. A document can have any
+**Lifecycle.** Every save a person makes is a draft: **Save** on a new document creates a brand-new draft, Save on a
+live document creates the person's draft of it (later Saves update that draft), and no route writes live content.
+Content goes live only by **Publish** (a brand-new draft) or **Promote** (a draft of a live document), both
+`POST /drafts/{id}/promote`. A brand-new draft keeps the ID it will have as a document, opens at `/documents/{id}`
+(`GET /documents/{id}` answers with `is_draft: true`, `published: false`) and can be renamed (`slug`, `folder` on
+`PUT /drafts/{id}`) until it is published; a draft of a live document keeps its document's name. There is no history of
+a draft's own saves: version history starts when it is published. An internal writer that edits a live document
+directly (a discovery proposal that updates a document) archives the current content and bumps `version` when the
+content, slug or a source commit changes. Other drafts stay. A document can have any
 number of drafts; they are listed by `created_at`, newest first. **Promoting** draft D of live document L (one
 transaction locking L) archives L's content, updates L in place with D's content (`version + 1`, `from_draft`, the
 same ID) and **deletes every draft of L**, D included; when D's `base_version` is older than L's `version`, promote
@@ -96,17 +104,16 @@ role. Mutations also require an attributed user. No credential fields are return
 | --- | --- |
 | `GET /resources` | Public code-project, service, server and deployment choices |
 | `GET /documents` | List live documents; `q`, `code_project_id`, `service_id`, `server_id`, `deployment_id`, `environment_id`; AND across filters; 50 per page with `offset`; `has_drafts=true` keeps documents with drafts; each row has `draft_count` |
-| `POST /documents` | Create a live document (version 1); its links are `built_for` |
-| `GET /documents/{id}` | Metadata, current Markdown and `source_snapshot`, `versions[]` (`version, title, origin, created_at, from_draft, live`), `drafts` (newest first) and `resource_links` (active links: type, id, name, connection, added_how, added_by, session_id, created_at) |
-| `PUT /documents/{id}` | Save with expected `revision`; content changes make a new version, link-only changes do not; unticking a built-for link is a 409 |
+| `GET /documents/{id}` | A live document (`is_draft: false`, `published: true`): metadata, current Markdown and `source_snapshot`, `versions[]` (`version, title, origin, created_at, from_draft, live`), `drafts` (newest first) and `resource_links` (active links: type, id, name, connection, added_how, added_by, session_id, created_at). A brand-new draft (`is_draft: true`, `published: false`): its name, text, `revision`, `origin` (`agent`/`manual`), `session_id`, link arrays and `resource_links`, `versions: []`, `drafts: []`. A draft of a live document is 404 (open it with `GET /drafts/{id}`) |
+| `PUT /documents/{id}/links` | `{revision, code_project_ids, service_ids, server_ids, deployment_ids, environment_ids}` (a missing kind means none): the links of a live document or a brand-new draft; returns `id`, `revision`, `resource_links`; 409 on a stale `revision` or an unticked built-for link (nothing written); 404 for a draft of a document |
 | `GET /documents/{id}/versions/{version}` | One version by number (archive or live): Markdown and resource snapshot |
 | `GET /documents/{id}/resource-history` | Every link row, active and removed |
 | `DELETE /documents/{id}` | Expected `revision` and `confirmed=true` required |
 | `POST /drafts` | A draft of a live document (`document_id`; text defaults to the live version) or a brand-new document (`slug`, optional `folder`, `title`, `markdown`, optional `resource_ids`, which become built-for links); a folder+slug naming a live document makes a draft of it |
-| `GET /drafts` | Drafts; `new=true` keeps brand-new documents; `environment_id`, `service_id`, `server_id`, `code_project_id`, `deployment_id` keep the drafts linked to that resource (brand-new drafts by their own links, drafts of a document by its links) |
+| `GET /drafts` | Drafts (each row has `published`: false for a brand-new draft); `new=true` keeps brand-new documents; `environment_id`, `service_id`, `server_id`, `code_project_id`, `deployment_id` keep the drafts linked to that resource (brand-new drafts by their own links, drafts of a document by its links) |
 | `GET /drafts/{id}` | A draft with its Markdown, sources, base and live version numbers, `stale` and the live Markdown |
-| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`) |
-| `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
+| `PUT /drafts/{id}` | Save a draft's text with its `revision` (marks a run's draft `edited`); a brand-new draft may also send `slug` and/or `folder` (null: no folder) to rename it (409 when the name or its export folder is taken); a draft of a document that sends either is a 400 "A draft of a published document keeps its document's name." |
+| `POST /drafts/{id}/promote` | `{revision, confirm_stale?}`: Publish (a brand-new draft) or Promote: make it the live version and delete the document's other drafts; returns `document_id`, `version`, `revision`, `deleted_drafts`; 409 `STALE_BASE` when the live version moved on |
 | `POST /drafts/{id}/discard` | `{revision}`: delete the draft |
 | `GET /documents/{id}/drafts` | Drafts of a document, newest first (no Markdown) |
 | `GET /documents/{id}/connections` | `depends_on`, `used_by` and `built_from` (the live version's sources) |
@@ -216,4 +223,4 @@ Migration 0073 dropped `documentation_generations`, `documentation_workflows` an
 `documentation_generate` job kind and the `doc:*` run records, and added `documents.phase_metadata` (the service phase
 export layout, read by `export_input`). Saved documents, versions and exports stay.
 
-The canonical content stays in PostgreSQL. Every save also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for a document written by a code documentation phase of the removed one-shot generation (its layout is kept in `documents.phase_metadata`). Renaming a slug removes the old folder's files; deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the save or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.
+The canonical content stays in PostgreSQL. Every new live version (Publish, Promote, an internal live write) also exports the current version to `DOCUMENT_OUTPUT_ROOT`, at `/work/data/<GENERATED_DOCS_FOLDER>` (default `generated-documents`) inside `DATA_ROOT`, replacing the previous export in place: `<document-slug>/README.md` (or `<folder>/<document-slug>/README.md` for a document in a lowercase documentation folder), `architecture-N.d2` and `metadata.json` (source commits), or `services/<service>-<id8>/<phase>/<phase>.md` for a document written by a code documentation phase of the removed one-shot generation (its layout is kept in `documents.phase_metadata`). Drafts are never exported (`/export` and `/bundle` are 404 for a brand-new draft); deleting a document removes its export. On startup admin-api re-exports any document whose current export is missing (for example after upgrading from the old `<slug>/v<version>/` layout, whose folders are left on disk but not indexed). File export failure does not discard database versions and is shown in the promote or job result. `POST /api/documentation/documents/{id}/export` retries export of the current saved version. `GET /api/documentation/documents/{id}/bundle` downloads the same document and diagram sources as a ZIP folder. The collection that holds `generated-documents` (`documents` on upgraded installs; create it on a fresh install) indexes this folder, so documents become searchable after **Refresh** in RAG → Collections; there is no separate publish step.

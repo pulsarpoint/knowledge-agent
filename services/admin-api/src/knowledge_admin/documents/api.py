@@ -1,5 +1,6 @@
-"""Managed Markdown documents: create, edit, read, export and delete live documents (the lifecycle itself is in
-documents/store.py)."""
+"""Managed Markdown documents: read, export and delete live documents, read a brand-new draft as the document it will
+become, and save a document's resource links. People never write live content here: every save is a draft
+(documents/drafts.py), and Publish / Promote make it live. The lifecycle itself is in documents/store.py."""
 
 from functools import partial
 import io
@@ -27,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
-SAME_DOCUMENT_NAME = 'A document with this name already exists in this folder. Confirm to save a new version.'
 NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
 
 
@@ -62,6 +62,8 @@ DOCUMENT_RESOURCE_FIELDS = tuple(LINK_COLUMNS)
 
 
 class DocumentInput(BaseModel):
+    """A live document's content and links for internal writers (save_document); no route takes it."""
+
     model_config = ConfigDict(extra='forbid')
     slug: Slug
     title: Title
@@ -77,6 +79,18 @@ class DocumentInput(BaseModel):
     environment_ids: ResourceIds = Field(default_factory=list)
     source_commits: dict[UUID, GitCommit] | None = Field(default=None, max_length=100)
     revision: int | None = Field(default=None, ge=1, strict=True)
+
+
+class LinksInput(BaseModel):
+    """A document's resource links (every kind; a missing kind means none) at the revision the page loaded."""
+
+    model_config = ConfigDict(extra='forbid')
+    revision: int = Field(ge=1, strict=True)
+    code_project_ids: ResourceIds = Field(default_factory=list)
+    service_ids: ResourceIds = Field(default_factory=list)
+    server_ids: ResourceIds = Field(default_factory=list)
+    deployment_ids: ResourceIds = Field(default_factory=list)
+    environment_ids: ResourceIds = Field(default_factory=list)
 
 
 def document_files(markdown: str) -> dict[str, str]:
@@ -437,38 +451,70 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         ).fetchone():
             raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
 
+    def linkable(conn, project: UUID, document_id: UUID) -> None:
+        """404 unless `document_id` is a live document or a brand-new draft of the request's workspace (the rows that
+        own their links; a draft of a document uses its document's)."""
+        if not conn.execute(
+            'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND draft_of IS NULL', (document_id, project)
+        ).fetchone():
+            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+
+    def brand_new_draft(conn, project: UUID, document_id: UUID) -> dict | None:
+        """A brand-new draft read as the document it becomes when published (same id): no versions, no drafts."""
+        row = conn.execute(
+            """SELECT x.id,x.slug,x.folder,x.title,x.description,x.purpose,x.audience,x.tags,x.markdown,x.revision,
+            true AS is_draft,false AS published,
+            CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,
+            x.code_project_ids,x.service_ids,x.server_ids,x.deployment_ids,x.environment_ids,x.created_at,x.updated_at
+            FROM ka.document_drafts_view x WHERE x.id=%s AND x.project_id=%s AND x.document_id IS NULL""",
+            (document_id, project),
+        ).fetchone()
+        if row is not None:
+            row.update(versions=[], drafts=[], resource_links=documents.resource_links(conn, document_id))
+        return row
+
     @router.get('/documents/{document_id}')
     def get_document(document_id: UUID) -> dict:
+        """A live document (is_draft false, published true) or a brand-new draft (is_draft true, published false); a
+        draft of a live document is 404 here (it opens as a draft)."""
         db = database()
         with workspace(db, app_name) as (conn, project):
             row = conn.execute(
-                """SELECT d.*,l.markdown,l.source_snapshot FROM ka.document_details d
-                JOIN ka.live_documents l ON l.id=d.id WHERE d.id=%s AND d.project_id=%s""",
+                """SELECT d.*,l.markdown,l.source_snapshot,false AS is_draft,true AS published
+                FROM ka.document_details d JOIN ka.live_documents l ON l.id=d.id WHERE d.id=%s AND d.project_id=%s""",
                 (document_id, project),
             ).fetchone()
             if row is None:
-                raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+                row = brand_new_draft(conn, project, document_id)
+                if row is None:
+                    raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+                return row
             row['versions'] = documents.versions(conn, document_id)
             row['drafts'] = conn.execute(
                 """SELECT x.id,x.title,CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,
-                x.session_id,p.email AS author,x.edited,x.base_version,x.stale,x.created_at,x.updated_at
-                FROM ka.document_drafts_view x LEFT JOIN ka.principals p ON p.id=x.created_by
+                x.session_id,p.email AS author,x.edited,x.base_version,x.stale,true AS published,x.created_at,
+                x.updated_at FROM ka.document_drafts_view x LEFT JOIN ka.principals p ON p.id=x.created_by
                 WHERE x.document_id=%s ORDER BY x.created_at DESC,x.id""",
                 (document_id,),
             ).fetchall()
             row['resource_links'] = documents.resource_links(conn, document_id)
             return row
 
+    def live_only(document: dict) -> dict:
+        if document['is_draft']:  # a brand-new draft has no export and no bundle until it is published
+            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+        return document
+
     @router.get('/documents/{document_id}/resource-history')
     def resource_history(document_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            live_document(conn, project, document_id)
+            linkable(conn, project, document_id)
             return {'history': documents.resource_history(conn, document_id)}
 
     @router.get('/documents/{document_id}/bundle')
     def bundle(document_id: UUID) -> Response:
-        document = get_document(document_id)
+        document = live_only(get_document(document_id))
         markdown = document['markdown']
         data = io.BytesIO()
         with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as archive:
@@ -484,7 +530,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.post('/documents/{document_id}/export')
     def export(document_id: UUID, request: Request) -> dict:
         request_actor(request)
-        document = get_document(document_id)
+        document = live_only(get_document(document_id))
         try:
             with database().connect() as conn:
                 folder = export_document(**export_args(export_input(conn, document['id'])))
@@ -504,42 +550,43 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 raise HTTPException(404, 'Document version not found')
             return row
 
-    def save(value: DocumentInput, request: Request, document_id: UUID | None) -> dict:
+    @router.put('/documents/{document_id}/links')
+    def save_links(document_id: UUID, value: LinksInput, request: Request) -> dict:
+        """Links of a live document or a brand-new draft, applied directly (they never go through drafts): new ones
+        linked, unticked linked ones removed with history; unticking a built-for link is a 409 and nothing is written."""
         db = database()
-        subject, email = request_actor(request)
-        try:
-            with workspace(db, app_name) as (conn, project):
-                actor = db.actor(conn, subject, email)
-                old_slug = old_folder = None
-                if document_id is not None:
-                    old = conn.execute(
-                        'SELECT slug,folder FROM ka.live_documents WHERE id=%s AND project_id=%s',
-                        (document_id, project),
-                    ).fetchone()
-                    if old:
-                        old_slug, old_folder = old['slug'], old['folder']
-                saved = save_document(conn, project, actor, value, document_id)
-        except psycopg.errors.UniqueViolation:
-            raise HTTPException(409, NAME_IN_USE.format(slug=value.slug)) from None
-        try:
-            with db.connect() as conn:
-                current = export_input(conn, saved['id'])
-            if current is not None:
-                phase = current['phase_metadata'] is not None
-                export_document(**export_args(current))
-                if old_slug is not None and old_slug != current['slug'] and not phase:
-                    remove_exported_folder(old_slug, old_folder)
-        except (OSError, ValueError):
-            saved = {**saved, 'export_error': 'Saved. Writing the document file failed; use Export to folder to retry.'}
-        return saved
-
-    @router.post('/documents', status_code=201)
-    def create_document(value: DocumentInput, request: Request) -> dict:
-        return save(value, request, None)
-
-    @router.put('/documents/{document_id}')
-    def update_document(document_id: UUID, value: DocumentInput, request: Request) -> dict:
-        return save(value, request, document_id)
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))
+            row = conn.execute(
+                """SELECT revision,is_draft FROM ka.documents WHERE id=%s AND project_id=%s AND draft_of IS NULL
+                FOR UPDATE""",
+                (document_id, project),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+            if row['revision'] != value.revision:
+                raise HTTPException(409, documents.DRAFT_CHANGED if row['is_draft'] else documents.DOCUMENT_CHANGED)
+            wanted = {field: getattr(value, field) for field in LINK_COLUMNS}
+            documents.build_snapshot(conn, project, wanted, None, None)  # the same checks a snapshot makes: 400
+            saved = documents.save_links(conn, project, document_id, wanted, Provenance('person', actor))
+            revision = conn.execute(
+                'UPDATE ka.documents SET updated_by=%s,revision=revision+1 WHERE id=%s RETURNING revision',
+                (actor, document_id),
+            ).fetchone()['revision']
+            audit(
+                conn,
+                project,
+                actor,
+                'document.links.updated',
+                'document',
+                document_id,
+                {'links_added': saved['added'], 'links_removed': saved['removed']},
+            )
+            return {
+                'id': document_id,
+                'revision': revision,
+                'resource_links': documents.resource_links(conn, document_id),
+            }
 
     @router.delete('/documents/{document_id}')
     def delete_document(

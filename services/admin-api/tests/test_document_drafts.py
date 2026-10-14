@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from drafts_world import API, audit, docs, make_document, new_draft, promote, save_live, version_of  # noqa: F401
 from knowledge_admin.documents.drafts import NAME_IN_USE, NEW_DEFAULTS
+from live_documents import write_live_document
 from knowledge_admin.documents.store import (
     DRAFT_CHANGED,
     DRAFT_NOT_FOUND,
@@ -208,7 +209,7 @@ def test_a_new_document_draft_creates_the_document_with_the_resources_that_still
 def test_a_brand_new_drafts_name_cannot_be_taken_by_a_live_document(docs):
     draft = new_draft(docs, slug='overview', title='Overview draft', markdown='# Draft overview')
     taken = docs.client.post(
-        f'{API}/documents',
+        f'{API}/drafts',
         headers=HEADERS,
         json={'slug': 'overview', 'title': 'Overview', 'markdown': '# Overview by a person'},
     )
@@ -280,16 +281,9 @@ def test_promoting_a_draft_keeps_the_links_and_drops_an_archived_code_project_fr
             (%s,%s,'legacy','Legacy')""",
             (kept, docs.project, archived, docs.project),
         )
-    document_id = docs.client.post(
-        f'{API}/documents',
-        headers=HEADERS,
-        json={
-            'slug': 'payments',
-            'title': 'Payments',
-            'markdown': '# Payments',
-            'code_project_ids': [str(kept), str(archived)],
-        },
-    ).json()['id']
+    document_id = write_live_document(
+        docs.store, 'payments', 'Payments', '# Payments', code_project_ids=[kept, archived]
+    )['id']
     draft = new_draft(docs, document_id=document_id, markdown='# Payments v2')
     with docs.store.connect() as conn:
         conn.execute('UPDATE ka.repositories SET archived_at=now() WHERE id=%s', (archived,))

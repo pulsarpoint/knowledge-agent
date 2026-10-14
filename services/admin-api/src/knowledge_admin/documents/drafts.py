@@ -38,6 +38,7 @@ from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
 
+KEEPS_NAME = "A draft of a published document keeps its document's name."
 RESOURCE_GONE = 'A selected resource is no longer available. Reload resources and update the selection.'
 SAVED_MEANWHILE = 'Another document was saved with this name at the same time. Try again.'
 EXPORT_FAILED = 'Saved. Writing the document file failed; use Export to folder to retry.'
@@ -57,7 +58,20 @@ class DraftContent(BaseModel):
 
 
 class DraftUpdate(DraftContent):
+    """A draft's text at its revision; a brand-new draft may also change its name (slug, folder) until it is
+    published. A name field left out keeps the current one (folder null: no folder)."""
+
     revision: int = Field(ge=1, strict=True)
+    slug: Slug | None = None
+    folder: str | None = Field(default=None, max_length=200)
+
+    @field_validator('folder')
+    @classmethod
+    def valid_folder(cls, value: str | None) -> str | None:
+        return None if value is None else documentation_folder(value)
+
+    def renames(self) -> bool:
+        return 'slug' in self.model_fields_set or 'folder' in self.model_fields_set
 
 
 class Resources(BaseModel):
@@ -113,11 +127,12 @@ class Promotion(Decision):
 
 
 # {extra}: more columns; the only placeholder (no other braces in the SQL). A run's draft (session_id) reports origin
-# 'agent', a person's 'manual'; l is the live document a draft revises.
+# 'agent', a person's 'manual'; published: it revises a live document (false: a brand-new draft); l is the live
+# document a draft revises.
 SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,
     CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,s.title AS session_title,
     s.purpose AS session_purpose,p.email AS author,x.edited,x.revision,x.base_version,x.live_version,x.stale,
-    x.created_at,x.updated_at{extra}
+    x.document_id IS NOT NULL AS published,x.created_at,x.updated_at{extra}
     FROM ka.document_drafts_view x LEFT JOIN ka.documents l ON l.id=x.document_id
     LEFT JOIN ka.agent_sessions s ON s.id=x.session_id LEFT JOIN ka.principals p ON p.id=x.created_by"""
 DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.tags,x.markdown,
@@ -389,19 +404,39 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.put('/drafts/{draft_id}')
     def update(draft_id: UUID, value: DraftUpdate, request: Request) -> dict:
         db = database()
-        with workspace(db, app_name) as (conn, project):
-            actor = db.actor(conn, *request_actor(request))
-            project_draft(conn, project, draft_id)
-            revision = lifecycle.update_draft(
-                conn,
-                draft_id,
-                actor,
-                value.model_dump(include=set(CONTENT)),
-                revision=value.revision,
-                edited=True,
-            )
-            audit(conn, project, actor, 'document.draft.updated', 'document_draft', draft_id, {'revision': revision})
-            return jsonable_encoder(draft_detail(conn, project, draft_id))
+        slug = None
+        try:
+            with workspace(db, app_name) as (conn, project):
+                actor = db.actor(conn, *request_actor(request))
+                if value.renames():
+                    # The export lock before the draft's row, in promote's order: the export check below cannot race
+                    # another rename or a promote.
+                    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
+                row = project_draft(conn, project, draft_id)
+                if value.renames():
+                    if row['draft_of'] is not None:
+                        raise HTTPException(400, KEEPS_NAME)
+                    slug = value.slug if 'slug' in value.model_fields_set and value.slug else row['slug']
+                    folder = value.folder if 'folder' in value.model_fields_set else row['folder']
+                    conflict = export_conflict(conn, project, slug, folder, draft_id)
+                    if conflict:
+                        raise HTTPException(409, conflict)
+                revision = lifecycle.update_draft(
+                    conn,
+                    draft_id,
+                    actor,
+                    value.model_dump(include=set(CONTENT)),
+                    revision=value.revision,
+                    edited=True,
+                )
+                details = {'revision': revision}
+                if value.renames() and (slug, folder) != (row['slug'], row['folder']):
+                    conn.execute('UPDATE ka.documents SET slug=%s,folder=%s WHERE id=%s', (slug, folder, draft_id))
+                    details.update(slug=slug, folder=folder)
+                audit(conn, project, actor, 'document.draft.updated', 'document_draft', draft_id, details)
+                return jsonable_encoder(draft_detail(conn, project, draft_id))
+        except psycopg.errors.UniqueViolation:  # a live document or another brand-new draft holds this name
+            raise HTTPException(409, NAME_IN_USE.format(slug=slug)) from None
 
     def lock_for_decision(conn, project: UUID, draft_id: UUID) -> dict:
         """The project, then the draft's run (the order a run's turn locks them in); the caller then locks the draft."""

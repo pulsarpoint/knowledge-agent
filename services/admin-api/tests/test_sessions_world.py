@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from live_documents import write_live_document
 from test_discovery_runs import ssh_ready
 from test_generations import sessions  # noqa: F401  (fixture)
 from test_repositories import HEADERS
@@ -17,17 +18,14 @@ def ask(sessions):
         '/api/servers', headers=HEADERS, json={'name': 'web-1', 'hostname': '10.0.0.7', 'ssh_allowed': True}
     ).json()
     ssh_ready(SimpleNamespace(client=s.client, server=web), web)
-    document = s.client.post(
-        '/api/documentation/documents',
-        headers=HEADERS,
-        json={
-            'slug': 'payments-runbook',
-            'title': 'Payments runbook',
-            'markdown': '# Payments runbook\n\n## Backup\n\nOld steps.',
-            'service_ids': [s.service],
-            'server_ids': [web['id']],
-        },
-    ).json()
+    document = write_live_document(
+        s.store,
+        'payments-runbook',
+        'Payments runbook',
+        '# Payments runbook\n\n## Backup\n\nOld steps.',
+        service_ids=[s.service],
+        server_ids=[web['id']],
+    )
     body = {
         'started_from': {'document_id': document['id']},
         'message': 'Add a section on log rotation.\nKeep it short.',

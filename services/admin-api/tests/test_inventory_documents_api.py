@@ -4,13 +4,16 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from live_documents import write_live_document
 from test_api import _client
 from test_repositories import HEADERS
 
 
 @pytest.fixture
 def client(store, tmp_path):
-    return _client(tmp_path, repository_store=store)
+    made = _client(tmp_path, repository_store=store)
+    made.store = store  # document() writes live documents through the store
+    return made
 
 
 def message(response) -> tuple:
@@ -18,11 +21,7 @@ def message(response) -> tuple:
 
 
 def document(client, slug='runbook', title='Runbook'):
-    made = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': slug, 'title': title, 'markdown': f'# {title}\n'}
-    )
-    assert made.status_code == 201, made.text
-    return made.json()['id']
+    return write_live_document(client.store, slug, title, f'# {title}\n')['id']
 
 
 def test_attach_list_and_detach(client, store):

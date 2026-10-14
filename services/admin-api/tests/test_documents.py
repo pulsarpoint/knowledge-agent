@@ -8,6 +8,7 @@ import psycopg
 import pytest
 
 from knowledge_admin.repositories import RepositoryInput
+from live_documents import write_live_document
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -20,6 +21,8 @@ VALUE = {
     'tags': ['payments'],
     'markdown': '# Payments\n\n  Preserve indentation.\n',
 }
+DOCS = '/api/documentation'
+NO_LINKS = {'code_project_ids': [], 'service_ids': [], 'server_ids': [], 'deployment_ids': [], 'environment_ids': []}
 PROMPT = {
     'name': 'Code architecture',
     'description': 'Explain components',
@@ -28,43 +31,55 @@ PROMPT = {
 }
 
 
+def live(store, value: dict, **extra) -> dict:
+    """A live document from a VALUE-like body (people only save drafts; see live_documents)."""
+    fields = {**value, **extra}
+    return write_live_document(store, fields.pop('slug'), fields.pop('title'), fields.pop('markdown'), **fields)
+
+
+def save_and_promote(client, document_id: str, **content) -> dict:
+    """A person's Save on a live document (a draft of it) and Promote: the next live version."""
+    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'document_id': document_id, **content})
+    assert draft.status_code == 201, draft.text
+    promoted = client.post(
+        f'{DOCS}/drafts/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': draft.json()['revision']}
+    )
+    assert promoted.status_code == 200, promoted.text
+    return promoted.json()
+
+
+def save_links(client, document_id: str, revision, **ids):
+    return client.put(
+        f'{DOCS}/documents/{document_id}/links', headers=HEADERS, json={**NO_LINKS, **ids, 'revision': revision}
+    )
+
+
 def test_document_commits_are_versioned_preserved_and_validated(store, tmp_path):
+    from fastapi import HTTPException
+    from knowledge_admin.documents.store import build_snapshot
+
     client = _client(tmp_path, repository_store=store)
     repo = str(store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', ''))
-    value = {**VALUE, 'code_project_ids': [repo], 'source_commits': {repo: 'a' * 40}}
-    created = client.post('/api/documentation/documents', headers=HEADERS, json=value)
-    assert created.status_code == 201, created.text
-    endpoint = '/api/documentation/documents/' + created.json()['id']
+    created = live(store, VALUE, code_project_ids=[repo], source_commits={repo: 'a' * 40})
+    endpoint = '/api/documentation/documents/' + created['id']
     first = client.get(endpoint, headers=HEADERS).json()
     assert first['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
-    value.pop('source_commits')
-    edited = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1})
-    assert edited.status_code == 200, edited.text
+    # A promoted draft keeps the live version's source commits.
+    assert save_and_promote(client, created['id'], markdown='# Two')['version'] == 2
     assert client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
-    updated = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 2, 'source_commits': {repo: 'b' * 40}})
-    assert updated.status_code == 200, updated.text
-    assert client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]['git_commit'] == 'b' * 40
     assert (
         client.get(endpoint + '/versions/1', headers=HEADERS).json()['source_snapshot']['code_projects'][0][
             'git_commit'
         ]
         == 'a' * 40
     )
-    assert (
-        client.put(
-            endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {repo: 'HEAD'}}
-        ).status_code
-        == 400
-    )
-    assert (
-        client.put(
-            endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {str(uuid4()): 'b' * 40}}
-        ).status_code
-        == 400
-    )
-    cleared = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {}})
-    assert cleared.status_code == 200
-    assert 'git_commit' not in client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        ids = {'code_project_ids': [UUID(repo)]}
+        with pytest.raises(HTTPException) as error:
+            build_snapshot(conn, project, ids, {str(uuid4()): 'b' * 40}, None)
+        assert error.value.status_code == 400
+        assert 'git_commit' not in build_snapshot(conn, project, ids, {}, first['source_snapshot'])['code_projects'][0]
 
 
 def test_document_versions_filters_links_and_deletion(store, tmp_path):
@@ -91,9 +106,7 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
         'service_ids': [service['id']],
         'deployment_ids': [deployment['id']],
     }
-    created = client.post('/api/documentation/documents', headers=HEADERS, json=value)
-    assert created.status_code == 201, created.text
-    doc_id = created.json()['id']
+    doc_id = live(store, value)['id']
     endpoint = '/api/documentation/documents/' + doc_id
     original = client.get(endpoint, headers=HEADERS).json()
     first = client.get(endpoint + '/versions/1', headers=HEADERS).json()
@@ -127,18 +140,15 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
     assert client.put('/api/services/' + service['id'], headers=HEADERS, json=edited_service).status_code == 200
     assert client.get(endpoint, headers=HEADERS).json()['deployment_ids'] == [deployment['id']]
     # Links made when the document was created are built-for links: unticking one is refused.
-    unticked = client.put(
-        endpoint,
-        headers=HEADERS,
-        json={**value, 'revision': 1, 'markdown': '# Revised\n', 'service_ids': [], 'deployment_ids': []},
+    unticked = save_links(
+        client, doc_id, 1, code_project_ids=[repo], server_ids=[server['id']], service_ids=[], deployment_ids=[]
     )
     assert unticked.status_code == 409
     assert (
         unticked.json()['error']['message']
         == "This document was built for service Payments; that link can't be removed."
     )
-    updated = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1, 'markdown': '# Revised\n'})
-    assert updated.status_code == 200, updated.text
+    assert save_and_promote(client, doc_id, markdown='# Revised\n')['revision'] == 2
     current = client.get(endpoint, headers=HEADERS).json()
     assert current['version'] == current['revision'] == 2 and len(current['versions']) == 2
     assert [v['version'] for v in current['versions']] == [2, 1] and current['markdown'] == '# Revised\n'
@@ -173,28 +183,16 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
 
 def test_stale_concurrent_edits_foreign_links_and_hash_constraints(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    response = client.post('/api/documentation/documents', headers=HEADERS, json=VALUE)
-    assert response.status_code == 201, response.text
-    endpoint = '/api/documentation/documents/' + response.json()['id']
+    document_id = live(store, VALUE)['id']
+    endpoint = '/api/documentation/documents/' + document_id
     foreign_repo = str(store.save('other', RepositoryInput(remote_url='example/other'), 'admin', ''))
-    assert (
-        client.put(
-            endpoint, headers=HEADERS, json={**VALUE, 'revision': 1, 'code_project_ids': [foreign_repo]}
-        ).status_code
-        == 400
-    )
-    assert client.post('/api/documentation/documents', headers=HEADERS, json=VALUE).status_code == 409
-    assert client.put(endpoint, headers=HEADERS, json=VALUE).status_code == 409
+    assert save_links(client, document_id, 1, code_project_ids=[foreign_repo]).status_code == 400
+    assert client.put(endpoint + '/links', headers=HEADERS, json=NO_LINKS).status_code == 400  # no revision
     with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(
-            pool.map(
-                lambda text: client.put(endpoint, headers=HEADERS, json={**VALUE, 'revision': 1, 'markdown': text}),
-                ['First edit', 'Second edit'],
-            )
-        )
+        responses = list(pool.map(lambda _: save_links(client, document_id, 1), range(2)))
     assert sorted(r.status_code for r in responses) == [200, 409]
     result = client.get(endpoint, headers=HEADERS).json()
-    assert len(result['versions']) == 2
+    assert result['revision'] == 2 and len(result['versions']) == 1
     with store.connect() as conn:
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
             conn.execute("UPDATE ka.documents SET markdown='changed' WHERE id=%s", (UUID(result['id']),))
@@ -281,11 +279,10 @@ def test_prompt_drafts_activation_disable_and_delete(store, tmp_path):
     [
         ('GET', '/documentation/resources'),
         ('GET', '/documentation/documents'),
-        ('POST', '/documentation/documents'),
         ('GET', '/documentation/prompts'),
         ('POST', '/documentation/prompts'),
         ('GET', '/documentation/documents/' + str(uuid4())),
-        ('PUT', '/documentation/documents/' + str(uuid4())),
+        ('PUT', '/documentation/documents/' + str(uuid4()) + '/links'),
         ('DELETE', '/documentation/documents/' + str(uuid4())),
         ('GET', '/documentation/prompts/' + str(uuid4())),
         ('PUT', '/documentation/prompts/' + str(uuid4())),
@@ -312,10 +309,7 @@ def test_documentation_requires_admin(tmp_path, path, method):
     ],
 )
 def test_invalid_document_input(tmp_path, change):
-    assert (
-        _client(tmp_path).post('/api/documentation/documents', headers=HEADERS, json={**VALUE, **change}).status_code
-        == 400
-    )
+    assert _client(tmp_path).post(f'{DOCS}/drafts', headers=HEADERS, json={**VALUE, **change}).status_code == 400
 
 
 def test_document_migrations_roundtrip_and_preserve_populated_tables(store):
@@ -360,16 +354,13 @@ def test_edit_service_can_swap_deployments_without_losing_document_links(store, 
     }
     service = client.post('/api/services', headers=HEADERS, json=value).json()
     deployments = client.get('/api/documentation/resources', headers=HEADERS).json()['deployments']
-    doc = client.post(
-        '/api/documentation/documents',
-        headers=HEADERS,
-        json={
-            **VALUE,
-            'service_ids': [service['id']],
-            'server_ids': [server['id']],
-            'deployment_ids': [d['id'] for d in deployments],
-        },
-    ).json()
+    doc = live(
+        store,
+        VALUE,
+        service_ids=[service['id']],
+        server_ids=[server['id']],
+        deployment_ids=[d['id'] for d in deployments],
+    )
     swapped = [
         {
             'id': d['id'],
@@ -400,18 +391,10 @@ def test_saving_exports_current_version_in_place(store, tmp_path, monkeypatch):
     out = tmp_path / 'generated'
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    created = client.post(
-        '/api/documentation/documents',
-        headers=HEADERS,
-        json={'slug': 'payments-runbook', 'title': 'Payments', 'markdown': '# Payments\n\n```d2\na -> b\n```\n'},
-    ).json()
+    created = write_live_document(store, 'payments-runbook', 'Payments', '# Payments\n\n```d2\na -> b\n```\n')
     assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments')
     assert (out / 'payments-runbook' / 'architecture-1.d2').exists()
-    client.put(
-        f'/api/documentation/documents/{created["id"]}',
-        headers=HEADERS,
-        json={'slug': 'payments-runbook', 'title': 'Payments', 'markdown': '# Payments v2', 'revision': 1},
-    )
+    save_and_promote(client, created['id'], markdown='# Payments v2')
     assert (out / 'payments-runbook' / 'README.md').read_text().startswith('# Payments v2')
     assert not (out / 'payments-runbook' / 'architecture-1.d2').exists()
     assert not list(out.glob('payments-runbook/v*'))
@@ -420,10 +403,10 @@ def test_saving_exports_current_version_in_place(store, tmp_path, monkeypatch):
 def test_export_failure_keeps_the_saved_version(store, tmp_path, monkeypatch):
     client = _client(tmp_path, repository_store=store)
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', '/nonexistent/folder')
-    response = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'}
-    )
-    assert response.status_code == 201 and 'export_error' in response.json()
+    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'x', 'title': 'X', 'markdown': '# X'}).json()
+    response = client.post(f'{DOCS}/drafts/{draft["id"]}/promote', headers=HEADERS, json={'revision': 1})
+    assert response.status_code == 200 and response.json()['export_error']
+    assert client.get(f'{DOCS}/documents/{draft["id"]}', headers=HEADERS).json()['version'] == 1
 
 
 def test_editor_save_keeps_source_commit_metadata(store, tmp_path, monkeypatch):
@@ -432,33 +415,10 @@ def test_editor_save_keeps_source_commit_metadata(store, tmp_path, monkeypatch):
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
     repo = str(store.save('shop', RepositoryInput(remote_url='example/api', token='private'), 'admin', ''))
-    value = {**VALUE, 'code_project_ids': [repo], 'source_commits': {repo: 'a' * 40}}
-    created = client.post('/api/documentation/documents', headers=HEADERS, json=value).json()
+    created = live(store, VALUE, code_project_ids=[repo], source_commits={repo: 'a' * 40})
     assert (out / 'payments-runbook' / 'metadata.json').exists()
-    value.pop('source_commits')
-    client.put(
-        '/api/documentation/documents/' + created['id'],
-        headers=HEADERS,
-        json={**value, 'markdown': '# Two', 'revision': 1},
-    )
+    save_and_promote(client, created['id'], markdown='# Two')
     assert 'a' * 40 in (out / 'payments-runbook' / 'metadata.json').read_text()
-
-
-def test_slug_rename_removes_old_files_but_not_subfolders(store, tmp_path, monkeypatch):
-    client = _client(tmp_path, repository_store=store)
-    out = tmp_path / 'generated'
-    out.mkdir()
-    monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    created = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'old-name', 'title': 'T', 'markdown': '# T'}
-    ).json()
-    endpoint = '/api/documentation/documents/' + created['id']
-    client.put(endpoint, headers=HEADERS, json={'slug': 'new-name', 'title': 'T', 'markdown': '# T', 'revision': 1})
-    assert (out / 'new-name' / 'README.md').exists() and not (out / 'old-name').exists()
-    (out / 'new-name' / 'v1').mkdir()
-    (out / 'new-name' / 'v1' / 'README.md').write_text('old')
-    client.put(endpoint, headers=HEADERS, json={'slug': 'newer-name', 'title': 'T', 'markdown': '# T', 'revision': 2})
-    assert not (out / 'new-name' / 'README.md').exists() and (out / 'new-name' / 'v1' / 'README.md').exists()
 
 
 def test_cleanup_leaves_subdirectories_and_symlinks(tmp_path, monkeypatch):
@@ -481,12 +441,8 @@ def test_deleting_a_document_removes_its_export(store, tmp_path, monkeypatch):
     out = tmp_path / 'generated'
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    created = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'gone', 'title': 'G', 'markdown': '# G'}
-    ).json()
-    keep = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'kept', 'title': 'K', 'markdown': '# K'}
-    ).json()
+    created = write_live_document(store, 'gone', 'G', '# G')
+    keep = write_live_document(store, 'kept', 'K', '# K')
     assert (out / 'gone' / 'README.md').exists()
     (out / 'gone' / 'v1').mkdir()
     (out / 'gone' / 'v1' / 'README.md').write_text('old')
@@ -525,16 +481,11 @@ def test_startup_backfill_writes_missing_exports_only(store, tmp_path, monkeypat
     import os
     from knowledge_admin.documents.api import backfill_exports
 
-    client = _client(tmp_path, repository_store=store)
     out = tmp_path / 'generated'
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'legacy', 'title': 'L', 'markdown': '# Legacy'}
-    )
-    client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'current', 'title': 'C', 'markdown': '# Current'}
-    )
+    write_live_document(store, 'legacy', 'L', '# Legacy')
+    write_live_document(store, 'current', 'C', '# Current')
     # legacy only has an old <slug>/v1/ export from before the upgrade
     (out / 'legacy' / 'README.md').unlink()
     (out / 'legacy' / 'v1').mkdir()
@@ -554,9 +505,7 @@ def test_app_startup_runs_the_export_backfill(store, tmp_path, monkeypatch):
     out = tmp_path / 'generated'
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
-    _client(tmp_path, repository_store=store).post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'legacy', 'title': 'L', 'markdown': '# Legacy'}
-    )
+    write_live_document(store, 'legacy', 'L', '# Legacy')
     (out / 'legacy' / 'README.md').unlink()
     with _client(tmp_path, repository_store=store) as client:  # entering the client runs the lifespan
         for _ in range(100):
@@ -609,16 +558,11 @@ def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tm
     assert not (out / 'api-reference').exists()
     endpoint = '/api/documentation/documents/' + str(saved['id'])
     assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    # The editor sends no folder: the document stays in its folder and a rename moves only its own export.
-    edited = client.put(
-        endpoint,
-        headers=HEADERS,
-        json={'slug': 'api-guide', 'title': 'API guide', 'markdown': '# Guide', 'revision': 1},
-    )
-    assert edited.status_code == 200, edited.text
+    # A promoted draft keeps the document's folder and name; its export is rewritten in place.
+    save_and_promote(client, str(saved['id']), title='API guide', markdown='# Guide')
     assert client.get(endpoint, headers=HEADERS).json()['folder'] == 'team/payments'
-    assert (out / 'team/payments/api-guide/README.md').read_text() == '# Guide'
-    assert not (out / 'team/payments/api-reference').exists()
+    assert (out / 'team/payments/api-reference/README.md').read_text() == '# Guide'
+    assert not (out / 'team/payments/api-reference/architecture-1.d2').exists()
     # The same slug may exist once per folder and once without a folder.
     with store.connect() as conn:
         for other in ('other', None):
@@ -631,11 +575,11 @@ def test_folder_documents_export_into_their_folder_and_keep_it_on_edit(store, tm
                 conn,
                 project,
                 None,
-                DocumentInput(slug='api-guide', title='Twice', markdown='# T'),
+                DocumentInput(slug='api-reference', title='Twice', markdown='# T'),
                 folder='team/payments',
             )
     assert client.delete(endpoint, headers=HEADERS, params={'revision': 2, 'confirmed': True}).status_code == 200
-    assert not (out / 'team/payments/api-guide').exists()
+    assert not (out / 'team/payments/api-reference').exists()
 
 
 def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, tmp_path, monkeypatch):
@@ -644,12 +588,7 @@ def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, 
 
     client = _client(tmp_path, repository_store=store)
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(tmp_path))
-    assert (
-        client.post(
-            '/api/documentation/documents', headers=HEADERS, json={'slug': 'payments', 'title': 'P', 'markdown': '# P'}
-        ).status_code
-        == 201
-    )
+    write_live_document(store, 'payments', 'P', '# P')
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         with pytest.raises(HTTPException) as error:
@@ -662,9 +601,10 @@ def test_a_folder_never_shares_a_top_level_export_folder_with_a_document(store, 
             == 'The folder payments holds the export of the document payments. Choose another folder.'
         )
         save_document(conn, project, None, DocumentInput(slug='api', title='A', markdown='# A'), folder='team/payments')
-    refused = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'team', 'title': 'T', 'markdown': '# T'}
-    )
+    # A new document's export folder is checked when it is published.
+    draft = client.post(f'{DOCS}/drafts', headers=HEADERS, json={'slug': 'team', 'title': 'T', 'markdown': '# T'})
+    assert draft.status_code == 201, draft.text
+    refused = client.post(f'{DOCS}/drafts/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': 1})
     assert refused.status_code == 409
     assert refused.json()['error']['message'] == 'The slug team is used by a documentation folder. Choose another slug.'
 
@@ -819,9 +759,7 @@ def test_delete_takes_the_project_lock_first_as_promote_and_create_do(store, tmp
     import threading
 
     client = _client(tmp_path, repository_store=store)
-    created = client.post(
-        '/api/documentation/documents', headers=HEADERS, json={'slug': 'gone', 'title': 'G', 'markdown': '# G'}
-    ).json()
+    created = write_live_document(store, 'gone', 'G', '# G')
     outcome = {}
 
     def delete():

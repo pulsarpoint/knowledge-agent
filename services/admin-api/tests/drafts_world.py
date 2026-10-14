@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+from live_documents import rewrite_live_document, write_live_document
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -17,23 +18,14 @@ def docs(store, tmp_path, monkeypatch):
     out.mkdir()
     monkeypatch.setenv('DOCUMENT_OUTPUT_ROOT', str(out))
     client = _client(tmp_path, repository_store=store)
-    created = client.post(
-        f'{API}/documents',
-        headers=HEADERS,
-        json={'slug': 'runbook', 'title': 'Runbook', 'description': 'How to run it', 'markdown': '# Runbook v1'},
-    )
-    assert created.status_code == 201, created.text
+    created = write_live_document(store, 'runbook', 'Runbook', '# Runbook v1', description='How to run it')
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-    return SimpleNamespace(client=client, store=store, out=out, project=project, runbook=created.json()['id'])
+    return SimpleNamespace(client=client, store=store, out=out, project=project, runbook=created['id'])
 
 
 def make_document(docs, slug: str, title: str) -> str:
-    response = docs.client.post(
-        f'{API}/documents', headers=HEADERS, json={'slug': slug, 'title': title, 'markdown': f'# {title}'}
-    )
-    assert response.status_code == 201, response.text
-    return response.json()['id']
+    return write_live_document(docs.store, slug, title, f'# {title}')['id']
 
 
 def version_of(docs, document_id: str) -> int:
@@ -48,21 +40,8 @@ def new_draft(docs, **body) -> dict:
 
 
 def save_live(docs, document_id: str, markdown: str) -> dict:
-    """A person saves a new live version in the editor."""
-    current = docs.client.get(f'{API}/documents/{document_id}', headers=HEADERS).json()
-    response = docs.client.put(
-        f'{API}/documents/{document_id}',
-        headers=HEADERS,
-        json={
-            'slug': current['slug'],
-            'title': current['title'],
-            'description': current['description'],
-            'markdown': markdown,
-            'revision': current['revision'],
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+    """A new live version written in place (not through a draft); the document's drafts stay."""
+    return rewrite_live_document(docs.store, document_id, markdown)
 
 
 def promote(docs, draft: dict, **extra):

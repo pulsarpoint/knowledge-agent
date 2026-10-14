@@ -9,6 +9,7 @@ from drafts_world import API, audit, docs, make_document, new_draft, promote, sa
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.documents.drafts import LINK_NOT_FOUND, LINK_SELF, LINK_TWICE
 from knowledge_admin.tools.catalog import CATALOG
+from live_documents import write_live_document
 from test_repositories import HEADERS
 
 
@@ -188,11 +189,7 @@ def test_drafts_are_found_by_the_resources_they_are_for(docs):
     built = new_draft(
         docs, slug='prod-runbook', title='Prod', markdown='# Prod', resource_ids={'environment_ids': [str(production)]}
     )
-    linked = docs.client.post(
-        f'{API}/documents',
-        headers=HEADERS,
-        json={'slug': 'prod-notes', 'title': 'Notes', 'markdown': '# Notes', 'environment_ids': [str(production)]},
-    ).json()['id']
+    linked = write_live_document(docs.store, 'prod-notes', 'Notes', '# Notes', environment_ids=[production])['id']
     of_linked = new_draft(docs, document_id=linked, markdown='# Notes v2')
     new_draft(docs, document_id=docs.runbook)  # not linked to anything
     new_draft(docs, slug='staging', title='Staging', markdown='# S', resource_ids={'environment_ids': [str(staging)]})
