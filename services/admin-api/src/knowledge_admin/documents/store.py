@@ -40,7 +40,7 @@ STALE_MESSAGE = (
 )
 NEW_DOCUMENT_REVISION = 'New documents cannot reuse a revision'
 
-# The snapshot key of each link field (as today's DOCUMENT_RESOURCES in documents/api.py, copied: no import of api).
+# The snapshot key of each link field (documents/api.py builds on these; this module never imports api).
 SNAPSHOT_KEYS = {
     'code_projects': 'code_project_ids',
     'services': 'service_ids',

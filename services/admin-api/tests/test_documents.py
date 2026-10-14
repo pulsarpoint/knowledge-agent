@@ -35,29 +35,19 @@ def test_document_commits_are_versioned_preserved_and_validated(store, tmp_path)
     created = client.post('/api/documentation/documents', headers=HEADERS, json=value)
     assert created.status_code == 201, created.text
     endpoint = '/api/documentation/documents/' + created.json()['id']
-    first = client.get(endpoint, headers=HEADERS).json()['current_version']
+    first = client.get(endpoint, headers=HEADERS).json()
     assert first['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
     value.pop('source_commits')
     edited = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1})
     assert edited.status_code == 200, edited.text
-    assert (
-        client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0][
-            'git_commit'
-        ]
-        == 'a' * 40
-    )
+    assert client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]['git_commit'] == 'a' * 40
     updated = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 2, 'source_commits': {repo: 'b' * 40}})
     assert updated.status_code == 200, updated.text
+    assert client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]['git_commit'] == 'b' * 40
     assert (
-        client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0][
+        client.get(endpoint + '/versions/1', headers=HEADERS).json()['source_snapshot']['code_projects'][0][
             'git_commit'
         ]
-        == 'b' * 40
-    )
-    assert (
-        client.get(endpoint + '/versions/' + first['id'], headers=HEADERS).json()['source_snapshot']['code_projects'][
-            0
-        ]['git_commit']
         == 'a' * 40
     )
     assert (
@@ -74,10 +64,7 @@ def test_document_commits_are_versioned_preserved_and_validated(store, tmp_path)
     )
     cleared = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 3, 'source_commits': {}})
     assert cleared.status_code == 200
-    assert (
-        'git_commit'
-        not in client.get(endpoint, headers=HEADERS).json()['current_version']['source_snapshot']['code_projects'][0]
-    )
+    assert 'git_commit' not in client.get(endpoint, headers=HEADERS).json()['source_snapshot']['code_projects'][0]
 
 
 def test_document_versions_filters_links_and_deletion(store, tmp_path):
@@ -109,8 +96,9 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
     doc_id = created.json()['id']
     endpoint = '/api/documentation/documents/' + doc_id
     original = client.get(endpoint, headers=HEADERS).json()
-    first = original['current_version']
-    assert original['version'] == original['revision'] == 1
+    first = client.get(endpoint + '/versions/1', headers=HEADERS).json()
+    assert original['version'] == original['revision'] == 1 and first['live']
+    assert original['markdown'] == VALUE['markdown'] and original['source_snapshot'] == first['source_snapshot']
     assert first['markdown'] == VALUE['markdown']
     assert first['content_hash'] == hashlib.sha256(VALUE['markdown'].encode()).hexdigest()
     assert first['source_snapshot']['servers'][0]['hostname'] == 'payments.internal'
@@ -138,21 +126,28 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
     }
     assert client.put('/api/services/' + service['id'], headers=HEADERS, json=edited_service).status_code == 200
     assert client.get(endpoint, headers=HEADERS).json()['deployment_ids'] == [deployment['id']]
-    updated = client.put(
+    # Links made when the document was created are built-for links: unticking one is refused.
+    unticked = client.put(
         endpoint,
         headers=HEADERS,
         json={**value, 'revision': 1, 'markdown': '# Revised\n', 'service_ids': [], 'deployment_ids': []},
     )
+    assert unticked.status_code == 409
+    assert (
+        unticked.json()['error']['message']
+        == "This document was built for service Payments; that link can't be removed."
+    )
+    updated = client.put(endpoint, headers=HEADERS, json={**value, 'revision': 1, 'markdown': '# Revised\n'})
     assert updated.status_code == 200, updated.text
     current = client.get(endpoint, headers=HEADERS).json()
     assert current['version'] == current['revision'] == 2 and len(current['versions']) == 2
-    assert current['current_version']['base_version_id'] == first['id']
-    assert client.get(endpoint + '/versions/' + first['id'], headers=HEADERS).json() == first
+    assert [v['version'] for v in current['versions']] == [2, 1] and current['markdown'] == '# Revised\n'
+    assert client.get(endpoint + '/versions/1', headers=HEADERS).json() == {**first, 'live': False}
     assert (
         client.get('/api/documentation/documents', params={'service_id': service['id']}, headers=HEADERS).json()[
             'total'
         ]
-        == 0
+        == 1
     )
     assert client.delete(endpoint, headers=HEADERS, params={'revision': 2}).status_code == 400
     assert client.delete(endpoint, headers=HEADERS, params={'revision': 1, 'confirmed': True}).status_code == 409
@@ -161,7 +156,10 @@ def test_document_versions_filters_links_and_deletion(store, tmp_path):
     with store.connect() as conn:
         assert (
             conn.execute(
-                'SELECT count(*) AS n FROM ka.document_versions WHERE document_id=%s', (UUID(doc_id),)
+                'SELECT count(*) AS n FROM ka.document_archive WHERE document_id=%s', (UUID(doc_id),)
+            ).fetchone()['n']
+            == conn.execute(
+                'SELECT count(*) AS n FROM ka.document_resources WHERE document_id=%s', (UUID(doc_id),)
             ).fetchone()['n']
             == 0
         )
@@ -199,16 +197,15 @@ def test_stale_concurrent_edits_foreign_links_and_hash_constraints(store, tmp_pa
     assert len(result['versions']) == 2
     with store.connect() as conn:
         with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
-            conn.execute(
-                "UPDATE ka.document_versions SET markdown='changed' WHERE id=%s", (UUID(result['current_version_id']),)
-            )
+            conn.execute("UPDATE ka.documents SET markdown='changed' WHERE id=%s", (UUID(result['id']),))
         with pytest.raises(psycopg.errors.ForeignKeyViolation), conn.transaction():
             conn.execute(
-                'INSERT INTO ka.document_code_projects(document_id,project_id,code_project_id) VALUES (%s,%s,%s)',
+                """INSERT INTO ka.document_resources(document_id,project_id,code_project_id,connection,added_how)
+                VALUES (%s,%s,%s,'linked','person')""",
                 (UUID(result['id']), UUID(result['project_id']), UUID(foreign_repo)),
             )
     assert client.get('/api/documentation/documents/' + str(uuid4()), headers=HEADERS).status_code == 404
-    assert client.get(endpoint + '/versions/' + str(uuid4()), headers=HEADERS).status_code == 404
+    assert client.get(endpoint + '/versions/99', headers=HEADERS).status_code == 404
 
 
 def test_prompt_drafts_activation_disable_and_delete(store, tmp_path):
@@ -395,7 +392,7 @@ def test_edit_service_can_swap_deployments_without_losing_document_links(store, 
     )
     current = client.get('/api/documentation/documents/' + doc['id'], headers=HEADERS).json()
     assert current['service_ids'] == current['deployment_ids'] == []
-    assert current['current_version']['source_snapshot']['services'][0]['name'] == 'API'
+    assert current['source_snapshot']['services'][0]['name'] == 'API'
 
 
 def test_saving_exports_current_version_in_place(store, tmp_path, monkeypatch):

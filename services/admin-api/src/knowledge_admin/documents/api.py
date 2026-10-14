@@ -1,7 +1,7 @@
-"""Managed Markdown documents, inventory associations and immutable versions."""
+"""Managed Markdown documents: create, edit, read, export and delete live documents (the lifecycle itself is in
+documents/store.py)."""
 
 from functools import partial
-import hashlib
 import io
 import json
 import logging
@@ -11,15 +11,16 @@ import zipfile
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from psycopg.types.json import Jsonb
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.db import storage, workspace
+from knowledge_admin.db import audit, storage, workspace
+from knowledge_admin.documents import store as documents
+from knowledge_admin.documents.store import CONTENT, LINK_COLUMNS, Provenance
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
@@ -55,15 +56,8 @@ Markdown = Annotated[
     str, Field(min_length=1, max_length=1000000), AfterValidator(lambda value: _text(value, strip=False))
 ]
 ResourceIds = Annotated[list[UUID], Field(max_length=100), AfterValidator(lambda values: list(dict.fromkeys(values)))]
-# The kinds of resource a document links, each with its id-list field (DocumentInput, drafts' resource_ids, document_details).
-DOCUMENT_RESOURCES = {
-    'code_projects': 'code_project_ids',
-    'services': 'service_ids',
-    'servers': 'server_ids',
-    'deployments': 'deployment_ids',
-    'environments': 'environment_ids',
-}
-DOCUMENT_RESOURCE_FIELDS = tuple(DOCUMENT_RESOURCES.values())
+# The id-list field of each kind of resource a document links (DocumentInput, drafts' resource_ids, document_details).
+DOCUMENT_RESOURCE_FIELDS = tuple(LINK_COLUMNS)
 
 
 class DocumentInput(BaseModel):
@@ -153,8 +147,8 @@ def export_input(conn, document_id: UUID) -> dict | None:
     """Export input for a document's current version: slug, markdown, revision, source commits and phase metadata (a
     document written by a service phase keeps exporting into its phase folder)."""
     row = conn.execute(
-        """SELECT d.slug, d.folder, d.revision, d.phase_metadata, v.markdown, v.source_snapshot
-        FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s""",
+        """SELECT slug,folder,revision,phase_metadata,markdown,source_snapshot FROM ka.documents
+        WHERE id=%s AND NOT is_draft""",
         (document_id,),
     ).fetchone()
     if row is None:
@@ -219,14 +213,14 @@ def remove_export(current: dict) -> None:
 
 
 def backfill_exports(store: RepositoryStore) -> int:
-    """Write the current export of every document that lacks one (e.g. after upgrading from <slug>/v<n>/ exports).
+    """Write the current export of every live document that lacks one (e.g. after upgrading from <slug>/v<n>/ exports).
 
     Idempotent: documents whose main export file exists are left untouched. Failures are logged, never raised.
     """
     try:
         _output_root()
         with store.connect() as conn:
-            ids = [row['id'] for row in conn.execute('SELECT id FROM ka.documents ORDER BY id').fetchall()]
+            ids = [row['id'] for row in conn.execute('SELECT id FROM ka.live_documents ORDER BY id').fetchall()]
     except (OSError, ValueError, psycopg.Error) as error:
         logger.warning('Skipping the document export backfill: %s', error)
         return 0
@@ -254,11 +248,12 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
 
     A folderless document exports to <slug>/, a folder document to <folder>/<slug>/. At every level a document's
     export folder is never also a documentation folder or a parent of one, in either direction. Folders and slugs are
-    lowercase-only, so these exact comparisons also hold on case-insensitive filesystems."""
+    lowercase-only, so these exact comparisons also hold on case-insensitive filesystems. Live documents and brand-new
+    drafts (rows with a slug) reserve their export folders: a brand-new draft exports there when promoted."""
     target = f'{folder}/{slug}' if folder else slug
     # starts_with, not LIKE: '_' is a valid folder character and must match literally.
     if conn.execute(
-        """SELECT 1 FROM ka.documents WHERE project_id=%s AND id IS DISTINCT FROM %s
+        """SELECT 1 FROM ka.documents WHERE project_id=%s AND slug IS NOT NULL AND id IS DISTINCT FROM %s
         AND (folder=%s OR starts_with(folder, %s)) LIMIT 1""",
         (project, document_id, target, target + '/'),
     ).fetchone():
@@ -284,6 +279,10 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
     return None
 
 
+def _commits(snapshot: dict) -> dict[str, str | None]:
+    return {row['id']: row.get('git_commit') for row in snapshot['code_projects']}
+
+
 def save_document(
     conn,
     project: UUID,
@@ -292,144 +291,63 @@ def save_document(
     document_id: UUID | None = None,
     folder: str | None = None,
     origin: str = 'manual',
+    *,
+    how: str = 'person',
+    session_id: UUID | None = None,
 ) -> dict:
-    """Save a complete immutable version within the caller's transaction.
+    """Create a live document (its links built-for) or save an existing one (its links linked; unticking a built-for
+    link is a 409) within the caller's transaction. Returns {'id', 'revision', 'version'}.
 
     `folder` places a new document in a documentation folder; an existing document keeps its own folder. `origin`
-    records where the text came from (manual, generated, uploaded)."""
-    # Serialize saves per project so the folder / folder-less export check below cannot race another save.
+    records where the text came from (manual, generated, uploaded); `how` and `session_id` who saved it (person,
+    agent_run, discovery). A save that changes neither the text nor a source commit keeps the version (and its
+    snapshot); only the revision and the links change."""
+    # Serialize saves per project so the folder / folder-less export check below cannot race another save
+    # (write_live takes the same lock again).
     conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
+    previous = None
     if document_id is None:
         if value.revision is not None:
-            raise HTTPException(400, 'New documents cannot reuse a revision')
-        document_id = uuid4()
-        revision, base = 1, None
+            raise HTTPException(400, documents.NEW_DOCUMENT_REVISION)
     else:
         previous = conn.execute(
-            'SELECT revision,current_version_id,folder FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE',
+            'SELECT * FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
             (document_id, project),
         ).fetchone()
         if previous is None:
-            raise HTTPException(404, 'Document not found')
+            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
         if previous['revision'] != value.revision:
-            raise HTTPException(
-                409, 'This document changed. Reload it before saving; your text has not been overwritten.'
-            )
-        revision, base = previous['revision'] + 1, previous['current_version_id']
+            raise HTTPException(409, documents.DOCUMENT_CHANGED)
         folder = previous['folder']
     conflict = export_conflict(conn, project, value.slug, folder, document_id)
     if conflict:
         raise HTTPException(409, conflict)
-    # Select only public inventory columns; credentials never enter document history.
-    sources = {
-        'environments': conn.execute(
-            'SELECT id,name FROM ka.environments WHERE project_id=%s AND id=ANY(%s) ORDER BY id FOR SHARE',
-            (project, value.environment_ids),
-        ).fetchall(),
-        'code_projects': conn.execute(
-            'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL AND id=ANY(%s) ORDER BY id FOR SHARE',
-            (project, value.code_project_ids),
-        ).fetchall(),
-        'services': conn.execute(
-            'SELECT id,name FROM ka.services WHERE project_id=%s AND id=ANY(%s) ORDER BY id FOR SHARE',
-            (project, value.service_ids),
-        ).fetchall(),
-        'servers': conn.execute(
-            'SELECT id,name,hostname FROM ka.servers WHERE project_id=%s AND id=ANY(%s) ORDER BY id FOR SHARE',
-            (project, value.server_ids),
-        ).fetchall(),
-        'deployments': conn.execute(
-            """SELECT d.id,d.service_id,d.server_id,COALESCE(e.name,d.environment) AS environment,d.runtime_name,
-            s.name || ' / ' || h.name || ' / ' || COALESCE(e.name,d.environment) AS name
-            FROM ka.service_deployments d JOIN ka.services s ON s.id=d.service_id JOIN ka.servers h ON h.id=d.server_id
-            LEFT JOIN ka.environments e ON e.id=d.environment_id
-            WHERE d.project_id=%s AND d.id=ANY(%s) ORDER BY d.id FOR SHARE OF d""",
-            (project, value.deployment_ids),
-        ).fetchall(),
-    }
-    if any(len(sources[key]) != len(getattr(value, field)) for key, field in DOCUMENT_RESOURCES.items()):
-        raise HTTPException(
-            400, 'A selected resource is no longer available. Reload resources and update the selection.'
-        )
-    if any(
-        row['service_id'] not in value.service_ids or row['server_id'] not in value.server_ids
-        for row in sources['deployments']
+    links = {field: getattr(value, field) for field in LINK_COLUMNS}
+    snapshot = documents.build_snapshot(
+        conn, project, links, value.source_commits, previous['source_snapshot'] if previous else None
+    )
+    content = {key: getattr(value, key) for key in CONTENT}
+    if (
+        previous is not None
+        and previous['slug'] == value.slug
+        and all(previous[key] == content[key] for key in CONTENT)
+        and all(_commits(previous['source_snapshot']).get(key) == commit for key, commit in _commits(snapshot).items())
     ):
-        raise HTTPException(400, 'Select the service and server belonging to each selected deployment')
-    snapshot = {
-        key: [{k: str(v) if isinstance(v, UUID) else v for k, v in row.items()} for row in rows]
-        for key, rows in sources.items()
-    }
-    if value.source_commits is not None:
-        if not set(value.source_commits) <= set(value.code_project_ids):
-            raise HTTPException(400, 'Source commits must belong to the selected code projects')
-        source_commits = {str(key): commit for key, commit in value.source_commits.items()}
-    elif base is not None:
-        previous_sources = conn.execute(
-            'SELECT source_snapshot FROM ka.document_versions WHERE id=%s', (base,)
-        ).fetchone()['source_snapshot']
-        source_commits = {
-            row['id']: row['git_commit'] for row in previous_sources['code_projects'] if row.get('git_commit')
-        }
-    else:
-        source_commits = {}
-    for row in snapshot['code_projects']:
-        if row['id'] in source_commits:
-            row['git_commit'] = source_commits[row['id']]
-    version_id = uuid4()
-    conn.execute(
-        """INSERT INTO ka.documents(id,project_id,slug,folder,current_version_id,revision) VALUES (%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug,current_version_id=EXCLUDED.current_version_id,revision=EXCLUDED.revision""",
-        (document_id, project, value.slug, folder, version_id, revision),
+        # Only the links changed: the version and the snapshot of what it was written from stay.
+        snapshot = previous['source_snapshot']
+    return documents.write_live(
+        conn,
+        project,
+        Provenance(how, actor, session_id),
+        document_id=document_id,
+        slug=value.slug,
+        folder=folder,
+        content=content,
+        snapshot=snapshot,
+        origin=origin,
+        revision=value.revision,
+        links=links,
     )
-    conn.execute(
-        """INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
-        tags,markdown,content_hash,source_snapshot,base_version_id,origin,created_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (
-            version_id,
-            document_id,
-            project,
-            revision,
-            value.title,
-            value.description,
-            value.purpose,
-            value.audience,
-            value.tags,
-            value.markdown,
-            hashlib.sha256(value.markdown.encode('utf-8')).hexdigest(),
-            Jsonb(snapshot),
-            base,
-            origin,
-            actor,
-        ),
-    )
-    # Fixed relation names, never identifiers supplied by an HTTP request.
-    for table, column, ids in (
-        ('document_code_projects', 'code_project_id', value.code_project_ids),
-        ('document_services', 'service_id', value.service_ids),
-        ('document_servers', 'server_id', value.server_ids),
-        ('document_deployments', 'deployment_id', value.deployment_ids),
-        ('document_environments', 'environment_id', value.environment_ids),
-    ):
-        conn.execute(f'DELETE FROM ka.{table} WHERE document_id=%s', (document_id,))
-        for resource_id in ids:
-            conn.execute(
-                f'INSERT INTO ka.{table}(document_id,project_id,{column}) VALUES (%s,%s,%s)',
-                (document_id, project, resource_id),
-            )
-    conn.execute(
-        """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-        VALUES (%s,%s,%s,'document',%s,%s)""",
-        (
-            project,
-            actor,
-            'document.created' if base is None else 'document.updated',
-            document_id,
-            Jsonb({'version': revision, 'version_id': str(version_id)}),
-        ),
-    )
-    return {'id': document_id, 'revision': revision, 'version_id': version_id}
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -485,7 +403,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 AND (%s::uuid IS NULL OR %s=ANY(server_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(deployment_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(environment_ids))
-                AND (NOT %s OR EXISTS (SELECT 1 FROM ka.document_drafts x WHERE x.document_id=d.id AND x.status='open'))"""
+                AND (NOT %s OR draft_count > 0)"""
             params = (
                 project,
                 q.strip(),
@@ -502,8 +420,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 has_drafts,
             )
             rows = conn.execute(
-                f"""SELECT d.*, (SELECT count(*) FROM ka.document_drafts x WHERE x.document_id=d.id
-                AND x.status='open') AS draft_count FROM ka.document_details d WHERE {where}
+                f"""SELECT d.* FROM ka.document_details d WHERE {where}
                 ORDER BY updated_at DESC,id LIMIT 50 OFFSET %s""",
                 (*params, offset),
             ).fetchall()
@@ -512,30 +429,46 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             ]
             return {'documents': rows, 'total': total}
 
+    def live_document(conn, project: UUID, document_id: UUID) -> None:
+        """404 unless `document_id` is a live document of the request's workspace (store reads take no project)."""
+        if not conn.execute(
+            'SELECT 1 FROM ka.live_documents WHERE id=%s AND project_id=%s', (document_id, project)
+        ).fetchone():
+            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+
     @router.get('/documents/{document_id}')
     def get_document(document_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
             row = conn.execute(
-                'SELECT * FROM ka.document_details WHERE id=%s AND project_id=%s', (document_id, project)
+                """SELECT d.*,l.markdown,l.source_snapshot FROM ka.document_details d
+                JOIN ka.live_documents l ON l.id=d.id WHERE d.id=%s AND d.project_id=%s""",
+                (document_id, project),
             ).fetchone()
             if row is None:
-                raise HTTPException(404, 'Document not found')
-            row['current_version'] = conn.execute(
-                'SELECT * FROM ka.document_versions WHERE id=%s', (row['current_version_id'],)
-            ).fetchone()
-            row['versions'] = conn.execute(
-                """SELECT v.id,v.version,v.title,v.origin,v.base_version_id,v.content_hash,v.created_at,
-                EXISTS (SELECT 1 FROM ka.document_drafts x WHERE x.promoted_version_id=v.id) AS from_draft
-                FROM ka.document_versions v WHERE v.document_id=%s ORDER BY v.version DESC""",
+                raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+            row['versions'] = documents.versions(conn, document_id)
+            row['drafts'] = conn.execute(
+                """SELECT x.id,x.title,CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,
+                x.session_id,p.email AS author,x.edited,x.base_version,x.stale,x.created_at,x.updated_at
+                FROM ka.document_drafts_view x LEFT JOIN ka.principals p ON p.id=x.created_by
+                WHERE x.document_id=%s ORDER BY x.created_at DESC,x.id""",
                 (document_id,),
             ).fetchall()
+            row['resource_links'] = documents.resource_links(conn, document_id)
             return row
+
+    @router.get('/documents/{document_id}/resource-history')
+    def resource_history(document_id: UUID) -> dict:
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            live_document(conn, project, document_id)
+            return {'history': documents.resource_history(conn, document_id)}
 
     @router.get('/documents/{document_id}/bundle')
     def bundle(document_id: UUID) -> Response:
         document = get_document(document_id)
-        markdown = document['current_version']['markdown']
+        markdown = document['markdown']
         data = io.BytesIO()
         with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as archive:
             folder = document['slug']
@@ -560,14 +493,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             ) from None
         return {'folder': folder}
 
-    @router.get('/documents/{document_id}/versions/{version_id}')
-    def get_version(document_id: UUID, version_id: UUID) -> dict:
+    @router.get('/documents/{document_id}/versions/{version}')
+    def get_version(document_id: UUID, version: int) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            row = conn.execute(
-                'SELECT * FROM ka.document_versions WHERE id=%s AND document_id=%s AND project_id=%s',
-                (version_id, document_id, project),
-            ).fetchone()
+            live_document(conn, project, document_id)
+            row = documents.version(conn, document_id, version)
             if row is None:
                 raise HTTPException(404, 'Document version not found')
             return row
@@ -581,7 +512,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 old_slug = old_folder = None
                 if document_id is not None:
                     old = conn.execute(
-                        'SELECT slug,folder FROM ka.documents WHERE id=%s AND project_id=%s', (document_id, project)
+                        'SELECT slug,folder FROM ka.live_documents WHERE id=%s AND project_id=%s',
+                        (document_id, project),
                     ).fetchone()
                     if old:
                         old_slug, old_folder = old['slug'], old['folder']
@@ -621,7 +553,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             # the document, then (cascade) its drafts. Without it the two could deadlock.
             conn.execute('SELECT id FROM ka.projects WHERE id=%s FOR NO KEY UPDATE', (project,))
             row = conn.execute(
-                'SELECT revision FROM ka.documents WHERE id=%s AND project_id=%s FOR UPDATE', (document_id, project)
+                'SELECT revision FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
+                (document_id, project),
             ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Document not found')
@@ -630,11 +563,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             actor = db.actor(conn, subject, email)
             current = export_input(conn, document_id)
             conn.execute('DELETE FROM ka.documents WHERE id=%s', (document_id,))
-            conn.execute(
-                """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,'document.deleted','document',%s,%s)""",
-                (project, actor, document_id, Jsonb({'revision': revision})),
-            )
+            audit(conn, project, actor, 'document.deleted', 'document', document_id, {'revision': revision})
         # After the commit: the export goes so a Refresh drops it from search; a failure never fails the delete.
         if current is not None:
             try:

@@ -27,14 +27,18 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             rows = conn.execute(
                 """SELECT f.folder, f.document_count, f.updated_at,
-                (SELECT max(v.created_at) FROM ka.documents d JOIN ka.document_versions v ON v.document_id=d.id
-                    WHERE d.project_id=%s AND d.folder=f.folder AND v.origin='generated') AS last_generated_at,
-                COALESCE((SELECT array_agg(DISTINCT r.name::text ORDER BY r.name::text) FROM ka.documents d
-                    JOIN ka.document_code_projects l ON l.document_id=d.id JOIN ka.repositories r ON r.id=l.code_project_id
+                (SELECT max(g.at) FROM (
+                    SELECT d.version_created_at AS at FROM ka.live_documents d
+                    WHERE d.project_id=%s AND d.folder=f.folder AND d.origin='generated'
+                    UNION ALL SELECT a.created_at FROM ka.document_archive a JOIN ka.live_documents d ON d.id=a.document_id
+                    WHERE d.project_id=%s AND d.folder=f.folder AND a.origin='generated') g) AS last_generated_at,
+                COALESCE((SELECT array_agg(DISTINCT r.name::text ORDER BY r.name::text) FROM ka.live_documents d
+                    JOIN ka.document_resources l ON l.document_id=d.id AND l.removed_at IS NULL
+                    JOIN ka.repositories r ON r.id=l.code_project_id
                     WHERE d.project_id=%s AND d.folder=f.folder),'{}') AS code_projects
-                FROM (SELECT folder, count(*) AS document_count, max(updated_at) AS updated_at FROM ka.documents
+                FROM (SELECT folder, count(*) AS document_count, max(updated_at) AS updated_at FROM ka.live_documents
                     WHERE project_id=%s AND folder IS NOT NULL GROUP BY folder) f ORDER BY f.folder""",
-                (project, project, project),
+                (project, project, project, project),
             ).fetchall()
         try:
             generated = generated_docs_folder()
@@ -52,7 +56,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         with workspace(db, app_name) as (conn, project):
             documents = conn.execute(
                 """SELECT d.id,d.slug,d.title,d.version,d.updated_at,
-                (SELECT max(v.created_at) FROM ka.document_versions v WHERE v.document_id=d.id AND v.origin='generated') AS last_generated_at,
+                (SELECT max(g.at) FROM (SELECT d.version_created_at AS at WHERE d.origin='generated'
+                    UNION ALL SELECT a.created_at FROM ka.document_archive a
+                    WHERE a.document_id=d.id AND a.origin='generated') g) AS last_generated_at,
                 COALESCE((SELECT array_agg(r.name::text ORDER BY lower(r.name)) FROM ka.repositories r WHERE r.id=ANY(d.code_project_ids)),'{}') AS code_projects
                 FROM ka.document_details d WHERE d.project_id=%s AND d.folder=%s ORDER BY lower(d.title),d.id""",
                 (project, folder),
