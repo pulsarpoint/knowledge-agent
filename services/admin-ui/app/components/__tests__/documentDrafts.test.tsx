@@ -33,8 +33,6 @@ const doc = {
   deployment_ids: [],
   revision: 1,
   version: 1,
-  current_version_id: "v1",
-  published_version_id: null,
   content_hash: "a",
   created_at: "2026-10-12T10:00:00Z",
   updated_at: "2026-10-12T10:00:00Z",
@@ -51,9 +49,7 @@ const newDraft = {
   session_title: "Disk layout",
   author: null,
   edited: false,
-  status: "open",
   revision: 1,
-  base_version_id: null,
   base_version: null,
   live_version: null,
   stale: false,
@@ -72,7 +68,6 @@ const detail = {
     {
       kind: "read",
       source_document_id: null,
-      source_version_id: null,
       source_title: "Old overview",
       source_version: 4,
       deleted: true,
@@ -80,8 +75,6 @@ const detail = {
   ],
   live_markdown: null,
   document_title: null,
-  promoted_version_id: null,
-  decided_at: null,
 };
 
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
@@ -118,7 +111,7 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
     "GET /api/documentation/documents?has_drafts=true": () => [200, { documents: [doc], total: 1 }],
     "GET /api/documentation/resources": () => [200, resources],
     "GET /api/documentation/drafts?new=true": () => [200, { drafts: [newDraft] }],
-    "POST /api/documentation/drafts/d9/discard": () => [200, { ...detail, status: "discarded" }],
+    "POST /api/documentation/drafts/d9/discard": () => [200, {}],
   });
   show("/documents");
   expect(await screen.findByRole("link", { name: "2 drafts" })).toHaveAttribute("href", "/documents/doc-1?tab=drafts");
@@ -142,13 +135,7 @@ test("a new-document draft page previews it, lists its sources and Promote creat
     "GET /api/documentation/drafts/d9": () => [200, detail],
     "POST /api/documentation/drafts/d9/promote": () => [
       200,
-      {
-        draft: { ...detail, status: "promoted", document_id: "doc-9" },
-        document_id: "doc-9",
-        version_id: "v1",
-        revision: 1,
-        export_error: null,
-      },
+      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0, export_error: null },
     ],
   });
   const router = show("/documents/drafts/d9");
@@ -156,7 +143,7 @@ test("a new-document draft page previews it, lists its sources and Promote creat
   expect(screen.getByText("Old overview v4 (deleted)")).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Changes" })).toBeNull(); // nothing live to compare with
   fireEvent.click(screen.getByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-9"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d9/promote")!.body).toEqual({
     revision: 1,
     confirm_stale: false,
@@ -249,22 +236,14 @@ test("a stale promote keeps the warning, reloads the draft and sends confirm_sta
     stale: false,
   };
   const calls = api({
+    "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [stale] }],
     "GET /api/documentation/drafts/d2": () => [
       200,
       reloaded ? { ...stale, live_version: 2, live_markdown: "# v2 live", stale: true } : stale,
     ],
     "POST /api/documentation/drafts/d2/promote": (body) => {
       if (body.confirm_stale)
-        return [
-          200,
-          {
-            draft: { ...stale, status: "promoted" },
-            document_id: "doc-1",
-            version_id: "v3",
-            revision: 3,
-            export_error: null,
-          },
-        ];
+        return [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }];
       reloaded = true;
       return [409, { error: { message: STALE, code: "STALE_BASE" } }];
     },
@@ -295,9 +274,7 @@ test("a failed discard on the list shows why and refreshes the list so a retry w
     ],
     "POST /api/documentation/drafts/d9/discard": (body) => {
       fails = false;
-      return body.revision === 1
-        ? [409, { error: { message: "Changed meanwhile" } }]
-        : [200, { ...detail, status: "discarded" }];
+      return body.revision === 1 ? [409, { error: { message: "Changed meanwhile" } }] : [200, {}];
     },
   });
   show("/documents");
@@ -315,18 +292,62 @@ test("a promote whose export failed hands the export error to the document page"
     "POST /api/documentation/drafts/d9/promote": () => [
       200,
       {
-        draft: { ...detail, status: "promoted", document_id: "doc-9" },
-        document_id: "doc-9",
-        version_id: "v1",
-        revision: 1,
+        document_id: "d9",
+        version: 1,
+        revision: 2,
+        deleted_drafts: 0,
         export_error: "Saved. Writing the document file failed; use Export to folder to retry.",
       },
     ],
   });
   const router = show("/documents/drafts/d9");
   fireEvent.click(await screen.findByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-9"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
   expect(router.state.location.state).toEqual({
     notice: "Draft promoted to version 1. Saved. Writing the document file failed; use Export to folder to retry.",
   });
+});
+
+test("the Drafts tab lists the drafts with the resource filters: an environment asks GET /drafts?environment_id=", async () => {
+  const ofDocument = {
+    ...newDraft,
+    id: "d4",
+    document_id: "doc-1",
+    slug: "runbook",
+    folder: null,
+    title: "Runbook, shorter",
+    origin: "manual",
+    session_id: null,
+    session_title: null,
+    author: "ana@example.com",
+    base_version: 1,
+    live_version: 2,
+    stale: true,
+  };
+  const calls = api({
+    "GET /api/documentation/resources": () => [200, { ...resources, environments: [{ id: "env-1", name: "Prod" }] }],
+    "GET /api/documentation/drafts": () => [200, { drafts: [ofDocument, newDraft] }],
+    "GET /api/documentation/drafts?environment_id=env-1": () => [200, { drafts: [ofDocument] }],
+  });
+  const router = show("/documents?view=drafts");
+  const list = within(await screen.findByRole("region", { name: "Drafts" }));
+  expect(list.getByRole("link", { name: "Runbook, shorter" })).toHaveAttribute(
+    "href",
+    "/documents/doc-1?tab=drafts&draft=d4",
+  );
+  expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/drafts/d9");
+  expect(list.getByText("New document in servers/web-1/")).toBeInTheDocument();
+  expect(list.getByText("ana@example.com")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Search documents")).toBeNull();
+  await router.navigate("/documents?view=drafts&environment_id=env-1");
+  await waitFor(() =>
+    expect(calls.some((c) => c.key === "GET /api/documentation/drafts?environment_id=env-1")).toBe(true),
+  );
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("region", { name: "Drafts" })).queryByRole("link", { name: "Disk layout" }),
+    ).toBeNull(),
+  );
+  expect(screen.getByRole("link", { name: "Runbook, shorter" })).toBeInTheDocument();
+  expect(calls.some((c) => c.key.startsWith("GET /api/documentation/documents"))).toBe(false);
 });

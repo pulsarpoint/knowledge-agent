@@ -6,8 +6,9 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 
-/** The document page's Drafts tab: its open drafts (who wrote each, when, the version it is based on, "stale" when the
- * live version moved on) and the selected one in the draft view. */
+/** The document page's Drafts tab: its drafts, newest first (who wrote each, when, the version it is based on, "stale"
+ * when the live version moved on), and the selected one in the draft view with Edit, Promote and Discard. Promoting one
+ * deletes the others (the draft view asks first). */
 export default function DocumentDrafts({
   documentId,
   selected,
@@ -48,7 +49,7 @@ export default function DocumentDrafts({
   if (drafts.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
-        No open drafts. Save draft keeps the editor's text as a draft; agent runs write drafts too.
+        No drafts. Save draft keeps the editor's text as a draft; agent runs write drafts too.
       </p>
     );
   const shown = drafts.some((draft) => draft.id === open) ? open : null;
@@ -74,7 +75,7 @@ export default function DocumentDrafts({
             </Button>
             <p className="px-1 text-xs text-muted-foreground">
               <DraftAuthor draft={draft} />
-              {` · ${new Date(draft.updated_at).toLocaleString()} · based on version ${draft.base_version ?? "?"}`}
+              {` · ${new Date(draft.created_at).toLocaleString()} · based on version ${draft.base_version ?? "?"}`}
             </p>
           </li>
         ))}

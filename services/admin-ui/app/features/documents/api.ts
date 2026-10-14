@@ -1,4 +1,4 @@
-import { request } from "~/lib/api";
+import { ApiError, request } from "~/lib/api";
 import type { DocumentKey, ResourceIds } from "~/lib/resources";
 
 export interface DocumentResource {
@@ -28,8 +28,6 @@ export interface DocumentInput extends DocumentIds {
 }
 export interface DocumentSummary extends Omit<DocumentInput, "markdown" | "revision"> {
   id: string;
-  current_version_id: string;
-  published_version_id: string | null;
   revision: number;
   version: number;
   content_hash: string;
@@ -38,8 +36,9 @@ export interface DocumentSummary extends Omit<DocumentInput, "markdown" | "revis
   folder?: string | null;
   draft_count?: number;
 }
+export type DocumentOrigin = "manual" | "uploaded" | "generated";
+/** One version's content, by number: the live row (`live`) or an archived one. */
 export interface DocumentVersion {
-  id: string;
   version: number;
   title: string;
   description: string;
@@ -49,16 +48,50 @@ export interface DocumentVersion {
   markdown: string;
   content_hash: string;
   source_snapshot: DocumentResources;
-  origin: "manual" | "uploaded" | "generated";
-  base_version_id: string | null;
+  origin: DocumentOrigin;
+  from_draft: boolean;
+  session_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  live: boolean;
+}
+export type ResourceType = "environment" | "service" | "server" | "code_project" | "deployment";
+/** A link between the document and a resource: built for it (made with the document, never removed) or linked later. */
+export interface ResourceLink {
+  type: ResourceType;
+  id: string;
+  name: string | null;
+  connection: "built_for" | "linked";
+  added_how: "person" | "agent_run" | "discovery" | "migrated";
+  added_by: string | null;
+  session_id: string | null;
   created_at: string;
 }
+export interface ResourceLinkChange extends ResourceLink {
+  removed_at: string | null;
+  removed_by: string | null;
+}
+/** A draft of the document as the document page lists it (newest first). */
+export interface DocumentDraftRow {
+  id: string;
+  title: string;
+  origin: "manual" | "agent";
+  session_id: string | null;
+  author: string | null;
+  edited: boolean;
+  base_version: number | null;
+  stale: boolean;
+  created_at: string;
+  updated_at: string;
+}
 export interface DocumentDetail extends DocumentSummary {
-  current_version: DocumentVersion;
-  versions: (Pick<
-    DocumentVersion,
-    "id" | "version" | "title" | "origin" | "base_version_id" | "content_hash" | "created_at"
-  > & { from_draft?: boolean })[];
+  markdown: string;
+  source_snapshot: DocumentResources;
+  origin: DocumentOrigin;
+  from_draft: boolean;
+  versions: Pick<DocumentVersion, "version" | "title" | "origin" | "created_at" | "from_draft" | "live">[];
+  drafts: DocumentDraftRow[];
+  resource_links: ResourceLink[];
 }
 export const TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const MAX_TAGS = 10;
@@ -94,14 +127,22 @@ export const getDocuments = (params: URLSearchParams, signal?: AbortSignal) =>
   request<{ documents: DocumentSummary[]; total: number }>(`/api/documentation/documents?${params}`, { signal });
 export const getDocument = (id: string, signal?: AbortSignal) =>
   request<DocumentDetail>(`/api/documentation/documents/${id}`, { signal });
-export const getDocumentVersion = (id: string, versionId: string, signal?: AbortSignal) =>
-  request<DocumentVersion>(`/api/documentation/documents/${id}/versions/${versionId}`, { signal });
+export const getDocumentVersion = (id: string, version: number, signal?: AbortSignal) =>
+  request<DocumentVersion>(`/api/documentation/documents/${id}/versions/${version}`, { signal });
+export const getResourceHistory = (id: string, signal?: AbortSignal) =>
+  request<{ history: ResourceLinkChange[] }>(`/api/documentation/documents/${id}/resource-history`, { signal });
+/** The message of a save refused because it unticked a built-for link. */
+export const isBuiltForRefusal = (e: unknown) =>
+  e instanceof ApiError && e.status === 409 && e.message.startsWith("This document was built for");
 export const saveDocument = (value: DocumentInput, id?: string) =>
-  request<{ id: string; revision: number; version_id: string }>(`/api/documentation/documents${id ? `/${id}` : ""}`, {
-    method: id ? "PUT" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
-  });
+  request<{ id: string; revision: number; version: number; export_error?: string }>(
+    `/api/documentation/documents${id ? `/${id}` : ""}`,
+    {
+      method: id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    },
+  );
 export const deleteDocument = (id: string, revision: number) =>
   request(`/api/documentation/documents/${id}?revision=${revision}&confirmed=true`, { method: "DELETE" });
 export const getDocumentationPrompts = (signal?: AbortSignal, tag?: string) =>

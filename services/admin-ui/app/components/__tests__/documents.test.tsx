@@ -33,7 +33,6 @@ const resources = {
   ],
 };
 const first = {
-  id: "v1",
   version: 1,
   title: "Payments runbook",
   description: "Original description",
@@ -44,8 +43,11 @@ const first = {
   content_hash: "a".repeat(64),
   source_snapshot: { ...resources, code_projects: [{ ...resources.code_projects[0], git_commit: "a".repeat(40) }] },
   origin: "manual",
-  base_version_id: null,
+  from_draft: false,
+  session_id: null,
+  created_by: null,
   created_at: "2026-09-13T10:00:00Z",
+  live: false,
 };
 const document = {
   id: "doc-1",
@@ -61,16 +63,30 @@ const document = {
   deployment_ids: [],
   revision: 2,
   version: 2,
-  current_version_id: "v2",
-  published_version_id: null,
-  current_version: {
-    ...first,
-    id: "v2",
-    version: 2,
-    markdown: "# Current",
-    source_snapshot: { ...resources, code_projects: [{ ...resources.code_projects[0], git_commit: "b".repeat(40) }] },
-  },
-  versions: [{ ...first, id: "v2", version: 2 }, first],
+  origin: "manual",
+  from_draft: false,
+  markdown: "# Current",
+  source_snapshot: { ...resources, code_projects: [{ ...resources.code_projects[0], git_commit: "b".repeat(40) }] },
+  versions: [
+    {
+      version: 2,
+      title: "Payments runbook",
+      origin: "manual",
+      created_at: first.created_at,
+      from_draft: false,
+      live: true,
+    },
+    {
+      version: 1,
+      title: "Payments runbook",
+      origin: "manual",
+      created_at: first.created_at,
+      from_draft: false,
+      live: false,
+    },
+  ],
+  drafts: [],
+  resource_links: [],
   updated_at: "2026-09-13T11:00:00Z",
 };
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -79,7 +95,7 @@ function setup(url: string, saveStatus = 200) {
     const path = String(input);
     if (init?.method === "PUT" || init?.method === "POST")
       return saveStatus === 200
-        ? response({ id: "doc-1", revision: 3, version_id: "v3" })
+        ? response({ id: "doc-1", revision: 3, version: 3 })
         : response({ error: { message: "This document changed. Reload before saving." } }, saveStatus);
     if (init?.method === "DELETE") return response({ id: "doc-1" });
     if (path.endsWith("/resources")) return response(resources);
@@ -131,8 +147,11 @@ test("previews a saved version and loads it as an unsaved draft without changing
   const { fetch } = setup("/documents/doc-1");
   await screen.findByLabelText("Title");
   tab("Version history");
-  fireEvent.click(await screen.findByRole("button", { name: /Version 1/ }));
+  expect(await screen.findByRole("button", { name: /^Version 2 · Current/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Version 1/ })).not.toHaveTextContent("Current");
+  fireEvent.click(screen.getByRole("button", { name: /^Version 1/ }));
   expect(await screen.findByText("# Original")).toBeInTheDocument();
+  expect(fetch.mock.calls.some(([url]) => url === "/api/documentation/documents/doc-1/versions/1")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Use version as draft" }));
   expect(await screen.findByLabelText("Markdown")).toHaveValue("# Original");
   expect(screen.getByLabelText("Short description")).toHaveValue("Original description");

@@ -5,7 +5,9 @@ import { agentRunPath, sessionPath } from "~/features/sessions/api";
 import {
   discardDraft,
   getDraft,
+  otherDrafts,
   promoteDraft,
+  promoteWarning,
   STALE_BASE,
   type DraftDetail,
   type DraftSource,
@@ -82,8 +84,76 @@ export function SourceList({ sources, empty }: { sources: DraftSource[]; empty: 
   );
 }
 
+/** Asks before a promote that deletes the document's other drafts: "Promote and delete {n} other draft(s)?". */
+export function PromoteWarning({
+  others,
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  /** The other drafts the promote deletes; null: not asking. */
+  others: number | null;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <AlertDialog
+      open={others !== null}
+      onOpenChange={(value) => {
+        if (!value && !busy) onCancel();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{promoteWarning(others ?? 0)}</AlertDialogTitle>
+          <AlertDialogDescription>
+            Promoting makes this draft the live version and deletes the document's other drafts.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            onClick={(e) => {
+              e.preventDefault();
+              onConfirm();
+            }}
+          >
+            Promote
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Promote after asking when it deletes other drafts: `ask` counts them fresh (an agent may have added one) and either
+ * opens the warning (`others`) or runs `promote` at once. */
+export function usePromoteWarning(promote: () => void, onError: (message: string) => void) {
+  const [others, setOthers] = useState<number | null>(null);
+  return {
+    others,
+    ask: async (draft: { id: string; document_id: string | null }) => {
+      try {
+        const count = await otherDrafts(draft);
+        if (count > 0) setOthers(count);
+        else promote();
+      } catch (e) {
+        onError(failure(e, "Could not check the document's other drafts"));
+      }
+    },
+    confirm: () => {
+      setOthers(null);
+      promote();
+    },
+    cancel: () => setOthers(null),
+  };
+}
+
 /** One draft: who wrote it and when, the diff against the live version (a draft of a document) and the preview, its
- * sources, and Edit, Promote (a stale draft asks again: Promote anyway) and Discard while it is open. */
+ * sources, and Edit, Promote (asking first when it deletes other drafts; a stale draft asks again: Promote anyway) and
+ * Discard. Promote and Discard delete the draft; a draft gone meanwhile (404) shows the server's message. */
 export default function DraftView({
   draftId,
   reloadKey = 0,
@@ -119,7 +189,9 @@ export default function DraftView({
         }
       })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(failure(e, "Could not load the draft"));
+        if (controller.signal.aborted) return;
+        if (e instanceof ApiError && e.status === 404) setDraft(null); // promoted, discarded or replaced meanwhile
+        setError(failure(e, "Could not load the draft"));
       });
     return () => controller.abort();
   }, [draftId, reloadKey, load]);
@@ -163,6 +235,7 @@ export default function DraftView({
     }
   }
 
+  const warning = usePromoteWarning(() => void promote(false), setError);
   if (!draft)
     return error ? (
       <Alert variant="destructive">
@@ -172,7 +245,6 @@ export default function DraftView({
       <Skeleton className="h-48 w-full" />
     );
   const isNew = draft.document_id === null;
-  const open = draft.status === "open";
   return (
     <section aria-label="Draft" className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -186,22 +258,26 @@ export default function DraftView({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {draft.stale && <Badge variant="destructive">stale</Badge>}
-          {!open && <Badge variant="outline">{draft.status === "promoted" ? "Promoted" : "Discarded"}</Badge>}
-          {open && onEdit && (
+          {onEdit && (
             <Button type="button" variant="outline" disabled={busy} onClick={() => confirm(() => onEdit(draft))}>
               Edit
             </Button>
           )}
-          {open && (
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmDiscard(true)}>
-              Discard
-            </Button>
-          )}
-          {open && (
-            <Button type="button" disabled={busy || stale !== ""} onClick={() => confirm(() => void promote(false))}>
-              {busy && <Spinner data-icon="inline-start" />}Promote
-            </Button>
-          )}
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmDiscard(true)}>
+            Discard
+          </Button>
+          <Button
+            type="button"
+            disabled={busy || stale !== ""}
+            onClick={() =>
+              confirm(() => {
+                setError("");
+                void warning.ask(draft);
+              })
+            }
+          >
+            {busy && <Spinner data-icon="inline-start" />}Promote
+          </Button>
         </div>
       </div>
       {stale && (
@@ -254,7 +330,7 @@ export default function DraftView({
           <AlertDialogHeader>
             <AlertDialogTitle>{`Discard “${draft.title}”?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              The draft is no longer listed (it stays in the audit history). The live document does not change.
+              The draft is deleted (the audit history keeps a record). The live document does not change.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -271,6 +347,7 @@ export default function DraftView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <PromoteWarning others={warning.others} busy={busy} onConfirm={warning.confirm} onCancel={warning.cancel} />
     </section>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { FileText, Plus, RefreshCw } from "lucide-react";
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from "./api";
-import { discardDraft, getNewDrafts, type DraftSummary } from "./drafts";
+import { discardDraft, draftPath, getDrafts, getNewDrafts, type DraftSummary } from "./drafts";
 import { DraftAuthor } from "./DraftView";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -26,12 +26,25 @@ import { Label } from "~/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 /** The resource filters above the list, and the link counts each document shows. */
 const FILTERS = kindsOf(["code_projects", "services", "servers", "environments"]);
 const COUNTED = kindsOf(["code_projects", "services", "servers"]);
 const draftsLabel = (count: number) => (count === 1 ? "1 draft" : `${count} drafts`);
+/** The Drafts view's filters: the resource filters' query parameters, passed to GET /drafts as they are. */
+function draftFilter(params: URLSearchParams): Record<string, string> {
+  const filter: Record<string, string> = {};
+  for (const { field } of FILTERS) {
+    const key = field.slice(0, -1);
+    const value = params.get(key);
+    if (value) filter[key] = value;
+  }
+  return filter;
+}
 
+/** Documents: the live documents (search, resource filters, Has drafts) with the new documents' drafts above them, or,
+ * on the Drafts tab (?view=drafts), every draft (new documents and drafts of documents) with the same resource filters. */
 export default function DocumentsView() {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<DocumentSummary[]>([]);
@@ -44,22 +57,28 @@ export default function DocumentsView() {
   const [error, setError] = useState("");
   const [discardError, setDiscardError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const offset = Number(params.get("offset") || 0);
+  const draftsView = params.get("view") === "drafts";
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    Promise.all([
-      getDocuments(params, controller.signal),
-      getDocumentResources(controller.signal),
-      getNewDrafts(controller.signal),
-    ])
-      .then(([data, assets, drafts]) => {
+    const listed = draftsView
+      ? getDrafts(draftFilter(params), controller.signal).then((value) => () => setDrafts(value.drafts))
+      : Promise.all([getDocuments(params, controller.signal), getNewDrafts(controller.signal)]).then(
+          ([data, created]) =>
+            () => {
+              setRows(data.documents);
+              setTotal(data.total);
+              setNewDrafts(created.drafts);
+            },
+        );
+    Promise.all([listed, getDocumentResources(controller.signal)])
+      .then(([show, assets]) => {
         if (!controller.signal.aborted) {
-          setRows(data.documents);
-          setTotal(data.total);
+          show();
           setResources(assets);
-          setNewDrafts(drafts.drafts);
         }
       })
       .catch((e) => {
@@ -97,10 +116,29 @@ export default function DocumentsView() {
       setBusy(false);
     }
   }
+  const discardButton = (draft: DraftSummary) => (
+    <Button size="sm" variant="outline" aria-label={`Discard ${draft.title}`} onClick={() => setDiscarding(draft)}>
+      Discard
+    </Button>
+  );
   return (
     <div className="flex flex-col gap-6">
+      <Tabs
+        value={draftsView ? "drafts" : "documents"}
+        onValueChange={(v) =>
+          // The resource filters carry over; search, Has drafts and paging belong to the documents list.
+          setParams({ ...draftFilter(params), ...(v === "drafts" ? { view: "drafts" } : {}) }, { replace: true })
+        }
+      >
+        <TabsList>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="drafts">Drafts</TabsTrigger>
+        </TabsList>
+      </Tabs>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">{total} documents</p>
+        <p className="text-sm text-muted-foreground">
+          {draftsView ? (loading ? "Drafts" : draftsLabel(drafts.length)) : `${total} documents`}
+        </p>
         <div className="flex gap-2">
           <Button variant="outline" disabled={loading} onClick={() => setRefresh((n) => n + 1)}>
             <RefreshCw data-icon="inline-start" />
@@ -115,15 +153,17 @@ export default function DocumentsView() {
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Field>
-          <FieldLabel htmlFor="document-query">Search documents</FieldLabel>
-          <Input
-            id="document-query"
-            placeholder="Title, slug or description"
-            value={params.get("q") || ""}
-            onChange={(e) => filter("q", e.target.value)}
-          />
-        </Field>
+        {!draftsView && (
+          <Field>
+            <FieldLabel htmlFor="document-query">Search documents</FieldLabel>
+            <Input
+              id="document-query"
+              placeholder="Title, slug or description"
+              value={params.get("q") || ""}
+              onChange={(e) => filter("q", e.target.value)}
+            />
+          </Field>
+        )}
         {FILTERS.map(({ key: kind, field, label, plural }) => {
           const key = field.slice(0, -1); // the filter's query parameter: code_project_id, service_id, ...
           return (
@@ -147,21 +187,87 @@ export default function DocumentsView() {
             </Field>
           );
         })}
-        <div className="flex items-center gap-2 self-end pb-2">
-          <Checkbox
-            id="filter-has-drafts"
-            checked={params.get("has_drafts") === "true"}
-            onCheckedChange={(on) => filter("has_drafts", on === true ? "true" : "")}
-          />
-          <Label htmlFor="filter-has-drafts">Has drafts</Label>
-        </div>
+        {!draftsView && (
+          <div className="flex items-center gap-2 self-end pb-2">
+            <Checkbox
+              id="filter-has-drafts"
+              checked={params.get("has_drafts") === "true"}
+              onCheckedChange={(on) => filter("has_drafts", on === true ? "true" : "")}
+            />
+            <Label htmlFor="filter-has-drafts">Has drafts</Label>
+          </div>
+        )}
       </div>
       {(error || discardError) && (
         <Alert variant="destructive">
           <AlertDescription>{error || discardError}</AlertDescription>
         </Alert>
       )}
-      {newDrafts.length > 0 && (
+      {draftsView &&
+        (loading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : (
+          !error &&
+          (drafts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No matching drafts.</p>
+          ) : (
+            <section aria-label="Drafts" className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Draft</TableHead>
+                    <TableHead>Document</TableHead>
+                    <TableHead>Written by</TableHead>
+                    <TableHead>Updated</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {drafts.map((draft) => (
+                    <TableRow key={draft.id}>
+                      <TableCell className="max-w-md whitespace-normal">
+                        <Link className="font-medium underline-offset-4 hover:underline" to={draftPath(draft)}>
+                          {draft.title}
+                        </Link>
+                        {draft.stale && (
+                          <Badge variant="destructive" className="ml-2">
+                            stale
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-normal">
+                        {draft.document_id ? (
+                          <Link className="underline-offset-4 hover:underline" to={`/documents/${draft.document_id}`}>
+                            Open document
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            New document{draft.folder ? ` in ${draft.folder}/` : ""}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <DraftAuthor draft={draft} />
+                      </TableCell>
+                      <TableCell>{new Date(draft.updated_at).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <Link to={draftPath(draft)} aria-label={`Open ${draft.title}`}>
+                              Open
+                            </Link>
+                          </Button>
+                          {discardButton(draft)}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
+          ))
+        ))}
+      {!draftsView && newDrafts.length > 0 && (
         <section aria-label="New drafts" className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold">New drafts</h2>
           <div className="rounded-lg border">
@@ -198,14 +304,7 @@ export default function DocumentsView() {
                             Open
                           </Link>
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          aria-label={`Discard ${draft.title}`}
-                          onClick={() => setDiscarding(draft)}
-                        >
-                          Discard
-                        </Button>
+                        {discardButton(draft)}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -215,7 +314,7 @@ export default function DocumentsView() {
           </div>
         </section>
       )}
-      {loading ? (
+      {draftsView ? null : loading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
         !error &&
@@ -287,7 +386,7 @@ export default function DocumentsView() {
           </>
         ))
       )}
-      {total > 50 && (
+      {!draftsView && total > 50 && (
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">
             {offset + 1}–{Math.min(offset + 50, total)} of {total}
@@ -320,7 +419,9 @@ export default function DocumentsView() {
           <AlertDialogHeader>
             <AlertDialogTitle>{`Discard “${discarding?.title ?? ""}”?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              The draft is no longer listed (it stays in the audit history). No document is created.
+              {discarding?.document_id
+                ? "The draft is deleted (the audit history keeps a record). The live document does not change."
+                : "The draft is deleted (the audit history keeps a record). No document is created."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

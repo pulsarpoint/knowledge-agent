@@ -58,7 +58,7 @@ export default function DraftPageView() {
             setNotice("");
             setEditing(draft);
           }}
-          onLoaded={(draft) => setConverted(draft.document_id && draft.status === "open" ? draft : null)}
+          onLoaded={(draft) => setConverted(draft.document_id ? draft : null)}
           onPromoted={(result) =>
             navigate(`/documents/${result.document_id}`, { state: { notice: promotedNotice(result) } })
           }

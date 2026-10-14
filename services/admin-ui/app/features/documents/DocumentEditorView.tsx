@@ -8,6 +8,7 @@ import {
   getDocument,
   getDocumentResources,
   getDocumentVersion,
+  isBuiltForRefusal,
   saveDocument,
   type DocumentDetail,
   type DocumentInput,
@@ -24,6 +25,7 @@ import AgentChat from "~/features/sessions/AgentChat";
 import DocumentAgentRuns from "./DocumentAgentRuns";
 import DocumentConnections from "./DocumentConnections";
 import DocumentDrafts from "./DocumentDrafts";
+import DocumentLinkHistory from "./DocumentLinkHistory";
 import Markdown from "~/components/Markdown";
 import DocumentResourceSelection from "./DocumentResourceSelection";
 import UnsavedDocumentChanges from "./UnsavedDocumentChanges";
@@ -103,13 +105,11 @@ function Editor({
           purpose: document.purpose,
           audience: document.audience,
           tags: document.tags,
-          markdown: document.current_version.markdown,
+          markdown: document.markdown,
           ...pickIds(DOCUMENT_KINDS, document),
           revision: document.revision,
           source_commits: Object.fromEntries(
-            document.current_version.source_snapshot.code_projects
-              .filter((r) => r.git_commit)
-              .map((r) => [r.id, r.git_commit!]),
+            document.source_snapshot.code_projects.filter((r) => r.git_commit).map((r) => [r.id, r.git_commit!]),
           ),
         }
       : {
@@ -138,6 +138,11 @@ function Editor({
   // A draft loaded with Edit: Save draft updates it instead of starting a new one.
   const [editingDraft, setEditingDraft] = useState<{ id: string; revision: number; title: string } | null>(null);
   const [historical, setHistorical] = useState<DocumentVersion | null>(null);
+  // The document's active links: the built-for ones are locked in Linked resources. A save refused because it unticked a
+  // built-for link (the page was loaded before that link existed) reloads them; the refusal shows under the picker.
+  const [links, setLinks] = useState(document?.resource_links ?? []);
+  const [linksError, setLinksError] = useState("");
+  const [linksLoad, setLinksLoad] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -171,9 +176,24 @@ function Editor({
     setPending(true);
     setError("");
     try {
+      // A built-for link always stays (locked in the picker), whatever a loaded version's snapshot held.
+      const kept = Object.fromEntries(
+        DOCUMENT_KINDS.map(({ field }) => [
+          field,
+          [
+            ...new Set([
+              ...(value[field] ?? []),
+              ...links
+                .filter((link) => link.connection === "built_for" && `${link.type}_ids` === field)
+                .map((link) => link.id),
+            ]),
+          ],
+        ]),
+      );
       const saved = await saveDocument(
         {
           ...value,
+          ...kept,
           tags: tags
             .split(",")
             .map((tag) => tag.trim())
@@ -184,7 +204,11 @@ function Editor({
       leaving.current = true;
       onSaved(saved.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save document");
+      if (document && isBuiltForRefusal(e)) {
+        setLinksError((e as Error).message);
+        setTab("resources");
+        await reloadLinks(document.id);
+      } else setError(e instanceof Error ? e.message : "Could not save document");
     } finally {
       setPending(false);
     }
@@ -223,12 +247,23 @@ function Editor({
       setPending(false);
     }
   }
-  async function openVersion(id: string) {
+  /** The document's current links into the picker (built-for ones locked, ticked); the text and revision stay. */
+  async function reloadLinks(id: string) {
+    try {
+      const fresh = await getDocument(id);
+      setLinks(fresh.resource_links);
+      setValue((old) => ({ ...old, ...pickIds(DOCUMENT_KINDS, fresh) }));
+      setLinksLoad((n) => n + 1);
+    } catch {
+      /* the refusal stays shown; a page reload loads the links */
+    }
+  }
+  async function openVersion(number: number) {
     if (!document) return;
     setPending(true);
     setError("");
     try {
-      setHistorical(await getDocumentVersion(document.id, id));
+      setHistorical(await getDocumentVersion(document.id, number));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load version");
     } finally {
@@ -508,6 +543,7 @@ function Editor({
             <DocumentResourceSelection
               resources={resources}
               value={value}
+              builtFor={links.filter((link) => link.connection === "built_for")}
               onChange={(next) =>
                 setValue({
                   ...next,
@@ -517,6 +553,11 @@ function Editor({
                 })
               }
             />
+            {linksError && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertDescription>{linksError}</AlertDescription>
+              </Alert>
+            )}
             {Object.keys(value.source_commits ?? {}).length > 0 && (
               <div className="mt-4 flex flex-col gap-2">
                 <h3 className="font-medium">Documented source commits</h3>
@@ -528,21 +569,22 @@ function Editor({
                 ))}
               </div>
             )}
+            {document && <DocumentLinkHistory documentId={document.id} reloadKey={linksLoad} />}
           </TabsContent>
           <TabsContent value="history">
             <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
               <div className="flex flex-col gap-2">
                 {document?.versions.map((version) => (
                   <Button
-                    key={version.id}
+                    key={version.version}
                     type="button"
-                    variant={historical?.id === version.id ? "secondary" : "outline"}
+                    variant={historical?.version === version.version ? "secondary" : "outline"}
                     className="h-auto justify-start whitespace-normal py-3 text-left"
-                    onClick={() => void openVersion(version.id)}
+                    onClick={() => void openVersion(version.version)}
                   >
                     <span>
                       Version {version.version}
-                      {version.id === document.current_version_id ? " · Current" : ""}
+                      {version.live ? " · Current" : ""}
                       {version.from_draft ? " · from draft" : ""}
                       <span className="block text-xs font-normal text-muted-foreground">
                         {new Date(version.created_at).toLocaleString()}
@@ -773,7 +815,14 @@ export default function DocumentEditorView() {
   };
   const onPromoted = (result: PromoteResult) => {
     setNotice(promotedNotice(result));
-    setAgentDraft((d) => (d && d.id === result.draft.id ? { ...d, status: result.draft.status } : d));
+    // The promote deleted every draft of the document: the pane's run's draft was promoted or replaced.
+    setAgentDraft((d) =>
+      d && d.id === result.draft_id
+        ? { ...d, status: "promoted" }
+        : d && d.status === "open" && d.document_id === result.document_id
+          ? { ...d, status: "replaced" }
+          : d,
+    );
     setParams({ tab: "drafts" }, { replace: true });
     setRefresh((n) => n + 1);
   };

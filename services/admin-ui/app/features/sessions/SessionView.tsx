@@ -84,7 +84,10 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   const hasDraft = Boolean(documentDraft) || Boolean(session.draft);
   const closed = session.status === "closed";
   const draftTitle = session.draft_turn ? `Draft · turn ${session.draft_turn}` : "Draft";
-  const promotedTo = documentDraft?.status === "promoted" ? (documentDraft.document_id ?? session.document_id) : null;
+  const promotedTo =
+    documentDraft?.status === "promoted" || documentDraft?.status === "replaced"
+      ? (documentDraft.document_id ?? session.document_id)
+      : null;
   // The page fills the screen below the app header and never grows past it, so the message box stays visible.
   return (
     <div ref={fill.ref} style={fill.style} className="flex min-w-0 flex-col">
@@ -136,6 +139,11 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
               {documentDraft?.status === "promoted" && (
                 <p className="text-xs text-muted-foreground">
                   The document draft was promoted. The agent's next finished turn starts a new draft.
+                </p>
+              )}
+              {documentDraft?.status === "replaced" && (
+                <p className="text-xs text-muted-foreground">
+                  Replaced by another promoted draft. The agent's next finished turn starts a new draft.
                 </p>
               )}
               {documentDraft?.status === "discarded" && (

@@ -18,21 +18,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 const at = "2026-10-12T10:00:00Z";
 const resources = { code_projects: [], services: [], servers: [], deployments: [], environments: [] };
-const version = {
-  id: "v2",
-  version: 2,
-  title: "Runbook",
-  description: "How to run it",
-  purpose: "runbook",
-  audience: "both",
-  tags: [],
-  markdown: "# Runbook v2 live",
-  content_hash: "a".repeat(64),
-  source_snapshot: resources,
-  origin: "manual",
-  base_version_id: "v1",
-  created_at: at,
-};
 const document = {
   id: "doc-1",
   slug: "runbook",
@@ -48,16 +33,19 @@ const document = {
   environment_ids: [],
   revision: 2,
   version: 2,
-  current_version_id: "v2",
-  published_version_id: null,
   content_hash: "a",
+  origin: "manual",
+  from_draft: true,
   created_at: at,
   updated_at: at,
-  current_version: version,
+  markdown: "# Runbook v2 live",
+  source_snapshot: resources,
   versions: [
-    { ...version, from_draft: true },
-    { ...version, id: "v1", version: 1, from_draft: false },
+    { version: 2, title: "Runbook", origin: "manual", created_at: at, from_draft: true, live: true },
+    { version: 1, title: "Runbook", origin: "manual", created_at: at, from_draft: false, live: false },
   ],
+  drafts: [],
+  resource_links: [],
 };
 const summary = {
   id: "d1",
@@ -70,9 +58,7 @@ const summary = {
   session_title: "Runbook",
   author: null,
   edited: false,
-  status: "open",
   revision: 1,
-  base_version_id: "v1",
   base_version: 1,
   live_version: 2,
   stale: true,
@@ -89,13 +75,10 @@ const detail = {
   resource_ids: {},
   live_markdown: "# Runbook v2 live",
   document_title: "Runbook",
-  promoted_version_id: null,
-  decided_at: null,
   sources: [
     {
       kind: "parent",
       source_document_id: "doc-1",
-      source_version_id: "v1",
       source_title: "Runbook",
       source_version: 1,
       deleted: false,
@@ -182,13 +165,7 @@ test("Save draft on a new document creates a new-document draft and opens its pa
 });
 
 test("a stale draft shows the diff against the live version and promotes only on Promote anyway", async () => {
-  const promoted = {
-    draft: { ...detail, status: "promoted" },
-    document_id: "doc-1",
-    version_id: "v3",
-    revision: 3,
-    export_error: null,
-  };
+  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null };
   const calls = api({
     ...base,
     "POST /api/documentation/drafts/d1/promote": (body) =>
@@ -244,7 +221,6 @@ test("Connections adds and removes dependencies and shows what uses the document
       {
         kind: "read",
         source_document_id: null,
-        source_version_id: null,
         source_title: "Old notes",
         source_version: 2,
         deleted: true,
@@ -316,13 +292,7 @@ test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the t
 });
 
 test("with unsaved changes, Promote on the Drafts tab asks first; Keep editing promotes nothing", async () => {
-  const promoted = {
-    draft: { ...detail, status: "promoted" },
-    document_id: "doc-1",
-    version_id: "v3",
-    revision: 3,
-    export_error: null,
-  };
+  const promoted = { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null };
   const calls = api({ ...base, "POST /api/documentation/drafts/d1/promote": () => [200, promoted] });
   show("/documents/doc-1?tab=drafts&draft=d1");
   const view = within(await screen.findByRole("region", { name: "Draft" }));
@@ -370,4 +340,41 @@ test("with unsaved changes, Ask agent opens the pane and keeps the text; only th
   expect(screen.queryByRole("alertdialog")).toBeNull();
   await waitFor(() => expect(calls.some((c) => c.key === OPTIONS)).toBe(true));
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
+});
+
+test("the Drafts tab lists drafts newest first; Promote with two other drafts asks first", async () => {
+  const older = { ...summary, id: "d0", title: "First try", created_at: "2026-10-11T10:00:00Z", stale: false };
+  const newer = { ...summary, id: "d2", title: "Third try", created_at: "2026-10-13T10:00:00Z", stale: false };
+  const fresh = { ...detail, stale: false };
+  const calls = api({
+    ...base,
+    "GET /api/documentation/documents/doc-1/drafts": () => [
+      200,
+      { drafts: [newer, { ...summary, stale: false }, older] },
+    ],
+    "GET /api/documentation/drafts/d1": () => [200, fresh],
+    "POST /api/documentation/drafts/d1/promote": () => [
+      200,
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 2, export_error: null },
+    ],
+  });
+  show("/documents/doc-1?tab=drafts&draft=d1");
+  const list = within(await screen.findByRole("list", { name: "Drafts" }));
+  expect(list.getAllByRole("listitem").map((item) => within(item).getByRole("button").textContent)).toEqual([
+    "Third try",
+    "Runbook",
+    "First try",
+  ]);
+  const view = within(await screen.findByRole("region", { name: "Draft" }));
+  fireEvent.click(view.getByRole("button", { name: "Promote" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Promote and delete 2 other draft(s)?")).toBeInTheDocument();
+  expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
+  fireEvent.click(dialog.getByRole("button", { name: "Promote" }));
+  await waitFor(() =>
+    expect(calls.filter((c) => c.key === "POST /api/documentation/drafts/d1/promote").map((c) => c.body)).toEqual([
+      { revision: 1, confirm_stale: false },
+    ]),
+  );
+  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
 });

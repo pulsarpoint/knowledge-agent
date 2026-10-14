@@ -7,7 +7,6 @@ export type DraftOrigin = "manual" | "agent";
 export interface DraftSource {
   kind: "parent" | "read";
   source_document_id: string | null;
-  source_version_id: string | null;
   source_title: string;
   source_version: number | null;
   deleted: boolean;
@@ -24,9 +23,7 @@ export interface DraftSummary {
   session_title: string | null;
   author: string | null;
   edited: boolean;
-  status: "open" | "promoted" | "discarded";
   revision: number;
-  base_version_id: string | null;
   base_version: number | null;
   live_version: number | null;
   stale: boolean;
@@ -39,8 +36,6 @@ export interface DraftDetail extends DraftSummary, DraftContent {
   sources: DraftSource[];
   live_markdown: string | null;
   document_title: string | null;
-  promoted_version_id: string | null;
-  decided_at: string | null;
 }
 export type DraftCreate = Partial<DraftContent> & {
   document_id?: string;
@@ -49,11 +44,23 @@ export type DraftCreate = Partial<DraftContent> & {
   resource_ids?: ResourceIds<DocumentKey>;
 };
 export interface PromoteResult {
-  draft: DraftDetail;
   document_id: string;
-  version_id: string;
+  version: number;
   revision: number;
+  /** The document's other drafts the promote deleted. */
+  deleted_drafts: number;
   export_error: string | null;
+  /** The promoted draft (added here; the server's answer does not repeat it). */
+  draft_id: string;
+}
+/** GET /drafts filters: only brand-new documents' drafts, or the drafts linked to a resource. */
+export interface DraftFilter {
+  new?: boolean;
+  environment_id?: string;
+  service_id?: string;
+  server_id?: string;
+  code_project_id?: string;
+  deployment_id?: string;
 }
 export interface LinkedDocument {
   id: string;
@@ -79,8 +86,12 @@ const base = "/api/documentation";
 const draftUrl = (id: string) => `${base}/drafts/${encodeURIComponent(id)}`;
 const documentUrl = (id: string) => `${base}/documents/${encodeURIComponent(id)}`;
 
-export const getNewDrafts = (signal?: AbortSignal) =>
-  request<{ drafts: DraftSummary[] }>(`${base}/drafts?new=true`, { signal });
+export function getDrafts(filter: DraftFilter, signal?: AbortSignal) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filter)) if (value) params.set(key, String(value));
+  return request<{ drafts: DraftSummary[] }>(`${base}/drafts${params.size ? `?${params}` : ""}`, { signal });
+}
+export const getNewDrafts = (signal?: AbortSignal) => getDrafts({ new: true }, signal);
 export const getDocumentDrafts = (documentId: string, signal?: AbortSignal) =>
   request<{ drafts: DraftSummary[] }>(`${documentUrl(documentId)}/drafts`, { signal });
 export const getDraft = (id: string, signal?: AbortSignal) => request<DraftDetail>(draftUrl(id), { signal });
@@ -88,9 +99,20 @@ export const createDraft = (value: DraftCreate) => request<DraftDetail>(`${base}
 export const updateDraft = (id: string, revision: number, content: DraftContent) =>
   request<DraftDetail>(draftUrl(id), json("PUT", { revision, ...content }));
 export const promoteDraft = (id: string, revision: number, confirmStale: boolean) =>
-  request<PromoteResult>(`${draftUrl(id)}/promote`, json("POST", { revision, confirm_stale: confirmStale }));
+  request<Omit<PromoteResult, "draft_id">>(
+    `${draftUrl(id)}/promote`,
+    json("POST", { revision, confirm_stale: confirmStale }),
+  ).then((result): PromoteResult => ({ ...result, draft_id: id }));
 export const discardDraft = (id: string, revision: number) =>
-  request<DraftDetail>(`${draftUrl(id)}/discard`, json("POST", { revision }));
+  request<Record<string, never>>(`${draftUrl(id)}/discard`, json("POST", { revision }));
+/** How many other drafts promoting this draft deletes: the other drafts of its document (a new document has none). */
+export async function otherDrafts(draft: { id: string; document_id: string | null }) {
+  if (!draft.document_id) return 0;
+  const { drafts } = await getDocumentDrafts(draft.document_id);
+  return drafts.filter((item) => item.id !== draft.id).length;
+}
+/** The question before a promote that deletes other drafts. */
+export const promoteWarning = (others: number) => `Promote and delete ${others} other draft(s)?`;
 export const getConnections = (documentId: string, signal?: AbortSignal) =>
   request<Connections>(`${documentUrl(documentId)}/connections`, { signal });
 export const addLink = (documentId: string, toId: string) =>
@@ -102,4 +124,4 @@ export const draftPath = (draft: { id: string; document_id: string | null }) =>
   draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/drafts/${draft.id}`;
 /** What the document page says after a draft was promoted, with the export error when writing the file failed. */
 export const promotedNotice = (result: PromoteResult) =>
-  `Draft promoted to version ${result.revision}.${result.export_error ? ` ${result.export_error}` : ""}`;
+  `Draft promoted to version ${result.version}.${result.export_error ? ` ${result.export_error}` : ""}`;

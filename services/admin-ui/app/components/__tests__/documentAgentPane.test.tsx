@@ -64,21 +64,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 const at = "2026-10-12T10:00:00Z";
 const resources = { code_projects: [], services: [], servers: [], deployments: [], environments: [] };
-const version = {
-  id: "v2",
-  version: 2,
-  title: "Runbook",
-  description: "",
-  purpose: "runbook",
-  audience: "both",
-  tags: [],
-  markdown: "# Runbook",
-  content_hash: "a".repeat(64),
-  source_snapshot: resources,
-  origin: "manual",
-  base_version_id: "v1",
-  created_at: at,
-};
 const document = {
   id: "doc-1",
   slug: "runbook",
@@ -94,13 +79,16 @@ const document = {
   environment_ids: [],
   revision: 2,
   version: 2,
-  current_version_id: "v2",
-  published_version_id: null,
   content_hash: "a",
+  origin: "manual",
+  from_draft: false,
   created_at: at,
   updated_at: at,
-  current_version: version,
-  versions: [{ ...version, from_draft: false }],
+  markdown: "# Runbook",
+  source_snapshot: resources,
+  versions: [{ version: 2, title: "Runbook", origin: "manual", created_at: at, from_draft: false, live: true }],
+  drafts: [],
+  resource_links: [],
 };
 const draft = {
   id: "d1",
@@ -114,9 +102,7 @@ const draft = {
   session_purpose: "revision",
   author: null,
   edited: false,
-  status: "open",
   revision: 3,
-  base_version_id: "v1",
   base_version: 1,
   live_version: 2,
   stale: true,
@@ -130,8 +116,6 @@ const draft = {
   resource_ids: {},
   live_markdown: "# Runbook",
   document_title: "Runbook",
-  promoted_version_id: null,
-  decided_at: null,
   sources: [],
 };
 const STALE = "This draft was based on version 1; the live version is now 2.";
@@ -241,16 +225,7 @@ test("the draft bar shows the agent draft; Compare opens it; a stale Promote ask
     "POST /api/documentation/drafts/d1/promote": (body) => {
       promoted += 1;
       return body.confirm_stale
-        ? [
-            200,
-            {
-              draft: { ...draft, status: "promoted" },
-              document_id: "doc-1",
-              version_id: "v3",
-              revision: 3,
-              export_error: null,
-            },
-          ]
+        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }]
         : [409, { error: { message: STALE, code: "STALE_BASE" } }];
     },
     "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [draft] }],
@@ -308,16 +283,7 @@ test("Promote sends the draft's latest revision after the agent saved into it ag
     "GET /api/documentation/drafts/d1": () => [200, { ...draft, stale: false, revision }],
     "POST /api/documentation/drafts/d1/promote": (body) =>
       body.revision === revision
-        ? [
-            200,
-            {
-              draft: { ...draft, status: "promoted" },
-              document_id: "doc-1",
-              version_id: "v3",
-              revision: 3,
-              export_error: null,
-            },
-          ]
+        ? [200, { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 0, export_error: null }]
         : [409, { error: { message: "The draft changed.", code: "CONFLICT" } }],
     "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [] }],
   });
@@ -347,4 +313,69 @@ test("the bar reloads the draft after each of the agent's turns", async () => {
   await waitFor(() => expect(loads).toBe(1));
   fireEvent.click(screen.getByRole("button", { name: "Agent saved" })); // the same draft, a new version
   await waitFor(() => expect(loads).toBe(2));
+});
+
+test("Promote on the bar asks first when it deletes the document's other drafts; without others it promotes at once", async () => {
+  const others = [draft, { ...draft, id: "d2", title: "Other" }, { ...draft, id: "d3", title: "Third" }];
+  let listed = others;
+  const calls = api({
+    ...base,
+    "GET /api/documentation/drafts/d1": () => [200, { ...draft, stale: false }],
+    "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: listed }],
+    "POST /api/documentation/drafts/d1/promote": () => [
+      200,
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: listed.length - 1, export_error: null },
+    ],
+  });
+  show("/documents/doc-1/agent/r1");
+  fireEvent.click(await screen.findByRole("button", { name: "Agent saved" }));
+  const bar = await screen.findByRole("region", { name: "Agent draft" });
+  await within(bar).findByText("Agent draft · based on version 1");
+  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText("Promote and delete 2 other draft(s)?")).toBeInTheDocument();
+  fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(calls.some((c) => c.key.endsWith("/promote"))).toBe(false);
+  fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Promote" }));
+  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(calls.filter((c) => c.key.endsWith("/promote"))).toHaveLength(1);
+  listed = [draft]; // the agent saves again: no other drafts now
+  fireEvent.click(screen.getByRole("button", { name: "Agent saved" }));
+  const again = await screen.findByRole("region", { name: "Agent draft" });
+  await within(again).findByText("Agent draft · based on version 1");
+  fireEvent.click(within(again).getByRole("button", { name: "Promote" }));
+  await waitFor(() => expect(calls.filter((c) => c.key.endsWith("/promote"))).toHaveLength(2));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test("promoting another draft on the Drafts tab replaces the agent's draft: the bar says so", async () => {
+  const other = { ...draft, id: "d2", title: "Other", origin: "manual", session_id: null, stale: false };
+  api({
+    ...base,
+    "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: [other, draft] }],
+    "GET /api/documentation/drafts/d2": () => [200, other],
+    "POST /api/documentation/drafts/d2/promote": () => [
+      200,
+      { document_id: "doc-1", version: 3, revision: 4, deleted_drafts: 1, export_error: null },
+    ],
+  });
+  show("/documents/doc-1/agent/r1?tab=drafts&draft=d2");
+  fireEvent.click(await screen.findByRole("button", { name: "Agent saved" }));
+  await within(await screen.findByRole("region", { name: "Agent draft" })).findByText(
+    "Agent draft · based on version 1",
+  );
+  const view = within(await screen.findByRole("region", { name: "Draft" }));
+  fireEvent.click(await view.findByRole("button", { name: "Promote" }));
+  fireEvent.click(
+    within(await screen.findByRole("alertdialog", { name: "Promote and delete 1 other draft(s)?" })).getByRole(
+      "button",
+      { name: "Promote" },
+    ),
+  );
+  expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+  expect(
+    await within(screen.getByRole("region", { name: "Agent draft" })).findByText(/Replaced by another promoted draft/),
+  ).toBeInTheDocument();
 });

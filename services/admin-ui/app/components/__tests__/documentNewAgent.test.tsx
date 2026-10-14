@@ -95,9 +95,7 @@ const draft = {
   session_purpose: "documents",
   author: null,
   edited: false,
-  status: "open",
   revision: 1,
-  base_version_id: null,
   base_version: null,
   live_version: null,
   stale: false,
@@ -111,8 +109,6 @@ const draft = {
   resource_ids: {},
   live_markdown: null,
   document_title: null,
-  promoted_version_id: null,
-  decided_at: null,
   sources: [],
 };
 const base: Record<string, (body: any) => [number, unknown]> = {
@@ -232,13 +228,7 @@ test("the agent draft shows above the editor; Promote opens the new document", a
     "GET /api/documentation/drafts/d9": () => [200, draft],
     "POST /api/documentation/drafts/d9/promote": () => [
       200,
-      {
-        draft: { ...draft, status: "promoted", document_id: "doc-9" },
-        document_id: "doc-9",
-        version_id: "v1",
-        revision: 1,
-        export_error: null,
-      },
+      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0, export_error: null },
     ],
   });
   const router = show();
@@ -251,7 +241,7 @@ test("the agent draft shows above the editor; Promote opens the new document", a
   const bar = await screen.findByRole("region", { name: "Agent draft" });
   await waitFor(() => expect(within(bar).getByRole("button", { name: "Promote" })).toBeEnabled());
   fireEvent.click(within(bar).getByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-9"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d9/promote")?.body).toEqual({
     revision: 1,
     confirm_stale: false,
@@ -262,7 +252,7 @@ test.each([
   ["a new document", { document_id: null }, "/documents/drafts/d9", ""],
   [
     "an existing document (its title and folder named one)",
-    { document_id: "doc-1", base_version_id: "v1", base_version: 1, live_version: 1 },
+    { document_id: "doc-1", base_version: 1, live_version: 1 },
     "/documents/doc-1",
     "?tab=drafts&draft=d9",
   ],

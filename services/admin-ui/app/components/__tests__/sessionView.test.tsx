@@ -427,6 +427,30 @@ test("a run whose document draft was promoted links to the document and offers n
   expect(draft.queryByRole("link", { name: "Open draft" })).toBeNull();
 });
 
+test("a run whose document draft another promoted draft replaced says so and links to the document", async () => {
+  const replaced = {
+    ...detail,
+    status: "waiting",
+    turns: 1,
+    draft: "# Payments API",
+    draft_turn: 1,
+    document_draft: { id: "d2", document_id: "doc1", status: "replaced" },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => (url.includes("/events/history") ? page([]) : Response.json(replaced))),
+  );
+  render(
+    <MemoryRouter>
+      <SessionView sessionId="s1" />
+    </MemoryRouter>,
+  );
+  const draft = within(await screen.findByRole("region", { name: "Draft" }));
+  expect(await draft.findByText(/Replaced by another promoted draft/)).toBeVisible();
+  expect(draft.getByRole("link", { name: "Open document" })).toHaveAttribute("href", "/documents/doc1");
+  expect(draft.queryByRole("link", { name: "Open draft" })).toBeNull();
+});
+
 test("a run whose document draft was discarded offers no Save as draft", async () => {
   const discarded = {
     ...detail,

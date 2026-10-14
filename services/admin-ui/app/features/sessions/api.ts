@@ -99,8 +99,13 @@ export interface SessionDetail extends SessionSummary {
   config?: Record<string, unknown>;
   /** Test sessions: their saved suggestions, oldest first. */
   reviews?: SessionReview[];
-  /** The run's latest document draft of any status; null: the run never had one. */
-  document_draft?: { id: string; document_id: string | null; status: "open" | "promoted" | "discarded" } | null;
+  /** The run's last document draft: open while it exists, else what became of it (promoted, discarded, or replaced:
+   *  another draft of its document was promoted and deleted it); null: the run never had one. */
+  document_draft?: {
+    id: string;
+    document_id: string | null;
+    status: "open" | "promoted" | "discarded" | "replaced";
+  } | null;
   inputs: {
     seq: number;
     text: string;

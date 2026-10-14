@@ -2,13 +2,16 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "~/lib/api";
 import { draftPath, getDraft, promoteDraft, STALE_BASE, type DraftDetail, type PromoteResult } from "./drafts";
+import { PromoteWarning, usePromoteWarning } from "./DraftView";
 import type { SessionDetail } from "~/features/sessions/api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
 /** Above the editor while the Ask agent pane's run has an open draft: its base version and stale badge, Compare (the
- * Drafts tab with that draft) and Promote (with the stale check: the server's message, then Promote anyway). The agent may
+ * Drafts tab with that draft) and Promote (asking first when it deletes the document's other drafts; with the stale
+ * check: the server's message, then Promote anyway). A draft another draft's promote replaced says so; a promoted or
+ * discarded one hides the bar. The agent may
  * save into the same draft again: the bar reloads it when `version` changes (after each of the agent's turns), and Promote
  * reads the draft's revision fresh. A new document's draft (no document yet): Compare opens the draft page. A page without
  * a Drafts tab (Documents → New) passes `onCompare` to decide where Compare goes. */
@@ -32,6 +35,7 @@ export default function AgentDraftBar({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (draft.status !== "open") return; // deleted: nothing to load
     const controller = new AbortController();
     getDraft(draft.id, controller.signal)
       .then((d) => {
@@ -61,6 +65,16 @@ export default function AgentDraftBar({
       setBusy(false);
     }
   }
+  const warning = usePromoteWarning(() => void promote(false), setError);
+  if (draft.status === "replaced")
+    return (
+      <section
+        aria-label="Agent draft"
+        className="mb-4 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground"
+      >
+        Replaced by another promoted draft. The agent's next save starts a new draft.
+      </section>
+    );
   if (draft.status !== "open") return null;
   return (
     <section aria-label="Agent draft" className="mb-4 flex flex-col gap-2 rounded-lg border bg-muted/40 p-3">
@@ -92,7 +106,12 @@ export default function AgentDraftBar({
             type="button"
             size="sm"
             disabled={busy || !detail || stale !== ""}
-            onClick={() => confirm(() => void promote(false))}
+            onClick={() =>
+              confirm(() => {
+                setError("");
+                void warning.ask(draft);
+              })
+            }
           >
             Promote
           </Button>
@@ -118,6 +137,7 @@ export default function AgentDraftBar({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      <PromoteWarning others={warning.others} busy={busy} onConfirm={warning.confirm} onCancel={warning.cancel} />
     </section>
   );
 }
