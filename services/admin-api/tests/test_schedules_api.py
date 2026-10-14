@@ -2,8 +2,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from knowledge_admin import scheduler
-from knowledge_admin.schedules import BAD_CRON, BAD_TIMEZONE, TOO_OFTEN
+from knowledge_admin.events import scheduler
+from knowledge_admin.events.schedules import BAD_CRON, BAD_TIMEZONE, TOO_OFTEN
 from test_api import _client
 from test_jira import setup
 from test_repositories import HEADERS

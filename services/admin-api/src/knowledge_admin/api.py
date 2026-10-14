@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from knowledge_admin.config import App, ServerConfig
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin import document_drafts, documents, discovery, inventory_links_api, map_api, documentation_prompts, documentation_folders, environments, events_api, event_handlers_api, notifications_api, repository_api, schedules_api, service_api, skills, storage
+from knowledge_admin import document_drafts, documents, discovery, inventory_links_api, map_api, documentation_prompts, documentation_folders, environments, repository_api, service_api, skills, storage
+from knowledge_admin.events import api as events_api, handlers_api as event_handlers_api, notifications_api, schedules_api
 from knowledge_admin.jira import api as jira_api
 from knowledge_admin.rag import api as rag_api
 from knowledge_admin.sessions import api as sessions_api

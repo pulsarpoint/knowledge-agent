@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { ApiError } from "../lib/api";
-import { createEvent, type EventDetail, type NewEventInput } from "../lib/events";
+import { ApiError } from "~/lib/api";
+import { createEvent, type EventDetail, type NewEventInput } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";

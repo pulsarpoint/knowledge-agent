@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 
 from knowledge_admin.db import storage
-from knowledge_admin.events_api import like
+from knowledge_admin.events.api import like
 from knowledge_admin.repositories import RepositoryStore
 
 PAGE, MAX_PAGE, MAX_OFFSET, PREVIEW = 50, 200, 100000, 200

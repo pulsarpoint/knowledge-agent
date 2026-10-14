@@ -1,5 +1,5 @@
-import { request } from "./api";
-import type { SessionStatus } from "./sessions";
+import { request } from "~/lib/api";
+import type { SessionStatus } from "~/lib/sessions";
 
 export type EventStatus = "pending" | "processed" | "failed";
 export interface EventRow { id: number; source: string; type: string; subject: string; title: string; occurred_at: string; created_at: string;

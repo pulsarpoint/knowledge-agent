@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from knowledge_admin.schedules import (BAD_CRON, BAD_TIMEZONE, TOO_OFTEN, ScheduleError, describe, next_after,
+from knowledge_admin.events.schedules import (BAD_CRON, BAD_TIMEZONE, TOO_OFTEN, ScheduleError, describe, next_after,
                                        upcoming, validate)
 
 

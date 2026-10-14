@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Inbox, Plus, RefreshCw } from "lucide-react";
-import { ApiError } from "../lib/api";
+import { ApiError } from "~/lib/api";
 import { DEFAULT_SORT, NO_FILTERS, SOURCE_LABELS, STATUS_LABELS, TASK_STATUS_LABELS, TYPE_LABELS, describeChanges, getEvent, getEventFacets, getEvents,
-  type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "../lib/events";
-import { statusLabels } from "../lib/sessions";
+  type EventDetail, type EventFacets, type EventFilters, type EventRow, type EventSort, type EventStatus, type SortKey } from "./api";
+import { statusLabels } from "~/lib/sessions";
 import NewEventSheet, { type Prefill } from "./NewEventSheet";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";

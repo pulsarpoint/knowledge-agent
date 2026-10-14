@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ApiError } from "../lib/api";
-import { PRESETS, previewSchedule, timeZones } from "../lib/schedules";
+import { ApiError } from "~/lib/api";
+import { PRESETS, previewSchedule, timeZones } from "./schedules";
 import { Field, FieldDescription, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";

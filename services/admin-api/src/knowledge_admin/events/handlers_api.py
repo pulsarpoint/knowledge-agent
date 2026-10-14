@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_admin import event_matching, event_templates
+from knowledge_admin.events import matching as event_matching, templates as event_templates
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore

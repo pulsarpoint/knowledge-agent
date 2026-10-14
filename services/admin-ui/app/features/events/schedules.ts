@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export type RunStatus = "succeeded" | "failed" | "skipped";
 export interface Schedule {

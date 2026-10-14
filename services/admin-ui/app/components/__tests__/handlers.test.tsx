@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import HandlersView from "../HandlersView";
+import HandlersView from "~/features/events/HandlersView";
 
 const handler = (extra = {}) => ({ id: "h-1", name: "Triage", enabled: true, type_pattern: "jira.ticket.*",
   conditions: [{ field: "payload.labels", op: "contains", value: "agent" }], action: "emit",

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { DEFAULT_SORT, NO_FILTERS, getEventFacets, getEvents, type EventRow } from "../lib/events";
+import { ApiError } from "~/lib/api";
+import { DEFAULT_SORT, NO_FILTERS, getEventFacets, getEvents, type EventRow } from "./api";
 import { FIELD_SUGGESTIONS, OPERATOR_LABELS, createHandler, getHandlerAgents, previewHandler, saveHandler,
-  type EventHandler, type HandlerDraft, type Operator, type PreviewResult } from "../lib/eventHandlers";
+  type EventHandler, type HandlerDraft, type Operator, type PreviewResult } from "./handlers";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import JiraSettingsView from "~/features/jira/JiraSettingsView";
 import JiraTicketsView from "~/features/jira/JiraTicketsView";
 import type { JiraConnection, JiraTickets } from "~/features/jira/api";
-import type { AutoPull, Schedule } from "../../lib/schedules";
+import type { AutoPull, Schedule } from "~/features/events/schedules";
 
 const connection: JiraConnection = { id: "jira-1", base_url: "https://jira.internal/jira", username: "integration-user", has_token: true,
   revision: 2, jql: "ORDER BY updated DESC, key DESC", last_tested_at: null, last_test_error: null, last_successful_sync_at: null, last_fetch_limit: null, last_fetch_total: null };

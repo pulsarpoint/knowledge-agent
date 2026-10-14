@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import event_processor, event_templates, scheduler
+from knowledge_admin.events import processor as event_processor, scheduler, templates as event_templates
 from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.code_paths import code_path
 from knowledge_admin.code_processing import process_code, CodeProcessingError

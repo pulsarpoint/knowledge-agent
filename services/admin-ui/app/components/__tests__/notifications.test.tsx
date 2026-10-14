@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import NotificationsView from "../NotificationsView";
+import NotificationsView from "~/features/events/NotificationsView";
 
 const row = (id: number, extra = {}) => ({ id, created_at: "2026-10-09T10:00:00Z", kind: "agent.response", status: "succeeded",
   title: `Triage · jira.ticket.updated DEMO-${id}`, preview: `Answer ${id}\nmore`, event_id: 40 + id, agent_id: "triage",

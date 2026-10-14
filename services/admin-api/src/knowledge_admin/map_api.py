@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
 from knowledge_admin import inventory_map, system_graph_render
-from knowledge_admin.event_templates import has_nul
+from knowledge_admin.events.templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 
 SVG_HEADERS = {'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:",

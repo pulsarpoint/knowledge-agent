@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import EventsView from "../EventsView";
+import EventsView from "~/features/events/EventsView";
 
 const row = (id: number, extra = {}) => ({ id, source: "jira", type: "jira.ticket.created", subject: `DEMO-${id}`, title: `Ticket ${id}`,
   occurred_at: "2026-10-09T10:00:00Z", created_at: "2026-10-09T10:00:05Z", status: "processed", depth: 0, parent_id: null,

@@ -13,7 +13,7 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.jira.sync import DEFAULT_LIMIT
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.schedules import ScheduleError, describe, next_after, upcoming, validate
+from knowledge_admin.events.schedules import ScheduleError, describe, next_after, upcoming, validate
 
 FIELDS = """id,name,target_kind,target_id,cron,timezone,enabled,next_run_at,
     coalesce(lease_expires_at > now(), false) AS running,last_run_at,last_finished_at,last_status,last_message,revision,params"""

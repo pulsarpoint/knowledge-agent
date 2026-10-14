@@ -6,7 +6,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from knowledge_admin import event_processor
+from knowledge_admin.events import processor as event_processor
 from knowledge_admin.sessions.start import AGENT_NO_MODEL
 from test_event_processor import a_handler, an_event, event, runs
 from test_repositories import HEADERS

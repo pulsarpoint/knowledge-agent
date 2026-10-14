@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import JiraAutoPullView from "~/features/jira/JiraAutoPullView";
-import type { AutoPull, Schedule } from "../../lib/schedules";
+import type { AutoPull, Schedule } from "~/features/events/schedules";
 
 const schedule: Schedule = { id: "s-1", name: "Jira auto pull", target_kind: "jira.pull", target_id: "jira-1", cron: "*/15 * * * *",
   description: "Every 15 minutes", timezone: "UTC", enabled: true, next_run_at: "2026-10-09T10:15:00Z", running: false,

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { ApiError } from "../lib/api";
-import { saveSchedule, type Schedule } from "../lib/schedules";
+import { ApiError } from "~/lib/api";
+import { saveSchedule, type Schedule } from "./schedules";
 import TimetableFields, { type Timetable } from "./TimetableFields";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";

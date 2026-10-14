@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from knowledge_admin.jira import sync as jira_sync
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.schedules import MISSING, TargetMissing, next_after
+from knowledge_admin.events.schedules import MISSING, TargetMissing, next_after
 
 logger = logging.getLogger(__name__)
 

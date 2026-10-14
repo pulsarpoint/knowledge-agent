@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export type NotificationStatus = "succeeded" | "failed";
 export interface NotificationRow { id: number; created_at: string; kind: string; status: NotificationStatus; title: string;

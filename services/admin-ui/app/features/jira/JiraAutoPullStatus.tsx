@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { getAutoPull, type AutoPull } from "~/lib/schedules";
+import { getAutoPull, type AutoPull } from "~/features/events/schedules";
 
 /** Jira → Tickets: one line about the automatic pull, linking to its settings. Renders nothing on errors. */
 export default function JiraAutoPullStatus({ refreshKey }: { refreshKey: string | null }) {

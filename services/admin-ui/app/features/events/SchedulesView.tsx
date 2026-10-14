@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { CalendarClock, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { STATUS_LABELS, TARGETS, deleteSchedule, getScheduleRuns, getSchedules, runSchedule, saveSchedule, type Schedule, type ScheduleRun } from "../lib/schedules";
+import { ApiError } from "~/lib/api";
+import { STATUS_LABELS, TARGETS, deleteSchedule, getScheduleRuns, getSchedules, runSchedule, saveSchedule, type Schedule, type ScheduleRun } from "./schedules";
 import NewScheduleSheet from "./NewScheduleSheet";
 import ScheduleEditor from "./ScheduleEditor";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";

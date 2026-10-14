@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export type Operator = "equals" | "not_equals" | "contains" | "in" | "matches" | "exists";
 export interface Condition { field: string; op: Operator; value: string | string[] | null }

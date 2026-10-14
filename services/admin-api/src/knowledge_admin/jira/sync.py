@@ -9,7 +9,7 @@ from psycopg.types.json import Jsonb
 from knowledge_admin.jira import events as jira_events
 from knowledge_admin.jira.client import JiraClient
 from knowledge_admin.repositories import RepositoryStore
-from knowledge_admin.schedules import TargetMissing
+from knowledge_admin.events.schedules import TargetMissing
 
 FETCH_CLASH = "Jira settings or tickets changed during the fetch. Fetch tickets again"
 CLASH_SKIPPED = 'A manual fetch ran at the same time.'

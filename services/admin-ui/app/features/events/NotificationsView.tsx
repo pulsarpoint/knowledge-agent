@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Bell, RefreshCw } from "lucide-react";
-import { ApiError } from "../lib/api";
+import { ApiError } from "~/lib/api";
 import { NOTIFICATION_STATUS_LABELS, NO_NOTIFICATION_FILTERS, getNotification, getNotifications,
-  type NotificationDetail, type NotificationFilters, type NotificationRow, type NotificationStatus } from "../lib/notifications";
+  type NotificationDetail, type NotificationFilters, type NotificationRow, type NotificationStatus } from "./notifications";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";

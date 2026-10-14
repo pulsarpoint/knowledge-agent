@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from knowledge_admin import scheduler
-from knowledge_admin.schedules import MISSING, TargetMissing
+from knowledge_admin.events import scheduler
+from knowledge_admin.events.schedules import MISSING, TargetMissing
 
 
 def a_schedule(store, **values) -> dict:

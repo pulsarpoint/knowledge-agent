@@ -12,8 +12,8 @@ from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
-from knowledge_admin import event_matching, event_templates
-from knowledge_admin.event_handlers_api import PER_RUN
+from knowledge_admin.events import matching as event_matching, templates as event_templates
+from knowledge_admin.events.handlers_api import PER_RUN
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions import start
 

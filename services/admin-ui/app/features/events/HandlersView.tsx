@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, Workflow } from "lucide-react";
-import { ApiError } from "../lib/api";
-import { deleteHandler, getHandlers, saveHandler, toDraft, type EventHandler } from "../lib/eventHandlers";
+import { ApiError } from "~/lib/api";
+import { deleteHandler, getHandlers, saveHandler, toDraft, type EventHandler } from "./handlers";
 import HandlerSheet from "./HandlerSheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";

@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from knowledge_admin.event_matching import ConditionError, check_conditions, check_pattern, explain, matches, type_matches
+from knowledge_admin.events.matching import ConditionError, check_conditions, check_pattern, explain, matches, type_matches
 
 EVENT = {'id': 1, 'source': 'jira', 'type': 'jira.ticket.updated', 'subject': 'DEMO-1', 'title': 'Fix login',
          'payload': {'status': 'In Progress', 'labels': ['agent', 'ui'], 'priority': None, 'points': 3,

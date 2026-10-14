@@ -7,7 +7,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin import event_processor
+from knowledge_admin.events import processor as event_processor
 
 
 def an_event(store, project=None, **values) -> dict:

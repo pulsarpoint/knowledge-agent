@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from knowledge_admin import event_templates as templates
+from knowledge_admin.events import templates
 
-from knowledge_admin.event_templates import TemplateProblem, check_emit, check_prompt, render_emit, render_prompt
+from knowledge_admin.events.templates import TemplateProblem, check_emit, check_prompt, render_emit, render_prompt
 
 EVENT = {'id': 7, 'source': 'jira', 'type': 'jira.ticket.updated', 'subject': 'DEMO-1', 'title': 'Fix <login>',
          'occurred_at': datetime(2026, 10, 9, 10, tzinfo=UTC), 'parent_id': None, 'root_id': 7, 'depth': 0,

@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
-from knowledge_admin.event_templates import has_nul
+from knowledge_admin.events.templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 
 EntryKind = Literal['service', 'server', 'environment', 'code_project']
