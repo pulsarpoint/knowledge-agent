@@ -113,7 +113,7 @@ export default function ResourceChats({
     <div className="flex min-w-0 flex-col gap-4">
       {open && (
         <Tabs value={tab} onValueChange={(value) => setTab(value === "chat" ? "chat" : "info")}>
-          <TabsList className="2xl:hidden">
+          <TabsList aria-label="Info or chat" className="2xl:hidden">
             <TabsTrigger value="info">Info</TabsTrigger>
             <TabsTrigger value="chat">Chat</TabsTrigger>
           </TabsList>

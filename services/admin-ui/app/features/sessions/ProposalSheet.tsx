@@ -10,6 +10,7 @@ import {
   type ServiceField,
   type ServiceProposal,
 } from "~/features/servers/discovery";
+import type { ResourceType } from "./api";
 import Markdown from "~/components/Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -34,7 +35,7 @@ const DEPLOYMENT: [keyof ServiceProposal["payload"]["deployment"], string][] = [
 ];
 /** Where an accepted document proposal stands: its draft waits to be published (brand-new) or promoted (a draft of a
  * live document), then the document is live; a discarded draft leaves nothing to open. */
-function AcceptedDocument({ proposal }: { proposal: DocumentProposal }) {
+export function AcceptedDocument({ proposal }: { proposal: DocumentProposal }) {
   if (proposal.draft_published) {
     return (
       <Link className="underline" to={`/documents/${proposal.document_id ?? proposal.result_id}`}>
@@ -170,15 +171,18 @@ function ServiceDetails({
   );
 }
 
-/** One proposal in a wide side panel, with Accept and Reject while it is pending. */
+/** One proposal in a wide side panel, with Accept and Reject while it is pending. `resourceType`: what the run was
+ * started from (a document not about a service is about it). */
 export default function ProposalSheet({
   proposal,
+  resourceType = "server",
   message,
   onClose,
   onMessage,
   onReload,
 }: {
   proposal: Proposal;
+  resourceType?: ResourceType;
   message: string | null;
   onClose: () => void;
   onMessage: (message: string | null) => void;
@@ -226,7 +230,7 @@ export default function ProposalSheet({
     proposal.kind === "document"
       ? proposal.service_name
         ? `About service ${proposal.service_name}`
-        : "About this server"
+        : `About this ${resourceType}`
       : null;
   return (
     <Sheet

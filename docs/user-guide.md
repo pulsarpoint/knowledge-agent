@@ -15,7 +15,7 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.3 RAG: collections, processing, settings, search](#43-rag-collections-processing-settings-search)
   - [4.4 Code projects](#44-code-projects)
   - [4.5 Servers](#45-servers)
-    - [Server discovery](#server-discovery)
+    - [Chats and proposals](#chats-and-proposals)
   - [4.6 Environments](#46-environments)
   - [4.7 Services](#47-services)
   - [4.8 Jira](#48-jira)
@@ -350,36 +350,45 @@ Registering does not connect to anything.
 
 A server cannot be deleted while service deployments reference it.
 
-A server's name opens its page: details, SSH state, the services deployed on it, its
-documents and its agent runs. **Connections and documents** there opens the same
-panel as the System map. **Ask agent** in the header opens the chat described under
-[Server discovery](#server-discovery).
+A server's name opens its page (`/servers/:id`): its **Info** (details, SSH state, the services deployed on it, its
+documents) and its **Chats**. Services (`/services/:id`) and environments (`/environments/:id`) have the same kind of
+page. **Connections and documents** there opens the same panel as the System map.
 
-#### Server discovery
+#### Chats and proposals
 
-**Ask agent** in the header of a server's page widens the page and opens a chat beside
-the server's details (two thirds for the page, one third for the chat). It is the same
-chat and settings sheet as Ask agent beside a document. The agent logs in over SSH,
-looks around and proposes what it finds: services, how they are deployed on this
-server, connections between services, and documents. Nothing is written to the
-inventory until you accept it. Settings and the chat show why when SSH is not set up
-or **SSH allowed** is off for the server, and the chat cannot start until it is.
+**Chats** lists the conversations on the server (service, environment): open ones first, then by last activity; runs
+started from **Propose…** carry a `proposals` badge. **Chat** opens the latest open chat that is not a Propose… run
+(or a new one), **New chat** a new one, and a chat in the list that chat. The chat stays hidden until you ask for it;
+on very wide screens (2xl) it opens beside the Info, below that as a second tab (**Info** / **Chat**). The URL keeps
+the open chat (`?chat=<id>`), so a reload or a link opens it again; a chat of another page is refused.
 
-**Settings** for a server chat: the server is locked on. You may add other servers,
-services and code projects. A run started from a server also reads the services
-deployed on it, read-only, without SSH to their other servers. The prompt is chosen
-among those tagged `server-discovery` (default **Server discovery**), and the
-proposal tools are on. A server has one conversation at a time: **New chat** closes it,
-**Earlier runs** reopens another. A link `/servers/:id/discovery/:runId` opens the
-server page on that run. You can write to the agent while it works.
+A chat answers questions about the resource: its prompt is the resource type's assistant prompt (**Server
+assistant**, **Service assistant**, **Environment assistant** in **Administration → Prompts**), which uses the
+smallest read-only command that answers. **Settings** locks the resource on; you may add other resources. A server
+chat needs SSH to be set up and allowed for the server. A plain chat never has the proposal tools.
 
-The instructions come from **Administration → Prompts**. The built-in prompt tells the
-agent to read the inventory first, propose with `propose_service` and
-`propose_document`, correct a proposal that is refused and try again, and finish with a
-short report. If you changed that prompt before this version, add those lines yourself.
+Every chat (here, Ask agent beside a document, Documents → New and an agent's Test tab) has a **Debug** tab beside the
+**Conversation**. It shows what the model receives, built by the same code that runs it: **Instructions** (the whole
+system prompt, with **Copy**), **Prompt** (the library prompt and version it came from, linked, or "Written in the
+Propose wizard"; the agent's instructions and skills), **Tools** (each name and description as the model sees it),
+**Resources** and **Model**. Before the first message it shows what the next conversation would start with; secrets
+are never shown.
 
-The **Proposals** panel above the server's details shows the proposals of the open
-run, with a count of those still pending. **Review** opens one proposal:
+**Propose…** starts a run that proposes what the inventory should record. It is a small wizard:
+
+1. **What** — on a server, **Services on this server** and/or **Documents**; on a service or environment,
+   **Documents** only.
+2. **Options** — for services: update the ones already recorded, look for new ones; for documents: an overview
+   document, one document per service (servers and environments), the aspects to cover (configuration, logs, health
+   checks, ports and paths); and extra instructions.
+3. **Review** — the prompt built from those choices (the steps of the **Server discovery** prompt, one block per
+   option; edit it as you like) and the tools that will be on (`propose_service` only when services were chosen,
+   `propose_document` only when documents were). **Start** starts the run and opens it as the page's chat, so you can
+   watch it and write to it while it works.
+
+**Proposals** (`/servers/:id/proposals`, and the same for services and environments) lists every proposal made in
+the resource's runs, grouped by run (newest first, with who started it and **Open chat**), with a status filter
+(**All**, **Pending**, **Accepted**, **Rejected**). **Review** opens one proposal:
 
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,
@@ -883,7 +892,7 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
 lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
-and Ask agent on a server offers prompts tagged `server-discovery`. Type a tag and press Enter to add it;
+and a chat on a server, service or environment offers the prompts of that input kind. Type a tag and press Enter to add it;
 existing tags are suggested. Saving changed text creates a draft version; **Activate vN** makes it the active one;
 inactive versions can be deleted. Changing only the name, description, tags or Enabled does not create a version.
 Prompts that came with the application are tagged `documentation` plus what they document (`code`, `server`,

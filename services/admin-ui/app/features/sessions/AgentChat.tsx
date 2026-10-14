@@ -23,6 +23,7 @@ import { useSessionEvents, useSessionNotice } from "./useSessionEvents";
 import AgentSettingsSheet from "./AgentSettingsSheet";
 import RunSuggestions from "./RunSuggestions";
 import RunWorkspace from "./RunWorkspace";
+import DebugPanel from "./DebugPanel";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
   AlertDialog,
@@ -35,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +55,9 @@ import {
  * the moment (both needed); the open run shows the document it writes, and reports its draft like a document's. A server,
  * service or environment (its page): the runs tagged with it; the page lists them and has New chat, so the pane has neither
  * New chat nor Earlier runs; `fresh` starts on a new conversation instead of the latest open run; blockedReason (a server
- * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version. */
+ * whose SSH is not ready) blocks starting one; onSessionChange reports the shown run with the same version; Chat opens
+ * the latest open chat that is not a Propose wizard run. Every chat has a Debug tab beside the conversation: what the
+ * model receives (DebugPanel). */
 const NEEDS_NAME = "Give the document a title and folder first.";
 export default function AgentChat({
   scope,
@@ -113,6 +117,7 @@ export default function AgentChat({
   const [confirmNew, setConfirmNew] = useState(false);
   const [suggestions, setSuggestions] = useState<{ open: boolean; turn: number | null }>({ open: false, turn: null });
   const [info, setInfo] = useState(""); // Review and apply's result
+  const [view, setView] = useState<"conversation" | "debug">("conversation");
   const { notice, clear, stopping, sent } = useSessionNotice(session?.status);
   const fill = useFillViewport<HTMLElement>();
 
@@ -131,7 +136,13 @@ export default function AgentChat({
       .then((value) => {
         if (controller.signal.aborted) return;
         setRuns(value.sessions);
-        if (!chosenNow.current) setRunId(value.sessions.find((item) => item.status !== "closed")?.id ?? null);
+        // a Propose wizard run (tag proposals) is opened from the list, never as the resource's latest chat
+        if (!chosenNow.current)
+          setRunId(
+            value.sessions.find(
+              (item) => item.status !== "closed" && !(tag !== null && (item.tags ?? []).includes("proposals")),
+            )?.id ?? null,
+          );
       })
       .catch(() => {
         if (!controller.signal.aborted) setListFailed(true);
@@ -251,202 +262,224 @@ export default function AgentChat({
       style={fill.style}
       className="flex min-w-0 flex-col gap-2"
     >
-      <RunWorkspace
-        compact={!isAgent}
-        run={foreign ? { ...run, session: null, events: [] } : run}
-        resources={resources}
-        notice={notice || info}
-        agentName={session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent")}
-        heading={
-          <div className="flex flex-col gap-1">
-            <h2 className="break-words font-semibold">
-              {runId === null
-                ? "New conversation"
-                : foreign
-                  ? isAgent
-                    ? "Another agent's run"
-                    : resource
-                      ? "Another page's chat"
-                      : "Another document's run"
-                  : isNew && session
-                    ? `Writing: ${session.folder ?? ""}/${session.document_name ?? ""}`
-                    : (session?.title ?? "Loading the conversation…")}
-            </h2>
-            {foreign &&
-              (isAgent ? (
-                <Alert variant="destructive">
-                  <AlertDescription>This run belongs to another agent.</AlertDescription>
-                </Alert>
-              ) : resource ? (
-                <Alert variant="destructive">
-                  <AlertDescription>This chat belongs to another page.</AlertDescription>
-                </Alert>
-              ) : (
+      <Tabs value={view} onValueChange={(value) => setView(value === "debug" ? "debug" : "conversation")}>
+        <TabsList aria-label="Conversation or debug">
+          <TabsTrigger value="conversation">Conversation</TabsTrigger>
+          <TabsTrigger value="debug">Debug</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {view === "debug" && (
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          {/* A run: its pinned configuration; before the first message: what the next start would pin. */}
+          <DebugPanel
+            runId={runId !== null && !foreign ? runId : null}
+            input={
+              runId === null && settings.options && settings.settings
+                ? startInput(scope, settings.options, settings.settings, message.trim() || "(your next message)")
+                : null
+            }
+          />
+        </div>
+      )}
+      {/* Kept mounted while Debug is shown (the conversation keeps its scroll and stream). */}
+      <div className={view === "debug" ? "hidden" : "contents"}>
+        <RunWorkspace
+          compact={!isAgent}
+          run={foreign ? { ...run, session: null, events: [] } : run}
+          resources={resources}
+          notice={notice || info}
+          agentName={session?.agent_name ?? (scope.kind === "agent" ? scope.name : "Ask agent")}
+          heading={
+            <div className="flex flex-col gap-1">
+              <h2 className="break-words font-semibold">
+                {runId === null
+                  ? "New conversation"
+                  : foreign
+                    ? isAgent
+                      ? "Another agent's run"
+                      : resource
+                        ? "Another page's chat"
+                        : "Another document's run"
+                    : isNew && session
+                      ? `Writing: ${session.folder ?? ""}/${session.document_name ?? ""}`
+                      : (session?.title ?? "Loading the conversation…")}
+              </h2>
+              {foreign &&
+                (isAgent ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>This run belongs to another agent.</AlertDescription>
+                  </Alert>
+                ) : resource ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>This chat belongs to another page.</AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      This run belongs to another document.{" "}
+                      {foreign.target_document_id && (
+                        <Link className="underline" to={agentRunPath(foreign.target_document_id, foreign.id)}>
+                          Open it on its document
+                        </Link>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                ))}
+              {listFailed && (
                 <Alert variant="destructive">
                   <AlertDescription>
-                    This run belongs to another document.{" "}
-                    {foreign.target_document_id && (
-                      <Link className="underline" to={agentRunPath(foreign.target_document_id, foreign.id)}>
-                        Open it on its document
-                      </Link>
-                    )}
+                    {isAgent
+                      ? "Could not load this agent's runs."
+                      : resource
+                        ? `Could not load this ${resource.kind}'s chats.`
+                        : "Could not load this document's runs."}{" "}
+                    <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
+                      Retry
+                    </Button>
                   </AlertDescription>
                 </Alert>
-              ))}
-            {listFailed && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  {isAgent
-                    ? "Could not load this agent's runs."
-                    : resource
-                      ? `Could not load this ${resource.kind}'s chats.`
-                      : "Could not load this document's runs."}{" "}
-                  <Button type="button" variant="link" className="h-auto p-0" onClick={() => setListed((n) => n + 1)}>
-                    Retry
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            )}
-            {runId === null && settings.options && settings.settings && (
-              <p aria-label="Current settings" className="text-xs text-muted-foreground">
-                {settingsSummary(settings.options, withScope(scope, settings.settings))}
-              </p>
-            )}
-            {refused && (
-              <Alert variant="destructive">
-                <AlertDescription>{refused}</AlertDescription>
-              </Alert>
-            )}
-            {settings.error && (
-              <Alert variant="destructive">
-                <AlertDescription>{settings.error}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-        }
-        headerActions={
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-label={refused ? "Settings (check the settings)" : "Settings"}
-              disabled={!settings.options}
-              onClick={() => setSheet(true)}
-            >
-              <Settings2 data-icon="inline-start" />
-              Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
-            </Button>
-            {!resource && (
+              )}
+              {runId === null && settings.options && settings.settings && (
+                <p aria-label="Current settings" className="text-xs text-muted-foreground">
+                  {settingsSummary(settings.options, withScope(scope, settings.settings))}
+                </p>
+              )}
+              {refused && (
+                <Alert variant="destructive">
+                  <AlertDescription>{refused}</AlertDescription>
+                </Alert>
+              )}
+              {settings.error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{settings.error}</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          }
+          headerActions={
+            <>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={busy || (runId === null && !run.error)}
-                onClick={newChat}
+                aria-label={refused ? "Settings (check the settings)" : "Settings"}
+                disabled={!settings.options}
+                onClick={() => setSheet(true)}
               >
-                New chat
+                <Settings2 data-icon="inline-start" />
+                Settings{refused && <span aria-hidden className="ml-1 size-2 rounded-full bg-destructive" />}
               </Button>
-            )}
-            {!isNew && !resource && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>
-                    Earlier runs
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {earlier.map((item) => (
-                    <DropdownMenuItem key={item.id} onSelect={() => pick(item.id)}>
-                      {`${item.title} · ${statusLabels[item.status]}${item.purpose === "event" ? " · Event" : ""}`}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {isAgent && session && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!reviews.length}
-                onClick={() => setSuggestions({ open: true, turn: null })}
-              >
-                Suggestions ({reviews.length})
-              </Button>
-            )}
-          </>
-        }
-        answerActions={(turn) => (
-          <>
-            {(scope.kind === "document" || isNew) && !savedIn(turn) && (
-              <span className="text-xs text-muted-foreground">No draft saved in this turn</span>
-            )}
-            {session && (
-              <Button variant="ghost" size="sm" asChild>
-                <Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link>
-              </Button>
-            )}
-            {isAgent && session && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={busy || working}
-                onClick={() => setSuggestions({ open: true, turn: turn.turn })}
-              >
-                <MessageSquarePlus data-icon="inline-start" />
-                Add feedback
-              </Button>
-            )}
-          </>
-        )}
-        empty={
-          <p className="text-sm text-muted-foreground">
-            {isAgent
-              ? "Send a message to test the agent."
-              : resource
-                ? `Ask the agent about this ${resource.kind}.`
-                : isNew
-                  ? "Tell the agent what to write."
-                  : "Ask the agent to change this document."}
-          </p>
-        }
-        composer={{
-          value: message,
-          onChange: setMessage,
-          busy: busy || waiting || !settings.settings,
-          label: "Message",
-          placeholder: isAgent
-            ? "Ask a question or give a task…"
-            : isNew
-              ? "For example: document the payments API for new developers"
-              : resource
-                ? resource.kind === "server"
-                  ? "For example: how much disk space is free?"
-                  : resource.kind === "service"
-                    ? "For example: is it running?"
-                    : "For example: which services run here?"
-                : "For example: add a section on log rotation",
-          onSend: () => void send(),
-          onStop: open
-            ? () =>
-                void act(async () => {
-                  await stopSession(runId!);
-                  stopping();
-                })
-            : undefined,
-          blockedReason: foreign
-            ? resource
-              ? "This chat belongs to another page. Start a New chat."
-              : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
-            : session?.status === "closed"
-              ? "This conversation is closed. Start a New chat."
-              : !open
-                ? blocked
-                : null,
-        }}
-      />
+              {!resource && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || (runId === null && !run.error)}
+                  onClick={newChat}
+                >
+                  New chat
+                </Button>
+              )}
+              {!isNew && !resource && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="sm" variant="ghost" disabled={earlier.length === 0}>
+                      Earlier runs
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {earlier.map((item) => (
+                      <DropdownMenuItem key={item.id} onSelect={() => pick(item.id)}>
+                        {`${item.title} · ${statusLabels[item.status]}${item.purpose === "event" ? " · Event" : ""}`}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {isAgent && session && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!reviews.length}
+                  onClick={() => setSuggestions({ open: true, turn: null })}
+                >
+                  Suggestions ({reviews.length})
+                </Button>
+              )}
+            </>
+          }
+          answerActions={(turn) => (
+            <>
+              {(scope.kind === "document" || isNew) && !savedIn(turn) && (
+                <span className="text-xs text-muted-foreground">No draft saved in this turn</span>
+              )}
+              {session && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to={runPath(`cc:${session.id}:${turn.turn}`)}>Full record</Link>
+                </Button>
+              )}
+              {isAgent && session && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy || working}
+                  onClick={() => setSuggestions({ open: true, turn: turn.turn })}
+                >
+                  <MessageSquarePlus data-icon="inline-start" />
+                  Add feedback
+                </Button>
+              )}
+            </>
+          )}
+          empty={
+            <p className="text-sm text-muted-foreground">
+              {isAgent
+                ? "Send a message to test the agent."
+                : resource
+                  ? `Ask the agent about this ${resource.kind}.`
+                  : isNew
+                    ? "Tell the agent what to write."
+                    : "Ask the agent to change this document."}
+            </p>
+          }
+          composer={{
+            value: message,
+            onChange: setMessage,
+            busy: busy || waiting || !settings.settings,
+            label: "Message",
+            placeholder: isAgent
+              ? "Ask a question or give a task…"
+              : isNew
+                ? "For example: document the payments API for new developers"
+                : resource
+                  ? resource.kind === "server"
+                    ? "For example: how much disk space is free?"
+                    : resource.kind === "service"
+                      ? "For example: is it running?"
+                      : "For example: which services run here?"
+                  : "For example: add a section on log rotation",
+            onSend: () => void send(),
+            onStop: open
+              ? () =>
+                  void act(async () => {
+                    await stopSession(runId!);
+                    stopping();
+                  })
+              : undefined,
+            blockedReason: foreign
+              ? resource
+                ? "This chat belongs to another page. Start a New chat."
+                : `This run belongs to another ${isAgent ? "agent" : "document"}. Start a New chat.`
+              : session?.status === "closed"
+                ? "This conversation is closed. Start a New chat."
+                : !open
+                  ? blocked
+                  : null,
+          }}
+        />
+      </div>
       {settings.options && settings.settings && (
         <AgentSettingsSheet
           open={sheet}

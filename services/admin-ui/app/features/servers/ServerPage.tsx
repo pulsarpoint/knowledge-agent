@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getServerPage, type ServerPageData } from "./discovery";
+import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -122,9 +123,12 @@ export default function ServerPage({ serverId }: { serverId: string }) {
       info={info}
       blockedReason={blocked}
       actions={
-        <Button asChild size="sm" variant="link">
-          <Link to={`/servers/${encodeURIComponent(serverId)}/proposals`}>Proposals</Link>
-        </Button>
+        <>
+          <ProposeWizard resource={{ type: "server", id: serverId, name: server.name }} blockedReason={blocked} />
+          <Button asChild size="sm" variant="link">
+            <Link to={`/servers/${encodeURIComponent(serverId)}/proposals`}>Proposals</Link>
+          </Button>
+        </>
       }
     />
   );

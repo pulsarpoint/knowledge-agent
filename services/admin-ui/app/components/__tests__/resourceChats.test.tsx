@@ -218,7 +218,7 @@ test("clicking a chat opens it and puts it in the URL; at 2xl Info and chat are 
   expect(wide.value).toBe(true);
   expect(screen.getByTestId("resource-layout")).toHaveClass("2xl:grid-cols-2");
   // below 2xl: tabs Info / Chat, the chat tab active once a chat opens
-  const tabs = screen.getByRole("tablist");
+  const tabs = screen.getByRole("tablist", { name: "Info or chat" });
   expect(tabs).toHaveClass("2xl:hidden");
   expect(within(tabs).getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
   expect(screen.getByTestId("resource-info")).toHaveClass("hidden", "2xl:flex");
@@ -259,6 +259,28 @@ test("a ?chat= of another resource's run is not opened on this page", async () =
 test("Chat opens the latest open chat", async () => {
   live.sessions.r2 = detail("r2", "waiting");
   api({ ...base(), [RUNS]: () => [200, { sessions: [run("r2", "waiting", "Open one")] }] });
+  show();
+  await screen.findByRole("button", { name: /Open one/ });
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  expect(await screen.findByRole("heading", { name: "Chat r2" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/services/v1?chat=r2"));
+});
+
+test("Chat never opens a Propose wizard run as the latest open chat", async () => {
+  live.sessions.r3 = detail("r3", "working", ["services/v1", "proposals"]);
+  live.sessions.r2 = detail("r2", "waiting");
+  api({
+    ...base(),
+    [RUNS]: () => [
+      200,
+      {
+        sessions: [
+          run("r3", "working", "Propose documents for this service.", ["services/v1", "proposals"]),
+          run("r2", "waiting", "Open one"),
+        ],
+      },
+    ],
+  });
   show();
   await screen.findByRole("button", { name: /Open one/ });
   fireEvent.click(screen.getByRole("button", { name: "Chat" }));

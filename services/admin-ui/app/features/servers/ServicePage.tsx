@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getService, type ServiceAsset } from "./services";
+import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import ServiceDetails from "./ServiceDetails";
 import EntryDocuments from "./EntryDocuments";
@@ -62,9 +63,12 @@ export default function ServicePage({ serviceId }: { serviceId: string }) {
         </>
       }
       actions={
-        <Button asChild size="sm" variant="link">
-          <Link to={`/services/${encodeURIComponent(serviceId)}/proposals`}>Proposals</Link>
-        </Button>
+        <>
+          <ProposeWizard resource={{ type: "service", id: serviceId, name: service.name }} />
+          <Button asChild size="sm" variant="link">
+            <Link to={`/services/${encodeURIComponent(serviceId)}/proposals`}>Proposals</Link>
+          </Button>
+        </>
       }
     />
   );

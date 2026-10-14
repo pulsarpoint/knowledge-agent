@@ -16,7 +16,6 @@ from knowledge_admin.sessions.review import ReviewInput, review_session
 from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
-from knowledge_admin.agents.runner import known_secrets
 from knowledge_admin.sessions import debug, start
 from knowledge_admin.sessions.rows import (
     CLOSED,
@@ -152,13 +151,17 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
 
     @router.post('/preview')
     def preview(value: start.StartInput) -> dict:
-        """The configuration a start would pin, with the instructions and tools its turns would give the model."""
+        """The configuration a start would pin, with what its Debug tab would show (the instructions and tools its
+        turns would give the model, the prompt, resources and model): the same view as GET /{id}/debug."""
         db = database()
         with db.connect() as conn:
-            pinned, _, _ = start.build(conn, db.project(conn, app_name), value, None, db.conninfo)
+            project = db.project(conn, app_name)
+            pinned, _, _ = start.build(conn, project, value, None, db.conninfo)
             # As a run stores it (jsonb) and its turns read it: the instructions list its resources in that order.
             stored = conn.execute('SELECT %s::jsonb AS config', (Jsonb(pinned),)).fetchone()['config']
-        shown = debug.instructions_and_tool_list(stored, known_secrets(db, stored))
+            shown = debug.view(
+                conn, db, project, stored, tags=value.tags, prompt_id=value.prompt_id, prompt_text=value.system_prompt
+            )
         return {'config': pinned, 'first_message': value.message, **shown}
 
     @router.post('', status_code=201)

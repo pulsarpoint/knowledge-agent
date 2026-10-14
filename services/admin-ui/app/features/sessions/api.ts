@@ -3,6 +3,7 @@ import type { ToolCount } from "./runs";
 import type { RunResourcesInput } from "~/features/agents/api";
 import type { AgentKey, ResourceIds } from "~/lib/resources";
 import type { Turn } from "./turns";
+import type { Proposal } from "~/features/servers/discovery";
 
 export const formatTokens = (value: number) => value.toLocaleString("en-US");
 const json = (method: string, value: unknown) => ({
@@ -219,8 +220,45 @@ export const getSessionOptions = (
   );
 export const reviewSession = (id: string, comment: string, turn?: number) =>
   request<SessionReview>(`${session(id)}/review`, json("POST", { comment, ...(turn ? { turn } : {}) }));
-export const previewSession = (value: StartInput) =>
-  request<{ config: Record<string, unknown>; first_message: string }>("/api/sessions/preview", json("POST", value));
+/** What a run's model receives (its Debug tab): the assembled instructions, where the prompt came from, the tools as the
+ * model sees them, and what the run is pinned to (names only). Secrets are redacted. */
+export interface SessionDebug {
+  instructions: string;
+  /** The library prompt and its version (null: the text was edited before the start); null: no library prompt. */
+  prompt: { id: string; name: string; version: number | null } | null;
+  /** `wizard`: the prompt was written in the Propose wizard. */
+  prompt_source: "library" | "wizard";
+  agent_instructions: string;
+  skills: { name: string }[];
+  tools: { name: string; description: string }[];
+  resources: Record<string, string[]>;
+  model: { id: string; name: string } | null;
+}
+export const getSessionDebug = (id: string, signal?: AbortSignal) =>
+  request<SessionDebug>(`${session(id)}/debug`, { signal });
+/** The configuration a start would pin, and its Debug view (built like a run's). */
+export const previewSession = (value: StartInput, signal?: AbortSignal) =>
+  request<{ config: Record<string, unknown>; first_message: string } & SessionDebug>("/api/sessions/preview", {
+    ...json("POST", value),
+    signal,
+  });
+/** A run's proposals on a resource's Proposals page. */
+export interface ProposalRun {
+  session_id: string;
+  title: string;
+  started_at: string;
+  started_by: string | null;
+  proposals: Proposal[];
+}
+/** Every proposal made in the runs tagged with a resource, grouped by run (newest first), of one status or all. */
+export const getResourceProposals = (
+  resource: { type: ResourceType; id: string },
+  status?: Proposal["status"],
+  signal?: AbortSignal,
+) =>
+  request<{ runs: ProposalRun[] }>(`/api/discovery/proposals${query({ tag: resourceTag(resource), status })}`, {
+    signal,
+  });
 export const startSession = (value: StartInput) => request<SessionDetail>("/api/sessions", json("POST", value));
 export const sessionPath = (id: string) => `/sessions/${encodeURIComponent(id)}`;
 

@@ -109,6 +109,24 @@ def test_the_preview_shows_the_same_before_the_run_starts(world):
     assert preview.json()['instructions'] == shown['instructions']
     assert preview.json()['tools'] == shown['tools']
     assert preview.json()['config']['started_from']['type'] == 'server'
+    # the rest of the Debug tab too, built by the same view
+    for key in ('prompt', 'prompt_source', 'agent_instructions', 'skills', 'resources', 'model'):
+        assert preview.json()[key] == shown[key], key
+    prompt_id = assistant_prompt_id(world.project, 'server')
+    with world.store.connect() as conn:
+        content = conn.execute(
+            """SELECT v.content FROM ka.documentation_prompts p JOIN ka.documentation_prompt_versions v
+            ON v.id=p.active_version_id WHERE p.id=%s""",
+            (prompt_id,),
+        ).fetchone()['content']
+    chosen = world.client.post(
+        '/api/sessions/preview', headers=HEADERS, json=body(world, prompt_id=str(prompt_id), system_prompt=content)
+    ).json()
+    assert chosen['prompt'] == {'id': str(prompt_id), 'name': 'Server assistant', 'version': 1}
+    wizard = world.client.post(
+        '/api/sessions/preview', headers=HEADERS, json=body(world, tags=['proposals'], prompt_id=str(prompt_id))
+    ).json()
+    assert wizard['prompt_source'] == 'wizard' and wizard['prompt'] is None
 
 
 def test_a_library_prompt_and_its_version_and_a_wizard_prompt(world):

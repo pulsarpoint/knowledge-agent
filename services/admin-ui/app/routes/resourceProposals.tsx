@@ -5,8 +5,9 @@ import { getServerPage } from "~/features/servers/discovery";
 import { getService } from "~/features/servers/services";
 import { getEnvironment } from "~/features/servers/environments";
 import { resourceChatPath, type ResourceType } from "~/features/sessions/api";
+import ProposalsPage from "~/features/servers/ProposalsPage";
 
-/** A server's, service's or environment's proposals (the page is built in the next step: for now its heading). */
+/** A server's, service's or environment's proposals: every proposal made in its runs (features/servers/ProposalsPage). */
 export default function Page() {
   const { serverId, serviceId, environmentId } = useParams();
   const resource: { type: ResourceType; id: string } = serverId
@@ -35,6 +36,7 @@ export default function Page() {
         </Link>
         <h1 className="text-2xl font-semibold">Proposals</h1>
       </div>
+      <ProposalsPage key={`${resource.type}:${resource.id}`} resource={resource} />
     </AdminLayout>
   );
 }

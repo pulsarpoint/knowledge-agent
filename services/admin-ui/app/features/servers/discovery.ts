@@ -51,7 +51,8 @@ export interface DocumentPayload {
 interface ProposalBase {
   id: string;
   session_id: string;
-  server_id: string;
+  /** The server of the run that proposed it; null for a service's or an environment's run. */
+  server_id: string | null;
   number: number;
   status: "pending" | "accepted" | "rejected";
   revision: number;
@@ -89,8 +90,6 @@ const json = (method: string, body: unknown) => ({
 });
 const server = (id: string) => `/api/servers/${encodeURIComponent(id)}`;
 export const getServerPage = (id: string, signal?: AbortSignal) => request<ServerPageData>(server(id), { signal });
-export const getProposals = (runId: string, signal?: AbortSignal) =>
-  request<{ proposals: Proposal[] }>(`/api/discovery/${encodeURIComponent(runId)}/proposals`, { signal });
 export const acceptProposal = (id: string, revision: number, fields?: ServiceField[]) =>
   request<{ proposal: Proposal; result_id: string }>(
     `/api/discovery/proposals/${encodeURIComponent(id)}/accept`,

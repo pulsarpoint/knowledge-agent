@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "~/lib/api";
 import { getEnvironment, type EnvironmentAsset } from "./environments";
+import ProposeWizard from "~/features/sessions/ProposeWizard";
 import ResourceChats from "~/features/sessions/ResourceChats";
 import EntryDocuments from "./EntryDocuments";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -102,9 +103,12 @@ export default function EnvironmentPage({ environmentId }: { environmentId: stri
         </>
       }
       actions={
-        <Button asChild size="sm" variant="link">
-          <Link to={`/environments/${id}/proposals`}>Proposals</Link>
-        </Button>
+        <>
+          <ProposeWizard resource={{ type: "environment", id: environmentId, name: environment.name }} />
+          <Button asChild size="sm" variant="link">
+            <Link to={`/environments/${id}/proposals`}>Proposals</Link>
+          </Button>
+        </>
       }
     />
   );
