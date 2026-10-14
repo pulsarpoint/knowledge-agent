@@ -39,7 +39,8 @@ def test_the_model_request_carries_exactly_the_selected_tools(config, responses_
     asyncio.run(agent(config, 'Describe your tools.', credentials={'model-key': 'fixture-api-secret'}))
     body = first_request(requests)
     tools = {tool['name']: tool for tool in body['tools']}
-    assert set(tools) == {'read_file', 'search_documents'}  # SSH is off in the fixture: ssh_run's need is unmet
+    # SSH is off in the fixture: ssh_run's need is unmet; get_resource is on in every run with resources
+    assert set(tools) == {'read_file', 'search_documents', 'get_resource'}
     assert tools['read_file']['description'] == 'Read only what the task names.'
     assert tools['search_documents']['description'] == CATALOG['search_documents'].usage
 
@@ -55,10 +56,10 @@ def test_the_shell_is_switched_by_the_shell_tool(config, responses_api, monkeypa
     monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', spy)
     choose(config, {'read_file': None})
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
-    assert seen == {'tools': frozenset({'read_file'}), 'shell': False}
+    assert seen == {'tools': frozenset({'read_file', 'get_resource'}), 'shell': False}
     choose(config, {'shell_run': None})
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
-    assert seen == {'tools': frozenset({'shell_run'}), 'shell': True}
+    assert seen == {'tools': frozenset({'shell_run', 'get_resource'}), 'shell': True}
 
 
 def test_mcp_tools_switched_off_never_reach_the_model(config, responses_api):
@@ -78,7 +79,7 @@ def test_mcp_tools_switched_off_never_reach_the_model(config, responses_api):
     choose(config, {}, {'mcp:docs-one:lookup': ('off', None), 'mcp:docs-two:lookup': ('on', 'Ask for one page only.')})
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     body = first_request(requests)
-    names = [tool['name'] for tool in body['tools']]
+    names = [tool['name'] for tool in body['tools'] if tool['name'] != 'get_resource']
     assert len(names) == 1 and 'docs-two' in names[0] and 'lookup' in names[0]
     assert 'Tool notes:\n- docs-two/lookup: Ask for one page only.' in body['instructions']
 
@@ -106,4 +107,5 @@ def test_old_configs_without_tools_keep_todays_tools(config, responses_api):
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
     names = {tool['name'] for tool in first_request(requests)['tools']}
     expected = {entry['tool'] for entry in implied_tools(config)['items'] if entry['mode'] == 'on'} - {'code_graph'}
+    expected.add('get_resource')  # on in every run with resources
     assert names == expected

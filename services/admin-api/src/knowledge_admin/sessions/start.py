@@ -226,9 +226,9 @@ class StartInput(BaseModel):
 
 def choosable() -> list:
     """The tools a person can switch on for a run: not "Answer only from documents", not run_subagent (its own
-    switch). The proposal tools work only in a run started from a resource whose request turns them on (their need
-    says so)."""
-    return [spec for spec in CATALOG.values() if spec.needs != 'grounded' and spec.name != SUBAGENT]
+    switch), not get_resource (on in every run with resources). The proposal tools work only in a run started from a
+    resource whose request turns them on (their need says so)."""
+    return [spec for spec in CATALOG.values() if spec.needs not in ('grounded', 'resources') and spec.name != SUBAGENT]
 
 
 def revise_prompt_id(project: UUID) -> UUID:
@@ -570,6 +570,7 @@ def start_run(
         for item in pinned['tools']['items']
         if item['tool'] in CATALOG
         and item['mode'] != 'on'
+        and CATALOG[item['tool']].needs != 'resources'  # on whenever the run has resources
         and (item['tool'] not in PROPOSAL_TOOLS or item['tool'] in offered)
     )
     tags = value.run_tags()

@@ -26,11 +26,8 @@ DO $$ DECLARE p documentation_prompts%ROWTYPE; BEGIN
     END LOOP;
 END $$;
 
--- get_resource becomes get_server_info_basic again for the agents that have it on (the other old tools stay off).
-INSERT INTO agent_tools(agent_id, tool, mode, subagent_allowed)
-SELECT agent_id, 'get_server_info_basic', 'on', subagent_allowed FROM agent_tools WHERE tool = 'get_resource' AND mode = 'on'
-ON CONFLICT (agent_id, tool) DO UPDATE SET mode = 'on';
-DELETE FROM agent_tools WHERE tool = 'get_resource';
+-- get_resource has no agent_tools rows (every run with resources has it); the old inventory tools' rows removed by
+-- 0106 are not restored, so they are off.
 
 -- The Server discovery prompt's get_resource version is removed where nobody changed the prompt since (it is still the
 -- active, newest version and the prompt was saved only by adding it); the version before it is active again. New

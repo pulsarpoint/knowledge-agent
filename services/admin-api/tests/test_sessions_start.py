@@ -49,7 +49,9 @@ def test_preview_is_exactly_what_start_pins(ask):
         for name in ('save_document', 'edit_document')
     )
     assert modes['get_document']['mode'] == 'on'
-    assert modes['ssh_run']['mode'] == 'on' and modes['get_resource']['mode'] == 'on'
+    assert (
+        modes['ssh_run']['mode'] == 'on' and modes['get_resource']['mode'] == 'off'
+    )  # not chosen: on in the run anyway
     assert modes['read_file']['mode'] == 'off'
     assert modes['run_subagent']['mode'] == 'off' and pinned['experts'] == []
     assert 'You revise documents.' in pinned['system_prompt']['content']
@@ -113,7 +115,7 @@ def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless)
     refused = post(ask, **change, tools=['ssh_run'])
     assert refused.status_code == 400 and refused.json()['error']['message'] == 'ssh_run needs at least one server.'
     for path in ('/preview', ''):
-        response = post(ask, path, **change, tools=['get_resource'])
+        response = post(ask, path, **change, tools=['get_document'])
         assert response.status_code in (200, 201), response.text
         config = response.json()['config']
         assert config['ssh']['servers'] == [] and not config['ssh']['enabled']
@@ -155,7 +157,7 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
 
 def test_start_names_every_tool_it_cannot_give_at_once(ask):
     for path in ('/preview', ''):
-        response = post(ask, path, tools=['read_file', 'ssh_run', 'get_resource'], resources={})
+        response = post(ask, path, tools=['read_file', 'ssh_run', 'get_document'], resources={})
         assert response.status_code == 400 and response.json()['error']['message'] == (
             'read_file needs a code project or a collection. ssh_run needs at least one server.'
         ), response.text

@@ -61,11 +61,19 @@ KIND_NAMES = {
     'environment': 'environment',
     'code_project': 'code project',
 }
+
+
+def _section(config: dict[str, Any], section: str, key: str) -> list[dict[str, Any]]:
+    """A capability's pinned resources; none while it is off (or absent from a partial configuration)."""
+    value = config.get(section) or {}
+    return value.get(key, []) if value.get('enabled') else []
+
+
 ACCESS = {
-    'server': lambda config: config['ssh']['servers'] if config['ssh']['enabled'] else [],
+    'server': lambda config: _section(config, 'ssh', 'servers'),
     'document': lambda config: config.get('document_access', []),
-    'service': lambda config: config['services']['items'] if config['services']['enabled'] else [],
-    'code_project': lambda config: config['code']['projects'] if config['code']['enabled'] else [],
+    'service': lambda config: _section(config, 'services', 'items'),
+    'code_project': lambda config: _section(config, 'code', 'projects'),
     # the environments the run was started from or given (they bring their services and servers); a saved agent none
     'environment': lambda config: [
         {'id': item} for item in (config.get('chosen_resources') or {}).get('environment_ids', [])

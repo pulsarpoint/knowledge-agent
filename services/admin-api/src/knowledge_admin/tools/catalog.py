@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from knowledge_admin.capabilities import ast_grep, code_graph, code_search, documents, files, inventory, ssh
 from knowledge_admin.capabilities import discovery as discovery_tools
 from knowledge_admin.capabilities import document_tools
-from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.context import ACCESS, RunContext
 from knowledge_admin.capabilities.shell import client as shell
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
@@ -25,6 +25,7 @@ Need = Literal[
     'server_proposals',
     'resource_proposals',
     'editable_document',
+    'resources',
 ]
 
 
@@ -310,11 +311,10 @@ READ_DOCUMENT = 'Read one knowledge-base document returned by search_documents; 
 REPORT_NOT_COVERED = 'Record that the retrieved documents do not answer the question.'
 SSH_RUN = (
     'Execute a command on a server selected for this agent and return its output.\n\n'
-    "Follow the selected server's instructions. Use as_root for sudo only when\n"
-    'allow_sudo is enabled. The backend supplies the login, key and host verification;\n'
+    'Read the server with get_resource first and follow its instructions. Use as_root for sudo only when\n'
+    'its allow_sudo is true. The backend supplies the login, key and host verification;\n'
     'never request credentials from the user or include them in command arguments.\n\n'
-    "Use ssh_run with the configured server ID. Follow each server's instructions. "
-    'Request as_root only when allow_sudo is true.'
+    'Use ssh_run with the server ID from your resources.'
 )
 
 INVENTORY = (
@@ -604,7 +604,7 @@ CATALOG: dict[str, ToolSpec] = {
             GET_RESOURCE,
             GetResource,
             _call(inventory.get_resource),
-            None,
+            'resources',
             _never,
         ),
         ToolSpec(
@@ -678,9 +678,9 @@ CATALOG: dict[str, ToolSpec] = {
 
 DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
 PROPOSAL_TOOLS = ('propose_service', 'propose_document')
-# Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), and documents are
-# given, per run.
-RUN_ONLY_NEEDS = ('server_proposals', 'resource_proposals', 'editable_document')
+# Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), documents are
+# given, per run, and get_resource is on in every run that has resources (it is how the model reads them).
+RUN_ONLY_NEEDS = ('server_proposals', 'resource_proposals', 'editable_document', 'resources')
 # Where each proposal tool works: the resource types a run may start from to ask for it.
 PROPOSAL_STARTS = {'server_proposals': ('server',), 'resource_proposals': ('server', 'service', 'environment')}
 NEED_REASONS: dict[str, str] = {
@@ -693,6 +693,7 @@ NEED_REASONS: dict[str, str] = {
     'server_proposals': 'Needs a run started from a server that turns it on',
     'resource_proposals': 'Needs a run started from a server, service or environment that turns it on',
     'editable_document': 'Needs a document to edit',
+    'resources': 'Always on for a run with servers, services, environments or code projects',
 }
 NEED_TABS: dict[str, str] = {
     'files': 'git',
@@ -725,7 +726,14 @@ def needs_met(need: str | None, config: Mapping[str, Any], ssh_servers: list[dic
         return started.get('type') in PROPOSAL_STARTS[need] and tool in config.get('proposal_tools', [])
     if need == 'editable_document':
         return any(entry.get('editable') for entry in config.get('document_access', []))
+    if need == 'resources':
+        return has_resources(config)
     return _ssh(config) if ssh_servers is None else bool(ssh_servers)
+
+
+def has_resources(config: Mapping[str, Any]) -> bool:
+    """Whether the run has a server, service, environment or code project (get_resource's allowlist kinds)."""
+    return any(ACCESS[kind](config) for kind in ('server', 'service', 'environment', 'code_project'))
 
 
 def item(
@@ -751,10 +759,15 @@ def tools_of(config: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
 
 def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]) -> list[tuple[ToolSpec, str]]:
-    """The catalog tools this run offers, in catalog order, with their usage text: switched on, and their need met."""
+    """The catalog tools this run offers, in catalog order, with their usage text: switched on, and their need met;
+    get_resource (need resources) in every run that has resources, whatever its row says."""
     chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
     offered = []
     for spec in CATALOG.values():
+        if spec.needs == 'resources':
+            if needs_met(spec.needs, config, ssh_servers):
+                offered.append((spec, spec.usage))
+            continue
         entry = chosen.get(spec.name)
         if entry is None or entry['mode'] != 'on' or not needs_met(spec.needs, config, ssh_servers):
             continue

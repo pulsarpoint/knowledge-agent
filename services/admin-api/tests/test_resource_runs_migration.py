@@ -160,28 +160,21 @@ def agent_tools(conn, agent_id) -> dict[str, str]:
     return {row['tool']: row['mode'] for row in rows}
 
 
-def test_up_replaces_the_old_inventory_tools_with_get_resource_and_down_reverses(world):
+def test_up_removes_the_old_inventory_tools_rows(world):
     with world.store.connect() as conn:
         conn.commit()
         run(conn, DOWN)
-        conn.execute("DELETE FROM ka.agent_tools WHERE agent_id IN ('operations','search')")
+        conn.execute("DELETE FROM ka.agent_tools WHERE agent_id='operations'")
         conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations','get_server_docs','on')")
-        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations','get_project_info','off')")
-        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('search','get_service_info','off')")
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations','ssh_run','on')")
         conn.commit()
         run(conn, UP)
-        assert agent_tools(conn, 'operations') == {'get_resource': 'on'}
-        assert agent_tools(conn, 'search') == {}
-        assert (
-            conn.execute('SELECT count(*) AS n FROM ka.agent_tools WHERE tool=ANY(%s)', (list(OLD_TOOLS),)).fetchone()[
-                'n'
-            ]
-            == 0
-        )
+        assert agent_tools(conn, 'operations') == {'ssh_run': 'on'}  # get_resource is on in runs, without a row
+        count = conn.execute('SELECT count(*) AS n FROM ka.agent_tools WHERE tool=ANY(%s)', (list(OLD_TOOLS),))
+        assert count.fetchone()['n'] == 0
         conn.commit()
         run(conn, DOWN)
-        assert agent_tools(conn, 'operations') == {'get_server_info_basic': 'on'}
-        assert agent_tools(conn, 'search') == {}
+        assert agent_tools(conn, 'operations') == {'ssh_run': 'on'}
 
 
 def test_the_assistant_and_server_discovery_prompts_name_get_resource(world):

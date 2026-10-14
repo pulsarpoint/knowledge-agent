@@ -138,7 +138,7 @@ def test_a_subagent_gets_only_the_given_tools_and_resources_and_its_own_prompt()
         'Use for API pages.',
     )
     assert mcp_blocked(sub, 'docs') == ['search'] and [s['id'] for s in sub['mcp']['servers']] == ['docs']
-    assert {spec.name for spec, _ in effective_tools(sub, [])} == {'read_file'}
+    assert {spec.name for spec, _ in effective_tools(sub, [])} == {'read_file', 'get_resource'}  # it has resources
     assert [p['id'] for p in sub['code']['projects']] == ['worker'] and [g['id'] for g in sub['code']['graphs']] == [
         'worker'
     ]

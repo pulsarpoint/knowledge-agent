@@ -58,7 +58,9 @@ share the turn's limit of 16 helpers with subagents.
   Preserves native fields and edge metadata. Source hashes must match the index.
   The pinned SDK ignores `readOnly` on open, so it opens a disposable snapshot
   copy; source and published snapshots remain unchanged.
-- Inventory tools (`get_resource`, `get_document`). `get_resource(resource_type, resource_id)` — `resource_type` one
+- Inventory tools (`get_resource`, `get_document`). `get_resource` is on in every run that has servers, services,
+  environments or code projects (need `resources`; not chosen on the Tools tab or per run, no `agent_tools` row).
+  `get_resource(resource_type, resource_id)` — `resource_type` one
   of `server`, `service`, `environment`, `code_project` (a fixed enum), `resource_id` a plain uuid — returns everything
   recorded about one resource as JSON: its fields, its documents (id, title) and `links` (`{type, id, name, relation,
   ...}`) the model follows by passing `type` and `id` again; lists stop at 100 (`truncated`). A server's connection,

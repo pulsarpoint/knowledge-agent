@@ -79,6 +79,8 @@ def todays_tools(c, ssh_servers) -> set[str]:
         names.add('code_graph')
     if ssh_servers:
         names.add('ssh_run')
+    if c['ssh']['enabled'] and c['ssh']['servers']:
+        names.add('get_resource')  # on in every run with resources (here: its servers)
     return names
 
 
@@ -98,15 +100,16 @@ def test_catalog_offers_todays_tools_for_every_capability_combination(code, docu
 
 def test_only_selected_tools_with_met_needs_are_offered():
     c = config(code=True, documents=True, ssh=True, tools=['read_file', 'ssh_run', 'search_documents', 'code_graph'])
-    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents'}  # code_graph: no graph
-    assert offered(c, []) == {'read_file', 'search_documents'}  # ssh_run: no usable server
+    # get_resource: on whenever the run has resources (here its server), whatever was selected
+    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents', 'get_resource'}  # no graph
+    assert offered(c, []) == {'read_file', 'search_documents', 'get_resource'}  # ssh_run: no usable server
     c['code']['enabled'] = False
-    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents'}  # documents ungrounded: files
+    assert offered(c, [SERVER]) == {'read_file', 'ssh_run', 'search_documents', 'get_resource'}  # files
     c['documents']['grounded'] = True
-    assert offered(c, [SERVER]) == {'ssh_run', 'search_documents'}
+    assert offered(c, [SERVER]) == {'ssh_run', 'search_documents', 'get_resource'}
     c['tools']['items'][0]['mode'] = 'off'
     c['tools']['items'][2]['mode'] = 'per_run'  # not offered in step 1
-    assert offered(c, [SERVER]) == {'ssh_run'}
+    assert offered(c, [SERVER]) == {'ssh_run', 'get_resource'}
     assert offered(config(code=True, tools=[]), []) == set()
 
 
@@ -122,7 +125,8 @@ def test_descriptions_are_the_usage_text_and_keep_todays_guidance():
     assert 'complete bodies' in CATALOG['code_search'].usage
     assert 'Selected resource paths are mounted read-only' in CATALOG['shell_run'].usage
     assert 'Use code_graph first' in CATALOG['code_graph'].usage
-    assert 'Request as_root only when allow_sudo is true' in CATALOG['ssh_run'].usage
+    assert 'Read the server with get_resource first' in CATALOG['ssh_run'].usage
+    assert 'as_root for sudo only when' in CATALOG['ssh_run'].usage
     assert set(CATALOG['ssh_run'].arguments.model_json_schema()['properties']) == {
         'server_id',
         'command',

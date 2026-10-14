@@ -141,7 +141,7 @@ def test_proposal_tools_work_only_in_runs_started_from_a_resource_and_never_show
     assert CATALOG['propose_service'].needs == 'server_proposals'
     assert CATALOG['propose_document'].needs == 'resource_proposals'
     listed = {tool['name'] for tool in catalog_listing()}
-    assert 'propose_service' not in listed and 'get_resource' in listed
+    assert 'propose_service' not in listed and 'get_resource' not in listed and 'get_document' in listed
 
 
 def test_repeated_documents_replace_their_pending_proposal_and_servers_and_services_stay_apart(run):

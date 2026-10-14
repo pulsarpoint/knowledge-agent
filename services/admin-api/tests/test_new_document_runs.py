@@ -360,7 +360,9 @@ def test_no_other_new_id_can_be_written(sessions, monkeypatch):
     for document_id in ('new:' + str(uuid4()), other):
         with pytest.raises(ValueError) as refused:
             call(config, 'save_document', document_id=document_id, markdown='# Mine')
-        assert str(refused.value) == NOT_AVAILABLE.format(kind='document')
+        # the refusal names the documents the run may change: its own new document
+        assert str(refused.value).startswith(NOT_AVAILABLE.format(kind='document') + ' Documents you may change: ')
+        assert config['document_access'][0]['id'] in str(refused.value)
         assert call(config, 'get_document', document_id=document_id) == NOT_AVAILABLE.format(kind='document')
     assert drafts(s, session['id']) == [] and all_drafts(s) == 0
 

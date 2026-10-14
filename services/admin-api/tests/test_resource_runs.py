@@ -13,7 +13,7 @@ from knowledge_admin.tools.catalog import effective_tools
 from test_discovery_runs import call, config_of, pinned_of, ssh_ready
 from test_repositories import HEADERS
 
-PLAIN = ['get_resource', 'get_document']
+PLAIN = ['get_document']
 PROPOSALS = ['propose_service', 'propose_document']
 
 

@@ -25,7 +25,7 @@ from knowledge_admin.tools.catalog import (
 
 STALE = 'The tools changed since you opened them. Reload.'
 GROUNDED = 'Grounded answers need report_not_covered.'
-DISCOVERY_ONLY = 'This tool is only available in server discovery runs and Ask agent runs.'
+DISCOVERY_ONLY = 'This tool is not chosen for an agent: a run gets it from what it starts from or is given.'
 UNKNOWN = 'Unknown tool: {tool}.'
 UNKNOWN_EXPERT = 'Unknown expert: {tool}.'
 MCP_NOT_SELECTED = 'MCP tool {tool} belongs to a server this agent has not selected.'
@@ -124,7 +124,7 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
     for spec in CATALOG.values():
         row = saved.get(spec.name)
         if spec.needs in RUN_ONLY_NEEDS:
-            continue  # only in discovery or Ask agent runs
+            continue  # given per run (proposal and edit tools) or always on with resources (get_resource)
         if spec.name == SUBAGENT and row is None:
             continue  # listed only while May start subagents is on
         available = needs_met(spec.needs, current, None)

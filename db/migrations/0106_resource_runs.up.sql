@@ -99,13 +99,8 @@ CREATE TRIGGER seed_assistant_prompts AFTER INSERT ON projects
 SELECT seed_assistant_prompts(id) FROM projects;
 
 -- One inventory tool: get_resource replaces get_server_info_basic, get_server_services, get_server_docs,
--- get_service_info, get_service_docs and get_project_info. A saved agent that had any of them on gets get_resource on.
-INSERT INTO agent_tools(agent_id, tool, mode, subagent_allowed)
-SELECT agent_id, 'get_resource', 'on', bool_and(subagent_allowed) FROM agent_tools
-    WHERE tool IN ('get_server_info_basic', 'get_server_services', 'get_server_docs', 'get_service_info',
-                   'get_service_docs', 'get_project_info') AND mode = 'on'
-    GROUP BY agent_id
-ON CONFLICT (agent_id, tool) DO UPDATE SET mode = 'on';
+-- get_service_info, get_service_docs and get_project_info. It is not chosen per agent: every run with servers,
+-- services, environments or code projects has it, so the old tools' rows go.
 DELETE FROM agent_tools WHERE tool IN ('get_server_info_basic', 'get_server_services', 'get_server_docs',
     'get_service_info', 'get_service_docs', 'get_project_info');
 

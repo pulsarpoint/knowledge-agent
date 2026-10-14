@@ -17,7 +17,6 @@ from test_repositories import HEADERS
 
 TOOLS = [
     'ssh_run',
-    'get_resource',
     'get_document',
     'propose_service',
     'propose_document',

@@ -42,7 +42,7 @@ limit, no per-turn time limit, no 300-second limit).
   per-resource tool checks its argument against the run's pinned allowlist ("This document is not available in this
   run.").
 - The inventory tool `get_resource(resource_type, resource_id)` (`server`, `service`, `environment` or `code_project`,
-  and its uuid) follows the same allowlist: it answers only about the resources the run was given — a resource linked
+  and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given — a resource linked
   from one of them too — with everything recorded about it and links to follow; anything else, or a malformed id, gets
   "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
   `get_document` reads documents the run was given or attached to those resources. The prompt names a run's resource

@@ -223,7 +223,10 @@ def config(responses_api, tmp_path):
         },
         'mcp': {'enabled': False, 'servers': [{'url': 'http://must-not-contact.test/mcp'}]},
         'ssh': {'enabled': False, 'servers': [{'hostname': 'must-not-connect.test'}]},
-        'services': {'enabled': True, 'items': [{'name': 'Payments', 'operations_notes': 'Inspect the queue.'}]},
+        'services': {
+            'enabled': True,
+            'items': [{'id': 'payments', 'name': 'Payments', 'operations_notes': 'Inspect the queue.'}],
+        },
     }
 
 
@@ -284,9 +287,9 @@ def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(conf
         'Local source',
         'Operations docs',
         'Read before suggesting changes.',
-        'Inspect the queue.',
     ):
         assert expected in serialized
+    assert 'Inspect the queue.' not in serialized  # a service's details come from get_resource
     for excluded in ('fixture-api-secret', 'MUST_NOT_APPEAR', 'must-not-connect.test', 'must-not-contact.test'):
         assert excluded not in serialized
     assert config['code']['projects'][0]['folder_paths'][0] in serialized
@@ -396,8 +399,9 @@ def test_sdk_connects_selected_mcp_and_keeps_ssh_keys_out_of_prompt(config, resp
     assert sum(request['body']['method'] == 'initialize' for request in mcp_requests) == 1
     request = next(request for request in requests if request['path'] == '/v1/responses')
     serialized = json.dumps(request['body'])
-    for expected in ('lookup', 'Inspect fixture logs only.', 'ssh_run', '2222', 'operator', 'allow_sudo'):
+    for expected in ('lookup', 'ssh_run', 'get_resource'):
         assert expected in serialized
+    assert 'Inspect fixture logs only.' not in serialized  # server instructions come from get_resource
     for secret in ('fixture-api-secret', 'fixture-mcp-secret', private_key, 'private_key_path', 'ssh-key-0'):
         assert secret not in serialized
 
@@ -516,7 +520,7 @@ def test_sdk_ssh_tool_uses_configured_key_and_returns_output(config, responses_a
     assert len(requests) == 2
     output = next(item for item in requests[1]['body']['input'] if item.get('type') == 'function_call_output')
     assert json.loads(output['output'])['stdout'].strip() == 'operator'
-    assert 'Inspect as operator only.' in json.dumps(requests[0]['body'])
+    assert 'Inspect as operator only.' not in json.dumps(requests[0]['body'])  # read with get_resource
     assert ssh_server.private_key not in json.dumps(requests)
 
 

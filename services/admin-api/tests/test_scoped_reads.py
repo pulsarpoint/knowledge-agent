@@ -173,7 +173,7 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     body = {
         **ask.body,
         'resources': {'server_ids': [ask.web['id']]},
-        'tools': ['get_resource', 'get_document'],
+        'tools': ['get_document'],
     }
     response = s.client.post('/api/sessions/preview', headers=HEADERS, json=body)
     assert response.status_code == 200, response.text

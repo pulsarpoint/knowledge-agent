@@ -13,7 +13,7 @@ from knowledge_admin.sessions.start import assistant_prompt_id
 from test_discovery_runs import config_of
 from test_repositories import HEADERS
 
-PLAIN = ['ssh_run', 'get_resource', 'get_document']
+PLAIN = ['ssh_run', 'get_document']
 MODEL_KEY = 'sk-debug-model-key-0123456789'
 
 
