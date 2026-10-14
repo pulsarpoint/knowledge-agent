@@ -232,7 +232,7 @@ def test_promote_deletes_the_documents_other_drafts(docs):
         assert docs.client.get(f'{API}/drafts/{other["id"]}', headers=HEADERS).status_code == 404
     assert docs.client.get(f'{API}/drafts/{elsewhere["id"]}', headers=HEADERS).status_code == 200
     assert docs.client.get(f'{API}/documents/{docs.runbook}/drafts', headers=HEADERS).json()['drafts'] == []
-    assert [outcome(docs, other['id']) for other in others] == [None, None]  # deleted by the promote, not decided
+    assert [outcome(docs, other['id']) for other in others] == ['replaced', 'replaced']  # deleted by the promote
 
 
 def test_a_discarded_draft_is_deleted(docs):

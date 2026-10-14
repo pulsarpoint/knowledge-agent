@@ -40,6 +40,11 @@ MANY = 'This text appears {n} times. Include more of the surrounding text.'
 NO_HEADING = 'No heading named "{name}".'
 PROMOTED = 'Your earlier draft was promoted; this is a new draft based on version {version}.'
 DISCARDED = 'Your earlier draft was discarded; this is a new draft based on version {version}.'
+REPLACED = (
+    'Another draft of this document was promoted (version {version}); your earlier draft was removed. '
+    'This save started a new draft from the live version.'
+)
+PERSON_OWNS = 'A person edited your draft of {name}; it is theirs now. Save again after they promote or discard it.'
 EDITED = 'A person edited your earlier draft; this is a new draft, and get_document now reads it.'
 SAVED = 'Saved draft ({n} lines).'
 OUT_OF_RANGE = 'The document has {n} lines.'
@@ -258,15 +263,16 @@ def _text(change: Callable[[dict[str, Any]], dict[str, Any]], base: dict[str, An
 
 def _note(conn, session: dict, document: UUID, version: int) -> str:
     """What a save that starts a new draft of the live document `document` (at `version`) says about the run's last
-    draft (agent_sessions.last_draft_id) when that was a draft of the same document: promoted, discarded, or still
-    there but edited by a person."""
+    draft (agent_sessions.last_draft_id) when that was a draft of the same document: promoted, discarded, deleted by
+    the promote of another draft (replaced), or still there but edited by a person."""
     outcome = draft_outcome(conn, session['last_draft_id']) if session['last_draft_id'] else None
     if outcome is None or outcome['document_id'] != document:
         return ''
     if outcome['status'] == 'open':
         row = conn.execute('SELECT edited FROM ka.documents WHERE id=%s', (outcome['id'],)).fetchone()
         return EDITED if row is not None and row['edited'] else ''
-    return (PROMOTED if outcome['status'] == 'promoted' else DISCARDED).format(version=version)
+    notes = {'promoted': PROMOTED, 'discarded': DISCARDED, 'replaced': REPLACED}
+    return notes[outcome['status']].format(version=version)
 
 
 def _run_links(config: dict[str, Any]) -> dict[str, list[str]]:
@@ -356,6 +362,15 @@ def _save_new(config: dict[str, Any], entry: dict[str, Any], change: Callable[[d
         project = session['project_id']
         current = _new_document_draft(conn, session['id'], project, entry, lock=True)
         existing = None if current is not None else document_named(conn, project, entry['folder'], entry['slug'])
+        if current is None and existing is None:
+            # The run's brand-new draft, edited by a person, holds the name: no second draft until they decide.
+            owned = conn.execute(
+                """SELECT title FROM ka.documents WHERE is_draft AND session_id=%s AND draft_of IS NULL AND edited
+                AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
+                (session['id'], entry['folder'], entry['slug']),
+            ).fetchone()
+            if owned is not None:
+                raise ValueError(PERSON_OWNS.format(name=owned['title']))
         live = live_content(conn, project, existing['id']) if existing is not None else None
         # markdown None marks the first save: edit_document has nothing to change yet
         base = (

@@ -382,3 +382,19 @@ def test_get_document_reads_only_this_runs_draft_and_never_takes_a_draft_id(rev)
         refused = call(rev.__class__(**{**vars(rev), 'config': given}), 'get_document', document_id=draft_id)
         assert refused == 'Document not found'  # pinned or not, a draft id is never read as a document
     assert NOT_AVAILABLE.format(kind='document') == 'This document is not available in this run.'
+
+
+def test_a_save_after_another_draft_was_promoted_starts_a_new_draft_and_says_so(rev):
+    from drafts_world import new_draft
+
+    call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# The run')
+    [mine] = run_drafts(rev)
+    theirs = new_draft(rev.docs, document_id=rev.docs.runbook, markdown='# A person')
+    assert promote(rev.docs, theirs).status_code == 200  # deletes the run's draft too
+    assert session_draft(rev)[0] == {'id': str(mine['id']), 'document_id': rev.docs.runbook, 'status': 'replaced'}
+    assert call(rev, 'save_document', document_id=str(rev.docs.runbook), markdown='# The run again') == (
+        'Saved draft (1 lines). Another draft of this document was promoted (version 3); your earlier draft was '
+        'removed. This save started a new draft from the live version.'
+    )
+    [again] = run_drafts(rev)
+    assert (again['markdown'], again['base_version'], again['id'] != mine['id']) == ('# The run again', 3, True)

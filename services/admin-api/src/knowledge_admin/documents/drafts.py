@@ -247,18 +247,10 @@ def available_resources(conn, project: UUID, wanted: dict) -> dict:
     return result
 
 
-# The session `s`'s last draft (agent_sessions.last_draft_id) as {id, document_id, status}, for session rows and the
-# live session state: open while the draft exists, else promoted or discarded from the audit log — the SQL form of
-# store.draft_outcome. A run has one once its agent saved a document with save_document or edit_document.
-SESSION_DRAFT = """(SELECT CASE
-        WHEN x.id IS NOT NULL THEN jsonb_build_object('id',x.id,'document_id',COALESCE(x.draft_of,x.id),'status','open')
-        WHEN e.action IS NOT NULL THEN jsonb_build_object('id',s.last_draft_id,'document_id',e.details->'document_id',
-            'status',CASE e.action WHEN 'document.draft.promoted' THEN 'promoted' ELSE 'discarded' END)
-        END
-    FROM (SELECT 1) one LEFT JOIN ka.documents x ON x.id=s.last_draft_id AND x.is_draft
-    LEFT JOIN LATERAL (SELECT a.action,a.details FROM ka.audit_events a WHERE a.resource_type='document_draft'
-        AND a.resource_id=s.last_draft_id AND a.action IN ('document.draft.promoted','document.draft.discarded')
-        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) e ON true) AS document_draft"""
+# The session `s`'s last draft (agent_sessions.last_draft_id) as {id, document_id, status} (open, promoted, discarded
+# or replaced; store.DRAFT_OUTCOME), for session rows and the live session state: a run has one once its agent saved
+# a document with save_document or edit_document.
+SESSION_DRAFT = lifecycle.DRAFT_OUTCOME.format(draft='s.last_draft_id') + ' AS document_draft'
 DOCUMENT_TOOLS = ['get_document', 'read_document']
 
 

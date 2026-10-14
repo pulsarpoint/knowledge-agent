@@ -131,6 +131,7 @@ def test_promote_archives_the_live_content_keeps_the_id_and_deletes_every_draft(
             'version': 2,
             'stale_confirmed': False,
             'deleted_drafts': 2,
+            'deleted_draft_ids': [str(other)],
         }
 
 
@@ -598,6 +599,13 @@ def test_draft_outcome_open_promoted_discarded_unknown(store):
         promote_draft(conn, project, None, brand_new, revision=1, confirm_stale=False)
         assert draft_outcome(conn, brand_new)['status'] == 'promoted'
         assert draft_outcome(conn, uuid4()) is None
+        chosen, replaced = (
+            create_draft(conn, project, prov, content(f'# {n}'), origin='manual', document_id=live['id'])
+            for n in ('C', 'R')
+        )
+        promote_draft(conn, project, None, chosen, revision=1, confirm_stale=False)
+        assert draft_outcome(conn, replaced) == {'id': replaced, 'document_id': live['id'], 'status': 'replaced'}
+        assert draft_outcome(conn, chosen)['status'] == 'promoted'
 
 
 def test_versions_are_newest_first_and_version_reads_by_number(store):

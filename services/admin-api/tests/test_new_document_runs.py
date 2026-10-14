@@ -423,3 +423,48 @@ def test_two_runs_cannot_draft_the_same_new_document(sessions, monkeypatch):
         'A document or draft named payments-api-reference already exists in this folder. Choose another name.'
     )
     assert drafts(s, second['id']) == [] and all_drafts(s) == 1
+
+
+def edit_by_person(s, draft_id) -> dict:
+    draft = s.client.get(f'/api/documentation/drafts/{draft_id}', headers=HEADERS).json()
+    edited = s.client.put(
+        f'/api/documentation/drafts/{draft_id}',
+        headers=HEADERS,
+        json={'revision': draft['revision'], 'title': draft['title'], 'markdown': '# Edited by a person'},
+    )
+    assert edited.status_code == 200, edited.text
+    return edited.json()
+
+
+@pytest.mark.parametrize('decision', ['promote', 'discard'])
+def test_a_brand_new_draft_a_person_edited_is_theirs_until_they_decide(sessions, monkeypatch, decision):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    session, config, new_id = started(s)
+    call(config, 'save_document', document_id=new_id, markdown='# API', title='API reference')
+    [draft] = draft_ids(s, session['id'])
+    edited = edit_by_person(s, draft)
+    for tool, arguments in (
+        ('save_document', {'markdown': '# Mine'}),
+        ('edit_document', {'old_text': 'A', 'new_text': 'B'}),
+    ):
+        with pytest.raises(ValueError) as refused:
+            call(config, tool, document_id=new_id, **arguments)
+        assert str(refused.value) == (
+            'A person edited your draft of API reference; it is theirs now. '
+            'Save again after they promote or discard it.'
+        )
+    assert draft_ids(s, session['id']) == [draft]
+    if decision == 'promote':
+        promote(s, draft)
+        assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (
+            'Saved draft (1 lines). Your earlier draft was promoted; this is a new draft based on version 1.'
+        )
+        [row] = drafts(s, session['id'])
+        assert (row['document_id'], row['base_version'], row['slug'], row['markdown']) == (draft, 1, None, '# API v2')
+    else:
+        url = f'/api/documentation/drafts/{draft}/discard'
+        assert s.client.post(url, headers=HEADERS, json={'revision': edited['revision']}).status_code == 200
+        assert call(config, 'save_document', document_id=new_id, markdown='# Fresh') == 'Saved draft (1 lines).'
+        [row] = drafts(s, session['id'])
+        assert (row['document_id'], row['slug'], row['markdown']) == (None, 'payments-api-reference', '# Fresh')

@@ -470,6 +470,7 @@ def promote_draft(
             'deleted_drafts': 0,
             'new': True,
         }
+        replaced = []
     else:
         if live is None or live['id'] != draft['draft_of']:  # the draft row never changes its document
             raise HTTPException(404, DOCUMENT_NOT_FOUND)
@@ -501,12 +502,16 @@ def promote_draft(
             ),
         )
         conn.execute('UPDATE ka.document_sources SET document_id=%s WHERE document_id=%s', (live['id'], draft_id))
-        deleted = conn.execute('DELETE FROM ka.documents WHERE draft_of=%s', (live['id'],)).rowcount
+        deleted = [
+            row['id']
+            for row in conn.execute('DELETE FROM ka.documents WHERE draft_of=%s RETURNING id', (live['id'],)).fetchall()
+        ]
+        replaced = [str(item) for item in deleted if item != draft_id]
         result = {
             'document_id': live['id'],
             'version': live['version'] + 1,
             'revision': live['revision'] + 1,
-            'deleted_drafts': deleted,
+            'deleted_drafts': len(deleted),
             'new': False,
         }
     audit(
@@ -521,6 +526,7 @@ def promote_draft(
             'version': result['version'],
             'stale_confirmed': confirm_stale,
             'deleted_drafts': result['deleted_drafts'],
+            'deleted_draft_ids': replaced,  # the document's other drafts: their outcome is 'replaced'
         },
     )
     return result
@@ -583,25 +589,37 @@ def resource_history(conn, document_id: UUID) -> list[dict]:
     ).fetchall()
 
 
+# A draft's outcome as jsonb {id, document_id, status} for the draft id expression {draft}: open while its row exists
+# (document_id: the live document it revises, or its own id when brand-new); else from the audit log: promoted or
+# discarded (its own event), or replaced (deleted by the promote of another draft of its document); NULL when unknown.
+# The one definition behind draft_outcome and the sessions' document_draft (drafts.SESSION_DRAFT).
+DRAFT_OUTCOME = """(SELECT CASE
+        WHEN x.id IS NOT NULL THEN jsonb_build_object('id',x.id,'document_id',COALESCE(x.draft_of,x.id),'status','open')
+        WHEN own.action IS NOT NULL THEN jsonb_build_object('id',{draft},'document_id',own.details->'document_id',
+            'status',CASE own.action WHEN 'document.draft.promoted' THEN 'promoted' ELSE 'discarded' END)
+        WHEN other.details IS NOT NULL THEN jsonb_build_object('id',{draft},'document_id',other.details->'document_id',
+            'status','replaced')
+        END
+    FROM (SELECT 1) one LEFT JOIN ka.documents x ON x.id={draft} AND x.is_draft
+    LEFT JOIN LATERAL (SELECT a.action,a.details FROM ka.audit_events a WHERE a.resource_type='document_draft'
+        AND a.resource_id={draft} AND a.action IN ('document.draft.promoted','document.draft.discarded')
+        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) own ON true
+    LEFT JOIN LATERAL (SELECT a.details FROM ka.audit_events a WHERE a.action='document.draft.promoted'
+        AND a.resource_type='document_draft' AND a.details->'deleted_draft_ids' @> jsonb_build_array({draft}::text)
+        ORDER BY a.created_at DESC,a.id DESC LIMIT 1) other ON own.action IS NULL)"""
+
+
 def draft_outcome(conn, draft_id: UUID) -> dict | None:
-    """{'id', 'document_id', 'status'} of a draft: open while its row exists, else promoted or discarded from the
-    audit log; None when unknown."""
+    """{'id', 'document_id', 'status'} of a draft: open while its row exists, else promoted, discarded or replaced
+    (another draft of its document was promoted) from the audit log; None when unknown."""
     row = conn.execute(
-        "SELECT id,COALESCE(draft_of,id) AS document_id,'open' AS status FROM ka.documents WHERE id=%s AND is_draft",
-        (draft_id,),
+        f'SELECT {DRAFT_OUTCOME.format(draft="q.id")} AS outcome FROM (SELECT %s::uuid AS id) q', (draft_id,)
     ).fetchone()
-    if row is not None:
-        return row
-    event = conn.execute(
-        """SELECT action,details->>'document_id' AS document_id FROM ka.audit_events
-        WHERE resource_type='document_draft' AND resource_id=%s
-        AND action IN ('document.draft.promoted','document.draft.discarded') ORDER BY created_at DESC,id DESC LIMIT 1""",
-        (draft_id,),
-    ).fetchone()
-    if event is None:
+    outcome = row['outcome']
+    if outcome is None:
         return None
     return {
-        'id': draft_id,
-        'document_id': UUID(event['document_id']) if event['document_id'] else None,
-        'status': 'promoted' if event['action'] == 'document.draft.promoted' else 'discarded',
+        'id': UUID(outcome['id']),
+        'document_id': UUID(outcome['document_id']) if outcome['document_id'] else None,
+        'status': outcome['status'],
     }
