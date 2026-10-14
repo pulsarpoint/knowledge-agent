@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from knowledge_admin import run_record
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.run_record import RunRecorder
 from test_sdk_agent import config, responses_api  # noqa: F401 (fixtures)
 
@@ -53,7 +53,7 @@ def test_unrecorded_runs_write_nothing(config, captured):
 def test_failed_run_records_error(config, captured, monkeypatch):
     def explode(*args, **kwargs):
         raise RuntimeError('provider exploded fixture-secret')
-    monkeypatch.setattr('knowledge_admin.agents.Runner.run_streamed', explode)
+    monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', explode)
     with pytest.raises(RuntimeError):
         asyncio.run(agent(recorded(config), 'Explain', credentials={'model-key': 'fixture-secret'}))
     assert [event['kind'] for event in captured][-2:] == ['error', 'end']

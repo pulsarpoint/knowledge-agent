@@ -8,7 +8,7 @@ import pytest
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
-from knowledge_admin.agents import create_agent
+from knowledge_admin.agents.runner import create_agent
 from knowledge_admin.knowledge_agents.config import get_agent_config, require_run_resources
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_profiles import update, wizard_payload

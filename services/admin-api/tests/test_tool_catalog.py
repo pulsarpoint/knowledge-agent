@@ -8,7 +8,7 @@ import pytest
 from agents import FunctionTool
 from agents.tool_context import ToolContext
 
-from knowledge_admin.agents import get_prompt
+from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.tools.catalog import (CATALOG, capability_tools, effective_tools, enabled_capability_tools,
                                            implied_tools, tools_summary)
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool

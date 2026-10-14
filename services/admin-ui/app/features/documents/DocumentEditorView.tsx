@@ -7,7 +7,7 @@ import { useAgentSettings } from '~/lib/agentSettings';
 import { useWidePage } from '~/lib/widePage';
 import type { SessionDetail } from '~/lib/sessions';
 import { createDraft, draftPath, promotedNotice, updateDraft, type PromoteResult } from './drafts';
-import AgentDraftBar from '~/components/AgentDraftBar';
+import AgentDraftBar from './AgentDraftBar';
 import AgentChat from '~/components/AgentChat';
 import DocumentAgentRuns from './DocumentAgentRuns';
 import DocumentConnections from './DocumentConnections';

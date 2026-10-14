@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentDetailView from '../AgentDetailView';
-import * as profiles from '../../lib/profiles';
+import AgentDetailView from '~/features/agents/AgentDetailView';
+import * as profiles from '~/features/agents/api';
 import * as llm from "~/features/llm/api";
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(),
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgent: vi.fn(),
   getAgentOptions: vi.fn(), saveAgentPrompt: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));

@@ -15,7 +15,7 @@ on and their need met). `mcp_blocked` and `mcp_notes` do the same for MCP tools.
 `tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool`, and the
 adapter refuses a tool missing from `context['tools']` (`Tool <name> is not available in this run.`) as a backstop.
 
-`create_agent` (`knowledge_admin/agents.py`) builds the tools from `effective_tools`; MCP servers get a static
+`create_agent` (`knowledge_admin/agents/runner.py`) builds the tools from `effective_tools`; MCP servers get a static
 `tool_filter` that blocks the tools switched off on the Tools tab (a tool without a row is on). Edited usage text
 of an MCP tool that is on is added to the prompt under `Tool notes:` as `- <server name>/<tool>: <usage>`; the
 tool's own description still comes from the server. `code_graph` is offered only when a selected code project has a

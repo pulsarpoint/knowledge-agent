@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { ApiError } from '../lib/api';
-import { saveSkill, type Skill } from '../lib/skills';
-import Markdown from './Markdown';
+import { ApiError } from '~/lib/api';
+import { saveSkill, type Skill } from './skills';
+import Markdown from '~/components/Markdown';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';

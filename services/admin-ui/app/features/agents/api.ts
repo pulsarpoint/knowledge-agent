@@ -1,6 +1,6 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 import type { ToolsSummary } from './tools';
-import type { ResourceIds, RunKey } from './resources';
+import type { ResourceIds, RunKey } from '~/lib/resources';
 export type AgentResources = 'fixed' | 'per_run';
 export const RESOURCE_MODES: [AgentResources, string][] = [['fixed', 'Fixed'], ['per_run', 'Per run']];
 export interface ResourceLimit { kind: 'code' | 'documents' | 'servers' | 'services'; limit: number | 'any' }

@@ -7,7 +7,7 @@ import pytest
 from agents.tool_context import ToolContext
 
 from knowledge_admin import grounding
-from knowledge_admin.agents import get_paths, get_prompt
+from knowledge_admin.agents.runner import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
 from knowledge_admin.tools.catalog import effective_tools
 from tool_helpers import tools

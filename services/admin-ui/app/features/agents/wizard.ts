@@ -1,5 +1,5 @@
-import { request } from './api';
-import type { AgentResources } from './profiles';
+import { request } from '~/lib/api';
+import type { AgentResources } from './api';
 import type { CatalogTool } from './tools';
 
 export interface WizardResource { id: string; name: string; description?: string }

@@ -1,20 +1,20 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentDetailView from '../AgentDetailView';
-import AgentsView from '../AgentsView';
-import * as profiles from '../../lib/profiles';
-import * as clones from '../../lib/clones';
+import AgentDetailView from '~/features/agents/AgentDetailView';
+import AgentsView from '~/features/agents/AgentsView';
+import * as profiles from '~/features/agents/api';
+import * as clones from '~/features/agents/clones';
 import * as llm from "~/features/llm/api";
 import { Toaster } from '~/components/ui/sonner';
 import { ApiError } from '../../lib/api';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(),
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgent: vi.fn(),
   getAgents: vi.fn(), getAgentOptions: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
-vi.mock('../../lib/clones');
+vi.mock('~/features/agents/clones');
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
-vi.mock('../AgentWizard', () => ({ default: () => null }));
+vi.mock('~/features/agents/AgentWizard', () => ({ default: () => null }));
 
 const base: profiles.AgentProfile = { id: 'operations', name: 'SSH agent', description: '', when_to_use: '', enabled: true,
   documents_enabled: false, repositories_enabled: false, ssh_enabled: true, skills_enabled: false,

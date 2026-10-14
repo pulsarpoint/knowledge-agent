@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 
-from knowledge_admin.agents import get_agent_config
+from knowledge_admin.agents.runner import get_agent_config
 from test_api import _client
 from test_repositories import HEADERS
 

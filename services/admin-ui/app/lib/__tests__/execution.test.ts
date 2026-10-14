@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { deleteAgent, describeHistory, getAgentHistory } from '../profiles';
+import { deleteAgent, describeHistory, getAgentHistory } from '~/features/agents/api';
 afterEach(() => vi.unstubAllGlobals());
 
 test('agent deletion sends revision and explicit confirmation and accepts 204', async () => {

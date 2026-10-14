@@ -70,7 +70,7 @@ def load(store, project_id, entry: Mapping[str, Any], resources: Mapping[str, li
     """The expert's configuration for one call (its current settings; per run: resolved with the given resources,
     which the caller already checked are its own) and its decrypted credentials. ValueError: a message for the model.
     Synchronous: the caller runs it in a thread."""
-    from knowledge_admin.agents import load_credentials  # agents imports this package
+    from knowledge_admin.agents.runner import load_credentials  # agents imports this package
 
     unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))
     try:

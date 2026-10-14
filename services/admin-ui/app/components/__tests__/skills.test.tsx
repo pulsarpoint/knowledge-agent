@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
-import SkillsView from '../SkillsView';
-import type { Skill } from '../../lib/skills';
+import SkillsView from '~/features/agents/SkillsView';
+import type { Skill } from '~/features/agents/skills';
 
 afterEach(() => vi.unstubAllGlobals());
 const initial: Skill = { id: 'skill-1', name: 'inspect-logs', description: 'Investigate service errors', instructions: '# Inspect logs\n\nRead recent errors.\n', enabled: true, revision: 1, created_at: '2026-09-09T10:00:00Z', updated_at: '2026-09-09T10:00:00Z' };

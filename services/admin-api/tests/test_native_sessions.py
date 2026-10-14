@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 
 from native_fakes import FakeAgent, call, hang, llm, message, stubborn, tool
 from knowledge_admin import run_record
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.history import HistorySession

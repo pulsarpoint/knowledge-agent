@@ -1,17 +1,17 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentDetailView from '../AgentDetailView';
-import AgentsView from '../AgentsView';
-import * as profiles from '../../lib/profiles';
-import * as tools from '../../lib/tools';
+import AgentDetailView from '~/features/agents/AgentDetailView';
+import AgentsView from '~/features/agents/AgentsView';
+import * as profiles from '~/features/agents/api';
+import * as tools from '~/features/agents/tools';
 import * as llm from "~/features/llm/api";
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgents: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
-vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgent: vi.fn(), getAgents: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
+vi.mock('~/features/agents/tools', async () => ({ ...await vi.importActual('~/features/agents/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
-vi.mock('../AgentWizard', () => ({ default: () => null }));
+vi.mock('~/features/agents/AgentWizard', () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = { id: 'caller', name: 'Caller', description: '', when_to_use: '', enabled: true,
   documents_enabled: false, repositories_enabled: true, ssh_enabled: false, skills_enabled: false, mcp_enabled: false, services_enabled: false,

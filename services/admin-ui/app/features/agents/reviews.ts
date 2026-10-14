@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 
 export interface InstructionChanges { system_prompt: string | null; instructions: string | null; server_instructions: { server_id: string; instructions: string }[] }
 /** A selected SSH server: `inherits` while its instructions are the agent's additional instructions. */

@@ -14,7 +14,7 @@ from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, per_run, tool_items
 from knowledge_admin.knowledge_agents.run_resources import options as run_resource_options
 from knowledge_admin.tools.catalog import tools_summary
-from knowledge_admin.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
+from knowledge_admin.agents.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
 
 
 EXPERT_NEEDS_WHEN = 'Experts need When to use.'

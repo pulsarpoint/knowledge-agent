@@ -8,7 +8,7 @@ from agents import RunHooks
 from agents.memory import Session
 from fastapi.encoders import jsonable_encoder
 
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.knowledge_agents.history import HistorySession
 from test_generations import sessions, start  # noqa: F401  (fixture)
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)

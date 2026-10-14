@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 
 /** What Apply would replace on the original (section labels) and the fingerprint the dialog sends back. */
 export interface ApplyPreview { original: { id: string; name: string; revision: number }; fingerprint: string; changes: string[] }

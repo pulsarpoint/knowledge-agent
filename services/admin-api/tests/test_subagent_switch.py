@@ -7,10 +7,10 @@ from agents.tool_context import ToolContext
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.subagents import UNAVAILABLE
-from knowledge_admin.profiles_api import ProfileInput
+from knowledge_admin.agents.profiles_api import ProfileInput
 from knowledge_admin.tools.catalog import CATALOG, SUBAGENT
 from knowledge_admin.tools.sdk import function_tool
-from knowledge_admin.tools_api import SUBAGENT_SWITCH, SUBAGENTS_OFF, UNKNOWN
+from knowledge_admin.agents.tools_api import SUBAGENT_SWITCH, SUBAGENTS_OFF, UNKNOWN
 from test_agent_tools_api import put, view
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_profiles import create, update, wizard_payload

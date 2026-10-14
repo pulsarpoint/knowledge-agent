@@ -2,7 +2,7 @@
 
 import pytest
 
-from knowledge_admin.agents import get_agent_config as agents_loader
+from knowledge_admin.agents.runner import get_agent_config as agents_loader
 from knowledge_admin.knowledge_agents.config import AgentConfig, get_agent_config, model_fits
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from knowledge_admin.agents import load_credentials
+from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.knowledge_agents.run_resources import FIXED, RunResourceError, RunResources, options, resolve
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)

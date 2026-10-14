@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request } from '~/lib/api';
 
 export type ToolGroup = 'code' | 'documents' | 'servers' | 'inventory' | 'mcp' | 'agents' | 'experts';
 export type ToolNeed = 'files' | 'code' | 'code_graph' | 'documents' | 'grounded' | 'ssh';

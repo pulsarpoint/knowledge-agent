@@ -1,16 +1,16 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentDetailView from '../AgentDetailView';
-import { keepChoices } from '../AgentToolsView';
-import * as profiles from '../../lib/profiles';
-import * as tools from '../../lib/tools';
+import AgentDetailView from '~/features/agents/AgentDetailView';
+import { keepChoices } from '~/features/agents/AgentToolsView';
+import * as profiles from '~/features/agents/api';
+import * as tools from '~/features/agents/tools';
 import * as llm from "~/features/llm/api";
 import { Toaster } from '~/components/ui/sonner';
 import { ApiError } from '../../lib/api';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
-vi.mock('../../lib/tools', async () => ({ ...await vi.importActual('../../lib/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn() }));
+vi.mock('~/features/agents/tools', async () => ({ ...await vi.importActual('~/features/agents/tools'), getAgentTools: vi.fn(), saveAgentTools: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: () => null }));
 

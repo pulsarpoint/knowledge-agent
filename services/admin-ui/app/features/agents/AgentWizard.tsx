@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
 import { Sparkles } from 'lucide-react';
-import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from '../lib/agentWizard';
-import { RESOURCE_MODES, RESOURCES_HELP, resourcesLabel, type AgentResources } from '../lib/profiles';
-import { NEED_REASONS, SUBAGENTS_HELP, TOOL_GROUPS, impliedTools, toolNeedMet } from '../lib/tools';
+import { createWizardAgent, generateAgent, getWizardOptions, type AgentProposal, type WizardOptions, type WizardResource, type WizardServer } from './wizard';
+import { RESOURCE_MODES, RESOURCES_HELP, resourcesLabel, type AgentResources } from './api';
+import { NEED_REASONS, SUBAGENTS_HELP, TOOL_GROUPS, impliedTools, toolNeedMet } from './tools';
 import { PROMPT_LIMIT } from './AgentPromptCard';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';

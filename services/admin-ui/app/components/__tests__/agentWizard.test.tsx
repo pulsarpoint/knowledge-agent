@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import AgentWizard from '../AgentWizard';
-import * as api from '../../lib/agentWizard';
+import AgentWizard from '~/features/agents/AgentWizard';
+import * as api from '~/features/agents/wizard';
 import { Toaster } from '~/components/ui/sonner';
 
-vi.mock('../../lib/agentWizard', () => ({ getWizardOptions: vi.fn(), generateAgent: vi.fn(), createWizardAgent: vi.fn() }));
+vi.mock('~/features/agents/wizard', () => ({ getWizardOptions: vi.fn(), generateAgent: vi.fn(), createWizardAgent: vi.fn() }));
 const proposal: api.AgentProposal = {
   name: 'Payments helper', description: 'Investigate payments.', when_to_use: 'Payment incidents.',
   system_prompt: 'Find evidence before answering.', instructions: 'Check exit codes.', model_id: 'model', enabled: true,

@@ -5,7 +5,7 @@ import psycopg
 import pytest
 from fastapi import HTTPException
 
-from knowledge_admin.profiles_api import ProfileInput
+from knowledge_admin.agents.profiles_api import ProfileInput
 from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured

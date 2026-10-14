@@ -21,7 +21,7 @@ from cryptography.exceptions import InvalidTag
 
 from knowledge_admin import agent_tracing, grounding, run_record
 from knowledge_admin.agent_activity import tool_failed
-from knowledge_admin.agents import agent, load_credentials
+from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from knowledge_admin.knowledge_agents.history import HistorySession

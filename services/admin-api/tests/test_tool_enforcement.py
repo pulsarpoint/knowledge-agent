@@ -4,7 +4,7 @@ import asyncio
 
 from agents import Runner
 
-from knowledge_admin.agents import agent, get_prompt
+from knowledge_admin.agents.runner import agent, get_prompt
 from knowledge_admin.tools.catalog import CATALOG, implied_tools
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
@@ -40,7 +40,7 @@ def test_the_shell_is_switched_by_the_shell_tool(config, responses_api, monkeypa
     def spy(assistant, task, *, context, **kwargs):
         seen.update(tools=context['tools'], shell=context['shell_enabled'])
         return real(assistant, task, context=context, **kwargs)
-    monkeypatch.setattr('knowledge_admin.agents.Runner.run_streamed', spy)
+    monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', spy)
     choose(config, {'read_file': None})
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
     assert seen == {'tools': frozenset({'read_file'}), 'shell': False}

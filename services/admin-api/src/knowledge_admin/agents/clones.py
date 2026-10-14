@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage
 from knowledge_admin.knowledge_agents.config import changed_sections, fingerprint, get_agent_config
-from knowledge_admin.profiles_api import WORKING
+from knowledge_admin.agents.profiles_api import WORKING
 
 NAME_TAKEN = 'An agent with this name already exists.'
 NAME_LIMIT = 100

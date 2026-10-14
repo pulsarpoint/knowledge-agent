@@ -1,5 +1,5 @@
 import AdminLayout from "../components/AdminLayout";
-import AgentsView from "../components/AgentsView";
+import AgentsView from "~/features/agents/AgentsView";
 export default function AgentsPage() {
   return <AdminLayout><AgentsView /></AdminLayout>;
 }

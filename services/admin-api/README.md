@@ -59,14 +59,14 @@ and real Git checkouts against a local fixture. Existing development data is not
 ## Loading an agent configuration
 
 ```python
-from knowledge_admin.agents import get_agent_config
+from knowledge_admin.agents.runner import get_agent_config
 
 config = get_agent_config("operations")  # Saved ID; custom agents use their UUID text ID.
 # PostgreSQL connection settings come from PG* variables.
 # An explicit connection string can be supplied with conninfo=... .
 ```
 
-`agents.py` reads a consistent database snapshot and returns a JSON-compatible
+`agents/runner.py` reads a consistent database snapshot and returns a JSON-compatible
 dictionary. Its sections are `model`, `system_prompt` (the active version and its
 content), `instructions`, `documents`, `code`, `ssh`, `skills`, `mcp`, and `services`.
 Identity, description, when-to-use text, availability and revisions are included.
@@ -149,7 +149,7 @@ Test conversations and native Generate documents sessions call the same function
 it never queries PostgreSQL.
 
 ```python
-from knowledge_admin.agents import agent, get_agent_config
+from knowledge_admin.agents.runner import agent, get_agent_config
 
 config = get_agent_config("code")
 result = await agent(config, "Explain how this project starts.", credentials=decrypted_credentials)
@@ -157,7 +157,7 @@ print(result.final_output)
 ```
 
 Setup is split into `get_model`, `get_paths`, `get_ssh` and `get_prompt` in
-`agents.py`; tools come from `tools/catalog.py` through `tools/sdk.py` (MCP server selection is in
+`agents/runner.py`; tools come from `tools/catalog.py` through `tools/sdk.py` (MCP server selection is in
 `knowledge_admin/capabilities/mcp.py`). These select the saved settings and enabled
 resources. Provider connections still belong to `model_adapter.agent_model()`;
 the main runner owns connection cleanup and streaming. The session API owns
@@ -176,7 +176,7 @@ are in `knowledge_admin/capabilities/` (`files`, `ast_grep`, `code_search`, `cod
 `shell/`); `tools/catalog.py` is the SDK-free catalog and `tools/sdk.py` the single Agents SDK adapter. MCP tools of a
 selected server are filtered with the same switches, and edited usage text goes into the prompt as `Tool notes:`.
 `code_graph` is offered when a selected code project has a current generated graph (`current_graph`, read live from
-the manifest; a sync after generation adds a note). The Tools API is `knowledge_admin/tools_api.py`.
+the manifest; a sync after generation adds a note). The Tools API is `knowledge_admin/agents/tools_api.py`.
 Enabled code/document folders offer `list_files`, `read_file` and
 `search_files` from `knowledge_admin/capabilities/files.py` (wrapped by
 `knowledge_admin/tools/catalog.py`). These read configured

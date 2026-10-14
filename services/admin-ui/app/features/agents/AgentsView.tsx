@@ -3,9 +3,9 @@ import { Link, Navigate, useNavigate, useSearchParams, useLocation } from 'react
 import { ArrowRight, Copy, Sparkles, Trash2 } from 'lucide-react';
 import AgentWizard from './AgentWizard';
 import { toast } from 'sonner';
-import { toolsSummaryLabel } from '../lib/tools';
-import { cloneAgent } from '../lib/clones';
-import { deleteAgent, resourcesSummary, describeHistory, getAgentHistory, getAgents, type AgentSummary } from '../lib/profiles';
+import { toolsSummaryLabel } from './tools';
+import { cloneAgent } from './clones';
+import { deleteAgent, resourcesSummary, describeHistory, getAgentHistory, getAgents, type AgentSummary } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button, buttonVariants } from '~/components/ui/button';

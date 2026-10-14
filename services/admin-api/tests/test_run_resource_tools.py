@@ -6,7 +6,7 @@ import json
 import pytest
 from agents.tool_context import ToolContext
 
-from knowledge_admin.agents import get_prompt
+from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
 from knowledge_admin.capabilities.context import NOTHING_GIVEN
 from knowledge_admin.tools.catalog import implied_tools

@@ -5,9 +5,9 @@ from uuid import UUID, uuid4
 
 import asyncssh
 
-from knowledge_admin.agent_clones import clone_name
+from knowledge_admin.agents.clones import clone_name
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
-from knowledge_admin.profiles_api import agent_history
+from knowledge_admin.agents.profiles_api import agent_history
 from session_rows import a_model, add_test_session
 from test_agent_ssh import save
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)

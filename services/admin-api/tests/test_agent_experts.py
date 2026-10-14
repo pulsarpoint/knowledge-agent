@@ -1,5 +1,5 @@
 """Offer as an expert: the switch on the agent, its rules, and what delete, clone and Apply to original do with it."""
-from knowledge_admin.profiles_api import EXPERT_NEEDS_WHEN, ProfileInput
+from knowledge_admin.agents.profiles_api import EXPERT_NEEDS_WHEN, ProfileInput
 from test_agent_apply import apply, preview
 from test_agent_clones import clone
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)

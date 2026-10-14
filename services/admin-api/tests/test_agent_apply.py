@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import asyncssh
 
-from knowledge_admin.agent_clones import APPLY_WORKING, NOT_A_CLONE, ORIGINAL_CHANGED
+from knowledge_admin.agents.clones import APPLY_WORKING, NOT_A_CLONE, ORIGINAL_CHANGED
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from test_agent_clones import clone, own_connection, per_server
 from test_agent_ssh import save

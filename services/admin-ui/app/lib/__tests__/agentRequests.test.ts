@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { saveAgent, type AgentProfile } from '../profiles';
-import { impliedTools, saveAgentTools, type AgentTool, type CatalogTool } from '../tools';
+import { saveAgent, type AgentProfile } from '~/features/agents/api';
+import { impliedTools, saveAgentTools, type AgentTool, type CatalogTool } from '~/features/agents/tools';
 
 afterEach(() => vi.unstubAllGlobals());
 const sent = () => JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));

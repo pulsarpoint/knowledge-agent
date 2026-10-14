@@ -18,7 +18,7 @@ from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, hang
 from knowledge_admin import agent_tracing, run_record
 from knowledge_admin.agent_activity import tool_failed
 from knowledge_admin.agent_tracing import trace_secrets
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents

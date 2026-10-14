@@ -8,9 +8,9 @@ from agents import AgentOutputSchema, ModelBehaviorError
 
 import psycopg
 
-from knowledge_admin import agent_reviews
-from knowledge_admin.agent_clones import NAME_TAKEN
-from knowledge_admin.agent_reviews import (AGENT_CHANGED, INVALID_TEXT, PROMPT_REQUIRED, REVIEW_NOT_FOUND, UNKNOWN_SERVER,
+from knowledge_admin.agents import reviews as agent_reviews
+from knowledge_admin.agents.clones import NAME_TAKEN
+from knowledge_admin.agents.reviews import (AGENT_CHANGED, INVALID_TEXT, PROMPT_REQUIRED, REVIEW_NOT_FOUND, UNKNOWN_SERVER,
                                           TuningSuggestion)
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from session_rows import a_model, add_review, add_test_session

@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, effective_tools
-from knowledge_admin.tools_api import DISCOVERY_ONLY, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
+from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_agent_resources import listed
 from test_profiles import create, update, wizard_payload

@@ -10,7 +10,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from test_sdk_agent import config, responses_api
 
 

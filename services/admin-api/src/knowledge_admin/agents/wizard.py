@@ -16,13 +16,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from starlette.concurrency import run_in_threadpool
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import model_fits
 from knowledge_admin.servers.operations_store import SSHInput
-from knowledge_admin.profiles_api import PROMPT_LIMIT
+from knowledge_admin.agents.profiles_api import PROMPT_LIMIT
 from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, SUBAGENT, catalog_listing, enabled_capability_tools
-from knowledge_admin.tools_api import DISCOVERY_ONLY, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
+from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, SUBAGENT_SWITCH, UNKNOWN, flags, switch_subagents
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.

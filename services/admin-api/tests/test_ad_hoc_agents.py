@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from knowledge_admin.agents import load_credentials
+from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, load_model
 from knowledge_admin.knowledge_agents.ephemeral import ad_hoc_config
 from knowledge_admin.knowledge_agents.run_resources import RunResourceError

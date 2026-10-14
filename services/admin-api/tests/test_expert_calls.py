@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from native_fakes import FakeAgent, FakeSubagent, Recorder, call, delegate, llm, message, tool
 from knowledge_admin import run_record
 from knowledge_admin.agent_activity import tool_failed
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.experts import FAILED, UNAVAILABLE, load, offered, pin

@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import AgentTestView from '../AgentTestView';
-import * as reviews from '../../lib/reviews';
+import AgentTestView from '~/features/agents/AgentTestView';
+import * as reviews from '~/features/agents/reviews';
 import type { RunSummary, SessionDetail } from '../../lib/sessions';
 import { agentOptions } from '../../lib/__tests__/agentScopeFixture';
-vi.mock('../../lib/reviews');
+vi.mock('~/features/agents/reviews');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
 class Stream extends EventTarget {

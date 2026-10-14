@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 import pytest
 import asyncssh
 
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from agents import Runner
 from test_ssh import ssh_server
 
@@ -155,7 +155,7 @@ def test_usage_is_reported_before_output_validation(config, stream, invalid_docu
 def test_official_sdk_runs_task_with_saved_prompt_model_and_enabled_context(config, responses_api, monkeypatch):
     _, requests = responses_api
     before = copy.deepcopy(config)
-    monkeypatch.setattr('knowledge_admin.agents.psycopg.connect', lambda *a, **kw: pytest.fail('Runner must not query PostgreSQL'))
+    monkeypatch.setattr('knowledge_admin.agents.runner.psycopg.connect', lambda *a, **kw: pytest.fail('Runner must not query PostgreSQL'))
     result = asyncio.run(agent(config, 'Explain the source fixture.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=45))
     assert result.final_output == 'Configured agent completed the task.'
     assert result.context_wrapper.usage.total_tokens == 30
@@ -225,7 +225,7 @@ def test_sdk_connects_selected_mcp_and_keeps_ssh_keys_out_of_prompt(config, resp
             directories.append(Path(directory))
             yield directory
             assert not (Path(directory) / 'ssh-key-0').exists()
-    monkeypatch.setattr('knowledge_admin.agents.TemporaryDirectory', temporary_directory)
+    monkeypatch.setattr('knowledge_admin.agents.runner.TemporaryDirectory', temporary_directory)
     result = asyncio.run(agent(config, 'Describe the available resources; do not connect to SSH.',
         credentials={'model-key': 'fixture-api-secret', 'mcp-key': 'fixture-mcp-secret', 'ssh-key': private_key},
         timeout_seconds=45))
@@ -247,7 +247,7 @@ def test_missing_mcp_credential_cleans_temporary_runtime(config, monkeypatch, tm
         {'id': 'fixture-mcp', 'name': 'Fixture MCP', 'description': '', 'enabled': True, 'url': 'http://unused.test',
          'bearer_token_ref': {'id': 'missing'}}]}
     directory = TemporaryDirectory(dir=tmp_path)
-    monkeypatch.setattr('knowledge_admin.agents.TemporaryDirectory', lambda **kwargs: directory)
+    monkeypatch.setattr('knowledge_admin.agents.runner.TemporaryDirectory', lambda **kwargs: directory)
     with pytest.raises(ValueError, match='MCP token'):
         asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
     assert not Path(directory.name).exists()
@@ -263,7 +263,7 @@ def test_invalid_config_fails_before_starting_sdk(config, responses_api, monkeyp
     if problem == 'model': config['model'] = None
     if problem == 'unsupported': config['model']['provider'] = 'unknown'
     if problem == 'path': config['code']['projects'][0]['folder_paths'] = ['/missing/source']
-    monkeypatch.setattr('knowledge_admin.agents.Runner.run_streamed', lambda *a, **kw: pytest.fail('Invalid settings must not start the SDK'))
+    monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', lambda *a, **kw: pytest.fail('Invalid settings must not start the SDK'))
     with pytest.raises(ValueError, match=message):
         asyncio.run(agent(config, '' if problem == 'task' else 'Inspect.',
                           credentials={} if problem == 'credential' else {'model-key': 'fixture-api-secret'}))

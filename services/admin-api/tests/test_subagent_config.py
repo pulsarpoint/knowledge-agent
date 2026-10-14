@@ -7,7 +7,7 @@ import copy
 import pytest
 from agents import RunHooks
 
-from knowledge_admin.agents import agent
+from knowledge_admin.agents.runner import agent
 from knowledge_admin.knowledge_agents.subagents import (EMPTY_TASK, LONG_TASK, NO_SPAWN, NO_TOOLS, NOT_FOR_SUBAGENTS,
                                                         NOT_GIVEN, NOT_OFFERED, PROMPT, check_task,
                                                         referenced_credentials, subagent_config)

@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentsView from '../AgentsView';
-import AgentDetailView from '../AgentDetailView';
+import AgentsView from '~/features/agents/AgentsView';
+import AgentDetailView from '~/features/agents/AgentDetailView';
 import AdminLayout from '../AdminLayout';
 import * as llm from "~/features/llm/api";
-import * as profiles from '../../lib/profiles';
+import * as profiles from '~/features/agents/api';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgents: vi.fn(), getAgent: vi.fn(), getAgentOptions: vi.fn(), saveAgent: vi.fn(), deleteAgent: vi.fn(), getAgentHistory: vi.fn() }));
 vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ servers: [] })) }));
 vi.mock('../CodeSearchAgentView', () => ({ default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div> }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: ({ view, agentId }: { view: string; agentId: string }) => {

@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from knowledge_admin.agent_wizard import AgentProposal
-from knowledge_admin.agents import get_agent_config
+from knowledge_admin.agents.wizard import AgentProposal
+from knowledge_admin.agents.runner import get_agent_config
 from test_agents import saved_agent, agent_mounts
 from test_repositories import HEADERS
 
@@ -125,7 +125,7 @@ def test_generation_uses_no_tools_and_does_not_save(store, wizard, monkeypatch):
     async def run(config, task, **kwargs):
         calls.append((config, json.loads(task), kwargs))
         return SimpleNamespace(final_output=AgentProposal.model_validate(proposal))
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     before = client.get('/api/agents', headers=HEADERS).json()
     result = client.post('/api/agents/wizard/generate', headers=HEADERS,
                          json={'role':'Investigate payments without sudo.', 'model_id':proposal['model_id']})
@@ -153,7 +153,7 @@ def test_invalid_model_output_gets_one_correction_attempt(wizard, monkeypatch):
         if len(calls)==1:
             raise ModelBehaviorError('Invalid model output')
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 200 and result.json()['proposal'] == proposal
     assert len(calls) == 2
@@ -166,7 +166,7 @@ def test_model_annotations_cannot_add_unsupported_settings(wizard, monkeypatch):
     client, _, proposal, _ = wizard
     async def run(*args, **kwargs):
         return SimpleNamespace(final_output=AgentProposal.model_validate(proposal))
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 200 and result.json()['proposal'] == proposal
     assert client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'unknown_field':True}).status_code == 400
@@ -179,7 +179,7 @@ def test_generation_failure_is_safe_and_leaves_no_agent(wizard, monkeypatch, fai
         if failure == 'exception':
             raise RuntimeError('Authorization: test-model-secret')
         raise ModelBehaviorError('Invalid model output')
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     before = client.get('/api/agents', headers=HEADERS).json()
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 502 and 'test-model-secret' not in result.text
@@ -226,7 +226,7 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
         calls.append(json.loads(task))
         output = {**proposal, 'all_collections': True} if len(calls) == 1 else proposal
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     result = client.post('/api/agents/wizard/generate', headers=HEADERS, json={'role':'Payments', 'model_id':proposal['model_id']})
     assert result.status_code == 200 and result.json()['proposal'] == proposal
     assert len(calls) == 2
@@ -243,7 +243,7 @@ def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypat
     async def run(config, task, **kwargs):
         tasks.append(json.loads(task))
         return SimpleNamespace(final_output=AgentProposal.model_validate({**proposal, 'model_id': gpt}))
-    monkeypatch.setattr('knowledge_admin.agent_wizard.agent', run)
+    monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
 
     native = client.post('/api/agents/wizard/generate', headers=HEADERS,
                          json={'role': 'Payments', 'model_id': proposal['model_id']})

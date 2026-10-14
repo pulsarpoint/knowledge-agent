@@ -1,5 +1,5 @@
 import type { SessionEvent } from './sessions';
-import { SUBAGENT_TOOL } from './tools';
+import { SUBAGENT_TOOL } from '~/features/agents/tools';
 
 export type TurnStatus = 'working' | 'completed' | 'failed' | 'stopped';
 export type SubagentStatus = 'working' | 'done' | 'failed' | 'stopped';

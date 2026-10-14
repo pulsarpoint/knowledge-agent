@@ -1,6 +1,6 @@
 import { request } from './api';
 import type { ToolCount } from './runs';
-import type { RunResourcesInput } from './profiles';
+import type { RunResourcesInput } from '~/features/agents/api';
 import type { AgentKey, ResourceIds } from './resources';
 import type { Turn } from './turns';
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { saveAgentPrompt, type AgentProfile } from '../lib/profiles';
+import { saveAgentPrompt, type AgentProfile } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '~/components/ui/card';

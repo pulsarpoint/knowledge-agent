@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import SuggestionApply from '../SuggestionApply';
-import * as api from '../../lib/reviews';
+import * as api from '~/features/agents/reviews';
 import { ApiError } from '../../lib/api';
-vi.mock('../../lib/reviews');
+vi.mock('~/features/agents/reviews');
 vi.mock('../Markdown', () => ({ default: ({ content }: { content: string }) => <div>{content}</div> }));
 
 const review = { id: 'review-1', comment: 'Be clearer', suggestion: 'Be clearer.', created_at: '2026-10-08T10:00:00Z' };

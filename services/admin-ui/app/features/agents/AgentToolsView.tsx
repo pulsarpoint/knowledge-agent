@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { ApiError } from '../lib/api';
+import { ApiError } from '~/lib/api';
 import { toast } from 'sonner';
-import { EXPERT_SELF_NOTE, NO_EXPERTS_NOTE, SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from '../lib/tools';
+import { EXPERT_SELF_NOTE, NO_EXPERTS_NOTE, SUBAGENT_TOOL, SUBAGENTS_OFF_NOTE, TAB_LABELS, TOOL_GROUPS, getAgentTools, saveAgentTools, type AgentTool, type AgentTools } from './tools';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';

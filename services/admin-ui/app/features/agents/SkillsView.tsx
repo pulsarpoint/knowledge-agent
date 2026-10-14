@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Pencil, Plus, RefreshCw } from 'lucide-react';
-import { ApiError } from '../lib/api';
-import { getSkill, getSkills, setSkillEnabled, type Skill, type SkillSummary } from '../lib/skills';
+import { ApiError } from '~/lib/api';
+import { getSkill, getSkills, setSkillEnabled, type Skill, type SkillSummary } from './skills';
 import SkillForm from './SkillForm';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';

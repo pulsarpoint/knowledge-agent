@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
-import { PER_RUN_NOTES, getAgent, type AgentProfile } from '../lib/profiles';
+import { PER_RUN_NOTES, getAgent, type AgentProfile } from './api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -12,7 +12,7 @@ import OperationsView from '~/features/servers/OperationsView';
 import AgentPromptCard from './AgentPromptCard';
 import AgentToolsView from './AgentToolsView';
 import AgentActions from './AgentActions';
-import { TOOLS_TAB_NOTE } from '../lib/tools';
+import { TOOLS_TAB_NOTE } from './tools';
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [params, setParams] = useSearchParams();

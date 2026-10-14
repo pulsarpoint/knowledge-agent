@@ -1,17 +1,17 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import AgentDetailView from '../AgentDetailView';
-import AgentsView from '../AgentsView';
-import * as profiles from '../../lib/profiles';
+import AgentDetailView from '~/features/agents/AgentDetailView';
+import AgentsView from '~/features/agents/AgentsView';
+import * as profiles from '~/features/agents/api';
 import * as llm from "~/features/llm/api";
 import { Toaster } from '~/components/ui/sonner';
 
-vi.mock('../../lib/profiles', async () => ({ ...await vi.importActual('../../lib/profiles'), getAgent: vi.fn(), getAgents: vi.fn(),
+vi.mock('~/features/agents/api', async () => ({ ...await vi.importActual('~/features/agents/api'), getAgent: vi.fn(), getAgents: vi.fn(),
   getAgentOptions: vi.fn(), saveAgent: vi.fn(), saveProfileModel: vi.fn(), deleteAgent: vi.fn() }));
 vi.mock("~/features/llm/api", async () => ({ ...await vi.importActual("~/features/llm/api"), getLlmSettings: vi.fn() }));
 vi.mock('~/features/servers/OperationsView', () => ({ default: ({ view }: { view: string }) => <div>{view === 'test' ? 'Native test chat' : 'Operations settings'}</div> }));
-vi.mock('../AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
+vi.mock('~/features/agents/AgentWizard', () => ({ default: () => <div>Agent wizard</div> }));
 
 const writer: profiles.AgentProfile = { id: 'writer', name: 'Technical writer', description: '', when_to_use: '', enabled: true,
   documents_enabled: false,
