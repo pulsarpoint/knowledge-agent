@@ -27,6 +27,10 @@ export interface DraftSummary {
   base_version: number | null;
   live_version: number | null;
   stale: boolean;
+  /** It revises a live document (false: a brand-new draft, "Not published"). */
+  published?: boolean;
+  /** The live document's title (null for a brand-new draft). */
+  document_title?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,7 +39,6 @@ export interface DraftDetail extends DraftSummary, DraftContent {
   resource_ids: Record<string, string[]>;
   sources: DraftSource[];
   live_markdown: string | null;
-  document_title: string | null;
 }
 export type DraftCreate = Partial<DraftContent> & {
   document_id?: string;
@@ -96,8 +99,13 @@ export const getDocumentDrafts = (documentId: string, signal?: AbortSignal) =>
   request<{ drafts: DraftSummary[] }>(`${documentUrl(documentId)}/drafts`, { signal });
 export const getDraft = (id: string, signal?: AbortSignal) => request<DraftDetail>(draftUrl(id), { signal });
 export const createDraft = (value: DraftCreate) => request<DraftDetail>(`${base}/drafts`, json("POST", value));
-export const updateDraft = (id: string, revision: number, content: DraftContent) =>
-  request<DraftDetail>(draftUrl(id), json("PUT", { revision, ...content }));
+/** A draft's text at its revision; a brand-new draft may also change its name (slug, folder) until it is published. */
+export const updateDraft = (
+  id: string,
+  revision: number,
+  content: DraftContent,
+  name?: { slug: string; folder: string | null },
+) => request<DraftDetail>(draftUrl(id), json("PUT", { revision, ...name, ...content }));
 export const promoteDraft = (id: string, revision: number, confirmStale: boolean) =>
   request<Omit<PromoteResult, "draft_id">>(
     `${draftUrl(id)}/promote`,
@@ -119,9 +127,13 @@ export const addLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links`, json("POST", { to_document_id: toId }));
 export const removeLink = (documentId: string, toId: string) =>
   request<Connections>(`${documentUrl(documentId)}/links/${encodeURIComponent(toId)}`, { method: "DELETE" });
-/** Where a draft opens: its document's Drafts tab, or the page of a new document's draft. */
+/** Where a draft opens: its document's Drafts tab, or a brand-new draft's own page (/documents/{id}, the id the
+ * document keeps when it is published). */
 export const draftPath = (draft: { id: string; document_id: string | null }) =>
-  draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/drafts/${draft.id}`;
+  draft.document_id ? `/documents/${draft.document_id}?tab=drafts&draft=${draft.id}` : `/documents/${draft.id}`;
+/** What a page says after Publish made a brand-new draft the live document. */
+export const publishedNotice = (result: PromoteResult) =>
+  `Published as version ${result.version}.${result.export_error ? ` ${result.export_error}` : ""}`;
 /** What the document page says after a draft was promoted, with the export error when writing the file failed. */
 export const promotedNotice = (result: PromoteResult) =>
   `Draft promoted to version ${result.version}.${result.export_error ? ` ${result.export_error}` : ""}`;

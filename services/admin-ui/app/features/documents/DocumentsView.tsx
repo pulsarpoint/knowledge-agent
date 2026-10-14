@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { FileText, Plus, RefreshCw } from "lucide-react";
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from "./api";
-import { discardDraft, draftPath, getDrafts, getNewDrafts, type DraftSummary } from "./drafts";
+import { discardDraft, draftPath, getDrafts, getNewDrafts, promoteDraft, type DraftSummary } from "./drafts";
 import { DraftAuthor } from "./DraftView";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -56,6 +56,7 @@ export default function DocumentsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [discardError, setDiscardError] = useState("");
+  const [published, setPublished] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const offset = Number(params.get("offset") || 0);
@@ -116,6 +117,21 @@ export default function DocumentsView() {
       setBusy(false);
     }
   }
+  /** Publish a brand-new draft from the list: it becomes the live document (version 1, same id). */
+  async function publish(draft: DraftSummary) {
+    setBusy(true);
+    setDiscardError("");
+    setPublished("");
+    try {
+      const result = await promoteDraft(draft.id, draft.revision, false);
+      setPublished(`Published “${draft.title}”.${result.export_error ? ` ${result.export_error}` : ""}`);
+    } catch (e) {
+      setDiscardError(e instanceof Error ? e.message : "Could not publish the draft");
+    } finally {
+      setBusy(false);
+      setRefresh((n) => n + 1);
+    }
+  }
   const discardButton = (draft: DraftSummary) => (
     <Button size="sm" variant="outline" aria-label={`Discard ${draft.title}`} onClick={() => setDiscarding(draft)}>
       Discard
@@ -147,7 +163,7 @@ export default function DocumentsView() {
           <Button asChild>
             <Link to="/documents/new">
               <Plus data-icon="inline-start" />
-              Create document
+              New document
             </Link>
           </Button>
         </div>
@@ -203,6 +219,11 @@ export default function DocumentsView() {
           <AlertDescription>{error || discardError}</AlertDescription>
         </Alert>
       )}
+      {published && (
+        <Alert role="status">
+          <AlertDescription>{published}</AlertDescription>
+        </Alert>
+      )}
       {draftsView &&
         (loading ? (
           <Skeleton className="h-48 w-full" />
@@ -234,11 +255,16 @@ export default function DocumentsView() {
                             stale
                           </Badge>
                         )}
+                        {!draft.document_id && (
+                          <Badge variant="outline" className="ml-2">
+                            Not published
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="whitespace-normal">
                         {draft.document_id ? (
                           <Link className="underline-offset-4 hover:underline" to={`/documents/${draft.document_id}`}>
-                            Open document
+                            {draft.document_title ?? "Open document"}
                           </Link>
                         ) : (
                           <span className="text-muted-foreground">
@@ -257,6 +283,17 @@ export default function DocumentsView() {
                               Open
                             </Link>
                           </Button>
+                          {!draft.document_id && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              aria-label={`Publish ${draft.title}`}
+                              onClick={() => void publish(draft)}
+                            >
+                              Publish
+                            </Button>
+                          )}
                           {discardButton(draft)}
                         </div>
                       </TableCell>
@@ -285,10 +322,7 @@ export default function DocumentsView() {
                 {newDrafts.map((draft) => (
                   <TableRow key={draft.id}>
                     <TableCell>
-                      <Link
-                        className="font-medium underline-offset-4 hover:underline"
-                        to={`/documents/drafts/${draft.id}`}
-                      >
+                      <Link className="font-medium underline-offset-4 hover:underline" to={draftPath(draft)}>
                         {draft.title}
                       </Link>
                     </TableCell>
@@ -300,7 +334,7 @@ export default function DocumentsView() {
                     <TableCell>
                       <div className="flex justify-end gap-2">
                         <Button asChild size="sm" variant="outline">
-                          <Link to={`/documents/drafts/${draft.id}`} aria-label={`Open ${draft.title}`}>
+                          <Link to={draftPath(draft)} aria-label={`Open ${draft.title}`}>
                             Open
                           </Link>
                         </Button>

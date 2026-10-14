@@ -121,11 +121,11 @@ function show(url: string) {
   return router;
 }
 
-test("Save draft saves the editor text as a draft of the document and opens it on the Drafts tab", async () => {
+test("Save keeps the editor text as the person's draft of the document and the editor goes on editing it", async () => {
   const calls = api({ ...base, "POST /api/documentation/drafts": () => [201, { ...detail, stale: false }] });
   show("/documents/doc-1");
   fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# Runbook v3 draft" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/documentation/drafts")?.body).toEqual({
       document_id: "doc-1",
@@ -138,20 +138,26 @@ test("Save draft saves the editor text as a draft of the document and opens it o
     }),
   );
   expect(await screen.findByText("Draft saved.")).toBeInTheDocument();
-  expect(await screen.findByRole("tab", { name: "Drafts", selected: true })).toBeInTheDocument();
-  expect(await screen.findByRole("region", { name: "Draft" })).toBeInTheDocument();
+  expect(screen.getByText(/^Editing your draft \(created .*, from version 1\)\./)).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Write", selected: true })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Drafts 1" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook v3 draft");
 });
 
-test("Save draft on a new document creates a new-document draft and opens its page", async () => {
+test("Save on a new document creates a brand-new draft and opens it at /documents/{id}", async () => {
   const calls = api({
     "GET /api/documentation/resources": () => [200, resources],
     "POST /api/documentation/drafts": () => [201, { ...detail, id: "d5", document_id: null, slug: "new-runbook" }],
+    "GET /api/documentation/documents/d5": () => [
+      200,
+      { ...document, id: "d5", slug: "new-runbook", is_draft: true, published: false, versions: [] },
+    ],
   });
   const router = show("/documents/new");
   fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "New runbook" } });
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# How to" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/drafts/d5"));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d5"));
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts")!.body).toEqual({
     slug: "new-runbook",
     title: "New runbook",
@@ -191,7 +197,7 @@ test("a stale draft shows the diff against the live version and promotes only on
   expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
 });
 
-test("Edit loads a draft into the editor and Save draft then updates that draft", async () => {
+test("Edit loads a draft into the editor and Save then updates that draft", async () => {
   const calls = api({
     ...base,
     "PUT /api/documentation/drafts/d1": () => [200, { ...detail, revision: 2, edited: true }],
@@ -200,9 +206,9 @@ test("Edit loads a draft into the editor and Save draft then updates that draft"
   const view = within(await screen.findByRole("region", { name: "Draft" }));
   fireEvent.click(view.getByRole("button", { name: "Edit" }));
   expect(await screen.findByLabelText("Markdown")).toHaveValue("# Runbook draft text");
-  expect(screen.getByText(/Editing the draft “Runbook”/)).toBeInTheDocument();
+  expect(screen.getByText(/^Editing your draft \(created .*, from version 1\)/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Runbook draft text, edited" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "PUT /api/documentation/drafts/d1")?.body).toMatchObject({
       revision: 1,
@@ -284,11 +290,11 @@ test("with unsaved changes, Edit on a draft asks first; Keep editing keeps the t
   fireEvent.click(dialog.getByRole("button", { name: "Keep editing" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(screen.getByLabelText("Markdown")).toHaveValue("# My unsaved text");
-  expect(screen.queryByText(/Editing the draft/)).toBeNull();
+  expect(screen.queryByText(/Editing your draft/)).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Edit" }));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" }));
   await waitFor(() => expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook draft text"));
-  expect(screen.getByText(/Editing the draft “Runbook”/)).toBeInTheDocument();
+  expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
 });
 
 test("with unsaved changes, Promote on the Drafts tab asks first; Keep editing promotes nothing", async () => {

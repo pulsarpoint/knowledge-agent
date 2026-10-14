@@ -104,7 +104,10 @@ test("Linked resources locks a built-for environment (ticked, disabled, noted); 
   const calls = api({
     "GET /api/documentation/documents/doc-1": () => [200, document],
     "GET /api/documentation/resources": () => [200, resources],
-    "PUT /api/documentation/documents/doc-1": () => [200, { id: "doc-1", revision: 3, version: 1 }],
+    "PUT /api/documentation/documents/doc-1/links": () => [
+      200,
+      { id: "doc-1", revision: 3, resource_links: [builtFor] },
+    ],
   });
   show("/documents/doc-1?tab=resources");
   const prod = await screen.findByRole("checkbox", { name: "Prod" });
@@ -117,21 +120,25 @@ test("Linked resources locks a built-for environment (ticked, disabled, noted); 
   expect(service).toBeEnabled();
   fireEvent.click(service);
   expect(service).not.toBeChecked();
-  fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save links" }));
   await waitFor(() =>
-    expect(calls.find((c) => c.key === "PUT /api/documentation/documents/doc-1")?.body).toMatchObject({
+    expect(calls.find((c) => c.key === "PUT /api/documentation/documents/doc-1/links")?.body).toEqual({
       revision: 2,
-      environment_ids: ["env-1"],
+      code_project_ids: [],
       service_ids: [],
+      server_ids: [],
+      deployment_ids: [],
+      environment_ids: ["env-1"],
     }),
   );
 });
 
-test("a save refused for a built-for link shows why under Linked resources and reloads the links, keeping the text", async () => {
+test("Save links refused for a built-for link shows why under Linked resources and reloads the links, keeping the text", async () => {
   // The page was loaded before Staging became a built-for link (Review Focus 3).
   const stale = { ...document, environment_ids: ["env-1"], resource_links: [builtFor, linked] };
   const fresh = {
     ...document,
+    revision: 3,
     environment_ids: ["env-1", "env-2"],
     resource_links: [builtFor, linked, { ...builtFor, id: "env-2", name: "Staging", created_at: later }],
   };
@@ -139,13 +146,14 @@ test("a save refused for a built-for link shows why under Linked resources and r
   const calls = api({
     "GET /api/documentation/documents/doc-1": () => [200, loads++ === 0 ? stale : fresh],
     "GET /api/documentation/resources": () => [200, resources],
-    "PUT /api/documentation/documents/doc-1": () => [409, { error: { message: BUILT_FOR } }],
+    "PUT /api/documentation/documents/doc-1/links": () => [409, { error: { message: BUILT_FOR } }],
   });
   show("/documents/doc-1");
   fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# Runbook, edited" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
-  expect(await screen.findByRole("tab", { name: "Linked resources", selected: true })).toBeInTheDocument();
-  const panel = within(screen.getByRole("tabpanel", { name: "Linked resources" }));
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Linked resources" }), { button: 0, ctrlKey: false });
+  const panel = within(await screen.findByRole("tabpanel", { name: "Linked resources" }));
+  fireEvent.click(panel.getByRole("checkbox", { name: "Payments API" }));
+  fireEvent.click(panel.getByRole("button", { name: "Save links" }));
   expect(await panel.findByText(BUILT_FOR)).toBeInTheDocument();
   await waitFor(() => expect(panel.getByRole("checkbox", { name: "Staging" })).toBeDisabled());
   expect(panel.getByRole("checkbox", { name: "Staging" })).toBeChecked();

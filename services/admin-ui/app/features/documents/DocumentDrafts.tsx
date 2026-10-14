@@ -15,6 +15,8 @@ export default function DocumentDrafts({
   onEdit,
   onPromoted,
   confirm,
+  onCount,
+  onDiscarded,
 }: {
   documentId: string;
   selected: string | null;
@@ -22,6 +24,10 @@ export default function DocumentDrafts({
   onPromoted: (result: PromoteResult) => void;
   /** Runs Edit and Promote, after asking when the editor has unsaved changes. */
   confirm?: (run: () => void) => void;
+  /** How many drafts the document has, each time the list loads (the tab's badge). */
+  onCount?: (count: number) => void;
+  /** A draft was discarded here (the editor stops editing it). */
+  onDiscarded?: (draftId: string) => void;
 }) {
   const [drafts, setDrafts] = useState<DraftSummary[] | null>(null);
   const [open, setOpen] = useState<string | null>(selected);
@@ -31,7 +37,10 @@ export default function DocumentDrafts({
     const controller = new AbortController();
     getDocumentDrafts(documentId, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) setDrafts(value.drafts);
+        if (!controller.signal.aborted) {
+          setDrafts(value.drafts);
+          onCount?.(value.drafts.length);
+        }
       })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load the drafts");
@@ -49,7 +58,7 @@ export default function DocumentDrafts({
   if (drafts.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
-        No drafts. Save draft keeps the editor's text as a draft; agent runs write drafts too.
+        No drafts. Save keeps the editor's text as your draft; agent runs write drafts too.
       </p>
     );
   const shown = drafts.some((draft) => draft.id === open) ? open : null;
@@ -89,6 +98,7 @@ export default function DocumentDrafts({
             onPromoted={onPromoted}
             confirm={confirm}
             onDiscarded={() => {
+              onDiscarded?.(shown);
               setOpen(null);
               setLoad((n) => n + 1);
             }}

@@ -654,25 +654,36 @@ whole-environment and code-project generation; documents written by service phas
 ### 4.13 Documents
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
-title/slug/description and filter by linked resources. **Create document** writes one
+title/slug/description and filter by linked resources. **New document** writes one
 manually.
 
-The editor has fields Title, Slug, Short description, Purpose, Audience (People and
-agents / People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resources**
-(including documented source commits) and **Version history** (**Use version as
-draft**). Actions: **Save new version** (every save is a full immutable version),
-**Export to folder**, **Download document folder** (ZIP), and **Delete**.
+Every save is a draft: content goes live only by **Publish** (a document that is only a draft) or **Promote** (a draft
+of a live document). The editor has fields Title, Slug, Short description, Purpose, Audience (People and agents /
+People / Agents), Tags, and tabs **Write**, **Preview**, **Linked resources** (including documented source commits)
+and, on a live document, **Version history** (**Use version as draft**), **Drafts n** (a badge counts the drafts) and
+**Connections**.
+
+- **New document**: **Save** creates a draft of the new document and opens it at `/documents/{id}`.
+- A document that is only a draft shows "Draft — not published yet" with **Save** (its name — slug and folder — can
+  still change), **Publish** (it becomes version 1 of the document, same address) and **Discard**. It has no version
+  history or Drafts tab until it is published.
+- A live document shows "Version n" with **Save**, **Export to folder**, **Download document folder** (ZIP),
+  **Delete** and **Ask agent**. The first **Save** creates your draft of the document and the editor goes on editing
+  it — "Editing your draft (created {time}, from version {n}). Save updates it; Promote makes it live." — later Saves
+  update the same draft. Promote it on the **Drafts** tab.
+- **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
+  was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
+  nothing.
 
 #### Drafts and connections
 
-Anything an agent writes is a **draft**; a version goes live only when a person saves it (**Save new version**),
-promotes a draft, or accepts a discovery document proposal.
+Anything a person or an agent saves is a **draft** (an accepted discovery document proposal too); a version goes live
+only when a person publishes or promotes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
   documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title, folder,
-  written by, updated) with **Open** and **Discard**.
-- **Save draft** (beside **Save new version**) keeps the editor's text as a new draft, or updates the draft you opened
-  with **Edit**. On **Create document** it saves a draft of the new document and opens its page.
+  written by, updated) with **Open** and **Discard**. The **Drafts** view lists every draft: a draft of a new document
+  is marked **Not published** (**Open**, **Publish**, **Discard**); a draft of a live document names its document.
 - **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the
   document it revises and the documents its author read, "(deleted)" when one is gone). **Edit** loads it into the
@@ -680,9 +691,10 @@ promotes a draft, or accepts a discovery document proposal.
   live version is now m. Promoting replaces version m's text." and promotes only with **Promote anyway**; **Discard**
   removes it from the lists (it stays in the audit history). With unsaved changes in the editor, **Edit** and **Promote**
   first ask "Discard unsaved changes?" (**Keep editing** does nothing).
-- A new document's draft has its own page; **Promote** creates the document and opens it (a failed export is shown
-  there, as after a save). If a document with that name was created
-  in the folder meanwhile, the draft becomes a draft of it and asks you to review it again.
+- A new document's draft opens at `/documents/{id}`; **Publish** creates the document there (a failed export is
+  shown). If a document with that name was created in the folder meanwhile, the draft becomes a draft of it and opens
+  on its draft page (`/documents/drafts/{id}`, where a discovery proposal's draft of a live document opens too) asking
+  you to review it again.
 - **Connections** tab: **Depends on** (add with **Find a document**, remove), **Used by**, and **Built from** (what the
   live version was built from).
 - **Version history** marks versions promoted from a draft ("from draft").

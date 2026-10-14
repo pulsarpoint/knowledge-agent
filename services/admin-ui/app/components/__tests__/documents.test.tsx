@@ -130,16 +130,20 @@ test("creates a document with multiple resource types and deployment context", a
   fireEvent.click(screen.getByRole("checkbox", { name: "Payments API / Production host / prod" }));
   expect(screen.getByRole("checkbox", { name: "Payments API" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Production host" })).toBeChecked();
-  fireEvent.click(screen.getByRole("button", { name: "Create document" }));
+  expect(screen.queryByRole("button", { name: "Create document" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
-  const submitted = JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]!.body as string);
-  expect(submitted).toMatchObject({
+  const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(url).toBe("/api/documentation/drafts"); // every save is a draft: a new document starts as a brand-new draft
+  expect(JSON.parse(init!.body as string)).toMatchObject({
     slug: "new-runbook",
     markdown: "# How to investigate",
-    code_project_ids: ["repo-1"],
-    service_ids: ["service-1"],
-    server_ids: ["server-1"],
-    deployment_ids: ["deployment-1"],
+    resource_ids: {
+      code_project_ids: ["repo-1"],
+      service_ids: ["service-1"],
+      server_ids: ["server-1"],
+      deployment_ids: ["deployment-1"],
+    },
   });
 });
 
@@ -155,21 +159,21 @@ test("previews a saved version and loads it as an unsaved draft without changing
   fireEvent.click(screen.getByRole("button", { name: "Use version as draft" }));
   expect(await screen.findByLabelText("Markdown")).toHaveValue("# Original");
   expect(screen.getByLabelText("Short description")).toHaveValue("Original description");
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT" || init?.method === "POST")).toBe(false);
+  expect(screen.queryByRole("button", { name: "Save new version" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+  const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(url).toBe("/api/documentation/drafts"); // the version's text becomes the person's draft, not a live version
+  expect(JSON.parse(init!.body as string)).toMatchObject({ document_id: "doc-1", markdown: "# Original" });
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
-  await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
-  expect(JSON.parse(fetch.mock.calls.find(([, init]) => init?.method === "PUT")![1]!.body as string)).toMatchObject({
-    revision: 2,
-    markdown: "# Original",
-    source_commits: { "repo-1": "a".repeat(40) },
-  });
 });
 
 test("failed save retains edits and navigating away requires confirmation", async () => {
   setup("/documents/doc-1", 409);
   await screen.findByLabelText("Title");
   fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Unsaved work" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save new version" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This document changed");
   expect(screen.getByLabelText("Markdown")).toHaveValue("# Unsaved work");
   fireEvent.click(screen.getByRole("link", { name: "Documents" }));

@@ -249,7 +249,7 @@ test("the agent draft shows above the editor; Promote opens the new document", a
 });
 
 test.each([
-  ["a new document", { document_id: null }, "/documents/drafts/d9", ""],
+  ["a new document", { document_id: null }, "/documents/d9", ""],
   [
     "an existing document (its title and folder named one)",
     { document_id: "doc-1", base_version: 1, live_version: 1 },

@@ -14,7 +14,7 @@ export type DocumentResources = Record<Exclude<DocumentKey, "environments">, Doc
   environments?: DocumentResource[];
 };
 /** A document's linked resources: every kind but environments is always sent (environments came later). */
-type DocumentIds = ResourceIds<Exclude<DocumentKey, "environments">> & Partial<ResourceIds<"environments">>;
+export type DocumentIds = ResourceIds<Exclude<DocumentKey, "environments">> & Partial<ResourceIds<"environments">>;
 export interface DocumentInput extends DocumentIds {
   slug: string;
   title: string;
@@ -84,11 +84,18 @@ export interface DocumentDraftRow {
   created_at: string;
   updated_at: string;
 }
-export interface DocumentDetail extends DocumentSummary {
+/** GET /documents/{id}: a live document (is_draft false, published true) or a brand-new draft (is_draft true,
+ * published false: no version, snapshot, versions or drafts until it is published). */
+export interface DocumentDetail extends Omit<DocumentSummary, "version" | "content_hash"> {
+  version?: number;
+  content_hash?: string;
   markdown: string;
-  source_snapshot: DocumentResources;
-  origin: DocumentOrigin;
-  from_draft: boolean;
+  source_snapshot?: DocumentResources;
+  origin: DocumentOrigin | "agent";
+  from_draft?: boolean;
+  is_draft: boolean;
+  published: boolean;
+  session_id?: string | null;
   versions: Pick<DocumentVersion, "version" | "title" | "origin" | "created_at" | "from_draft" | "live">[];
   drafts: DocumentDraftRow[];
   resource_links: ResourceLink[];
@@ -134,13 +141,15 @@ export const getResourceHistory = (id: string, signal?: AbortSignal) =>
 /** The message of a save refused because it unticked a built-for link. */
 export const isBuiltForRefusal = (e: unknown) =>
   e instanceof ApiError && e.status === 409 && e.message.startsWith("This document was built for");
-export const saveDocument = (value: DocumentInput, id?: string) =>
-  request<{ id: string; revision: number; version: number; export_error?: string }>(
-    `/api/documentation/documents${id ? `/${id}` : ""}`,
+/** Links of a live document or a brand-new draft (they never go through drafts), at the revision the page holds. The
+ * answer's revision is the page's next one: the links route bumps it. */
+export const saveDocumentLinks = (id: string, revision: number, ids: DocumentIds) =>
+  request<{ id: string; revision: number; resource_links: ResourceLink[] }>(
+    `/api/documentation/documents/${encodeURIComponent(id)}/links`,
     {
-      method: id ? "PUT" : "POST",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
+      body: JSON.stringify({ revision, ...ids }),
     },
   );
 export const deleteDocument = (id: string, revision: number) =>

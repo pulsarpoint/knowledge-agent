@@ -1,21 +1,25 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft } from "lucide-react";
-import { draftPath, promotedNotice, type DraftDetail } from "./drafts";
+import { promotedNotice, type DraftDetail } from "./drafts";
 import DraftEditForm from "./DraftEditForm";
 import DraftView from "./DraftView";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 
-/** /documents/drafts/:draftId — a new document's draft: preview, sources, Edit, Discard, and Promote, which creates
- * the document (the document page shows the promote notice, with a failed export). A draft that now revises an existing document (its name was taken meanwhile) links to that document. */
+/** /documents/drafts/:draftId — a draft of a live document on its own page (a discovery proposal links here): the
+ * changes against the live version, sources, Edit, Discard and Promote, which opens the document. A brand-new draft
+ * opens at /documents/{id} (the id the document keeps when it is published): this page sends it there. */
 export default function DraftPageView() {
   const { draftId } = useParams();
   const navigate = useNavigate();
   const [editing, setEditing] = useState<DraftDetail | null>(null);
   const [reload, setReload] = useState(0);
-  const [notice, setNotice] = useState("");
-  const [converted, setConverted] = useState<DraftDetail | null>(null);
+  // A notice handed over in the navigation state (a Publish refused because the draft now revises a document).
+  const handed = (useLocation().state as { notice?: unknown } | null)?.notice;
+  const [notice, setNotice] = useState(typeof handed === "string" ? handed : "");
+  const [draft, setDraft] = useState<DraftDetail | null>(null);
+  const documentPath = draft?.document_id ? `/documents/${encodeURIComponent(draft.document_id)}` : "/documents";
   return (
     <div className="flex flex-col gap-6">
       <Button asChild variant="ghost" className="self-start">
@@ -24,20 +28,21 @@ export default function DraftPageView() {
           Documents
         </Link>
       </Button>
-      <h1 className="text-2xl font-semibold">Draft of a new document</h1>
+      <h1 className="text-2xl font-semibold">
+        {draft?.document_id ? (
+          <>
+            Draft of{" "}
+            <Link className="underline-offset-4 hover:underline" to={documentPath}>
+              {draft.document_title ?? draft.title}
+            </Link>
+          </>
+        ) : (
+          "Draft"
+        )}
+      </h1>
       {notice && (
         <Alert role="status">
           <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      )}
-      {converted && (
-        <Alert role="status">
-          <AlertDescription>
-            This draft now revises an existing document.{" "}
-            <Link className="underline" to={draftPath(converted)}>
-              Open it on its document
-            </Link>
-          </AlertDescription>
         </Alert>
       )}
       {editing ? (
@@ -54,15 +59,20 @@ export default function DraftPageView() {
         <DraftView
           draftId={draftId!}
           reloadKey={reload}
-          onEdit={(draft) => {
+          onEdit={(value) => {
             setNotice("");
-            setEditing(draft);
+            setEditing(value);
           }}
-          onLoaded={(draft) => setConverted(draft.document_id ? draft : null)}
+          onLoaded={(value) => {
+            if (value.document_id === null) navigate(`/documents/${encodeURIComponent(value.id)}`, { replace: true });
+            else setDraft(value);
+          }}
           onPromoted={(result) =>
-            navigate(`/documents/${result.document_id}`, { state: { notice: promotedNotice(result) } })
+            navigate(`/documents/${encodeURIComponent(result.document_id)}`, {
+              state: { notice: promotedNotice(result) },
+            })
           }
-          onDiscarded={() => navigate("/documents")}
+          onDiscarded={() => navigate(documentPath)}
         />
       )}
     </div>

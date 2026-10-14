@@ -397,7 +397,7 @@ test("a run whose turn wrote a document draft links to it; a new document's draf
     </MemoryRouter>,
   );
   const draft = within(await screen.findByRole("region", { name: "Draft" }));
-  expect(await draft.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/drafts/d2");
+  expect(await draft.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/d2");
   expect(draft.queryByRole("button", { name: "Save as draft" })).toBeNull();
   expect(draft.getByRole("button", { name: "Preview draft" })).toBeEnabled();
 });
@@ -542,7 +542,7 @@ test("a new-document run without final-answer text shows Open draft from its doc
       <SessionView sessionId="s1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/drafts/x3");
+  expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/x3");
 });
 
 test("a promoted new-document run opens the document", async () => {
@@ -574,7 +574,7 @@ test("an old run with final-answer text still offers Preview draft and opens the
       <SessionView sessionId="s1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/drafts/x1");
+  expect(await screen.findByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/documents/x1");
 });
 
 test("a Test run is shown here, not redirected, and links to its agent", async () => {

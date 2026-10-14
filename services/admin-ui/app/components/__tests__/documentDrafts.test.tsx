@@ -77,6 +77,24 @@ const detail = {
   document_title: null,
 };
 
+/** A draft of a live document (doc-3, "Overview"): the draft page shows it (a brand-new draft opens at /documents/{id}). */
+const ofLive = {
+  ...detail,
+  id: "d3",
+  document_id: "doc-3",
+  slug: "overview",
+  folder: null,
+  title: "Overview",
+  base_version: 1,
+  live_version: 1,
+  live_markdown: "# Old overview",
+  markdown: "# Overview v2",
+  document_title: "Overview",
+};
+const drafts3: Record<string, () => [number, unknown]> = {
+  "GET /api/documentation/documents/doc-3/drafts": () => [200, { drafts: [ofLive] }],
+};
+
 function api(routes: Record<string, (body: any) => [number, unknown]>) {
   const calls: { key: string; body: any }[] = [];
   vi.stubGlobal(
@@ -116,7 +134,7 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   show("/documents");
   expect(await screen.findByRole("link", { name: "2 drafts" })).toHaveAttribute("href", "/documents/doc-1?tab=drafts");
   const section = within(screen.getByRole("region", { name: "New drafts" }));
-  expect(section.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/drafts/d9");
+  expect(section.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
   expect(section.getByText("servers/web-1")).toBeInTheDocument();
   expect(section.getByRole("link", { name: "Agent run" })).toHaveAttribute("href", "/sessions/s1");
   fireEvent.click(screen.getByRole("checkbox", { name: "Has drafts" }));
@@ -130,21 +148,22 @@ test("the list shows each document's drafts, a Has drafts filter and the new-doc
   );
 });
 
-test("a new-document draft page previews it, lists its sources and Promote creates the document", async () => {
+test("the draft page of a live document's draft shows its changes and sources; Promote opens the document", async () => {
   const calls = api({
-    "GET /api/documentation/drafts/d9": () => [200, detail],
-    "POST /api/documentation/drafts/d9/promote": () => [
+    ...drafts3,
+    "GET /api/documentation/drafts/d3": () => [200, ofLive],
+    "POST /api/documentation/drafts/d3/promote": () => [
       200,
-      { document_id: "d9", version: 1, revision: 2, deleted_drafts: 0, export_error: null },
+      { document_id: "doc-3", version: 2, revision: 3, deleted_drafts: 0, export_error: null },
     ],
   });
-  const router = show("/documents/drafts/d9");
-  expect(await screen.findByText("# Disks")).toBeInTheDocument();
+  const router = show("/documents/drafts/d3");
+  expect(await screen.findByRole("link", { name: "Overview" })).toHaveAttribute("href", "/documents/doc-3");
+  expect(screen.getByText("# Overview v2", { selector: "ins" })).toBeInTheDocument();
   expect(screen.getByText("Old overview v4 (deleted)")).toBeInTheDocument();
-  expect(screen.queryByRole("tab", { name: "Changes" })).toBeNull(); // nothing live to compare with
   fireEvent.click(screen.getByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
-  expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d9/promote")!.body).toEqual({
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-3"));
+  expect(calls.find((c) => c.key === "POST /api/documentation/drafts/d3/promote")!.body).toEqual({
     revision: 1,
     confirm_stale: false,
   });
@@ -153,72 +172,30 @@ test("a new-document draft page previews it, lists its sources and Promote creat
 test("Edit on the draft page saves the draft with its revision", async () => {
   let saved = false;
   const calls = api({
-    "GET /api/documentation/drafts/d9": () => [
+    "GET /api/documentation/drafts/d3": () => [
       200,
-      saved ? { ...detail, markdown: "# Disks v2", revision: 2 } : detail,
+      saved ? { ...ofLive, markdown: "# Overview v3", revision: 2 } : ofLive,
     ],
-    "PUT /api/documentation/drafts/d9": () => {
+    "PUT /api/documentation/drafts/d3": () => {
       saved = true;
-      return [200, { ...detail, markdown: "# Disks v2", revision: 2, edited: true }];
+      return [200, { ...ofLive, markdown: "# Overview v3", revision: 2, edited: true }];
     },
   });
-  show("/documents/drafts/d9");
+  show("/documents/drafts/d3");
   fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Disks v2" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Overview v3" } });
+  expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("Draft saved.")).toBeInTheDocument();
-  // the edit form is gone; the preview shows the saved text (the form's textarea would match the text too)
-  expect(await screen.findByRole("article")).toHaveTextContent("# Disks v2");
-  expect(calls.find((c) => c.key === "PUT /api/documentation/drafts/d9")!.body).toEqual({
+  expect(calls.find((c) => c.key === "PUT /api/documentation/drafts/d3")!.body).toEqual({
     revision: 1,
-    title: "Disk layout",
+    title: "Overview",
     description: "",
     purpose: "explanation",
     audience: "both",
     tags: [],
-    markdown: "# Disks v2",
+    markdown: "# Overview v3",
   });
-});
-
-test("a refused promote shows why and reloads the draft, which may now revise an existing document", async () => {
-  let converted = false;
-  api({
-    "GET /api/documentation/drafts/d9": () => [
-      200,
-      converted
-        ? {
-            ...detail,
-            document_id: "doc-3",
-            slug: null,
-            folder: null,
-            base_version: 1,
-            live_version: 1,
-            live_markdown: "# Old",
-            revision: 2,
-          }
-        : detail,
-    ],
-    "POST /api/documentation/drafts/d9/promote": () => {
-      converted = true;
-      return [
-        409,
-        {
-          error: {
-            message:
-              "A document named disk-layout was created in this folder meanwhile. The draft is now a draft of it. Review it again.",
-          },
-        },
-      ];
-    },
-  });
-  show("/documents/drafts/d9");
-  fireEvent.click(await screen.findByRole("button", { name: "Promote" }));
-  expect(await screen.findByText(/was created in this folder meanwhile/)).toBeInTheDocument();
-  expect(await screen.findByRole("link", { name: "Open it on its document" })).toHaveAttribute(
-    "href",
-    "/documents/doc-3?tab=drafts&draft=d9",
-  );
-  expect(screen.getByRole("tab", { name: "Changes" })).toBeInTheDocument();
 });
 
 test("a stale promote keeps the warning, reloads the draft and sends confirm_stale on Promote anyway", async () => {
@@ -288,23 +265,24 @@ test("a failed discard on the list shows why and refreshes the list so a retry w
 
 test("a promote whose export failed hands the export error to the document page", async () => {
   api({
-    "GET /api/documentation/drafts/d9": () => [200, detail],
-    "POST /api/documentation/drafts/d9/promote": () => [
+    ...drafts3,
+    "GET /api/documentation/drafts/d3": () => [200, ofLive],
+    "POST /api/documentation/drafts/d3/promote": () => [
       200,
       {
-        document_id: "d9",
-        version: 1,
+        document_id: "doc-3",
+        version: 2,
         revision: 2,
         deleted_drafts: 0,
         export_error: "Saved. Writing the document file failed; use Export to folder to retry.",
       },
     ],
   });
-  const router = show("/documents/drafts/d9");
+  const router = show("/documents/drafts/d3");
   fireEvent.click(await screen.findByRole("button", { name: "Promote" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/d9"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/documents/doc-3"));
   expect(router.state.location.state).toEqual({
-    notice: "Draft promoted to version 1. Saved. Writing the document file failed; use Export to folder to retry.",
+    notice: "Draft promoted to version 2. Saved. Writing the document file failed; use Export to folder to retry.",
   });
 });
 
@@ -335,7 +313,7 @@ test("the Drafts tab lists the drafts with the resource filters: an environment 
     "href",
     "/documents/doc-1?tab=drafts&draft=d4",
   );
-  expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/drafts/d9");
+  expect(list.getByRole("link", { name: "Disk layout" })).toHaveAttribute("href", "/documents/d9");
   expect(list.getByText("New document in servers/web-1/")).toBeInTheDocument();
   expect(list.getByText("ana@example.com")).toBeInTheDocument();
   expect(list.getByRole("columnheader", { name: "Created" })).toBeInTheDocument();

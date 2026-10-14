@@ -175,11 +175,12 @@ def test_a_draft_of_a_document_keeps_its_name(docs):
     assert saved.status_code == 200 and (saved.json()['slug'], saved.json()['revision']) == ('runbook', 2)
 
 
-def test_draft_rows_say_whether_their_document_is_published(docs):
+def test_draft_rows_say_whether_their_document_is_published_and_its_title(docs):
     of_live = new_draft(docs, document_id=docs.runbook)
     brand_new = new_draft(docs, slug='disk-layout', title='Disk layout', markdown='# Disks')
-    rows = {row['id']: row['published'] for row in docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts']}
-    assert rows == {of_live['id']: True, brand_new['id']: False}
+    listed = docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts']
+    rows = {row['id']: (row['published'], row['document_title']) for row in listed}
+    assert rows == {of_live['id']: (True, 'Runbook'), brand_new['id']: (False, None)}
     of_document = docs.client.get(f'{API}/documents/{docs.runbook}/drafts', headers=HEADERS).json()['drafts']
     assert [(row['id'], row['published']) for row in of_document] == [(of_live['id'], True)]
     assert docs.client.get(f'{API}/drafts/{of_live["id"]}', headers=HEADERS).json()['published'] is True

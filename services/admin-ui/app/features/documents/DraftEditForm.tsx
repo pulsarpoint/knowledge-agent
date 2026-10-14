@@ -7,7 +7,7 @@ import { Input } from "~/components/ui/input";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 
-/** Edit a new document's draft on its page: title, description and Markdown; Save draft keeps its other fields. */
+/** Edit a draft on its page: title, description and Markdown; Save keeps its other fields. */
 export default function DraftEditForm({
   draft,
   onCancel,
@@ -78,7 +78,7 @@ export default function DraftEditForm({
           Cancel
         </Button>
         <Button type="button" disabled={busy || !title.trim() || !markdown.trim()} onClick={() => void save()}>
-          {busy && <Spinner data-icon="inline-start" />}Save draft
+          {busy && <Spinner data-icon="inline-start" />}Save
         </Button>
       </div>
     </section>
