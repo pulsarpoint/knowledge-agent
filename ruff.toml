@@ -1,0 +1,7 @@
+# Formatting for every Python project in this repository (admin-api, rag, packages/llm-settings).
+# Run from a project folder: `uv run ruff format` (or `uv run ruff format --check`).
+line-length = 120
+extend-exclude = ["docs", "db", "deploy", ".local", "**/.codegraph"]
+
+[format]
+quote-style = "single"

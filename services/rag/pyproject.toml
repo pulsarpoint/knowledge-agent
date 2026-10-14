@@ -26,7 +26,10 @@ rag = "rag.cli:main"
 rag-workspace-worker = "rag.workspace_worker:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.17.0",
+]
 
 [build-system]
 requires = ["hatchling"]
