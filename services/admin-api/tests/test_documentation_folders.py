@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.data_root import FOLDER_RULE
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -30,14 +30,14 @@ def folders(store, tmp_path, monkeypatch):
             ('api-reference', 'team/payments'),
             ('handbook', None),
         ):
-            save_document(
+            live_document(
                 conn,
                 project,
-                None,
-                DocumentInput(
-                    slug=slug, title=slug.replace('-', ' ').capitalize(), markdown='# ' + slug, code_project_ids=[repo]
-                ),
+                slug,
+                slug.replace('-', ' ').capitalize(),
+                '# ' + slug,
                 folder=folder,
+                code_project_ids=[repo],
             )
     return _client(tmp_path, repository_store=store)
 

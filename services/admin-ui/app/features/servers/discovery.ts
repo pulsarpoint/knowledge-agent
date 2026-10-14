@@ -75,6 +75,10 @@ export interface DocumentProposal extends ProposalBase {
   service_name?: string;
   service_proposal_status?: "pending" | "accepted" | "rejected";
   current?: { id: string; title: string; version: number } | null;
+  /** The draft accepting made: brand-new (document_id null) or of the live document document_id; null once deleted. */
+  draft_id?: string | null;
+  /** The draft went live (published or promoted). */
+  draft_published?: boolean;
 }
 export type Proposal = ServiceProposal | DocumentProposal;
 
@@ -90,7 +94,7 @@ export const getServerPage = (id: string, signal?: AbortSignal) => request<Serve
 export const getProposals = (runId: string, signal?: AbortSignal) =>
   request<{ proposals: Proposal[] }>(`/api/discovery/${encodeURIComponent(runId)}/proposals`, { signal });
 export const acceptProposal = (id: string, revision: number, fields?: ServiceField[]) =>
-  request<{ proposal: Proposal; result_id: string; export_error: string | null }>(
+  request<{ proposal: Proposal; result_id: string }>(
     `/api/discovery/proposals/${encodeURIComponent(id)}/accept`,
     json("POST", fields === undefined ? { revision } : { revision, fields }),
   );

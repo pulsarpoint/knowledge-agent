@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.capabilities import inventory
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -74,16 +74,8 @@ def world(store, tmp_path, monkeypatch):
             ('web-1 overview', 'server_id', server['id']),
             ('nginx runbook', 'service_id', nginx),
         ):
-            saved = save_document(
-                conn,
-                project,
-                None,
-                DocumentInput(
-                    slug=title.replace(' ', '-'),
-                    title=title,
-                    description=f'About {title}',
-                    markdown=f'# {title}\n\nBody.',
-                ),
+            saved = live_document(
+                conn, project, title.replace(' ', '-'), title, f'# {title}\n\nBody.', description=f'About {title}'
             )
             conn.execute(
                 f'INSERT INTO ka.inventory_documents(project_id,{column},document_id) VALUES (%s,%s,%s)',

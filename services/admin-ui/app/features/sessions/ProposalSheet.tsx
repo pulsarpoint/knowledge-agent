@@ -5,22 +5,13 @@ import {
   acceptProposal,
   rejectProposal,
   SERVICE_FIELD_LABELS,
+  type DocumentProposal,
   type Proposal,
   type ServiceField,
   type ServiceProposal,
 } from "~/features/servers/discovery";
 import Markdown from "~/components/Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -41,6 +32,31 @@ const DEPLOYMENT: [keyof ServiceProposal["payload"]["deployment"], string][] = [
   ["log_location", "Logs"],
   ["deployed_version", "Version"],
 ];
+/** Where an accepted document proposal stands: its draft waits to be published (brand-new) or promoted (a draft of a
+ * live document), then the document is live; a discarded draft leaves nothing to open. */
+function AcceptedDocument({ proposal }: { proposal: DocumentProposal }) {
+  if (proposal.draft_published) {
+    return (
+      <Link className="underline" to={`/documents/${proposal.document_id ?? proposal.result_id}`}>
+        Open document
+      </Link>
+    );
+  }
+  if (!proposal.draft_id) return <span className="text-muted-foreground">The draft was discarded.</span>;
+  const ofLive = proposal.document_id !== null;
+  return (
+    <>
+      <span className="text-muted-foreground">{ofLive ? "Waiting to be promoted" : "Waiting to be published"}</span>{" "}
+      <Link
+        className="underline"
+        to={ofLive ? `/documents/drafts/${proposal.draft_id}` : `/documents/${proposal.draft_id}`}
+      >
+        Open draft
+      </Link>
+    </>
+  );
+}
+
 const shown = (value: unknown) => (value === null || value === undefined || value === "" ? "—" : String(value));
 
 function ServiceDetails({
@@ -171,9 +187,6 @@ export default function ProposalSheet({
   const [kept, setKept] = useState<ServiceField[]>(proposal.kind === "service" ? (proposal.changes ?? []) : []);
   const [busy, setBusy] = useState(false);
   const deciding = useRef(false);
-  const [confirmReplace, setConfirmReplace] = useState(false);
-  // Accepting a new version of an existing document replaces its live version: ask first.
-  const replaces = proposal.kind === "document" && proposal.current ? proposal.current : null;
   const pending = proposal.status === "pending";
   // A document about a service proposed in this run is refused until that service is accepted.
   const waiting = pending && proposal.kind === "document" && proposal.service_proposal_status === "pending";
@@ -193,12 +206,11 @@ export default function ProposalSheet({
       } else {
         const update = proposal.kind === "service" && proposal.current;
         const order = proposal.kind === "service" ? (proposal.changes ?? []) : [];
-        const result = await acceptProposal(
+        await acceptProposal(
           proposal.id,
           proposal.revision,
           update ? [...kept].sort((a, b) => order.indexOf(a) - order.indexOf(b)) : undefined,
         );
-        onMessage(result.export_error);
       }
       onReload();
     } catch (e) {
@@ -230,21 +242,19 @@ export default function ProposalSheet({
             {target ?? (proposal.current ? "Untick a change to keep the current value." : "A new service.")}
             {proposal.kind === "document" &&
               proposal.current &&
-              ` Replaces version ${proposal.current.version} of “${proposal.current.title}”.`}
+              ` Accepting creates a draft of “${proposal.current.title}” (version ${proposal.current.version}) to promote.`}
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-4">
           {!pending && (
-            <p className="text-sm">
+            <div className="text-sm">
               <Badge variant="outline">{proposal.status === "accepted" ? "Accepted" : "Rejected"}</Badge>
               {proposal.status === "accepted" &&
                 proposal.result_id &&
                 (proposal.kind === "document" ? (
                   <>
                     {" "}
-                    <Link className="underline" to={`/documents/${proposal.result_id}`}>
-                      Open document
-                    </Link>
+                    <AcceptedDocument proposal={proposal} />
                   </>
                 ) : (
                   <>
@@ -254,7 +264,7 @@ export default function ProposalSheet({
                     </Link>
                   </>
                 ))}
-            </p>
+            </div>
           )}
           {proposal.kind === "service" ? (
             <ServiceDetails
@@ -287,10 +297,7 @@ export default function ProposalSheet({
                   <Button variant="outline" disabled={busy} onClick={() => void decide("reject")}>
                     Reject
                   </Button>
-                  <Button
-                    disabled={busy || waiting}
-                    onClick={() => (replaces ? setConfirmReplace(true) : void decide("accept"))}
-                  >
+                  <Button disabled={busy || waiting} onClick={() => void decide("accept")}>
                     {busy && <Spinner data-icon="inline-start" />}Accept
                   </Button>
                 </div>
@@ -299,27 +306,6 @@ export default function ProposalSheet({
           )}
         </div>
       </SheetContent>
-      <AlertDialog open={confirmReplace} onOpenChange={setConfirmReplace}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace the live version?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {replaces ? `This replaces the live version ${replaces.version} of “${replaces.title}”. Continue?` : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmReplace(false);
-                void decide("accept");
-              }}
-            >
-              Continue
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Sheet>
   );
 }

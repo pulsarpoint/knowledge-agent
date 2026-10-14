@@ -10,7 +10,7 @@ from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.context import NOT_AVAILABLE
 from knowledge_admin.capabilities.document_tools import _run_links
 from knowledge_admin.data_root import FOLDER_RULE
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document, replace_live_document
 from knowledge_admin.sessions.start import ONE_START
 from knowledge_admin.tools.catalog import CATALOG
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -140,20 +140,17 @@ def test_an_existing_documents_title_and_folder_make_the_saves_a_draft_of_it(ses
     monkeypatch.setattr(inventory, '_store', s.store)
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        saved = save_document(
+        saved = live_document(
             conn,
             project,
-            None,
-            DocumentInput(
-                slug='payments-api-reference',
-                title='Payments API',
-                description='The public API',
-                purpose='reference',
-                audience='people',
-                tags=['payments'],
-                markdown='# Old',
-            ),
+            'payments-api-reference',
+            'Payments API',
+            '# Old',
             folder='payments-api-docs',
+            description='The public API',
+            purpose='reference',
+            audience='people',
+            tags=['payments'],
         )
         document, version = saved['id'], saved['version']
     session, config, new_id = started(s)
@@ -233,24 +230,16 @@ def test_a_save_after_a_person_promoted_the_new_document_drafts_the_promoted_doc
     document = UUID(str(promote(s, draft)['document_id']))
     assert document == draft  # a brand-new draft becomes the document itself
     with s.store.connect() as conn:  # a person sets its metadata after the promote
-        project = s.store.project(conn, 'shop')
-        live = conn.execute('SELECT revision FROM ka.document_details WHERE id=%s', (document,)).fetchone()
-        save_document(
+        replace_live_document(
             conn,
-            project,
-            None,
-            DocumentInput(
-                slug='payments-api-reference',
-                title='API reference',
-                description='Endpoints',
-                purpose='reference',
-                audience='people',
-                tags=['payments'],
-                markdown='# API',
-                revision=live['revision'],
-                code_project_ids=[s.repo],
-            ),
             document,
+            '# API',
+            links={'code_project_ids': [s.repo]},
+            title='API reference',
+            description='Endpoints',
+            purpose='reference',
+            audience='people',
+            tags=['payments'],
         )
         version = conn.execute('SELECT version FROM ka.documents WHERE id=%s', (document,)).fetchone()
     assert call(config, 'save_document', document_id=new_id, markdown='# API v2') == (

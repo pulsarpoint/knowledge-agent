@@ -21,13 +21,12 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit, storage, workspace
 from knowledge_admin.documents import store as documents
-from knowledge_admin.documents.store import CONTENT, LINK_COLUMNS, Provenance
+from knowledge_admin.documents.store import LINK_COLUMNS, Provenance
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)
 
 
-GitCommit = Annotated[str, Field(pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')]
 NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
 
 
@@ -44,7 +43,7 @@ def _tags(values: list[str]) -> list[str]:
     return tags
 
 
-# A document's fields with their limits and text rules, shared by DocumentInput and the drafts' models: no null
+# A document's fields with their limits and text rules, shared by the drafts' models: no null
 # characters; nonblank except the description; stripped except the Markdown.
 SLUG_PATTERN = r'^[a-z0-9]+(-[a-z0-9]+)*$'
 Slug = Annotated[str, Field(min_length=1, max_length=120, pattern=SLUG_PATTERN), AfterValidator(_text)]
@@ -57,28 +56,8 @@ Markdown = Annotated[
     str, Field(min_length=1, max_length=1000000), AfterValidator(lambda value: _text(value, strip=False))
 ]
 ResourceIds = Annotated[list[UUID], Field(max_length=100), AfterValidator(lambda values: list(dict.fromkeys(values)))]
-# The id-list field of each kind of resource a document links (DocumentInput, drafts' resource_ids, document_details).
+# The id-list field of each kind of resource a document links (LinksInput, drafts' resource_ids, document_details).
 DOCUMENT_RESOURCE_FIELDS = tuple(LINK_COLUMNS)
-
-
-class DocumentInput(BaseModel):
-    """A live document's content and links for internal writers (save_document); no route takes it."""
-
-    model_config = ConfigDict(extra='forbid')
-    slug: Slug
-    title: Title
-    description: Description = ''
-    purpose: Purpose = 'explanation'
-    audience: Audience = 'both'
-    tags: Tags = Field(default_factory=list)
-    markdown: Markdown
-    code_project_ids: ResourceIds = Field(default_factory=list)
-    service_ids: ResourceIds = Field(default_factory=list)
-    server_ids: ResourceIds = Field(default_factory=list)
-    deployment_ids: ResourceIds = Field(default_factory=list)
-    environment_ids: ResourceIds = Field(default_factory=list)
-    source_commits: dict[UUID, GitCommit] | None = Field(default=None, max_length=100)
-    revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 class LinksInput(BaseModel):
@@ -292,77 +271,6 @@ def export_conflict(conn, project: UUID, slug: str, folder: str | None, document
                 'Choose another folder.'
             )
     return None
-
-
-def _commits(snapshot: dict) -> dict[str, str | None]:
-    return {row['id']: row.get('git_commit') for row in snapshot['code_projects']}
-
-
-def save_document(
-    conn,
-    project: UUID,
-    actor: UUID | None,
-    value: DocumentInput,
-    document_id: UUID | None = None,
-    folder: str | None = None,
-    origin: str = 'manual',
-    *,
-    how: str = 'person',
-    session_id: UUID | None = None,
-) -> dict:
-    """Create a live document (its links built-for) or save an existing one (its links linked; unticking a built-for
-    link is a 409) within the caller's transaction. Returns {'id', 'revision', 'version'}.
-
-    `folder` places a new document in a documentation folder; an existing document keeps its own folder. `origin`
-    records where the text came from (manual, generated, uploaded); `how` and `session_id` who saved it (person,
-    agent_run, discovery). A save that changes neither the text nor a source commit keeps the version (and its
-    snapshot); only the revision and the links change."""
-    # Serialize saves per project so the folder / folder-less export check below cannot race another save
-    # (write_live takes the same lock again).
-    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
-    previous = None
-    if document_id is None:
-        if value.revision is not None:
-            raise HTTPException(400, documents.NEW_DOCUMENT_REVISION)
-    else:
-        previous = conn.execute(
-            'SELECT * FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
-            (document_id, project),
-        ).fetchone()
-        if previous is None:
-            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
-        if previous['revision'] != value.revision:
-            raise HTTPException(409, documents.DOCUMENT_CHANGED)
-        folder = previous['folder']
-    conflict = export_conflict(conn, project, value.slug, folder, document_id)
-    if conflict:
-        raise HTTPException(409, conflict)
-    links = {field: getattr(value, field) for field in LINK_COLUMNS}
-    snapshot = documents.build_snapshot(
-        conn, project, links, value.source_commits, previous['source_snapshot'] if previous else None
-    )
-    content = {key: getattr(value, key) for key in CONTENT}
-    if (
-        previous is not None
-        and previous['slug'] == value.slug
-        and all(previous[key] == content[key] for key in CONTENT)
-        and all(_commits(previous['source_snapshot']).get(key) == commit for key, commit in _commits(snapshot).items())
-    ):
-        # Only the links changed: the version and the snapshot of what it was written from stay.
-        snapshot = previous['source_snapshot']
-    return documents.write_live(
-        conn,
-        project,
-        Provenance(how, actor, session_id),
-        document_id=document_id,
-        slug=value.slug,
-        folder=folder,
-        content=content,
-        snapshot=snapshot,
-        origin=origin,
-        revision=value.revision,
-        links=links,
-    )
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:

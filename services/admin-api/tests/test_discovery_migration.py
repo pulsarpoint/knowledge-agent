@@ -166,3 +166,37 @@ def test_a_generated_version_needs_no_generation_run_and_down_refuses_while_one_
             ).fetchone()['n']
             == 1
         )
+
+
+DISCOVERY_DRAFT = ('0105_discovery_draft.down.sql', '0105_discovery_draft.up.sql')
+
+
+def test_0105_records_the_draft_an_accepted_document_proposal_made_and_round_trips(store):
+    with store.connect() as conn:
+        run(conn, DOCUMENT_MODEL[1])  # this module starts with 0104 rolled back
+        conn.commit()
+        project, server = world(conn, store)
+        sid = session(conn, project, server)
+        draft = conn.execute(
+            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,title,description,purpose,audience,
+            tags,markdown,content_hash,origin) VALUES (%s,'disks','servers/web-1',1,true,'Disks','','explanation','both',
+            '{}','# Disks',encode(sha256(convert_to('# Disks','UTF8')),'hex'),'generated') RETURNING id""",
+            (project,),
+        ).fetchone()['id']
+        # A proposal may name a draft (the live-document trigger covers document_id only).
+        proposal = conn.execute(
+            """INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload,status,decided_at,
+            result_id,draft_id) VALUES (%s,%s,%s,1,'document',%s,'accepted',now(),%s,%s) RETURNING id""",
+            (project, sid, server, Jsonb({'title': 'Disks'}), draft, draft),
+        ).fetchone()['id']
+        conn.execute('DELETE FROM ka.documents WHERE id=%s', (draft,))  # discarded: the proposal forgets it
+        assert (
+            conn.execute('SELECT draft_id FROM ka.discovery_proposals WHERE id=%s', (proposal,)).fetchone()['draft_id']
+            is None
+        )
+        conn.commit()
+        run(conn, DISCOVERY_DRAFT[0])
+        column = "SELECT count(*) AS n FROM information_schema.columns WHERE table_name='discovery_proposals' AND column_name='draft_id'"
+        assert conn.execute(column).fetchone()['n'] == 0
+        run(conn, DISCOVERY_DRAFT[1])
+        assert conn.execute(column).fetchone()['n'] == 1

@@ -384,13 +384,17 @@ run, with a count of those still pending. **Review** opens one proposal:
 - A **new service** shows its fields.
 - An **update** to an existing service shows the current value against the proposed one,
   with a **Keep** checkbox per changed field. Untick a field to keep the current value.
-- A **document** shows its text. Accepting a new version of an existing document first asks: This replaces the live version n of “title”. Continue?
+- A **document** shows its text.
 
-**Accept** writes to the inventory: the deployment is added or updated, connections are
-added, and new documents are saved as generated documents in `servers/<server>/` (in `servers/<server>-2`, `-3`, ... when the
-folder would overlap another document's export, or in `server-documents/<server>` when `servers` itself is a
-document's export) and attached; a new version of an existing document keeps that document's folder. If the
-document changed since the proposal was made, Accept refuses once and shows the proposal again; review it and accept.
+**Accept** writes services to the inventory: the deployment is added or updated and connections are added. A document
+is never written live by Accept: a new document becomes a draft (a generated document named in `servers/<server>/`, in
+`servers/<server>-2`, `-3`, ... when the folder would overlap another document's export, or in
+`server-documents/<server>` when `servers` itself is a document's export), and a new version of an existing document
+becomes a draft of that document. The accepted proposal says "Waiting to be published" (a new document) or "Waiting
+to be promoted" (a new version) with **Open draft**; **Publish** on the draft attaches the new document to the server
+or service, **Promote** on the document's Drafts tab makes the new version live, and the proposal then shows **Open
+document**. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
+review it and accept.
 **Reject** discards the proposal. Rejecting a proposed new service also rejects the document proposals about it;
 documents about an already recorded service stay and can be accepted on their own.
 A document about a proposed service can be accepted only after the service is. If

@@ -15,8 +15,8 @@ from knowledge_admin.servers.discovery import (
     STALE,
 )
 from knowledge_admin.servers.discovery import DOCUMENT_CHANGED
-from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.tools.catalog import CATALOG
+from live_documents import rewrite_live_document
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
 
@@ -53,6 +53,16 @@ def decide(world, proposal, action, **body):
         headers=HEADERS,
         json={'revision': proposal['revision'], **body},
     )
+
+
+def publish(world, accepted):
+    """Publish (or promote) the draft an accepted document proposal made; returns the live document's id."""
+    draft = accepted.json()['proposal']['draft_id']
+    url = f'/api/documentation/drafts/{draft}'
+    revision = world.client.get(url, headers=HEADERS).json()['revision']
+    published = world.client.post(f'{url}/promote', headers=HEADERS, json={'revision': revision})
+    assert published.status_code == 200, published.text
+    return published.json()['document_id']
 
 
 def service(world, name):
@@ -159,7 +169,7 @@ def test_a_new_service_another_run_added_meanwhile_becomes_an_update(run):
     ) == 1
 
 
-def test_documents_are_created_attached_and_versioned(run):
+def test_documents_become_drafts_attached_when_published_and_promoted_as_new_versions(run):
     world, sid, config = run
     propose(config, 'propose_document', title='Disk layout', markdown='# Disks', description='Mounts')
     propose(config, 'propose_document', title='web-1 overview', markdown='# web-1, updated')
@@ -167,10 +177,13 @@ def test_documents_are_created_attached_and_versioned(run):
     accepted = decide(world, new, 'accept')
     assert accepted.status_code == 200, accepted.text
     document_id = accepted.json()['result_id']
-    attached = world.client.get(
-        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': world.server['id']}
-    ).json()['documents']
-    assert {item['title'] for item in attached} == {'web-1 overview', 'Disk layout'}
+
+    def attached():
+        return world.client.get(
+            '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': world.server['id']}
+        ).json()['documents']
+
+    assert {item['title'] for item in attached()} == {'web-1 overview'}  # a draft is not attached
     with world.store.connect() as conn:
         row = conn.execute(
             'SELECT folder,slug,origin,markdown,is_draft,version FROM ka.documents WHERE id=%s', (document_id,)
@@ -181,13 +194,17 @@ def test_documents_are_created_attached_and_versioned(run):
             (document_id,),
         ).fetchall()
     assert (row['folder'], row['slug'], row['origin']) == ('servers/web-1', 'web-1-disk-layout', 'generated')
-    assert (row['is_draft'], row['version']) == (False, 1)  # created live, no draft step
+    assert (row['is_draft'], row['version']) == (True, None)  # a brand-new draft
     # A new document is built for its server (no service): a locked link added by discovery.
     assert [
         (str(link['server_id']), link['service_id'], link['connection'], link['added_how'], link['removed_at'])
         for link in links
     ] == [(world.server['id'], None, 'built_for', 'discovery', None)]
-    assert decide(world, version, 'accept').status_code == 200
+    assert publish(world, accepted) == document_id  # published: the same id, now attached
+    assert {item['title'] for item in attached()} == {'web-1 overview', 'Disk layout'}
+    accepted = decide(world, version, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    assert publish(world, accepted) == version['document_id']
     with world.store.connect() as conn:
         latest = conn.execute(
             'SELECT revision,version,markdown FROM ka.documents WHERE id=%s', (version['document_id'],)
@@ -225,7 +242,7 @@ def test_a_document_title_another_run_attached_meanwhile_becomes_a_new_version(r
     propose(config, 'propose_document', title='Disk layout', markdown='# mine')
     other = start(world).json()['id']
     propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# theirs')
-    assert decide(world, listed(world, other)[0], 'accept').status_code == 200
+    publish(world, decide(world, listed(world, other)[0], 'accept'))
     [proposal] = listed(world, sid)
     refused = decide(world, proposal, 'accept')
     assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_ADDED.format(
@@ -253,7 +270,7 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
     propose(config, 'propose_document', title='Redis', markdown='# redis', about_service='redis')
     service_proposal, document = listed(world, sid)
     assert decide(world, service_proposal, 'accept').status_code == 200
-    assert decide(world, listed(world, sid)[1], 'accept').status_code == 200
+    publish(world, decide(world, listed(world, sid)[1], 'accept'))
     redis = service(world, 'redis')
     attached = world.client.get(
         '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service', 'entry_id': redis['id']}
@@ -365,16 +382,7 @@ def test_a_new_version_of_a_document_changed_since_the_proposal_is_refused_once(
     propose(config, 'propose_document', title='web-1 overview', markdown='# mine')
     [proposal] = listed(world, sid)
     assert proposal['payload']['matched_document_revision'] == 1
-    with world.store.connect() as conn:
-        save_document(
-            conn,
-            world.project,
-            None,
-            DocumentInput(
-                slug='web-1-overview', title='web-1 overview', description='x', markdown='# theirs', revision=1
-            ),
-            proposal['document_id'],
-        )
+    rewrite_live_document(world.store, proposal['document_id'], '# theirs')
     refused = decide(world, proposal, 'accept')
     assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_CHANGED
     [proposal] = listed(world, sid)
@@ -387,7 +395,8 @@ def test_a_document_converted_to_a_new_version_stores_the_revision(run):
     propose(config, 'propose_document', title='Disk layout', markdown='# mine')
     other = start(world).json()['id']
     propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# theirs')
-    assert decide(world, listed(world, other)[0], 'accept').status_code == 200
+    theirs = publish(world, decide(world, listed(world, other)[0], 'accept'))
     assert decide(world, listed(world, sid)[0], 'accept').status_code == 409
     [proposal] = listed(world, sid)
-    assert proposal['payload']['matched_document_revision'] == 1
+    live = world.client.get(f'/api/documentation/documents/{theirs}', headers=HEADERS).json()
+    assert proposal['document_id'] == theirs and proposal['payload']['matched_document_revision'] == live['revision']

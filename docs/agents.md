@@ -46,7 +46,8 @@ limit, no per-turn time limit, no 300-second limit).
   projects the run was given, and `get_document` reads documents the run was given or attached to those resources.
   Anything else gets "This {server|service|code project|document} is not available in this run." — the same answer as
   for something that does not exist. The proposal tools (`propose_service`, `propose_document`) exist only in a run
-  started from a server.
+  started from a server. Accepting a document proposal creates a draft with the run's `session_id` (a brand-new draft,
+  or a draft of the document it updates; it becomes the run's last draft); a person publishes or promotes it.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per

@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import RunProposals from "~/features/sessions/RunProposals";
 
 let version = "r1:1:waiting";
@@ -104,7 +105,7 @@ test("lists proposals; an update shows current against proposed and accepts only
     "GET /api/discovery/r1/proposals": () => [200, { proposals: [update, document] }],
     "POST /api/discovery/proposals/q1/accept": () => [
       200,
-      { proposal: { ...update, status: "accepted" }, result_id: "n1", export_error: null },
+      { proposal: { ...update, status: "accepted" }, result_id: "n1" },
     ],
   });
   show();
@@ -252,7 +253,7 @@ test("a document about a service still pending in this run cannot be accepted un
   expect(screen.getByText("Accept the service proposal nginx first.")).toBeInTheDocument();
 });
 
-test("accepting a new version of a document asks first", async () => {
+test("accepting a new version of a document creates a draft without asking", async () => {
   const user = userEvent.setup();
   const version = {
     ...document,
@@ -265,21 +266,55 @@ test("accepting a new version of a document asks first", async () => {
     "GET /api/discovery/r1/proposals": () => [200, { proposals: [version] }],
     "POST /api/discovery/proposals/q3/accept": () => [
       200,
-      { proposal: { ...version, status: "accepted", result_id: "doc1" }, result_id: "doc1", export_error: null },
+      { proposal: { ...version, status: "accepted", result_id: "dr1", draft_id: "dr1" }, result_id: "dr1" },
     ],
   });
   show();
   await user.click(await screen.findByRole("button", { name: "Review" }));
+  expect(
+    screen.getByText(/Accepting creates a draft of “web-1 overview” \(version 3\) to promote\./),
+  ).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Accept" }));
-  const dialog = await screen.findByRole("alertdialog");
-  expect(dialog).toHaveTextContent("This replaces the live version 3 of “web-1 overview”. Continue?");
-  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(calls.some((c) => c.key === "POST /api/discovery/proposals/q3/accept")).toBe(false);
-  await user.click(screen.getByRole("button", { name: "Accept" }));
-  await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continue" }));
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/discovery/proposals/q3/accept")!.body).toEqual({ revision: 1 }),
   );
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+});
+
+test("an accepted document proposal links to its draft while it waits, then to the document", async () => {
+  const user = userEvent.setup();
+  const accepted = { ...document, status: "accepted", result_id: "dr1", draft_id: "dr1", draft_published: false };
+  const cases: [Record<string, unknown>, string, string | null, string][] = [
+    [accepted, "Waiting to be published", "Open draft", "/documents/dr1"],
+    [
+      { ...accepted, document_id: "doc1", current: { id: "doc1", title: "web-1 overview", version: 3 } },
+      "Waiting to be promoted",
+      "Open draft",
+      "/documents/drafts/dr1",
+    ],
+    [{ ...accepted, draft_published: true }, "Accepted", "Open document", "/documents/dr1"],
+    [
+      { ...accepted, document_id: "doc1", draft_id: null, draft_published: true },
+      "Accepted",
+      "Open document",
+      "/documents/doc1",
+    ],
+    [{ ...accepted, draft_id: null }, "The draft was discarded.", null, ""],
+  ];
+  for (const [proposal, text, link, href] of cases) {
+    api({ "GET /api/discovery/r1/proposals": () => [200, { proposals: [proposal] }] });
+    const view = render(
+      <MemoryRouter>
+        <RunProposals runId="r1" version={version} />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Review" }));
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText(text)).toBeInTheDocument();
+    if (link) expect(within(sheet).getByRole("link", { name: link })).toHaveAttribute("href", href);
+    else expect(within(sheet).queryByRole("link")).not.toBeInTheDocument();
+    view.unmount();
+  }
 });
 
 test("lists pending, accepted and rejected proposals with their status", async () => {

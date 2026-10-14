@@ -24,6 +24,65 @@ def _export(store, document_id: UUID) -> None:
         pass
 
 
+def live_document(
+    conn,
+    project: UUID,
+    slug: str,
+    title: str,
+    markdown: str,
+    *,
+    folder: str | None = None,
+    actor: UUID | None = None,
+    source_commits: dict | None = None,
+    **fields,
+) -> dict:
+    """A new live document in the caller's transaction, not exported (version 1, revision 1; the link fields in
+    `fields` built-for). Returns {'id' (UUID), 'revision', 'version'}."""
+    links = {field: [UUID(str(item)) for item in fields.pop(field, [])] for field in LINK_COLUMNS}
+    content = {**DEFAULTS, **fields, 'title': title, 'markdown': markdown}
+    snapshot = lifecycle.build_snapshot(conn, project, links, source_commits, None)
+    return lifecycle.write_live(
+        conn,
+        project,
+        Provenance('person', actor),
+        document_id=None,
+        slug=slug,
+        folder=folder,
+        content={key: content[key] for key in CONTENT},
+        snapshot=snapshot,
+        origin='manual',
+        revision=None,
+        links=links,
+    )
+
+
+def replace_live_document(
+    conn, document_id, markdown: str, actor: UUID | None = None, *, links: dict | None = None, **content
+) -> dict:
+    """Replace a live document's text (and any other `content` field) in place, a new version, in the caller's
+    transaction, as an internal writer does; `links` (link fields → ids) become its active links. Its drafts stay. Not
+    exported."""
+    live = conn.execute('SELECT * FROM ka.documents WHERE id=%s AND NOT is_draft', (UUID(str(document_id)),)).fetchone()
+    wanted = None
+    snapshot = live['source_snapshot']
+    if links is not None:
+        wanted = {field: [UUID(str(item)) for item in links.get(field, [])] for field in LINK_COLUMNS}
+        snapshot = lifecycle.build_snapshot(conn, live['project_id'], wanted, None, snapshot)
+    return lifecycle.write_live(
+        conn,
+        live['project_id'],
+        Provenance('person', actor),
+        document_id=live['id'],
+        slug=live['slug'],
+        folder=live['folder'],
+        content={**{key: live[key] for key in CONTENT}, **content, 'markdown': markdown},
+        snapshot=snapshot,
+        origin='manual',
+        revision=live['revision'],
+        links=wanted,
+    )
+
+
 def write_live_document(
     store,
     slug: str,
@@ -35,25 +94,19 @@ def write_live_document(
     export: bool = True,
     **fields,
 ) -> dict:
-    """A new live document (version 1, revision 1; the link fields in `fields` built-for). Returns {'id' (str),
-    'revision', 'version'}."""
-    links = {field: [UUID(str(item)) for item in fields.pop(field, [])] for field in LINK_COLUMNS}
-    content = {**DEFAULTS, **fields, 'title': title, 'markdown': markdown}
+    """A new live document of the workspace shop, written as the test admin and exported (version 1, revision 1; the
+    link fields in `fields` built-for). Returns {'id' (str), 'revision', 'version'}."""
     with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        snapshot = lifecycle.build_snapshot(conn, project, links, source_commits, None)
-        saved = lifecycle.write_live(
+        saved = live_document(
             conn,
-            project,
-            Provenance('person', admin(store, conn)),
-            document_id=None,
-            slug=slug,
+            store.project(conn, 'shop'),
+            slug,
+            title,
+            markdown,
             folder=folder,
-            content={key: content[key] for key in CONTENT},
-            snapshot=snapshot,
-            origin='manual',
-            revision=None,
-            links=links,
+            actor=admin(store, conn),
+            source_commits=source_commits,
+            **fields,
         )
     if export:
         _export(store, saved['id'])
@@ -61,23 +114,8 @@ def write_live_document(
 
 
 def rewrite_live_document(store, document_id, markdown: str) -> dict:
-    """Replace a live document's text in place (a new version), as an internal writer does; its drafts stay."""
+    """Replace a live document's text in place (a new version) as the test admin and export it; its drafts stay."""
     with store.connect() as conn:
-        project = store.project(conn, 'shop')
-        live = conn.execute(
-            'SELECT * FROM ka.documents WHERE id=%s AND NOT is_draft', (UUID(str(document_id)),)
-        ).fetchone()
-        saved = lifecycle.write_live(
-            conn,
-            project,
-            Provenance('person', admin(store, conn)),
-            document_id=live['id'],
-            slug=live['slug'],
-            folder=live['folder'],
-            content={**{key: live[key] for key in CONTENT}, 'markdown': markdown},
-            snapshot=live['source_snapshot'],
-            origin='manual',
-            revision=live['revision'],
-        )
+        saved = replace_live_document(conn, document_id, markdown, admin(store, conn))
     _export(store, saved['id'])
     return {**saved, 'id': str(saved['id'])}

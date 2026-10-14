@@ -14,16 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit, storage, workspace
-from knowledge_admin.documents.api import (
-    DOCUMENT_RESOURCE_FIELDS,
-    DocumentInput,
-    document_slug,
-    export_args,
-    export_conflict,
-    export_document,
-    export_input,
-    save_document,
-)
+from knowledge_admin.documents import store as lifecycle
+from knowledge_admin.documents.api import document_slug, export_conflict
+from knowledge_admin.documents.drafts import DraftContent
+from knowledge_admin.documents.store import Provenance
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.servers.service_api import save_service
 from knowledge_admin.servers.services import DeploymentInput, ServiceDependencyInput, ServiceInput
@@ -65,7 +59,6 @@ DOCUMENT_CHANGED = 'This document changed since the proposal was made. Review it
 DOCUMENT_ADDED = 'A document titled {title} was added since this proposal was made. It is now shown as a new version. Review it again.'
 ACCEPT_SERVICE_FIRST = 'Accept the service first.'
 SERVICE_GONE = 'The service {name} no longer exists. Reject this proposal.'
-EXPORT_FAILED = 'The document was saved. File export failed; retry Export to folder from the document page.'
 SERVICE_FIELDS = ('service_type', 'service_role', 'description', 'owner', 'operations_notes')
 DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
 ServiceField = Literal['service_type', 'service_role', 'description', 'owner', 'operations_notes']
@@ -140,6 +133,15 @@ def free_folder(conn, project, server_slug: str) -> str:
     raise HTTPException(
         409, "No folder is free for this server's documents. Rename a document or folder and try again."
     )
+
+
+def draft_published(conn, row: dict) -> bool:
+    """Whether the draft an accepted document proposal made went live: published (a brand-new draft keeps its id as
+    the document) or promoted. False while it is open and once it was discarded or replaced by another draft's promote.
+    result_id is the draft's id (draft_id is cleared when the draft row is deleted); a proposal accepted before drafts
+    (0105) wrote the live document directly, so a result with no draft outcome is live."""
+    outcome = lifecycle.draft_outcome(conn, row['result_id'])
+    return outcome is None or outcome['status'] == 'promoted'
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -292,8 +294,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         )
         return save_service(conn, project, actor, value, current['id'], keep_archived_links=True)['id']
 
-    def accept_document(conn, project, actor, row: dict) -> tuple[UUID, str | None]:
+    def accept_document(conn, project, actor, row: dict) -> UUID:
+        """The draft accepting a document proposal makes: a brand-new draft (built for its service, else its server;
+        attached to that inventory entry when it is published) or a draft of the live document it updates."""
         payload = row['payload']
+        prov = Provenance('discovery', actor, row['session_id'])
         server = conn.execute('SELECT id,name FROM ka.servers WHERE id=%s', (row['server_id'],)).fetchone()
         if row['service_proposal_id'] is not None:
             parent = conn.execute(
@@ -335,72 +340,54 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if service_id
                 else server['name']
             )
+            # The export lock a promote takes, so the free name below cannot race a Publish of another draft.
+            conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
             folder = free_folder(conn, project, document_slug(server['name']) or 'server')
             slug = free_slug(conn, project, folder, document_slug(f'{name} {payload["title"]}'))
-            saved = save_document(
+            content = DraftContent(
+                title=payload['title'], description=payload['description'], markdown=payload['markdown']
+            )
+            return lifecycle.create_draft(
                 conn,
                 project,
-                actor,
-                DocumentInput(
-                    slug=slug,
-                    title=payload['title'],
-                    description=payload['description'],
-                    markdown=payload['markdown'],
-                    **({'service_ids': [service_id]} if service_id else {'server_ids': [server['id']]}),
-                ),
-                None,
+                prov,
+                content.model_dump(),
+                origin='generated',
+                slug=slug,
                 folder=folder,
-                origin='generated',
-                how='discovery',
+                links={'service_ids': [service_id]} if service_id else {'server_ids': [server['id']]},
             )
-            conn.execute(
-                f"""INSERT INTO ka.inventory_documents(project_id,{column},document_id) VALUES (%s,%s,%s)
-                ON CONFLICT DO NOTHING""",
-                (project, entry, saved['id']),
-            )
-        else:
-            current = conn.execute(
-                """SELECT slug,description,purpose,audience,tags,code_project_ids,service_ids,server_ids,
-                deployment_ids,environment_ids,revision FROM ka.document_details WHERE id=%s""",
-                (row['document_id'],),
-            ).fetchone()
-            if current['revision'] != payload.get('matched_document_revision'):
-                convert(
-                    conn,
-                    row['id'],
-                    DOCUMENT_CHANGED,
-                    payload=Jsonb({**payload, 'matched_document_revision': current['revision']}),
-                )
-            saved = save_document(
+        current = conn.execute(
+            'SELECT title,description,purpose,audience,tags,revision FROM ka.document_details WHERE id=%s',
+            (row['document_id'],),
+        ).fetchone()
+        if current['revision'] != payload.get('matched_document_revision'):
+            convert(
                 conn,
-                project,
-                actor,
-                DocumentInput(
-                    slug=current['slug'],
-                    title=payload['title'],
-                    description=payload['description'] or current['description'],
-                    purpose=current['purpose'],
-                    audience=current['audience'],
-                    tags=current['tags'],
-                    markdown=payload['markdown'],
-                    **{field: current[field] for field in DOCUMENT_RESOURCE_FIELDS},
-                    revision=current['revision'],
-                ),
-                row['document_id'],
-                origin='generated',
-                how='discovery',
+                row['id'],
+                DOCUMENT_CHANGED,
+                payload=Jsonb({**payload, 'matched_document_revision': current['revision']}),
             )
-        try:
-            export_document(**export_args(export_input(conn, saved['id'])))
-            export_error = None
-        except (OSError, ValueError):
-            export_error = EXPORT_FAILED
-        return saved['id'], export_error
+        content = DraftContent(
+            title=payload['title'],
+            description=payload['description'] or current['description'],
+            purpose=current['purpose'],
+            audience=current['audience'],
+            tags=current['tags'],
+            markdown=payload['markdown'],
+        )
+        return lifecycle.create_draft(
+            conn, project, prov, content.model_dump(), origin='generated', document_id=row['document_id']
+        )
 
     def detail(conn, row: dict) -> dict:
         """A proposal as the review shows it: for a service update its current values, what would change and the
-        deployment it updates; for a document the service it is about and what it would replace."""
+        deployment it updates; for a document the service it is about, what it would replace and, once accepted,
+        whether its draft went live (draft_published)."""
         item = dict(row)
+        item['draft_published'] = (
+            row['kind'] == 'document' and row['status'] == 'accepted' and draft_published(conn, row)
+        )
         payload = row['payload']
         if row['kind'] == 'service' and row['service_id'] is not None:
             current = conn.execute(CURRENT_SERVICE, (row['service_id'],)).fetchone()
@@ -453,15 +440,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 actor = db.actor(conn, *request_actor(request))
                 row = pending(conn, project, proposal_id, value.revision)
                 kind = row['kind']
-                export_error = None
+                draft = None
                 if row['kind'] == 'service':
                     result = accept_service(conn, project, actor, row, value.fields)
                 else:
-                    result, export_error = accept_document(conn, project, actor, row)
+                    result = draft = accept_document(conn, project, actor, row)
                 updated = conn.execute(
                     """UPDATE ka.discovery_proposals SET status='accepted',decided_by=%s,decided_at=now(),
-                    result_id=%s,revision=revision+1 WHERE id=%s RETURNING *""",
-                    (actor, result, proposal_id),
+                    result_id=%s,draft_id=%s,revision=revision+1 WHERE id=%s RETURNING *""",
+                    (actor, result, draft, proposal_id),
                 ).fetchone()
                 audit(
                     conn,
@@ -478,9 +465,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         'fields': value.fields,
                     },
                 )
-                return jsonable_encoder(
-                    {'proposal': detail(conn, updated), 'result_id': result, 'export_error': export_error}
-                )
+                return jsonable_encoder({'proposal': detail(conn, updated), 'result_id': result})
         except ValidationError as exc:
             raise HTTPException(400, first_error(exc)) from None
         except psycopg.errors.UniqueViolation:

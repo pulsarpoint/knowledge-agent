@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document
 from session_rows import add_review, add_test_session
 from test_api import _client
 from test_profiles import create
@@ -29,12 +29,7 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
         for _ in range(2)
     ]
     ids['review'] = add_review(conn, ids['tests'][0], actor, changes={})
-    document = save_document(
-        conn,
-        project,
-        actor,
-        DocumentInput(slug=f'payments-{uuid4().hex[:6]}', title='Payments', markdown='# Payments'),
-    )['id']
+    document = live_document(conn, project, f'payments-{uuid4().hex[:6]}', 'Payments', '# Payments', actor=actor)['id']
     ids['document'] = document
     cc = uuid4()
     conn.execute(

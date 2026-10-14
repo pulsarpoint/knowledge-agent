@@ -12,7 +12,8 @@ from psycopg.types.json import Jsonb
 
 from knowledge_admin.db import audit
 
-# DocumentInput / resource_ids field → document_resources column. Fixed identifiers, never taken from a request.
+# Link field (LinksInput, a draft's resource_ids) → document_resources column. Fixed identifiers, never taken from a
+# request.
 LINK_COLUMNS = {
     'code_project_ids': 'code_project_id',
     'service_ids': 'service_id',
@@ -436,12 +437,27 @@ def update_draft(conn, draft_id: UUID, actor: UUID | None, content: dict, *, rev
     return row['revision'] + 1
 
 
+def _attach_discovered(conn, document_id: UUID) -> None:
+    """A brand-new draft made by accepting discovery proposals was just published: attach the document to each such
+    proposal's inventory entry (its service — the recorded one or the one its service proposal created — while that
+    still exists, else its server), once per entry however many proposals name the draft."""
+    conn.execute(
+        """INSERT INTO ka.inventory_documents(project_id,service_id,server_id,document_id)
+        SELECT DISTINCT p.project_id,s.id,CASE WHEN s.id IS NULL THEN p.server_id END,%s
+        FROM ka.discovery_proposals p LEFT JOIN ka.discovery_proposals parent ON parent.id=p.service_proposal_id
+        LEFT JOIN ka.services s ON s.id=COALESCE(p.service_id,parent.result_id)
+        WHERE p.draft_id=%s AND p.kind='document' AND p.status='accepted'
+        ON CONFLICT DO NOTHING""",
+        (document_id, document_id),
+    )
+
+
 def promote_draft(
     conn, project: UUID, actor: UUID | None, draft_id: UUID, *, revision: int, confirm_stale: bool
 ) -> dict:
     """Make a draft live. A draft of a live document: the live content is archived, the draft's content replaces it
     in place (same id, version + 1) and every draft of the document is deleted. A brand-new draft becomes the live
-    document (version 1). A stale draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision',
+    document (version 1), attached to the inventory entry of the discovery proposals that made it. A stale draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision',
     'deleted_drafts', 'new'}; the caller exports after commit."""
     # The live row before the draft: two promotes of drafts of one document queue on the live row, and the second
     # then finds its draft deleted (404) instead of deadlocking on the drafts the first deletes. FOR NO KEY UPDATE
@@ -465,6 +481,7 @@ def promote_draft(
             version_created_at=now(),version_created_by=%s,updated_by=%s,revision=revision+1 WHERE id=%s""",
             (Jsonb(snapshot), actor, actor, draft_id),
         )
+        _attach_discovered(conn, draft_id)
         result = {
             'document_id': draft_id,
             'version': 1,

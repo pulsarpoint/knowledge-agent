@@ -10,7 +10,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import inventory
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -48,16 +48,8 @@ def add_db(store, project, *, server=None):
             VALUES (%s,%s,%s,'Production','postgres')""",
             (project, service, server),
         )
-        saved = save_document(
-            conn,
-            project,
-            None,
-            DocumentInput(
-                slug='db-1-overview',
-                title='db-1 overview',
-                description='About db-1',
-                markdown='# db-1 overview\n\nBody.',
-            ),
+        saved = live_document(
+            conn, project, 'db-1-overview', 'db-1 overview', '# db-1 overview\n\nBody.', description='About db-1'
         )
         conn.execute(
             'INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',

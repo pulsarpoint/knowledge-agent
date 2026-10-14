@@ -325,3 +325,12 @@ document has a link that is not an active migrated link (a link built for it, ad
 discovery). Otherwise it rebuilds `document_versions` from the archive and live rows, `document_drafts` from the draft
 rows (as open drafts), the five link tables and the previous views, and drops the new tables and columns. Drafts
 promoted or discarded after 0104 are deleted rows, so they do not come back.
+
+## 0105_discovery_draft
+
+Accepting a discovery proposal for a document creates a draft instead of writing the live document (see
+[documentation](documentation.md)). `ka.discovery_proposals` gains `draft_id` (`REFERENCES documents(id) ON DELETE SET
+NULL`, indexed), the draft an accepted document proposal made; it may name a draft (the live-document trigger covers
+`document_id` only). Publishing a brand-new draft attaches it to the inventory entry of the accepted proposals with
+that `draft_id`. Proposals accepted before 0105 keep `draft_id` NULL (their documents were written live). The down
+migration drops the column; drafts made by accepting proposals stay as drafts.

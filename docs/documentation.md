@@ -27,11 +27,12 @@ Since migration 0104 a document lives in three tables:
 Readers use views and never see a draft by accident: `ka.live_documents` (live rows), `ka.document_details` (live rows
 with their active link arrays and `draft_count`) and `ka.document_drafts_view` (every draft with its document's
 title, slug and folder, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
-document links, inventory attachments, discovery proposals and a run's document that point at a draft.
+document links, inventory attachments, a discovery proposal's `document_id` and a run's document that point at a draft
+(a proposal's `draft_id` names the draft accepting it made).
 
-**Links.** A document created live (a discovery proposal for a new document) or as a brand-new
-draft (a person's Save, a new-document run's first save) gets its links as `built_for`, with `added_how` person,
-discovery or agent_run. A built-for link cannot be removed: unticking it is a 409 "This document was built for
+**Links.** A brand-new draft (a person's Save, a new-document run's first save, an accepted discovery proposal for a
+new document) gets its links as `built_for`, with `added_how` person, agent_run or discovery. A built-for link cannot
+be removed: unticking it is a 409 "This document was built for
 {type} {name}; that link can't be removed." and nothing changes. Links never go through drafts: **Save links**
 (`PUT /documents/{id}/links`, on a live document or a brand-new draft) applies them directly. It compares the ticked
 ids with the active rows: unchanged rows stay as they are, newly ticked ones get a `linked` row, unticked `linked` rows get
@@ -45,9 +46,12 @@ Content goes live only by **Publish** (a brand-new draft) or **Promote** (a draf
 `POST /drafts/{id}/promote`. A brand-new draft keeps the ID it will have as a document, opens at `/documents/{id}`
 (`GET /documents/{id}` answers with `is_draft: true`, `published: false`) and can be renamed (`slug`, `folder` on
 `PUT /drafts/{id}`) until it is published; a draft of a live document keeps its document's name. There is no history of
-a draft's own saves: version history starts when it is published. An internal writer that edits a live document
-directly (a discovery proposal that updates a document) archives the current content and bumps `version` when the
-content, slug or a source commit changes. Other drafts stay. A document can have any
+a draft's own saves: version history starts when it is published. **Discovery** follows the same rule: accepting a
+proposal for a new document creates a brand-new draft (`origin = 'generated'`, the run's `session_id`, built for its
+service, else its server) and accepting one that updates a document creates a draft of it (`base_version` = its live
+version); the proposal records it in `discovery_proposals.draft_id` (and `result_id`). Publishing a brand-new draft
+that accepted proposals made attaches the document to their inventory entry (`inventory_documents`, once per entry,
+in the promote's transaction); a discarded draft attaches nothing. A document can have any
 number of drafts; they are listed by `created_at`, newest first. **Promoting** draft D of live document L (one
 transaction locking L) archives L's content, updates L in place with D's content (`version + 1`, `from_draft`, the
 same ID) and **deletes every draft of L**, D included; when D's `base_version` is older than L's `version`, promote

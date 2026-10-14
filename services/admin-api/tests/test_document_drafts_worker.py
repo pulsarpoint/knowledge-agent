@@ -5,7 +5,7 @@ from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.documents.api import DocumentInput, save_document
+from live_documents import live_document, replace_live_document
 from knowledge_admin.documents.drafts import NEW_DEFAULTS
 from knowledge_admin.documents.store import Provenance, create_draft
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -52,12 +52,8 @@ def tool_call(sessions, sid, turn: int, seq: int, name: str, arguments: dict, *,
 
 def document(sessions, slug: str, folder: str | None, markdown: str) -> dict:
     with sessions.store.connect() as conn:
-        return save_document(
-            conn,
-            sessions.store.project(conn, 'shop'),
-            None,
-            DocumentInput(slug=slug, title=slug.replace('-', ' ').title(), markdown=markdown),
-            folder=folder,
+        return live_document(
+            conn, sessions.store.project(conn, 'shop'), slug, slug.replace('-', ' ').title(), markdown, folder=folder
         )
 
 
@@ -81,13 +77,7 @@ def test_sources_are_the_documents_the_run_read_at_the_version_it_read(sessions)
     tool_call(sessions, sid, 1, 5, 'get_document', {'document_id': 'not-a-uuid'})
     tool_call(sessions, sid, 1, 6, 'list_files', {'path': 'team/alpha/README.md'})
     with sessions.store.connect() as conn:  # alpha changes after the run read it
-        save_document(
-            conn,
-            sessions.store.project(conn, 'shop'),
-            None,
-            DocumentInput(slug='alpha', title='Alpha', markdown='# Alpha v2', revision=1),
-            alpha['id'],
-        )
+        replace_live_document(conn, alpha['id'], '# Alpha v2')
     with sessions.store.connect() as conn:  # the draft the run's save_document tool wrote
         create_draft(
             conn,

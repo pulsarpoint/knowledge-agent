@@ -46,7 +46,7 @@ NEW_DEFAULTS = {'description': '', 'purpose': 'explanation', 'audience': 'both',
 
 
 class DraftContent(BaseModel):
-    """A draft's text, with DocumentInput's limits and text rules."""
+    """A draft's text, with a document's limits and text rules (documents/api.py)."""
 
     model_config = ConfigDict(extra='forbid')
     title: Title
@@ -242,7 +242,7 @@ RESOURCE_QUERIES = {
 
 
 def available_resources(conn, project: UUID, wanted: dict) -> dict:
-    """The chosen resources that still exist, as DocumentInput fields: deleted entries and archived code projects drop
+    """The chosen resources that still exist, as link fields: deleted entries and archived code projects drop
     out, and a deployment stays only with its service and server."""
     chosen = {key: [UUID(str(item)) for item in wanted.get(key, [])] for key in DOCUMENT_RESOURCE_FIELDS}
     result = {}
@@ -462,9 +462,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             with workspace(db, app_name) as (conn, project):
                 row = lock_for_decision(conn, project, draft_id)
                 actor = db.actor(conn, *request_actor(request))
-                # The export lock save_document takes before a live row, so a promote cannot deadlock with a save.
+                # The export lock write_live and a discovery accept take, so a promote cannot deadlock with them.
                 conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
-                if row['draft_of'] is None:  # a brand-new document's export folder, as save_document checks it
+                if row['draft_of'] is None:  # a brand-new document's export folder must be free
                     conflict = export_conflict(conn, project, row['slug'], row['folder'], draft_id)
                     if conflict:
                         raise HTTPException(409, conflict)
