@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import EnvironmentsView from "../EnvironmentsView";
-import type { EnvironmentAsset, EnvironmentInput, ServiceAsset, ServerAsset } from "../../lib/api";
+import type { EnvironmentAsset, EnvironmentInput } from "../../lib/environments";
+import type { ServiceAsset } from "../../lib/services";
+import type { ServerAsset } from "../../lib/servers";
 
 const services: ServiceAsset[] = ["API", "Database"].map((name, index) => ({
   id: `service-${index}`, project_id: "project", name, description: "", owner: "", operations_notes: "", revision: 1,

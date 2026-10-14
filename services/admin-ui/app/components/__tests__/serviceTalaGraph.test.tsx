@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import ServiceDependencyGraph from "../ServiceDependencyGraph";
 import ServiceTalaGraph from "../ServiceTalaGraph";
-import type { ServiceAsset } from "../../lib/api";
+import type { ServiceAsset } from "../../lib/services";
 
 const engine = vi.hoisted(() => ({ compile: vi.fn(), render: vi.fn(), dispose: vi.fn() }));
 vi.mock("@d2lang/d2", () => ({ D2: vi.fn(function () { return engine; }) }));

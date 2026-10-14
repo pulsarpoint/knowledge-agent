@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import ServicesView from "../ServicesView";
-import type { EnvironmentAsset, Repository, ServerAsset, ServiceAsset } from "../../lib/api";
+import type { EnvironmentAsset } from "../../lib/environments";
+import type { Repository } from "../../lib/codeProjects";
+import type { ServerAsset } from "../../lib/servers";
+import type { ServiceAsset } from "../../lib/services";
 
 const repos: Repository[] = ["API", "Shared"].map((name, index) => ({
   id: `repo-${index}`, name, remote_url: `https://github.com/example/${name.toLowerCase()}.git`, requested_ref: null,

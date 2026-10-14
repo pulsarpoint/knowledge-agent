@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import JiraSettingsView from "../JiraSettingsView";
 import JiraTicketsView from "../JiraTicketsView";
-import type { JiraConnection, JiraTickets } from "../../lib/api";
+import type { JiraConnection, JiraTickets } from "../../lib/jira";
 import type { AutoPull, Schedule } from "../../lib/schedules";
 
 const connection: JiraConnection = { id: "jira-1", base_url: "https://jira.internal/jira", username: "integration-user", has_token: true,

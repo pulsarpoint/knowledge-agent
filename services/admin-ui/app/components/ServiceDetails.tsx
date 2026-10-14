@@ -1,7 +1,7 @@
 import { FileJson, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { type ServiceAsset } from "../lib/api";
+import { type ServiceAsset } from "../lib/services";
 import { getStorage } from "../lib/storage";
 import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
 import { Badge } from "~/components/ui/badge";

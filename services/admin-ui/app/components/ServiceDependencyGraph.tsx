@@ -2,7 +2,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import { Background, Controls, ReactFlow, useNodesState, type Node } from "@xyflow/react";
 import { LayoutGrid } from "lucide-react";
 import { useSearchParams } from "react-router";
-import type { ServiceAsset } from "../lib/api";
+import type { ServiceAsset } from "../lib/services";
 import { serviceDependencyD2, serviceDependencyGraph } from "../lib/serviceGraph";
 import ServiceTalaGraph from "./ServiceTalaGraph";
 import { serviceRoles } from "../lib/serviceClassification";

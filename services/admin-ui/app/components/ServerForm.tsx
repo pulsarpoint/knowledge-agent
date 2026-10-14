@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { ApiError, saveServer, type ServerAsset } from "../lib/api";
+import { ApiError } from "../lib/api";
+import { saveServer, type ServerAsset } from "../lib/servers";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "~/components/ui/field";

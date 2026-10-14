@@ -1,5 +1,24 @@
 import { request } from './api';
 
+export interface Repository {
+  id: string; name: string; remote_url: string | null; requested_ref: string | null;
+  has_token: boolean; current_commit: string | null; checkout_path: string | null;
+  synced_at: string | null; job_id: string | null; queued_at: string | null;
+  sync_status: "queued" | "running" | "waiting_input" | "succeeded" | "failed" | "cancelled" | null;
+  sync_error: string | null;
+}
+export interface RepositoryInput {
+  remote_url: string; name: string; requested_ref: string | null; token?: string | null;
+}
+export const getRepositories = (signal?: AbortSignal) =>
+  request<{ repositories: Repository[] }>(`/api/repositories`, { signal });
+export const saveRepository = (value: RepositoryInput, id?: string) =>
+  request<{ id: string }>(`/api/repositories${id ? `/${id}` : ""}`, {
+    method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value),
+  });
+export const pullRepository = (id: string) =>
+  request<{ job_id: string }>(`/api/repositories/${id}/pull`, { method: "POST" });
+
 export interface CodeProject {
   id: string; name: string; description: string; remote_url: string | null; requested_ref: string | null;
   clone_path: string | null; folder_paths: string[]; current_commit: string | null; checkout_path: string | null;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ServiceAsset, ServiceDependencyInput } from "../lib/api";
+import type { ServiceAsset, ServiceDependencyInput } from "../lib/services";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";

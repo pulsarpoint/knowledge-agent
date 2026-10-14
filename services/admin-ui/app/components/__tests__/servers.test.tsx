@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import ServersView from "../ServersView";
-import type { ServerAsset } from "../../lib/api";
+import type { ServerAsset } from "../../lib/servers";
 
 const server: ServerAsset = { id: "server-1", name: "App host", hostname: "app.internal", description: "Hosts payment workers",
   tags: ["production", "eu-west"], revision: 3, created_at: "2026-09-08T10:00:00Z", updated_at: "2026-09-08T10:00:00Z",

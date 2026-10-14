@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { ChevronDown, Plus, Server, Trash2, X } from "lucide-react";
-import { ApiError, saveService, type DeploymentInput, type EnvironmentAsset, type Repository, type ServerAsset, type ServiceAsset } from "../lib/api";
+import { ApiError } from "../lib/api";
+import { saveService, type DeploymentInput, type ServiceAsset } from "../lib/services";
+import { type EnvironmentAsset } from "../lib/environments";
+import { type Repository } from "../lib/codeProjects";
+import { type ServerAsset } from "../lib/servers";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";

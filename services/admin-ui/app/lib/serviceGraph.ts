@@ -1,6 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
-import type { ServiceAsset } from "./api";
+import type { ServiceAsset } from "./services";
 import type { CSSProperties } from "react";
 import { serviceRoles } from "./serviceClassification";
 

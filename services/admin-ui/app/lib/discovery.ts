@@ -1,4 +1,5 @@
-import { request, type ServerAsset } from './api';
+import { request } from './api';
+import { type ServerAsset } from './servers';
 
 export interface ServerDeployment { id: string; service_id: string; service_name: string; environment: string; runtime: string;
   runtime_name: string; port: number | null; deployed_version: string }

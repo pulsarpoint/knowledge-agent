@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { X } from "lucide-react";
-import { ApiError, saveEnvironment, type EnvironmentAsset, type ServiceAsset, type ServerAsset } from "../lib/api";
+import { ApiError } from "../lib/api";
+import { saveEnvironment, type EnvironmentAsset } from "../lib/environments";
+import { type ServiceAsset } from "../lib/services";
+import { type ServerAsset } from "../lib/servers";
 import { serviceTypes, serviceRoles } from "../lib/serviceClassification";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";

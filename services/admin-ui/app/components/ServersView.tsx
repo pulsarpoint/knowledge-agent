@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Pencil, Plug, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
-import { ApiError, deleteServer, getServers, type ServerAsset } from "../lib/api";
+import { ApiError } from "../lib/api";
+import { deleteServer, getServers, type ServerAsset } from "../lib/servers";
 import { getSSH, testSSH } from "../lib/operations";
 import ServerForm from "./ServerForm";
 import ServerSSHForm from "./ServerSSHForm";
