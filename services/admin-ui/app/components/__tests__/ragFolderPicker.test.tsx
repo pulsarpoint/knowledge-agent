@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import RagFolderPicker from "../RagFolderPicker";
+import RagFolderPicker from "~/features/rag/RagFolderPicker";
 
 function api(add: () => Response = () => Response.json({ id: "c1", paths: [] })) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

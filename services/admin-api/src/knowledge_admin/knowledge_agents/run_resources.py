@@ -15,7 +15,7 @@ from uuid import UUID
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from knowledge_admin.collections import document_collections
+from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.data_root import data_path
 from knowledge_admin.knowledge_agents.config import load_graphs, per_run
 

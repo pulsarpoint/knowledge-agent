@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import RagSettingsView from "../RagSettingsView";
-import RagSearchView from "../RagSearchView";
-import type { RagConfig } from "../../lib/rag";
+import RagSettingsView from "~/features/rag/RagSettingsView";
+import RagSearchView from "~/features/rag/RagSearchView";
+import type { RagConfig } from "~/features/rag/api";
 
 const config: RagConfig = { revision: 3, settings: { max_file_bytes: 2000000 }, embedding_model_id: null,
   data_root: { container_root: "/work/data", host_root: "/srv/knowledge", jira_folder: "jira" } };

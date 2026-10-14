@@ -9,7 +9,7 @@ from jira2markdown import convert
 from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.data_root import jira_folder
-from knowledge_admin.rag_files import RagFiles
+from knowledge_admin.rag.files import RagFiles
 
 
 

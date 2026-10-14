@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.collections import document_collections
+from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.grounding import empty_state
 from knowledge_admin.knowledge_agents.config import per_run
 from knowledge_admin.capabilities.context import RunContext, require_given

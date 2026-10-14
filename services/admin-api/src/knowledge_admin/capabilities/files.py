@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from knowledge_admin.agent_activity import redact
-from knowledge_admin.collections import document_collections
+from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.capabilities.context import RunContext, require_given
 
 logger = logging.getLogger(__name__)

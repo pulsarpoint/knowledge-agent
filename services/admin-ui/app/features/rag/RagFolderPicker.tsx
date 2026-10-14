@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, CornerLeftUp, Folder } from "lucide-react";
-import { addFolder, getFolders, normalizeFolder, type FolderListing } from "../lib/rag";
+import { addFolder, getFolders, normalizeFolder, type FolderListing } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "~/components/ui/field";

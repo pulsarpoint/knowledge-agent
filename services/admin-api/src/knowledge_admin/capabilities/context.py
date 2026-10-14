@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from knowledge_admin.collections import document_collections
+from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.knowledge_agents.config import per_run, require_run_resources
 
 

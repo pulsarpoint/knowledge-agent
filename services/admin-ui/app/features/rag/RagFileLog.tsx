@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { getFileLog, LOG_STATUS_LABEL, type LogFile, type LogFilter, type LogStatus } from "../lib/rag";
-import DataTable from "./DataTable";
+import { getFileLog, LOG_STATUS_LABEL, type LogFile, type LogFilter, type LogStatus } from "./api";
+import DataTable from "~/components/DataTable";
 import { when } from "./RagCollectionsView";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";

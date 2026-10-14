@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import RagFileLog from "../RagFileLog";
-import type { LogFile } from "../../lib/rag";
+import RagFileLog from "~/features/rag/RagFileLog";
+import type { LogFile } from "~/features/rag/api";
 
 const indexed: LogFile = { path: "jira/DEMO-1.md", status: "indexed", size: 2048, mtime: 1, error: null,
   indexed_at: "2026-10-05T09:00:00Z", last_seen_at: "2026-10-05T09:00:00Z", removed_at: null, chunks: 13 };

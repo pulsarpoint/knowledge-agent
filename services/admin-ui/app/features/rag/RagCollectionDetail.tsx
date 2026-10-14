@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, syncLabel, type CollectionPath, type RagCollection } from "../lib/rag";
+import { deleteCollection, getChunks, getCollection, removeFolder, syncCollection, syncLabel, type CollectionPath, type RagCollection } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";

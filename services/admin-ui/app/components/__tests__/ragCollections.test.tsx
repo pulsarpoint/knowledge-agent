@@ -1,10 +1,10 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import RagCollectionsView from "../RagCollectionsView";
-import RagCollectionDetail from "../RagCollectionDetail";
-import { pollIntervalToSend } from "../RagCollectionForm";
-import type { CollectionPath, RagCollection } from "../../lib/rag";
+import RagCollectionsView from "~/features/rag/RagCollectionsView";
+import RagCollectionDetail from "~/features/rag/RagCollectionDetail";
+import { pollIntervalToSend } from "~/features/rag/RagCollectionForm";
+import type { CollectionPath, RagCollection } from "~/features/rag/api";
 
 const jiraPath: CollectionPath = {
   id: "p1", collection_id: "c1", source_path: "jira", created_at: "2026-10-05T09:00:00Z", files: 75,

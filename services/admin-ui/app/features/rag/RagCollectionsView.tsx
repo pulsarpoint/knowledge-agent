@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, RefreshCw } from "lucide-react";
-import { collectionNameFor, getCollections, isRagFolder, normalizeFolder, syncCollection, syncLabel, syncStale, type CollectionState, type RagCollection } from "../lib/rag";
+import { collectionNameFor, getCollections, isRagFolder, normalizeFolder, syncCollection, syncLabel, syncStale, type CollectionState, type RagCollection } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";

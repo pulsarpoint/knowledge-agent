@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import RagJobsView from "../RagJobsView";
+import RagJobsView from "~/features/rag/RagJobsView";
 
 const job = { id: "job1", status: "succeeded", input: { force: false }, result: { parsed_files: 3, embedded_chunks: 12 }, error: null,
   created_at: "2026-10-05T10:00:00Z", started_at: "2026-10-05T10:00:00Z", finished_at: "2026-10-05T10:01:05Z", collection: "jira", collection_id: "c1" };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { getDocumentationFolder, getDocumentationFolders, type DocumentationFolders, type FolderDocument } from '~/lib/documents';
-import { getCollectionNames, type CollectionSummary } from '~/lib/rag';
+import { getCollectionNames, type CollectionSummary } from '~/features/rag/api';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
 import { Skeleton } from '~/components/ui/skeleton';

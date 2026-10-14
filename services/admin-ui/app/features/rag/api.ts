@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "~/lib/api";
 
 export interface RagSettings { max_file_bytes: number }
 export interface RagDataRoot { container_root: string | null; host_root: string | null; jira_folder: string | null }

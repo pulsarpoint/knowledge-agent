@@ -18,7 +18,7 @@ from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import host_path
 from knowledge_admin.code_paths import code_path, code_root
 from knowledge_admin.code_processing import index_directory, CodeProcessingError
-from knowledge_admin.rag_files import RagFiles
+from knowledge_admin.rag.files import RagFiles
 
 
 class RemoveInput(BaseModel):

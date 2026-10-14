@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from knowledge_admin.agent_activity import ActivityCallback, SdkActivity, UsageCallback, redact
 from knowledge_admin.agent_tracing import trace_secrets
-from knowledge_admin.collections import document_collections
+from knowledge_admin.rag.collections import document_collections
 from knowledge_admin import grounding
 from knowledge_admin.model_adapter import agent_model
 from knowledge_admin.repositories import RepositoryStore

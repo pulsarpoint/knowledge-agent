@@ -1,7 +1,7 @@
 import pytest
 
 from knowledge_admin.agents import get_agent_config, get_paths
-from knowledge_admin.collections import document_collections, slug
+from knowledge_admin.rag.collections import document_collections, slug
 from test_api import _client
 from test_profiles import update
 from test_repositories import HEADERS

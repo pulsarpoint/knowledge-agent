@@ -1,5 +1,5 @@
 import AdminLayout from "../components/AdminLayout";
-import RagCollectionsView from "../components/RagCollectionsView";
+import RagCollectionsView from "~/features/rag/RagCollectionsView";
 
 export default function RagCollectionsPage() {
   return <AdminLayout><RagCollectionsView /></AdminLayout>;

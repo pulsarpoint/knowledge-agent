@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ApiError } from "../lib/api";
-import { addFolder, createCollection, DEFAULT_SETTINGS, normalizeFolder, saveCollectionSettings, syncCollection, type CollectionSettings, type RagCollection, type SearchMode } from "../lib/rag";
+import { ApiError } from "~/lib/api";
+import { addFolder, createCollection, DEFAULT_SETTINGS, normalizeFolder, saveCollectionSettings, syncCollection, type CollectionSettings, type RagCollection, type SearchMode } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
