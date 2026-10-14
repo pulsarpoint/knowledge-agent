@@ -1,6 +1,7 @@
 import { request } from './api';
 import type { ToolCount } from './runs';
 import type { RunResourcesInput } from './profiles';
+import type { AgentKey, ResourceIds } from './resources';
 import type { Turn } from './turns';
 
 export const formatTokens = (value: number) => value.toLocaleString('en-US');
@@ -101,7 +102,7 @@ export interface AgentOptions {
     documents: { id: string; name: string; linked: boolean; editable: boolean }[] };
   tools: AgentTool[]; experts: { id: string; name: string; when_to_use: string }[];
 }
-export interface AgentResources { server_ids: string[]; service_ids: string[]; environment_ids: string[]; code_project_ids: string[]; collection_ids: string[] }
+export type AgentResources = ResourceIds<AgentKey>;
 /** A document a run writes from scratch: its name and documentation folder. */
 export interface NewDocument { folder: string; name: string }
 export interface StartInput {

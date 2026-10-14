@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { ToolsSummary } from './tools';
+import type { ResourceIds, RunKey } from './resources';
 export type AgentResources = 'fixed' | 'per_run';
 export const RESOURCE_MODES: [AgentResources, string][] = [['fixed', 'Fixed'], ['per_run', 'Per run']];
 export interface ResourceLimit { kind: 'code' | 'documents' | 'servers' | 'services'; limit: number | 'any' }
@@ -19,7 +20,7 @@ export const RESOURCES_HELP: Record<AgentResources, string> = {
   fixed: 'Always works with the resources selected in its tabs.',
   per_run: 'Each run says what to work on: callers pass code projects, collections, servers or services from those selected in its tabs.',
 };
-export interface RunResourcesInput { code_project_ids: string[]; collection_ids: string[]; server_ids: string[]; service_ids: string[] }
+export type RunResourcesInput = ResourceIds<RunKey>;
 export interface AgentProfile {
   id: string; name: string; description: string; when_to_use: string; enabled: boolean;
   resources?: AgentResources; subagents?: boolean; expert?: boolean;

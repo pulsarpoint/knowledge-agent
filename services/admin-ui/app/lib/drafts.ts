@@ -1,5 +1,6 @@
 import { request } from './api';
 import type { DocumentInput } from './documents';
+import type { DocumentKey, ResourceIds } from './resources';
 import type { SessionPurpose } from './sessions';
 
 export type DraftOrigin = 'manual' | 'agent';
@@ -20,7 +21,7 @@ export interface DraftDetail extends DraftSummary, DraftContent {
 }
 export type DraftCreate = Partial<DraftContent> & {
   document_id?: string; slug?: string; folder?: string | null;
-  resource_ids?: { code_project_ids: string[]; service_ids: string[]; server_ids: string[]; deployment_ids: string[]; environment_ids: string[] };
+  resource_ids?: ResourceIds<DocumentKey>;
 };
 export interface PromoteResult { draft: DraftDetail; document_id: string; version_id: string; revision: number; export_error: string | null }
 export interface LinkedDocument { id: string; title: string; slug: string; folder: string | null; version: number }

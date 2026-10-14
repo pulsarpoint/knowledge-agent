@@ -4,6 +4,7 @@ import { FileText, Plus, RefreshCw } from 'lucide-react';
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from '~/lib/documents';
 import { discardDraft, getNewDrafts, type DraftSummary } from '~/lib/drafts';
 import { DraftAuthor } from './DraftView';
+import { kindsOf } from '~/lib/resources';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle } from '~/components/ui/alert-dialog';
@@ -18,6 +19,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from '~/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 
+/** The resource filters above the list, and the link counts each document shows. */
+const FILTERS = kindsOf(['code_projects', 'services', 'servers', 'environments']);
+const COUNTED = kindsOf(['code_projects', 'services', 'servers']);
 const draftsLabel = (count: number) => count === 1 ? '1 draft' : `${count} drafts`;
 
 export default function DocumentsView() {
@@ -59,12 +63,11 @@ export default function DocumentsView() {
     </div></div>
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Field><FieldLabel htmlFor="document-query">Search documents</FieldLabel><Input id="document-query" placeholder="Title, slug or description" value={params.get('q') || ''} onChange={(e) => filter('q', e.target.value)} /></Field>
-      {(['code_projects', 'services', 'servers', 'environments'] as const).map((kind) => {
-        const key = { code_projects: 'code_project_id', services: 'service_id', servers: 'server_id', environments: 'environment_id' }[kind];
-        const label = { code_projects: 'Code project', services: 'Service', servers: 'Server', environments: 'Environment' }[kind];
+      {FILTERS.map(({ key: kind, field, label, plural }) => {
+        const key = field.slice(0, -1);  // the filter's query parameter: code_project_id, service_id, ...
         return <Field key={kind}><FieldLabel htmlFor={`filter-${kind}`}>{label}</FieldLabel>
           <Select value={params.get(key) || 'all'} onValueChange={(v) => filter(key, v)}><SelectTrigger id={`filter-${kind}`}><SelectValue /></SelectTrigger><SelectContent><SelectGroup>
-            <SelectItem value="all">All {label.toLowerCase()}s</SelectItem>{resources?.[kind]?.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
+            <SelectItem value="all">All {plural.toLowerCase()}</SelectItem>{resources?.[kind]?.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
           </SelectGroup></SelectContent></Select></Field>;
       })}
       <div className="flex items-center gap-2 self-end pb-2"><Checkbox id="filter-has-drafts" checked={params.get('has_drafts') === 'true'}
@@ -88,7 +91,7 @@ export default function DocumentsView() {
       <EmptyTitle>{total === 0 && params.size === 0 ? 'No documents yet' : 'No matching documents'}</EmptyTitle><EmptyDescription>Create a Markdown document and connect it to the projects, services, and servers it describes.</EmptyDescription></EmptyHeader></Empty> : <>
       <div className="rounded-lg border"><Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Purpose / audience</TableHead><TableHead>Version</TableHead><TableHead>Drafts</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
         {rows.map((doc) => <TableRow key={doc.id}><TableCell className="max-w-md whitespace-normal"><Link className="font-medium underline-offset-4 hover:underline" to={`/documents/${doc.id}`}>{doc.title}</Link><p className="mt-1 text-sm text-muted-foreground">{doc.description}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{doc.code_project_ids.length} code projects · {doc.service_ids.length} services · {doc.server_ids.length} servers</p></TableCell>
+          <p className="mt-1 text-xs text-muted-foreground">{COUNTED.map(kind => `${doc[kind.field].length} ${kind.plural.toLowerCase()}`).join(' · ')}</p></TableCell>
           <TableCell><p>{doc.purpose}</p><span className="text-sm text-muted-foreground">{doc.audience === 'both' ? 'People and agents' : doc.audience === 'people' ? 'People' : 'Agents'}</span></TableCell>
           <TableCell><Badge variant="secondary">v{doc.version}</Badge></TableCell>
           <TableCell>{(doc.draft_count ?? 0) > 0 ? <Link className="underline-offset-4 hover:underline" to={`/documents/${doc.id}?tab=drafts`}>{draftsLabel(doc.draft_count!)}</Link> : <span className="text-muted-foreground">—</span>}</TableCell>

@@ -26,6 +26,7 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Spinner } from '~/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
 import { Textarea } from '~/components/ui/textarea';
+import { DOCUMENT_KINDS, emptyIds, idsOf, pickIds } from '~/lib/resources';
 
 const TABS = ['write', 'preview', 'resources', 'history', 'drafts', 'connections', 'agent-runs'];
 
@@ -44,10 +45,9 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
   const navigate = useNavigate();
   const [initial] = useState<DocumentInput>(() => document ? {
     slug: document.slug, title: document.title, description: document.description, purpose: document.purpose, audience: document.audience,
-    tags: document.tags, markdown: document.current_version.markdown, code_project_ids: document.code_project_ids,
-    service_ids: document.service_ids, server_ids: document.server_ids, deployment_ids: document.deployment_ids, revision: document.revision, environment_ids: document.environment_ids ?? [],
+    tags: document.tags, markdown: document.current_version.markdown, ...pickIds(DOCUMENT_KINDS, document), revision: document.revision,
     source_commits: Object.fromEntries(document.current_version.source_snapshot.code_projects.filter((r) => r.git_commit).map((r) => [r.id, r.git_commit!])),
-  } : { slug: '', title: '', description: '', purpose: 'explanation', audience: 'both', tags: [], markdown: '', code_project_ids: [], service_ids: [], server_ids: [], deployment_ids: [], environment_ids: [] });
+  } : { slug: '', title: '', description: '', purpose: 'explanation', audience: 'both', tags: [], markdown: '', ...emptyIds(DOCUMENT_KINDS) });
   const [value, setValue] = useState(initial);
   const [tags, setTags] = useState(initial.tags.join(', '));
   const [params] = useSearchParams();
@@ -90,8 +90,7 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
       if (editingDraft) { const saved = await updateDraft(editingDraft.id, editingDraft.revision, content); leaving.current = true; onDraftSaved(saved.id); }
       else if (document) { const saved = await createDraft({ document_id: document.id, ...content }); leaving.current = true; onDraftSaved(saved.id); }
       else {
-        const saved = await createDraft({ slug: value.slug, ...content, resource_ids: { code_project_ids: value.code_project_ids,
-          service_ids: value.service_ids, server_ids: value.server_ids, deployment_ids: value.deployment_ids, environment_ids: value.environment_ids ?? [] } });
+        const saved = await createDraft({ slug: value.slug, ...content, resource_ids: pickIds(DOCUMENT_KINDS, value) });
         leaving.current = true; navigate(draftPath(saved));
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save the draft'); }
@@ -164,9 +163,8 @@ function Editor({ document, resources, onSaved, onDraftSaved, onPromoted, agentO
         </Button>)}</div><div className="min-w-0 rounded-lg border p-4">{historical ? <>
           <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{historical.title} · v{historical.version}</h2><Button type="button" variant="outline" onClick={() => {
             setValue({ ...value, title: historical.title, description: historical.description, purpose: historical.purpose, audience: historical.audience, tags: historical.tags, markdown: historical.markdown,
-              environment_ids: (historical.source_snapshot.environments ?? []).map((r) => r.id),
               source_commits: Object.fromEntries(historical.source_snapshot.code_projects.filter((r) => r.git_commit).map((r) => [r.id, r.git_commit!])),
-              code_project_ids: historical.source_snapshot.code_projects.map((r) => r.id), service_ids: historical.source_snapshot.services.map((r) => r.id), server_ids: historical.source_snapshot.servers.map((r) => r.id), deployment_ids: historical.source_snapshot.deployments.map((r) => r.id) });
+              ...idsOf(DOCUMENT_KINDS, historical.source_snapshot) });
             setTags(historical.tags.join(', ')); setTab('write'); setNotice(`Version ${historical.version} loaded into the editor. Save to create a new version.`);
           }}>Use version as draft</Button></div>
           <p className="mt-2 text-sm text-muted-foreground">{historical.purpose} · {historical.audience} · {historical.origin}</p>

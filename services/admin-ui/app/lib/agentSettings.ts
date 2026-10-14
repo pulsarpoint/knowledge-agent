@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AGENT_KINDS, emptyIds } from './resources';
 import { getSessionOptions, toolApplies, type AgentOptions, type AgentResources, type AgentTool, type ChatScope, type SessionDetail, type StartInput } from './sessions';
 
 /** The prompt choice for "my own text, no library prompt". */
@@ -7,9 +8,7 @@ export const OWN = 'own';
 const STORAGE = (scope: ChatScope) => scope.kind === 'document' ? `ask-agent-settings:${scope.id}`
   : scope.kind === 'agent' ? `agent-settings:agent:${scope.id}`
   : scope.kind === 'server' ? `agent-settings:server:${scope.id}` : 'agent-settings:new-document';
-const KINDS: [keyof AgentOptions['resources'], keyof AgentResources][] = [['servers', 'server_ids'], ['services', 'service_ids'],
-  ['environments', 'environment_ids'], ['code_projects', 'code_project_ids'], ['collections', 'collection_ids']];
-const EMPTY: AgentResources = { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] };
+const EMPTY: AgentResources = emptyIds(AGENT_KINDS);
 
 /** What the next Ask agent run on a document starts with. */
 export interface AgentSettings {
@@ -19,7 +18,7 @@ export interface AgentSettings {
 }
 
 const usable = (item: { id: string; usable?: boolean }) => item.usable !== false;
-const linkedIds = (options: AgentOptions) => KINDS.flatMap(([key]) => options.resources[key].filter(item => item.linked).map(item => item.id)).sort();
+const linkedIds = (options: AgentOptions) => AGENT_KINDS.flatMap(({ key }) => options.resources[key].filter(item => item.linked).map(item => item.id)).sort();
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 export function defaultSettings(options: AgentOptions): AgentSettings {
@@ -29,7 +28,7 @@ export function defaultSettings(options: AgentOptions): AgentSettings {
   }
   const first = options.prompts.find(item => item.id === options.default_prompt_id) ?? options.prompts[0];
   const chosen = { ...EMPTY };
-  for (const [key, ids] of KINDS) chosen[ids] = options.resources[key].filter(item => item.linked && usable(item)).map(item => item.id);
+  for (const { key, field } of AGENT_KINDS) chosen[field] = options.resources[key].filter(item => item.linked && usable(item)).map(item => item.id);
   return { modelId: options.default_model_id ?? options.models[0]?.id ?? '', promptKey: first ? first.id : OWN,
     systemPrompt: first ? first.content : '', chosen, off: [], subagents: false, experts: [] };
 }
@@ -50,9 +49,9 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
   const chosen = { ...base.chosen };
   if (sameLinks && settings.chosen && typeof settings.chosen === 'object') {
     const savedChosen = settings.chosen as Record<string, unknown>;
-    for (const [key, ids] of KINDS) {
+    for (const { key, field } of AGENT_KINDS) {
       const present = new Set(options.resources[key].filter(usable).map(item => item.id));
-      chosen[ids] = strings(savedChosen[ids]).filter(id => present.has(id));
+      chosen[field] = strings(savedChosen[field]).filter(id => present.has(id));
     }
   }
   const modelId = typeof settings.modelId === 'string' && models.has(settings.modelId) ? settings.modelId : base.modelId;
@@ -73,9 +72,9 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   const experts = new Set(options.experts.map(item => item.id));
   const resources = (session.run_resources ?? {}) as Partial<Record<keyof AgentResources, unknown>>;
   const chosen = { ...EMPTY };
-  for (const [key, ids] of KINDS) {
+  for (const { key, field } of AGENT_KINDS) {
     const present = new Set(options.resources[key].filter(usable).map(item => item.id));
-    chosen[ids] = strings(resources[ids]).filter(id => present.has(id));
+    chosen[field] = strings(resources[field]).filter(id => present.has(id));
   }
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
   const modelId = options.models.some(item => item.id === session.model_id) ? session.model_id : defaultSettings(options).modelId;
@@ -125,7 +124,7 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
 /** "Claude · web-1, Payments · 2 tools": the model, up to three chosen resources (+n more) and the tools on. */
 export function settingsSummary(options: AgentOptions, settings: AgentSettings): string {
   const model = options.models.find(item => item.id === settings.modelId)?.name ?? 'No model';
-  const names = KINDS.flatMap(([key, ids]) => options.resources[key].filter(item => settings.chosen[ids].includes(item.id)).map(item => item.name));
+  const names = AGENT_KINDS.flatMap(({ key, field }) => options.resources[key].filter(item => settings.chosen[field].includes(item.id)).map(item => item.name));
   const resources = names.length === 0 ? 'no resources' : names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
   const on = shownTools(options, settings).filter(tool => !settings.off.includes(tool.name)).length;
   return `${model} · ${resources} · ${on} tool${on === 1 ? '' : 's'}`;

@@ -51,6 +51,10 @@ Audience = Literal['people', 'agents', 'both']
 Tags = Annotated[list[str], Field(max_length=30), AfterValidator(_tags)]
 Markdown = Annotated[str, Field(min_length=1, max_length=1000000), AfterValidator(lambda value: _text(value, strip=False))]
 ResourceIds = Annotated[list[UUID], Field(max_length=100), AfterValidator(lambda values: list(dict.fromkeys(values)))]
+# The kinds of resource a document links, each with its id-list field (DocumentInput, drafts' resource_ids, document_details).
+DOCUMENT_RESOURCES = {'code_projects': 'code_project_ids', 'services': 'service_ids', 'servers': 'server_ids',
+                      'deployments': 'deployment_ids', 'environments': 'environment_ids'}
+DOCUMENT_RESOURCE_FIELDS = tuple(DOCUMENT_RESOURCES.values())
 
 
 class DocumentInput(BaseModel):
@@ -284,9 +288,7 @@ def save_document(conn, project: UUID, actor: UUID | None, value: DocumentInput,
             LEFT JOIN ka.environments e ON e.id=d.environment_id
             WHERE d.project_id=%s AND d.id=ANY(%s) ORDER BY d.id FOR SHARE OF d''', (project,value.deployment_ids)).fetchall(),
     }
-    if any(len(sources[key]) != len(ids) for key,ids in (
-        ('code_projects',value.code_project_ids), ('services',value.service_ids),
-        ('servers',value.server_ids), ('deployments',value.deployment_ids), ('environments',value.environment_ids))):
+    if any(len(sources[key]) != len(getattr(value, field)) for key, field in DOCUMENT_RESOURCES.items()):
         raise HTTPException(400, 'A selected resource is no longer available. Reload resources and update the selection.')
     if any(row['service_id'] not in value.service_ids or row['server_id'] not in value.server_ids for row in sources['deployments']):
         raise HTTPException(400, 'Select the service and server belonging to each selected deployment')

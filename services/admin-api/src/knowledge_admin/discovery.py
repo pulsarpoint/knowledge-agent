@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_admin.access import request_actor
-from knowledge_admin.documents import (DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
+from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, DocumentInput, document_slug, export_args, export_conflict, export_document, export_input,
                                        save_document)
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.service_api import save_service
@@ -257,9 +257,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             saved = save_document(conn, project, actor, DocumentInput(
                 slug=current['slug'], title=payload['title'], description=payload['description'] or current['description'],
                 purpose=current['purpose'], audience=current['audience'], tags=current['tags'], markdown=payload['markdown'],
-                code_project_ids=current['code_project_ids'], service_ids=current['service_ids'],
-                server_ids=current['server_ids'], deployment_ids=current['deployment_ids'],
-                environment_ids=current['environment_ids'], revision=current['revision']),
+                **{field: current[field] for field in DOCUMENT_RESOURCE_FIELDS}, revision=current['revision']),
                 row['document_id'], origin='generated')
         try:
             export_document(**export_args(export_input(conn, saved['id'])))

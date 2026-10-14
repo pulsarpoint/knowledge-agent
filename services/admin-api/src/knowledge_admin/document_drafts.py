@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.data_root import documentation_folder, generated_docs_folder
-from knowledge_admin.documents import (Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
+from knowledge_admin.documents import (DOCUMENT_RESOURCE_FIELDS, Audience, Description, DocumentInput, Markdown, Purpose, ResourceIds, Slug, Tags,
                                        Title, export_args, export_document, export_input, save_document)
 from knowledge_admin.repositories import RepositoryStore
 
@@ -33,7 +33,6 @@ SAVED_MEANWHILE = 'Another document was saved with this name at the same time. T
 EXPORT_FAILED = 'Saved. Writing the document file failed; use Export to folder to retry.'
 CONTENT = ('title', 'description', 'purpose', 'audience', 'tags', 'markdown')
 NEW_DEFAULTS = {'description': '', 'purpose': 'explanation', 'audience': 'both', 'tags': []}
-RESOURCE_KEYS = ('code_project_ids', 'service_ids', 'server_ids', 'deployment_ids', 'environment_ids')
 
 
 class DraftContent(BaseModel):
@@ -236,7 +235,7 @@ RESOURCE_QUERIES = {
 def available_resources(conn, project: UUID, wanted: dict) -> dict:
     """The chosen resources that still exist, as DocumentInput fields: deleted entries and archived code projects drop
     out, and a deployment stays only with its service and server."""
-    chosen = {key: [UUID(str(item)) for item in wanted.get(key, [])] for key in RESOURCE_KEYS}
+    chosen = {key: [UUID(str(item)) for item in wanted.get(key, [])] for key in DOCUMENT_RESOURCE_FIELDS}
     result = {}
     for key, query in RESOURCE_QUERIES.items():
         found = {row['id'] for row in conn.execute(query, (project, chosen[key])).fetchall()}
@@ -263,7 +262,7 @@ def promote_draft(conn, project: UUID, actor: UUID, row: dict, confirm_stale: bo
             raise HTTPException(409, {'message': STALE_MESSAGE.format(base=base['version'] if base else '?', live=live['version']),
                                       'code': STALE_BASE})
         # The document's links that still exist: an archived code project drops out instead of refusing the save.
-        linked = available_resources(conn, project, {key: live[key] for key in RESOURCE_KEYS})
+        linked = available_resources(conn, project, {key: live[key] for key in DOCUMENT_RESOURCE_FIELDS})
         saved = save_document(conn, project, actor, DocumentInput(
             slug=live['slug'], **content, **linked, revision=live['revision']), row['document_id'], origin=origin)
     else:

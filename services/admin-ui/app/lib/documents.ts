@@ -1,10 +1,13 @@
 import { request } from './api';
+import type { DocumentKey, ResourceIds } from './resources';
 
 export interface DocumentResource { id: string; name: string; hostname?: string; service_id?: string; server_id?: string; environment?: string; git_commit?: string }
-export interface DocumentResources { code_projects: DocumentResource[]; services: DocumentResource[]; servers: DocumentResource[]; deployments: DocumentResource[]; environments?: DocumentResource[] }
-export interface DocumentInput {
+export type DocumentResources = Record<Exclude<DocumentKey, 'environments'>, DocumentResource[]> & { environments?: DocumentResource[] };
+/** A document's linked resources: every kind but environments is always sent (environments came later). */
+type DocumentIds = ResourceIds<Exclude<DocumentKey, 'environments'>> & Partial<ResourceIds<'environments'>>;
+export interface DocumentInput extends DocumentIds {
   slug: string; title: string; description: string; purpose: string; audience: 'people' | 'agents' | 'both';
-  tags: string[]; markdown: string; code_project_ids: string[]; service_ids: string[]; server_ids: string[]; deployment_ids: string[]; environment_ids?: string[]; revision?: number;
+  tags: string[]; markdown: string; revision?: number;
   source_commits?: Record<string, string>;
 }
 export interface DocumentSummary extends Omit<DocumentInput, 'markdown' | 'revision'> {

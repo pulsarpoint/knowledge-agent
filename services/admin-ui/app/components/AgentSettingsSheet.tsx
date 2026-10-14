@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '~/lib/api';
-import { previewSession, type AgentOptions, type AgentResources, type ChatScope, type SessionDetail } from '~/lib/sessions';
+import { previewSession, type AgentOptions, type ChatScope, type SessionDetail } from '~/lib/sessions';
+import { AGENT_KINDS } from '~/lib/resources';
+import ResourcePicker from '~/components/ResourcePicker';
 import { OWN, shownTools, startInput, withScope, type AgentSettings } from '~/lib/agentSettings';
 import { Alert, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
@@ -13,9 +15,8 @@ import { Spinner } from '~/components/ui/spinner';
 import { Switch } from '~/components/ui/switch';
 import { Textarea } from '~/components/ui/textarea';
 
-const KINDS: [keyof AgentOptions['resources'], keyof AgentResources, string][] = [
-  ['servers', 'server_ids', 'Servers'], ['services', 'service_ids', 'Services'], ['environments', 'environment_ids', 'Environments'],
-  ['code_projects', 'code_project_ids', 'Code projects'], ['collections', 'collection_ids', 'Collections']];
+/** The documents of a document's run show above the resource kinds, always on. */
+const DOCUMENTS = { key: 'documents', field: 'documents', plural: 'Documents' };
 const GROUPS: [string, string][] = [['code', 'Code'], ['documents', 'Documents'], ['servers', 'Servers'], ['inventory', 'Inventory']];
 
 /** The Ask agent settings for a document, or the narrowing of a saved agent: editable before a conversation starts (Preview shows the JSON the next message
@@ -40,8 +41,7 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
   useEffect(() => { setPreview(null); }, [settings, previewMessage]);  // a changed input makes the preview stale
   const shown = shownTools(options, settings);
   const { chosen, off, experts } = settings;
-  const toggle = (key: keyof AgentResources, id: string, on: boolean) =>
-    onChange({ chosen: { ...chosen, [key]: on ? [...chosen[key], id] : chosen[key].filter(item => item !== id) } });
+  const documents = new Map(options.resources.documents.map(item => [item.id, item]));
   const choosePrompt = (key: string) => onChange({ promptKey: key,
     systemPrompt: key === OWN ? settings.systemPrompt : options.prompts.find(item => item.id === key)?.content ?? '' });
   const ready = !busy && (agent ? true : !!settings.modelId && !!settings.systemPrompt.trim());
@@ -74,30 +74,16 @@ export default function AgentSettingsSheet({ open, onOpenChange, scope, options,
             {options.models.length === 0 && <FieldDescription className="text-destructive">Add a model in Models first.</FieldDescription>}</Field>}
           <FieldSet><FieldLegend>Servers and resources</FieldLegend>
             {agent?.resources_fixed ? <FieldDescription>This agent's resources are fixed.</FieldDescription> : <>
-            {/* A new document is implied: the run writes it. */}
-            {scope.kind !== 'new-document' && options.resources.documents.length > 0 && <FieldSet><FieldLegend variant="label">Documents</FieldLegend>
-              {options.resources.documents.map(item => <Field key={item.id} orientation="horizontal">
-                <Checkbox id={`settings-document-${item.id}`} aria-label={item.name} checked disabled />
-                <FieldLabel htmlFor={`settings-document-${item.id}`}>{item.name}</FieldLabel>
-                <FieldDescription>{item.editable ? 'The agent may change it (as a draft).' : 'Read only.'}</FieldDescription></Field>)}
-            </FieldSet>}
-            {KINDS.map(([key, idsKey, label]) => {
-              const items = options.resources[key];
-              if (items.length === 0) return null;
-              return <FieldSet key={key}><FieldLegend variant="label">{label}</FieldLegend>
-                {items.map(item => {
-                  const unusable = 'usable' in item && !item.usable;
-                  const pinned = scope.kind === 'server' && key === 'servers' && item.id === scope.id;  // the run is about this server
-                  const id = `settings-${key}-${item.id}`;
-                  return <Field key={item.id} orientation="horizontal">
-                    <Checkbox id={id} aria-label={item.name} disabled={locked || unusable || pinned} checked={pinned || chosen[idsKey].includes(item.id)}
-                      onCheckedChange={on => toggle(idsKey, item.id, on === true)} />
-                    <FieldLabel htmlFor={id}>{item.name}</FieldLabel>
-                    {unusable && 'reason' in item && item.reason && <FieldDescription>{item.reason}</FieldDescription>}
-                  </Field>;
-                })}
-              </FieldSet>;
-            })}
+            {/* A new document is implied: the run writes it. The documents show first, always on. */}
+            <ResourcePicker kinds={[DOCUMENTS, ...AGENT_KINDS]} idPrefix="settings" disabled={locked} value={chosen} onChange={next => onChange({ chosen: next })}
+              options={{ ...options.resources, documents: scope.kind === 'new-document' ? [] : options.resources.documents }}
+              itemState={(key, item) => {
+                if (key === 'documents') return { locked: true, note: documents.get(item.id)?.editable ? 'The agent may change it (as a draft).' : 'Read only.' };
+                const server = key === 'servers' ? options.resources.servers.find(entry => entry.id === item.id) : undefined;
+                const unusable = server !== undefined && !server.usable;
+                // A server scope's run is about its server: always on.
+                return { locked: key === 'servers' && scope.kind === 'server' && item.id === scope.id, disabled: unusable, note: unusable ? server.reason : null };
+              }} />
             </>}
           </FieldSet>
           <FieldSet><FieldLegend>Tools</FieldLegend>
