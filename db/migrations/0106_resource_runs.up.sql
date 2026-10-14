@@ -29,6 +29,12 @@ UPDATE agent_sessions SET agent_config = (agent_config - 'started_from_server') 
                            FROM jsonb_array_elements(agent_config->'tools'->'items') AS item
                            WHERE item->>'tool' IN ('propose_service', 'propose_document') AND item->>'mode' = 'on'))
     WHERE purpose = 'discovery' AND agent_config ? 'started_from_server';
+-- Discovery runs from before started_from_server (0097-0101, closed by 0102) get their started_from from server_id, so
+-- their document proposals can still be accepted; started_from_backfilled marks them for rollback.
+UPDATE agent_sessions s SET agent_config = s.agent_config || jsonb_build_object(
+        'started_from', jsonb_build_object('type', 'server', 'id', s.server_id::text, 'name', v.name),
+        'started_from_backfilled', true)
+    FROM servers v WHERE v.id = s.server_id AND s.purpose = 'discovery' AND NOT s.agent_config ? 'started_from';
 UPDATE agent_sessions SET purpose = 'resource', tags = ARRAY['servers/' || server_id::text] WHERE purpose = 'discovery';
 
 ALTER TABLE agent_sessions

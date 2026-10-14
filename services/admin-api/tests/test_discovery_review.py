@@ -1,6 +1,7 @@
 """Accepting and rejecting discovery proposals."""
 
 import asyncio
+from uuid import uuid4
 
 import pytest
 
@@ -9,6 +10,7 @@ from knowledge_admin.servers.discovery import (
     ACCEPT_SERVICE_FIRST,
     DECIDED,
     DOCUMENT_ADDED,
+    RESOURCE_GONE,
     SERVICE_ADDED,
     SERVICE_CHANGED,
     SERVICE_GONE,
@@ -285,6 +287,29 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
     assert [(link['server_id'], str(link['service_id']), link['connection'], link['added_how']) for link in links] == [
         (None, redis['id'], 'built_for', 'discovery')
     ]
+
+
+def test_a_document_about_a_service_accepts_without_the_runs_resource(run):
+    world, sid, config = run
+    propose(config, 'propose_service', **REDIS)
+    propose(config, 'propose_document', title='Redis', markdown='# redis', about_service='redis')
+    propose(config, 'propose_document', title='Disk layout', markdown='# Disks')
+    service_proposal, about_redis, about_server = listed(world, sid)
+    assert decide(world, service_proposal, 'accept').status_code == 200
+    with world.store.connect() as conn:  # the run's resource is gone (and so is the proposal's server)
+        conn.execute(
+            """UPDATE ka.agent_sessions SET agent_config=jsonb_set(agent_config,'{started_from,id}',to_jsonb(%s::text))
+            WHERE id=%s""",
+            (str(uuid4()), sid),
+        )
+        conn.execute('UPDATE ka.discovery_proposals SET server_id=NULL WHERE session_id=%s', (sid,))
+    accepted = decide(world, listed(world, sid)[1], 'accept')
+    assert accepted.status_code == 200, accepted.text
+    with world.store.connect() as conn:
+        row = conn.execute('SELECT folder FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)).fetchone()
+    assert row['folder'] == 'service-documents/redis'  # no run resource to pick the folder: the service's own
+    refused = decide(world, listed(world, sid)[2], 'accept')
+    assert refused.status_code == 400 and refused.json()['error']['message'] == RESOURCE_GONE
 
 
 def test_a_stale_revision_and_unknown_ids_are_refused(run):

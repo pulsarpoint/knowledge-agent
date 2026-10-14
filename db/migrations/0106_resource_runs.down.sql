@@ -84,6 +84,9 @@ ALTER TABLE agent_sessions
     DROP CONSTRAINT agent_sessions_resource_server,
     DROP CONSTRAINT agent_sessions_ad_hoc,
     DROP CONSTRAINT agent_sessions_purpose;
+-- Discovery runs from before started_from_server had their started_from backfilled by 0106: it is removed again.
+UPDATE agent_sessions SET agent_config = agent_config - 'started_from' - 'started_from_backfilled'
+    WHERE purpose = 'resource' AND agent_config ? 'started_from_backfilled';
 UPDATE agent_sessions SET agent_config = (agent_config - 'started_from' - 'proposal_tools') || jsonb_build_object(
         'started_from_server', jsonb_build_object('id', agent_config->'started_from'->'id',
                                                   'name', agent_config->'started_from'->'name'))

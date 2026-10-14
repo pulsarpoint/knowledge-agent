@@ -147,20 +147,22 @@ def free_folder(conn, project, kind: str, entry_slug: str) -> str:
     )
 
 
-def run_resource(conn, session_id) -> dict:
-    """The resource a proposal's run started from ({type, id, name}, the name as it is now)."""
+def run_resource(conn, row: dict) -> dict | None:
+    """The resource a proposal's run started from ({type, id, name}, the name as it is now); None when it no longer
+    exists. A run without started_from (a discovery run from before 0102 that 0106 did not backfill) falls back to the
+    proposal's own server."""
     session = conn.execute(
-        "SELECT agent_config->'started_from' AS started_from FROM ka.agent_sessions WHERE id=%s", (session_id,)
+        "SELECT agent_config->'started_from' AS started_from FROM ka.agent_sessions WHERE id=%s", (row['session_id'],)
     ).fetchone()
     started = session['started_from'] if session else None
+    if started is None and row['server_id'] is not None:
+        started = {'type': 'server', 'id': row['server_id']}
     resource = (
         conn.execute(f'SELECT id,name FROM {RESOURCE_TABLES[started["type"]]} WHERE id=%s', (started['id'],)).fetchone()
         if started and started.get('type') in RESOURCE_TABLES
         else None
     )
-    if resource is None:
-        raise HTTPException(400, RESOURCE_GONE)
-    return {**resource, 'type': started['type']}
+    return None if resource is None else {**resource, 'type': started['type']}
 
 
 def draft_published(conn, row: dict) -> bool:
@@ -349,7 +351,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         ):
             raise HTTPException(400, SERVICE_GONE.format(name=payload.get('about_service') or gone_name))
         if row['document_id'] is None:
-            resource = run_resource(conn, row['session_id'])
+            # A document about a service needs only the service; the run's resource, when it still exists, picks the
+            # folder.
+            resource = run_resource(conn, row)
+            if resource is None and service_id is None:
+                raise HTTPException(400, RESOURCE_GONE)
             column, entry = (
                 ('service_id', service_id) if service_id else (RESOURCE_COLUMNS[resource['type']], resource['id'])
             )
@@ -371,6 +377,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if service_id
                 else resource['name']
             )
+            if resource is None:
+                resource = {'type': 'service', 'id': service_id, 'name': name}
             # The export lock a promote takes, so the free name below cannot race a Publish of another draft.
             conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'{project}:document-export',))
             kind = resource['type']

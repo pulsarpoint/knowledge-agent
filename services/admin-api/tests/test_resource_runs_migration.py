@@ -63,6 +63,52 @@ def test_discovery_runs_become_resource_runs_listed_among_their_servers_chats(wo
     assert [item['id'] for item in listed.json()['sessions']] == [str(old)]
 
 
+def test_a_discovery_run_from_before_started_from_server_gets_its_server_and_its_documents_accept(world):
+    """A 0097-0101 discovery run (closed by 0102) has no started_from_server: up builds its started_from from server_id,
+    so a document proposal of it becomes a draft for its server; down removes what up added."""
+    with world.store.connect() as conn:
+        conn.commit()
+        run(conn, DOWN)
+        old = discovery_run(conn, world)
+        conn.execute(
+            """UPDATE ka.agent_sessions SET agent_config=agent_config-'started_from_server',status='closed',
+            closed_at=now() WHERE id=%s""",
+            (old,),
+        )
+        conn.commit()
+        run(conn, UP)
+        config = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (old,)).fetchone()
+        proposal = conn.execute(
+            """INSERT INTO ka.discovery_proposals(project_id,session_id,server_id,number,kind,payload)
+            VALUES (%s,%s,%s,1,'document',%s) RETURNING id,revision""",
+            (
+                world.project,
+                old,
+                world.server['id'],
+                Jsonb({'title': 'Disk layout', 'description': '', 'markdown': '# D'}),
+            ),
+        ).fetchone()
+        conn.commit()
+    assert config['agent_config']['started_from'] == {'type': 'server', 'id': world.server['id'], 'name': 'web-1'}
+    accepted = world.client.post(
+        f'/api/discovery/proposals/{proposal["id"]}/accept', headers=HEADERS, json={'revision': proposal['revision']}
+    )
+    assert accepted.status_code == 200, accepted.text
+    with world.store.connect() as conn:
+        draft = conn.execute('SELECT folder FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)).fetchone()
+        links = conn.execute(
+            'SELECT server_id FROM ka.document_resources WHERE document_id=%s', (accepted.json()['result_id'],)
+        ).fetchall()
+        conn.commit()
+        run(conn, DOWN)
+        restored = conn.execute('SELECT purpose,agent_config FROM ka.agent_sessions WHERE id=%s', (old,)).fetchone()
+        conn.commit()
+        run(conn, UP)
+    assert draft['folder'] == 'servers/web-1' and [str(link['server_id']) for link in links] == [world.server['id']]
+    assert restored['purpose'] == 'discovery'
+    assert not {'started_from', 'started_from_server', 'started_from_backfilled'} & set(restored['agent_config'])
+
+
 def test_down_restores_discovery_runs_and_up_again_round_trips(world):
     ssh_ready(world)
     created = world.client.post(
