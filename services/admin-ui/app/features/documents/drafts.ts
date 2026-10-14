@@ -42,6 +42,8 @@ export interface DraftDetail extends DraftSummary, DraftContent {
 }
 export type DraftCreate = Partial<DraftContent> & {
   document_id?: string;
+  /** A draft of a document: the version the page loaded (default the live one). */
+  base_version?: number;
   slug?: string;
   folder?: string | null;
   resource_ids?: ResourceIds<DocumentKey>;

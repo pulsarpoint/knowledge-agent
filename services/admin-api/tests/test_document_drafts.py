@@ -75,14 +75,12 @@ def test_a_new_document_draft_needs_its_name_and_text(docs):
         None,
         [],
     )
-    # A name that is already a document's: the draft revises that document (and shows its slug).
-    named = new_draft(docs, slug='runbook', title='Runbook again', markdown='# Again')
-    assert (named['document_id'], named['slug'], named['base_version'], named['title']) == (
-        docs.runbook,
-        'runbook',
-        1,
-        'Runbook again',
+    # A name that is already a document's: a person's new document is refused (a run's save drafts that document,
+    # store.create_draft's rule; see test_new_document_runs).
+    named = docs.client.post(
+        f'{API}/drafts', headers=HEADERS, json={'slug': 'runbook', 'title': 'Runbook again', 'markdown': '# Again'}
     )
+    assert named.status_code == 409 and named.json()['error']['message'] == NAME_IN_USE.format(slug='runbook')
     # A brand-new draft holds its folder and slug: a second brand-new draft of that name is refused.
     taken = docs.client.post(
         f'{API}/drafts',

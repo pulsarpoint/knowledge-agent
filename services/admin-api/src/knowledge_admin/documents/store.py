@@ -36,6 +36,7 @@ DOCUMENT_CHANGED = 'This document changed. Reload it before saving; your text ha
 DRAFT_NOT_FOUND = 'Draft not found.'
 DRAFT_CHANGED = 'This draft changed. Reload it before saving; your text has not been overwritten.'
 STALE_BASE = 'STALE_BASE'
+BASE_AHEAD = 'The base version is newer than the live version {live}. Reload the document.'
 STALE_MESSAGE = (
     "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
 )
@@ -352,10 +353,12 @@ def create_draft(
     slug: str | None = None,
     folder: str | None = None,
     links: dict[str, list[UUID]] | None = None,
+    base_version: int | None = None,
 ) -> UUID:
     """Insert a draft: of the live document `document_id` (or the live document `folder` + `slug` name), from its
-    live version, with its parent source; else a brand-new document with `slug`, `folder` and `links` as built-for.
-    A run's draft (prov.session_id) becomes the session's last_draft_id."""
+    live version (or `base_version`, the version the person loaded: no later than the live one, so the draft is stale
+    when the document moved on), with its parent source; else a brand-new document with `slug`, `folder` and `links`
+    as built-for. A run's draft (prov.session_id) becomes the session's last_draft_id."""
     if document_id is None:
         named = conn.execute(
             """SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft
@@ -372,7 +375,9 @@ def create_draft(
         ).fetchone()
         if live is None:
             raise HTTPException(404, DOCUMENT_NOT_FOUND)
-        base, slug, folder = live['version'], None, None
+        if base_version is not None and base_version > live['version']:
+            raise HTTPException(400, BASE_AHEAD.format(live=live['version']))
+        base, slug, folder = live['version'] if base_version is None else base_version, None, None
     draft_id = conn.execute(
         """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,draft_of,base_version,title,description,
         purpose,audience,tags,markdown,content_hash,origin,session_id,created_by,updated_by)

@@ -54,7 +54,7 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Field, FieldGroup, FieldLabel, FieldDescription } from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldDescription, FieldError } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -190,6 +190,17 @@ function Editor({
   });
   // What the last Save (or the load) left: the editor is dirty when its content or links differ from it.
   const [savedContent, setSavedContent] = useState<Content>(content);
+  /** The live document's content as the page loaded it: the editor's baseline when it edits no draft. */
+  const loadedContent = (): Content => ({
+    slug: initial.slug,
+    folder: document?.folder ?? "",
+    title: initial.title,
+    description: initial.description,
+    purpose: initial.purpose,
+    audience: initial.audience,
+    tags: initial.tags.join(", "),
+    markdown: initial.markdown,
+  });
   const [savedIds, setSavedIds] = useState<DocumentIds>(() => pickIds(DOCUMENT_KINDS, initial));
   // The document's revision (a brand-new draft's is the draft's): Save links and Delete send it, a brand-new draft's
   // Save too; Save links bumps it.
@@ -208,6 +219,9 @@ function Editor({
   // The person's draft of the live document: created by the first Save (or loaded with Edit); later Saves update it.
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [draftCount, setDraftCount] = useState(document?.drafts.length ?? 0);
+  // The live version the page loaded (reloaded when the edited draft is gone): the first Save's draft is based on it,
+  // so a version promoted meanwhile makes that draft stale.
+  const [liveVersion, setLiveVersion] = useState(isLive ? document.version : null);
   const [historical, setHistorical] = useState<DocumentVersion | null>(null);
   // The document's active links: the built-for ones are locked in Linked resources. Save links refused because it
   // unticked a built-for link (the page was loaded before that link existed) reloads them; refusals show under the
@@ -217,6 +231,8 @@ function Editor({
   const [linksLoad, setLinksLoad] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  // The New page's name refused (a live document or a brand-new draft holds it): shown under Slug.
+  const [nameError, setNameError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -247,10 +263,29 @@ function Editor({
     setValue((old) => ({ ...old, [key]: next }));
   const failed = (e: unknown, fallback: string) => setError(e instanceof Error ? e.message : fallback);
 
+  /** The draft being edited is gone (promoted or discarded elsewhere): edit no draft, keep the person's text, reload the
+   * document's version, revision and drafts count; the next Save starts a new draft from that version. */
+  async function draftGone(documentId: string) {
+    setEditingDraft(null);
+    setSavedContent(loadedContent());
+    let version = liveVersion;
+    try {
+      const fresh = await getDocument(documentId);
+      version = fresh.version;
+      setLiveVersion(fresh.version);
+      setRevision(fresh.revision);
+      setDraftCount(fresh.drafts.length);
+    } catch {
+      /* the message still shows; a page reload loads the document */
+    }
+    setError(`Your draft was promoted or discarded elsewhere. Save starts a new draft from version ${version}.`);
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setPending(true);
     setError("");
+    setNameError("");
     setNotice("");
     const now = content();
     const text = {
@@ -277,10 +312,21 @@ function Editor({
         const saved = await updateDraft(document.id, revision, text, { slug: value.slug, folder: now.folder || null });
         setRevision(saved.revision);
       } else if (editingDraft) {
-        const saved = await updateDraft(editingDraft.id, editingDraft.revision, text);
+        const saved = await updateDraft(editingDraft.id, editingDraft.revision, text).catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        });
+        if (!saved) {
+          await draftGone(document.id);
+          return;
+        }
         setEditingDraft({ ...editingDraft, revision: saved.revision });
       } else {
-        const saved = await createDraft({ document_id: document.id, ...text });
+        const saved = await createDraft({
+          document_id: document.id,
+          ...(liveVersion !== null ? { base_version: liveVersion } : {}),
+          ...text,
+        });
         setEditingDraft({
           id: saved.id,
           revision: saved.revision,
@@ -292,7 +338,8 @@ function Editor({
       setSavedContent(now);
       setNotice("Draft saved.");
     } catch (e) {
-      failed(e, "Could not save the draft");
+      if (!document && e instanceof ApiError && e.status === 409) setNameError(e.message);
+      else failed(e, "Could not save the draft");
     } finally {
       setPending(false);
     }
@@ -450,7 +497,7 @@ function Editor({
               <a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a>
             </Button>
           )}
-          {isLive && <Badge variant="secondary">Version {document.version}</Badge>}
+          {isLive && <Badge variant="secondary">Version {liveVersion}</Badge>}
           {isLive && (
             <Button
               type="button"
@@ -541,6 +588,7 @@ function Editor({
               value={value.title}
               onChange={(e) => {
                 const title = e.target.value;
+                setNameError(""); // the name may follow the title
                 setValue((old) => ({
                   ...old,
                   title,
@@ -573,13 +621,18 @@ function Editor({
               maxLength={120}
               pattern="[a-z0-9]+(-[a-z0-9]+)*"
               value={value.slug}
-              onChange={(e) => patch("slug", e.target.value)}
+              aria-invalid={nameError ? true : undefined}
+              onChange={(e) => {
+                setNameError("");
+                patch("slug", e.target.value);
+              }}
             />
             <FieldDescription>
               {isLive
                 ? "A published document keeps its name."
                 : "Unique name using lowercase letters, numbers, and hyphens."}
             </FieldDescription>
+            {nameError && <FieldError>{nameError}</FieldError>}
           </Field>
         </FieldGroup>
         {showFolder && (
@@ -839,7 +892,11 @@ function Editor({
                 confirm={unlessUnsaved}
                 onCount={setDraftCount}
                 onDiscarded={(id) => {
-                  if (editingDraft?.id === id) setEditingDraft(null);
+                  // The edited draft is gone: Save starts a new draft from the editor's text.
+                  if (editingDraft?.id === id) {
+                    setEditingDraft(null);
+                    setSavedContent(loadedContent());
+                  }
                 }}
                 onEdit={(draft) => {
                   setValue((old) => ({

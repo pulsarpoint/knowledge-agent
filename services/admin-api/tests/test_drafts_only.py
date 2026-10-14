@@ -5,9 +5,16 @@ discovery document proposal creates a draft; publishing a brand-new one attaches
 from uuid import UUID, uuid4
 
 from discovery_world import world  # noqa: F401  (fixture)
-from drafts_world import API, docs, new_draft, promote  # noqa: F401
-from knowledge_admin.documents.drafts import NAME_IN_USE
-from knowledge_admin.documents.store import DOCUMENT_CHANGED, DOCUMENT_NOT_FOUND
+from drafts_world import API, docs, new_draft, promote, save_live  # noqa: F401
+from knowledge_admin.documents.drafts import NAME_IN_USE, NEW_DEFAULTS
+from knowledge_admin.documents.store import (
+    BASE_AHEAD,
+    DOCUMENT_CHANGED,
+    DOCUMENT_NOT_FOUND,
+    STALE_BASE,
+    Provenance,
+    create_draft,
+)
 from test_discovery_review import decide, listed, propose, run  # noqa: F401  (run: fixture)
 from test_discovery_runs import config_of, start
 from test_document_resources_api import resource
@@ -173,6 +180,49 @@ def test_a_draft_of_a_document_keeps_its_name(docs):
         assert refused.status_code == 400 and refused.json()['error']['message'] == KEEPS_NAME, name
     saved = docs.client.put(url, headers=HEADERS, json={**text, 'revision': 1})
     assert saved.status_code == 200 and (saved.json()['slug'], saved.json()['revision']) == ('runbook', 2)
+
+
+def test_a_first_save_drafts_from_the_version_the_page_loaded(docs):
+    # The page loaded version 1; someone promotes version 2; then the person saves: the draft is stale.
+    save_live(docs, docs.runbook, '# Runbook v2 by someone else')
+    body = {'document_id': docs.runbook, 'base_version': 1, 'title': 'Runbook', 'markdown': '# My edit'}
+    draft = new_draft(docs, **body)
+    assert (draft['base_version'], draft['live_version'], draft['stale']) == (1, 2, True)
+    refused = promote(docs, draft)
+    assert refused.status_code == 409 and refused.json()['error']['code'] == STALE_BASE
+    assert promote(docs, draft, confirm_stale=True).status_code == 200
+    # No base_version: the live version, as before.
+    assert new_draft(docs, document_id=docs.runbook)['base_version'] == 3
+    ahead = docs.client.post(f'{API}/drafts', headers=HEADERS, json={**body, 'base_version': 4})
+    assert ahead.status_code == 400 and ahead.json()['error']['message'] == BASE_AHEAD.format(live=3)
+    new_document = {'slug': 'other', 'title': 'Other', 'markdown': '# Other', 'base_version': 1}
+    assert docs.client.post(f'{API}/drafts', headers=HEADERS, json=new_document).status_code == 400
+
+
+def test_a_person_cannot_name_a_new_document_like_a_live_one(docs):
+    body = {'slug': 'runbook', 'title': 'Another runbook', 'markdown': '# Another'}
+    refused = docs.client.post(f'{API}/drafts', headers=HEADERS, json=body)
+    assert refused.status_code == 409
+    assert refused.json()['error']['message'] == NAME_IN_USE.format(slug='runbook')
+    assert refused.json()['error']['message'] == (
+        'A document or draft named runbook already exists in this folder. Choose another name.'
+    )
+    assert docs.client.get(f'{API}/drafts', headers=HEADERS).json()['drafts'] == []
+    # The same name in another folder is free.
+    assert new_draft(docs, **body, folder='ops')['document_id'] is None
+    # A run's save keeps today's rule: a live document's name drafts that document.
+    with docs.store.connect() as conn:
+        draft_id = create_draft(
+            conn,
+            docs.project,
+            Provenance('agent_run', None),
+            {**NEW_DEFAULTS, 'title': 'Runbook', 'markdown': '# Run text'},
+            origin='generated',
+            slug='runbook',
+            folder=None,
+        )
+    draft = docs.client.get(f'{API}/drafts/{draft_id}', headers=HEADERS).json()
+    assert (draft['document_id'], draft['base_version'], draft['markdown']) == (docs.runbook, 1, '# Run text')
 
 
 def test_draft_rows_say_whether_their_document_is_published_and_its_title(docs):

@@ -129,6 +129,7 @@ test("Save keeps the editor text as the person's draft of the document and the e
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/documentation/drafts")?.body).toEqual({
       document_id: "doc-1",
+      base_version: 2,
       title: "Runbook",
       description: "How to run it",
       purpose: "runbook",
@@ -383,4 +384,75 @@ test("the Drafts tab lists drafts newest first; Promote with two other drafts as
     ]),
   );
   expect(await screen.findByText("Draft promoted to version 3.")).toBeInTheDocument();
+});
+
+test("a Save whose draft was promoted or discarded elsewhere keeps the text and the next Save starts a new draft", async () => {
+  let gone = false;
+  const calls = api({
+    ...base,
+    "GET /api/documentation/documents/doc-1": () => [
+      200,
+      gone ? { ...document, version: 3, revision: 3, drafts: [] } : document,
+    ],
+    "POST /api/documentation/drafts": () => [201, { ...detail, base_version: 2, live_version: 2, stale: false }],
+    "PUT /api/documentation/drafts/d1": () => {
+      gone = true;
+      return [404, { error: { message: "Draft not found." } }];
+    },
+  });
+  show("/documents/doc-1");
+  fireEvent.change(await screen.findByLabelText("Markdown"), { target: { value: "# First save" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText(/Editing your draft/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# My text" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(
+    await screen.findByText("Your draft was promoted or discarded elsewhere. Save starts a new draft from version 3."),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText("Markdown")).toHaveValue("# My text");
+  expect(screen.queryByText(/Editing your draft/)).toBeNull();
+  expect(screen.getByText("Version 3")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(calls.filter((c) => c.key === "POST /api/documentation/drafts").map((c) => c.body)).toEqual([
+      expect.objectContaining({ base_version: 2, markdown: "# First save" }),
+      expect.objectContaining({ base_version: 3, markdown: "# My text" }),
+    ]),
+  );
+  expect(calls.filter((c) => c.key === "PUT /api/documentation/drafts/d1")).toHaveLength(1);
+});
+
+test("discarding the draft being edited on the Drafts tab lets Save start a new draft from the editor's text", async () => {
+  let discarded = false;
+  const calls = api({
+    ...base,
+    "GET /api/documentation/documents/doc-1/drafts": () => [200, { drafts: discarded ? [] : [summary] }],
+    "POST /api/documentation/drafts/d1/discard": () => {
+      discarded = true;
+      return [200, {}];
+    },
+    "POST /api/documentation/drafts": () => [201, { ...detail, id: "d2", base_version: 2, stale: false }],
+  });
+  show("/documents/doc-1?tab=drafts&draft=d1");
+  fireEvent.click(within(await screen.findByRole("region", { name: "Draft" })).getByRole("button", { name: "Edit" }));
+  expect(await screen.findByLabelText("Markdown")).toHaveValue("# Runbook draft text");
+  expect(screen.getByText(/Editing your draft/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.mouseDown(screen.getByRole("tab", { name: /^Drafts/ }));
+  fireEvent.click(
+    within(await screen.findByRole("region", { name: "Draft" })).getByRole("button", { name: "Discard" }),
+  );
+  fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard draft" }));
+  await waitFor(() => expect(screen.queryByText(/Editing your draft/)).toBeNull());
+  expect(screen.getByLabelText("Markdown")).toHaveValue("# Runbook draft text");
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/documentation/drafts")?.body).toMatchObject({
+      document_id: "doc-1",
+      base_version: 2,
+      markdown: "# Runbook draft text",
+    }),
+  );
 });

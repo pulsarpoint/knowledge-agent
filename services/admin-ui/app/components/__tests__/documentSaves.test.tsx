@@ -285,6 +285,7 @@ test("on a live document the first Save creates your draft; the second Save upda
   expect(await screen.findByText(banner)).toBeInTheDocument();
   expect(calls.find((c) => c.key === "POST /api/documentation/drafts")!.body).toEqual({
     document_id: "doc-1",
+    base_version: 2,
     title: "Runbook",
     description: "How to run it",
     purpose: "runbook",
@@ -459,4 +460,24 @@ test("Documents → Drafts: a brand-new draft is Not published with Open, Publis
       confirm_stale: false,
     }),
   );
+});
+
+test("New → Save with a name a document already uses shows the refusal under the name field", async () => {
+  const IN_USE = "A document or draft named runbook already exists in this folder. Choose another name.";
+  api({
+    "GET /api/documentation/resources": () => [200, resources],
+    "POST /api/documentation/drafts": () => [409, { error: { message: IN_USE } }],
+  });
+  const router = show("/documents/new");
+  fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Runbook" } });
+  fireEvent.change(screen.getByLabelText("Markdown"), { target: { value: "# Another runbook" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  const slug = screen.getByLabelText("Slug");
+  const field = within(slug.closest<HTMLElement>('[data-slot="field"]')!);
+  expect(await field.findByText(IN_USE)).toBeInTheDocument();
+  expect(screen.getAllByText(IN_USE)).toHaveLength(1);
+  expect(slug).toHaveAttribute("aria-invalid", "true");
+  expect(router.state.location.pathname).toBe("/documents/new");
+  fireEvent.change(slug, { target: { value: "runbook-2" } });
+  expect(screen.queryByText(IN_USE)).toBeNull();
 });

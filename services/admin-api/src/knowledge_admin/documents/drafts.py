@@ -86,11 +86,13 @@ class Resources(BaseModel):
 
 
 class DraftCreate(BaseModel):
-    """A draft of a document (document_id; the text defaults to the live version's) or of a new document (slug, an
-    optional folder, title and Markdown, optional resources)."""
+    """A draft of a document (document_id; the text defaults to the live version's; base_version: the version the
+    person loaded, default the live one) or of a new document (slug, an optional folder, title and Markdown, optional
+    resources)."""
 
     model_config = ConfigDict(extra='forbid')
     document_id: UUID | None = None
+    base_version: int | None = Field(default=None, ge=1, strict=True)
     slug: Slug | None = None
     folder: str | None = Field(default=None, max_length=200)
     title: Title | None = None
@@ -112,6 +114,8 @@ class DraftCreate(BaseModel):
             raise ValueError('Give a document_id, or a slug for a new document.')
         if self.document_id is not None and (self.folder is not None or self.resource_ids is not None):
             raise ValueError('A draft of a document keeps its folder and linked resources.')
+        if self.document_id is None and self.base_version is not None:
+            raise ValueError('Only a draft of a document has a base version.')
         if self.document_id is None and (self.title is None or self.markdown is None):
             raise ValueError('A new document needs a title and Markdown.')
         return self
@@ -376,6 +380,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 given = value.model_dump(include=set(CONTENT), exclude_none=True)
                 if value.document_id is not None:
                     content = {**live_content(conn, project, value.document_id), **given}
+                elif document_named(conn, project, value.folder, value.slug) is not None:
+                    # A person names a new document; a live document's name is taken (a run's save drafts it).
+                    raise HTTPException(409, NAME_IN_USE.format(slug=value.slug))
                 else:
                     content = {**NEW_DEFAULTS, **given}
                 draft_id = lifecycle.create_draft(
@@ -388,6 +395,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     slug=value.slug,
                     folder=value.folder,
                     links=value.resource_ids.model_dump() if value.resource_ids else None,
+                    base_version=value.base_version,
                 )
                 return jsonable_encoder(draft_detail(conn, project, draft_id))
         except psycopg.errors.UniqueViolation:  # a brand-new draft already holds this folder and slug
