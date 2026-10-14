@@ -46,7 +46,8 @@ def postgres():
         else:
             pytest.fail('Disposable PostgreSQL did not publish its port')
         port = published.splitlines()[0].rsplit(':', 1)[1]
-        conninfo = f'host=127.0.0.1 port={port} user=postgres dbname=postgres connect_timeout=2'
+        # Docker Desktop can take seconds to forward a new connection; a short timeout fails tests that would pass.
+        conninfo = f'host=127.0.0.1 port={port} user=postgres dbname=postgres connect_timeout=10'
         for _ in range(40):
             try:
                 with psycopg.connect(conninfo):
