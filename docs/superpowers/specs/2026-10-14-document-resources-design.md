@@ -1,178 +1,250 @@
-# Document resources — one link table with provenance and history
+# Documents, drafts, archive and resource links
 
-Date: 2026-10-14. Status: draft for review.
-Depends on: `fix/new-document-links` (runs record `chosen_resources`; a new document's draft links exactly what the run
-was started for).
+Date: 2026-10-14. Status: draft for review (v2 — replaces the link-table-only draft of the same date).
+Builds on: 7c28610 (a run records `chosen_resources`; a new document is linked to what its run was started for).
 
 ## Why
 
-A document is linked to environments, services, servers, code projects and deployments through five join tables
-(`ka.document_environments`, `document_services`, `document_servers`, `document_code_projects`,
-`document_deployments`), each `(document_id, project_id, <resource>_id)` and nothing else. Saving a document deletes all
-its link rows and inserts what the request sent. So:
+Today a document is spread over three tables plus five link tables:
 
-- nothing records why a link exists — the resource a document was built for looks the same as one ticked later;
-- a link a document was built for can be unticked, and the document then claims nothing about what it describes;
-- unlinking leaves no trace (when, who, how).
+- `ka.documents` — identity (slug, folder, revision) and `current_version_id`;
+- `ka.document_versions` — every version, numbered and immutable;
+- `ka.document_drafts` — drafts, kept apart; a draft of a *new* document has no document yet, so it carries slug,
+  folder and its links-to-be as JSON (`resource_ids`), which no foreign key checks and no index can query;
+- `ka.document_environments` / `_services` / `_servers` / `_code_projects` / `_deployments` — links with no record of
+  why, when or by whom; a save deletes and re-inserts them all.
 
-Rule from the person using it: **a document built for a resource is connected to it automatically, and that connection
-cannot be removed.** Other links can still be added and removed.
+Rules from the person using it:
+
+1. A document built for a resource is connected to it automatically, and that connection cannot be removed. Other links
+   can be added and removed.
+2. A document can have as many drafts as people and runs make, listed by `created_at`.
+3. Promoting a draft makes it the document's live version, archives the previous live content and deletes every other
+   draft — one clean document remains.
+4. Drafts for a resource are as easy to find as documents for it.
 
 ## Outcome
 
-1. One table, `ka.document_resources`, holds every document ↔ resource link, with how it was added (person, agent run,
-   discovery), what kind of connection it is (`built_for` or `linked`), when and by whom it was added and removed.
-2. Links present when a document is created are `built_for` and can never be removed (enforced by the database).
-3. Unlinking sets `removed_at` instead of deleting, so a document's link history is kept.
-4. Readers do not change: `ka.document_details` keeps returning `environment_ids`, `service_ids`, `server_ids`,
-   `code_project_ids`, `deployment_ids` (active links), so the Documents filters, the API shape, agents' document tools
-   and version snapshots see the same arrays.
-5. Linked resources shows built-for links ticked and locked ("Built for this document"), and the document page shows the
-   link history.
+- `ka.documents` holds live documents **and** drafts. A draft row is either a draft of a live document (`draft_of`) or a
+  brand-new document that has never been live.
+- `ka.document_archive` holds earlier live contents of a document (`document_id` = the live document's id).
+- `ka.document_resources` holds every document ↔ resource link, with provenance, history and locked built-for links.
+- A live document's id never changes, so everything pointing at it keeps working.
 
 ## Data model (migration 0104)
+
+### `ka.documents` — live documents and drafts
+
+```sql
+-- existing identity columns stay: id, project_id, slug, folder, revision, created_at, updated_at, phase_metadata
+ALTER TABLE ka.documents
+  ADD COLUMN is_draft     boolean NOT NULL DEFAULT false,
+  ADD COLUMN draft_of     uuid,          -- FK (draft_of, project_id) → documents(id, project_id) ON DELETE CASCADE
+  ADD COLUMN version      integer,       -- live: its version number; draft: NULL
+  ADD COLUMN base_version integer,       -- draft of a live document: the live version it started from
+  -- content, moved here from document_versions / document_drafts
+  ADD COLUMN title text, description text, purpose text, audience text, tags text[], markdown text,
+             content_hash sha256, source_snapshot jsonb,
+  -- provenance
+  ADD COLUMN origin text,                -- 'manual' | 'agent' | 'uploaded' | 'discovery'
+  ADD COLUMN session_id uuid,            -- the run that wrote it (drafts by agents; kept on the live row after promote)
+  ADD COLUMN created_by uuid, updated_by uuid;  -- REFERENCES ka.principals(id)
+-- same CHECKs on content as today (nonblank title ≤ 240, markdown ≤ 1 MB, content_hash = sha256(markdown), …)
+CHECK (NOT is_draft OR version IS NULL)
+CHECK (is_draft OR version IS NOT NULL)
+CHECK (draft_of IS NULL OR is_draft)                 -- only drafts point at a live document
+CHECK (draft_of IS NULL OR (slug IS NULL AND folder IS NULL))  -- a draft of a live document uses its document's slug/folder
+CHECK (is_draft OR slug IS NOT NULL)
+-- slugs are unique among live documents and brand-new drafts, not among drafts of a live document
+CREATE UNIQUE INDEX documents_slug ON ka.documents(project_id, slug) WHERE slug IS NOT NULL;
+CREATE INDEX documents_drafts ON ka.documents(draft_of, created_at) WHERE is_draft;
+-- a draft of a live document must point at a live row (trigger: draft_of → is_draft = false)
+```
+
+`current_version_id`, `published_version_id` and their deferred foreign keys are dropped.
+
+Kinds of row:
+
+| Row | `is_draft` | `draft_of` | `slug`/`folder` | `version` |
+|---|---|---|---|---|
+| Live document | false | NULL | set | 1, 2, … |
+| Draft of a live document | true | live id | NULL (uses the live row's) | NULL |
+| Brand-new document (never live) | true | NULL | set | NULL |
+
+### `ka.document_archive` — earlier live contents
+
+```sql
+CREATE TABLE ka.document_archive (
+  id           uuid PRIMARY KEY,         -- new per archived version; migrated rows keep their document_versions id
+  project_id   uuid NOT NULL,
+  document_id  uuid NOT NULL,            -- the live document; FK → documents(id, project_id) ON DELETE CASCADE
+  version      integer NOT NULL,
+  title, description, purpose, audience, tags, markdown, content_hash, source_snapshot,   -- as on documents
+  origin text NOT NULL, session_id uuid, created_by uuid,
+  created_at   timestamptz NOT NULL,     -- when that version went live
+  archived_at  timestamptz NOT NULL DEFAULT now(),
+  archived_by  uuid,                     -- who promoted the version that replaced it
+  UNIQUE (document_id, version)
+);
+```
+
+### `ka.document_resources` — links with provenance and history
 
 ```sql
 CREATE TABLE ka.document_resources (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id      uuid NOT NULL,
-  document_id     uuid NOT NULL,
-  environment_id  uuid,
-  service_id      uuid,
-  server_id       uuid,
-  code_project_id uuid,
-  deployment_id   uuid,
-  resource_type   text NOT NULL GENERATED ALWAYS AS (CASE
-                    WHEN environment_id  IS NOT NULL THEN 'environment'
-                    WHEN service_id      IS NOT NULL THEN 'service'
-                    WHEN server_id       IS NOT NULL THEN 'server'
-                    WHEN code_project_id IS NOT NULL THEN 'code_project'
-                    ELSE 'deployment' END) STORED,
+  document_id     uuid NOT NULL,   -- FK (document_id, project_id)     → documents(id, project_id)           ON DELETE CASCADE
+  environment_id  uuid,            -- FK (environment_id, project_id)  → environments(id, project_id)        ON DELETE CASCADE
+  service_id      uuid,            -- FK (service_id, project_id)      → services(id, project_id)            ON DELETE CASCADE
+  server_id       uuid,            -- FK (server_id, project_id)       → servers(id, project_id)             ON DELETE CASCADE
+  code_project_id uuid,            -- FK (code_project_id, project_id) → repositories(id, project_id)        ON DELETE CASCADE
+  deployment_id   uuid,            -- FK (deployment_id, project_id)   → service_deployments(id, project_id) ON DELETE CASCADE
+  resource_type   text NOT NULL GENERATED ALWAYS AS (CASE WHEN environment_id IS NOT NULL THEN 'environment'
+                    WHEN service_id IS NOT NULL THEN 'service' WHEN server_id IS NOT NULL THEN 'server'
+                    WHEN code_project_id IS NOT NULL THEN 'code_project' ELSE 'deployment' END) STORED,
   connection      text NOT NULL CHECK (connection IN ('built_for', 'linked')),
   added_how       text NOT NULL CHECK (added_how IN ('person', 'agent_run', 'discovery', 'migrated')),
-  added_by        uuid REFERENCES ka.principals(id),        -- the person who saved or promoted it; NULL when migrated
-  session_id      uuid,                                 -- the run that wrote it (agent_run), else NULL
+  added_by        uuid REFERENCES ka.principals(id),
+  session_id      uuid,            -- the run that added it (agent_run)
   created_at      timestamptz NOT NULL DEFAULT now(),
   removed_at      timestamptz,
   removed_by      uuid REFERENCES ka.principals(id),
-  FOREIGN KEY (document_id, project_id)     REFERENCES ka.documents(id, project_id)           ON DELETE CASCADE,
-  FOREIGN KEY (environment_id, project_id)  REFERENCES ka.environments(id, project_id)        ON DELETE CASCADE,
-  FOREIGN KEY (service_id, project_id)      REFERENCES ka.services(id, project_id)            ON DELETE CASCADE,
-  FOREIGN KEY (server_id, project_id)       REFERENCES ka.servers(id, project_id)             ON DELETE CASCADE,
-  FOREIGN KEY (code_project_id, project_id) REFERENCES ka.repositories(id, project_id)        ON DELETE CASCADE,
-  FOREIGN KEY (deployment_id, project_id)   REFERENCES ka.service_deployments(id, project_id) ON DELETE CASCADE,
   CHECK (num_nonnulls(environment_id, service_id, server_id, code_project_id, deployment_id) = 1),
-  CHECK (connection <> 'built_for' OR removed_at IS NULL),
+  CHECK (connection <> 'built_for' OR removed_at IS NULL),   -- a built-for link is never removed
   CHECK ((removed_at IS NULL) = (removed_by IS NULL))
 );
--- One active link per document and resource (a removed link can be added again as a new row).
+-- one active link per document and resource (a removed link can be added again as a new row)
 CREATE UNIQUE INDEX document_resources_active_environment ON ka.document_resources(document_id, environment_id)
-  WHERE removed_at IS NULL AND environment_id IS NOT NULL;
--- … the same for service_id, server_id, code_project_id, deployment_id.
--- Lookups by resource ("documents about this server"), active links only.
+  WHERE removed_at IS NULL AND environment_id IS NOT NULL;            -- … and for the other four columns
 CREATE INDEX document_resources_environment ON ka.document_resources(environment_id) WHERE removed_at IS NULL;
--- … the same for the other four columns.
+                                                                       -- … and for the other four columns
+-- trigger: document_id must be a live document or a brand-new draft (draft_of IS NULL), never a draft of a live one
 ```
 
 Decisions:
 
-- **Real foreign keys, one nullable column per resource type** (exclusive arc), not a bare `resource_id` +
-  `resource_type`: the database keeps checking that a link points at an existing resource in the same workspace, and
-  deleting a resource still removes its links. `resource_type` is generated, so it cannot disagree with the columns.
+- **A live document's id is stable.** Promote updates the live row in place; it never makes the draft row the live row
+  (except for a brand-new document, whose draft row is the document). About ten tables point at `documents(id)`
+  (resource links, document links, inventory links, system graph, discovery proposals, a run's target document, …) and
+  keep working.
+- **Real foreign keys, one nullable column per resource type** (not a bare `resource_id` + `resource_type`): the
+  database checks the resource exists in the same workspace, and deleting a resource removes its links. `resource_type`
+  is generated so it cannot disagree.
 - **No `active` column**: a link is active exactly when `removed_at IS NULL`.
-- **Deleting a resource deletes its link rows** (history included), as today; the audit log keeps the record. Deleting a
-  document deletes its rows.
-- **`built_for` cannot be removed**: the check constraint makes it impossible from any code path. The only ways a
-  built-for link disappears are deleting the document or deleting the resource.
-- **Adding a resource type later** = one column, one unique index, one lookup index, one CASE arm.
+- **Readers never see drafts by accident**: `ka.live_documents` (view: `NOT is_draft`) and `ka.document_details` (live
+  rows with their link arrays) are what every reader uses. Triggers refuse links between documents, inventory links and
+  system-graph rows that point at a draft.
+- **References to a specific version** become `(document_id, version)` — a version is either the live row or an
+  archive row, and one foreign key cannot point into two tables. The document keeps its real foreign key.
 
-Migration up:
+## Lifecycle
 
-1. Create the table and indexes.
-2. Copy every row of the five tables as `connection = 'linked'`, `added_how = 'migrated'`, `created_at = now()`,
-   `added_by = NULL`. Existing documents get no `built_for` links (nothing records what they were built for).
-3. Recreate `ka.document_details` reading the arrays from active rows of `ka.document_resources` (same column names,
-   same `ORDER BY` per array, same `'{}'` default).
-4. Drop the five tables.
+- **New document** (Documents → New run, discovery, `POST /api/documents`): insert a brand-new draft row (slug, folder,
+  content, `origin`, `session_id`) and its links as `built_for` (`added_how` agent_run / discovery / person). A run's
+  links are its `chosen_resources`.
+- **Draft of a live document** (Ask agent run, a person's edit): insert a draft row with `draft_of`, `base_version` =
+  the live version, content. A document can have any number of drafts; the document page lists them by `created_at`.
+  A run keeps updating its own draft row (found by `session_id` + `draft_of`), as today.
+- **Promote draft D of live document L** (one transaction, locking L):
+  1. copy L's current content into `document_archive` (`document_id` = L, `version`, `created_at` = when it went live,
+     `archived_by` = actor);
+  2. update L in place with D's content, `version = version + 1`, `origin`/`session_id`/`created_by` from D;
+  3. delete all drafts of L (D included);
+  4. `revision` bumps as today; stale check as today (D's `base_version` < L's `version` → confirm, as `confirm_stale`).
+- **Promote a brand-new draft D**: set `is_draft = false`, `version = 1`. Its id, slug, folder and built-for links stay.
+- **Discard a draft of a live document**: delete the row.
+- **Discard a brand-new draft**: delete the row (and its links): the document never existed.
+- **Delete a live document**: deletes its drafts, archive rows and links (cascade), as today.
+- **Edit a live document directly** (the document editor's Save without a draft): same as promote from an implicit
+  draft — current content is archived, the row is updated, other drafts stay (only promote clears drafts).
+- A run whose draft was deleted by another promote starts a new draft (of the new live version) on its next save.
 
-Migration down: recreate the five tables from active rows, recreate the previous `document_details`, drop
-`ka.document_resources`. Provenance and history are lost on rollback; the down migration says so in a comment.
+## Links
 
-## Writing links
+- Writes go through one function (`documents/api.py` `save_links`), called by create, edit and promote with the
+  provenance of the save (`how`, `actor`, `session_id`).
+- **Creating** (brand-new draft): every link → `built_for`.
+- **Saving links of a live document or brand-new draft** (Linked resources): compare requested ids with active rows —
+  unchanged rows stay (provenance and `created_at` kept); newly ticked → new `linked` row; unticked `linked` →
+  `removed_at`/`removed_by`; unticked `built_for` → 409, nothing changes: "This document was built for {type} {name};
+  that link can't be removed."
+- **Drafts of a live document** use the live document's links (no rows of their own).
+- **Promote** never changes links (a brand-new draft keeps its rows; a draft of a live document has none).
+- The save's audit row gains `links_added` / `links_removed`.
 
-All writes go through `documents/api.py` `save_document` (the only writer today). It gains the provenance of the save:
-`how` (`person` | `agent_run` | `discovery`) and `session_id` (agent runs).
+## Reading
 
-- **Creating a document** (`document_id is None`): every link in the request is inserted as `built_for`, with `how`,
-  `added_by = actor`, `session_id`. Paths:
-  - promoting a draft of a new document (`documents/drafts.py` `promote_draft`): `agent_run` with the draft's
-    `session_id` when the draft came from a run, else `person`; its links are the draft's `resource_ids`, which a run
-    sets to the resources it was started for (`chosen_resources`, see dependency);
-  - accepting a discovery proposal for a new document (`servers/discovery.py`): `discovery`; links its service, else its
-    server, as today;
-  - `POST /api/documents`: `person`.
-- **Saving an existing document**: compare the request's ids per type with the active rows.
-  - unchanged links keep their row (provenance and `created_at` stay);
-  - a newly ticked resource → new row, `linked`, `how`, `added_by`;
-  - an unticked `linked` row → `removed_at = now()`, `removed_by = actor`;
-  - an unticked `built_for` row → the save is refused with 409 and nothing changes:
-    "This document was built for {type} {name}; that link can't be removed."
-  - promoting a draft of an existing document keeps the document's links (as today: it passes the active links back).
-- **Archived code projects** keep today's rule on promote (`available_resources` drops a code project archived since
-  the draft was made) — that applies before insert, so it never removes a built-for row.
-- The audit row of the save stays as today, plus `links_added` / `links_removed` lists in its details.
-
-## Reading links
-
-- `ka.document_details` is the only reader for arrays (filters, API, agent document tools, version snapshots) —
-  unchanged shape.
-- `documents/folders.py` (the one direct join, on code projects) reads `ka.document_resources` active rows.
-- `GET /api/documents/{id}` adds `resource_links`: active links with `resource_type`, `id`, `name`, `connection`,
-  `added_how`, `added_by` (display name), `session_id`, `created_at`.
-- New `GET /api/documents/{id}/resource-history`: all rows (active and removed), newest first, with names and who/how.
+- `ka.document_details` — live documents only, same columns as today (content now from the row itself, link arrays from
+  active `document_resources` rows), plus `draft_count`. Filters, the documents API, agents' document tools and RAG
+  export read it unchanged.
+- `ka.document_drafts_view` — every draft row with its document's title/slug/folder (brand-new: its own), `created_at`,
+  `origin`, `session_id`, and the link arrays of the live document or of the brand-new draft.
+- Version history (`GET /api/documents/{id}/versions`) = archive rows + the live row, by version.
+- `GET /api/documents/{id}` adds `drafts` (newest first) and `resource_links` (active links with type, name, connection,
+  added_how, added_by, session_id, created_at). `GET /api/documents/{id}/resource-history` returns all link rows.
+- `GET /api/drafts?environment_id=…|service_id=…|server_id=…|code_project_id=…|deployment_id=…` — drafts for a
+  resource: brand-new drafts linked to it, and drafts of live documents linked to it.
+- `documents/folders.py` statistics count live documents only.
 
 ## UI
 
-- **Linked resources** (`features/documents/DocumentResourceSelection.tsx` via `ResourcePicker`): a `built_for` link is
-  ticked and locked with the note "Built for this document" (the picker's existing locked state). Other links behave
-  as today. The deployment cascade (ticking a deployment ticks its service and server) is unchanged; on a new
-  document, all three become `built_for`.
-- **Link history**: a collapsible "Link history" section under Linked resources on the document page — one line per
-  change: "Added Prod (environment) · built for · agent run · 14 Oct 10:42 · Goran", "Removed api-1 (server) · Goran ·
-  …", linking to the run when `session_id` is set.
-- A 409 from a save that unticked a built-for link (only possible from an outdated page) shows the message under the
-  Linked resources section; the page reloads the links.
+- **Document page**: a Drafts list (newest first; who/which run, when, base version, Open / Promote / Discard). Promote
+  warns that the other drafts will be deleted ("Promote and delete 2 other drafts?").
+- **Draft page**: as today; Promote and Discard follow the lifecycle above.
+- **Documents list**: live documents; a "Drafts" filter/tab lists draft rows (brand-new and drafts of live documents),
+  filterable by resource like documents.
+- **Linked resources**: built-for links ticked and locked ("Built for this document"); others toggle; a collapsible
+  "Link history" lists added/removed links with how/who/when and a link to the run.
+- **Version history**: reads archive + live, unchanged in look.
+
+## Migration 0104 (up)
+
+1. Add the new columns to `ka.documents`; copy each document's current version content into its row
+   (`version`, `title`, …, `origin`, `created_by` from that version).
+2. Create `ka.document_archive`; copy every non-current version, keeping its id (`document_id`, `version`, content, `created_at`,
+   `created_by`; `archived_at` = the next version's `created_at`, `archived_by` NULL).
+3. Turn every **open** `ka.document_drafts` row into a draft row: of a live document → `draft_of`, `base_version`
+   from its base version; of a new document → brand-new draft (slug, folder, content, `session_id`) and its
+   `resource_ids` JSON → `built_for` link rows (ids that no longer exist are dropped, as promote does today).
+   Promoted and discarded drafts are not carried over.
+4. Create `ka.document_resources`; copy every row of the five link tables as `linked` / `migrated`.
+5. `document_sources`: rows owned by a draft move to the new draft row id; rows owned by a version become
+   `(document_id, version)`; `source_version_id` → `(source_document_id, source_version)` (the snapshot columns
+   already hold title and version).
+6. Repoint `agent_sessions` draft references (a run's draft is found by `session_id`) and drop `ka.document_drafts`,
+   `ka.document_versions` and the five link tables; recreate `ka.document_details`; create `ka.live_documents` and
+   `ka.document_drafts_view`.
+
+Down: rebuild `document_versions` (archive + live rows), `document_drafts` (open draft rows), the five link tables
+(active rows) and the previous views. Link provenance/history and archive timestamps are lost on rollback (stated in
+the down file).
 
 ## Out of scope
 
-- Marking links of existing documents as built-for (no record exists; a person can't promote a link to built-for in
-  this change).
-- Links between documents (`ka.document_links`) — unchanged.
-- Resource snapshots in document versions — unchanged (they read `document_details`).
+- Links between documents (`ka.document_links`, "depends on") — unchanged.
+- Marking links of existing documents as built-for (nothing records what they were built for).
+- Restoring an archived version as live (could later be "promote from archive").
 
 ## Testing
 
-Backend (against the disposable PostgreSQL):
+Backend (disposable PostgreSQL):
 
-- migration: rows of all five tables copied as `linked`/`migrated`; `document_details` arrays identical before and
-  after for the same data; down migration restores the five tables from active rows.
-- constraints: two active links to the same resource refused; a removed link can be added again; exactly one resource
-  column set; a `built_for` row cannot get `removed_at`; a link to a resource of another workspace refused.
-- save paths: create (POST) → `built_for`/`person`; promote of a run's new-document draft → `built_for`/`agent_run`
-  with `session_id`, linking exactly the run's chosen resources (environment included); discovery accept → `built_for`
-  /`discovery`; edit → added `linked`, removed rows get `removed_at`/`removed_by`, unchanged rows keep `created_at`;
-  unticking a `built_for` link → 409 and no change; promote of an existing document's draft leaves links untouched.
-- deleting a resource removes its link rows; deleting a document removes all its rows.
-- `GET /documents/{id}` `resource_links` and `GET /documents/{id}/resource-history` content and order.
-- `folders.py` statistics count active code-project links only.
+- migration: documents keep id, slug, folder, current content and version; archive holds every earlier version with
+  its number; open drafts become draft rows (brand-new ones with built-for links); the five link tables' rows become
+  `linked`/`migrated`; `document_details` returns the same rows and arrays as before for the same data; down restores
+  the old tables.
+- constraints/triggers: slug unique among live + brand-new rows only; a draft of a live document has no slug; a link
+  or document link to a draft of a live document refused; one active link per resource; a built-for link can't be
+  removed; links across workspaces refused.
+- lifecycle: many drafts per document listed by `created_at`; promote archives the live content, updates the row in
+  place (same id), bumps version, deletes every draft; promote of a brand-new draft keeps its id and links; discard
+  deletes; a run whose draft was deleted starts a new one; stale promote asks for confirmation as today.
+- links: create → `built_for` with `added_how`/`session_id` (run: exactly `chosen_resources`, environment included);
+  edit → `linked` added, unticked rows get `removed_at`; unticking built-for → 409, no change; deleting a resource
+  removes its rows.
+- reading: document details and filters see live rows only; `GET /api/drafts?environment_id=` finds brand-new drafts
+  linked to it and drafts of documents linked to it; version history = archive + live; agents' document tools and RAG
+  export unchanged.
 
-UI:
-
-- Linked resources shows built-for links ticked and locked with the note; other links toggle as today.
-- Link history lists added/removed entries with how/who/when and a run link.
-- A 409 on save shows the message and reloads links.
-
-## Open question for review
-
-- Can a person add more links to a document next to its built-for links? This spec says **yes** (they are `linked` and
-  removable).
+UI: drafts list and promote warning; drafts filter by resource; locked built-for links; link history; version history.
