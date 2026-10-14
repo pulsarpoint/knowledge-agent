@@ -1,5 +1,6 @@
 """An Ask agent run (a revision session) on the document Runbook, running its turn 1, for tool tests (a fixture other
 modules import)."""
+
 import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
@@ -12,7 +13,7 @@ from knowledge_admin.capabilities import inventory
 from knowledge_admin.tools.catalog import CATALOG
 from session_rows import a_model
 
-RUNBOOK = '''# Runbook
+RUNBOOK = """# Runbook
 
 Intro.
 
@@ -29,7 +30,7 @@ Old steps.
 ## Restore
 
 Steps.
-'''
+"""
 
 
 @pytest.fixture
@@ -39,11 +40,16 @@ def rev(docs, monkeypatch):
     sid = uuid4()
     with docs.store.connect() as conn:
         actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
-        conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        conn.execute(
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,purpose,target_document_id,agent_config,turns) VALUES (%s,%s,NULL,%s,%s,'Revise','{}','{}','revision',%s,%s,1)""",
-            (sid, docs.project, actor, a_model(conn, actor), docs.runbook, Jsonb({})))
-    config = {'project_id': str(docs.project), 'session_id': str(sid),
-              'document_access': [{'id': str(docs.runbook), 'title': 'Runbook', 'editable': True}]}
+            (sid, docs.project, actor, a_model(conn, actor), docs.runbook, Jsonb({})),
+        )
+    config = {
+        'project_id': str(docs.project),
+        'session_id': str(sid),
+        'document_access': [{'id': str(docs.runbook), 'title': 'Runbook', 'editable': True}],
+    }
     return SimpleNamespace(docs=docs, sid=sid, config=config)
 
 
@@ -54,5 +60,8 @@ def call(rev, tool: str, **arguments) -> str:
 
 def run_drafts(rev) -> list[dict]:
     with rev.docs.store.connect() as conn:
-        return conn.execute('''SELECT id,document_id,status,edited,origin,markdown,title,description,revision,base_version_id
-            FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id''', (rev.sid,)).fetchall()
+        return conn.execute(
+            """SELECT id,document_id,status,edited,origin,markdown,title,description,revision,base_version_id
+            FROM ka.document_drafts WHERE session_id=%s ORDER BY created_at,id""",
+            (rev.sid,),
+        ).fetchall()

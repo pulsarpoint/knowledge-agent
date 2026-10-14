@@ -1,4 +1,5 @@
 """DATA_ROOT inside the containers (DATA_ROOT_DIR) and on the host (DATA_ROOT, display only)."""
+
 import os
 import re
 from pathlib import PurePosixPath
@@ -46,9 +47,11 @@ def jira_folder() -> str:
 # Lowercase-only, unlike RAG folders: on case-insensitive filesystems (macOS) Payments and payments are one directory.
 SEGMENT = r'[a-z0-9_-][a-z0-9._-]*'
 FOLDER = re.compile(rf'{SEGMENT}(/{SEGMENT})*')
-FOLDER_RULE = ("A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters, digits, "
-               "'.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; "
-               "at most 200 characters.")
+FOLDER_RULE = (
+    'A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters, digits, '
+    "'.', '_' and '-' and does not start with '.'; node_modules and a first segment services are not allowed; "
+    'at most 200 characters.'
+)
 
 
 def documentation_folder(value: str) -> str:
@@ -70,8 +73,10 @@ def generated_docs_folder() -> str:
 
 DATA_SEGMENT = r'[A-Za-z0-9_-][A-Za-z0-9._-]*'
 DATA_FOLDER = re.compile(rf'{DATA_SEGMENT}(/{DATA_SEGMENT})*')
-DATA_FOLDER_RULE = ("A folder is a path under DATA_ROOT such as code/payments or jira: names of letters, digits, '.', '_' "
-                    "and '-' separated by '/', none starting with '.'; at most 500 characters.")
+DATA_FOLDER_RULE = (
+    "A folder is a path under DATA_ROOT such as code/payments or jira: names of letters, digits, '.', '_' "
+    "and '-' separated by '/', none starting with '.'; at most 500 characters."
+)
 
 
 def data_folder(value: str) -> str:

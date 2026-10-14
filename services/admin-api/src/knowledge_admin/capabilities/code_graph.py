@@ -26,14 +26,24 @@ def load_code_graph_hashing(project: dict, expected_hash: str | None = None) -> 
     saved = json.loads(manifest.read_text())
     current = source_inventory(project)
     if saved['source_hash'] != current['source_hash'] or expected_hash != saved['source_hash']:
-        raise CodeProcessingError('Source or graph selection changed. Generate and inspect the graph again before continuing.')
+        raise CodeProcessingError(
+            'Source or graph selection changed. Generate and inspect the graph again before continuing.'
+        )
     graph_path = directory / saved['source_hash'] / 'graph.sqlite'
     if not graph_path.is_file():
         raise CodeProcessingError('The graph snapshot is unavailable. Generate the graph again.')
     root = code_root()
-    return {key: value for key, value in {**saved, 'name': project['name'],
-        'folder_paths': [str(root / p) for p in current['folders']],
-        'code_root': str(root / saved.get('relative_root', '.')), 'graph_path': str(graph_path)}.items() if key != 'files'}
+    return {
+        key: value
+        for key, value in {
+            **saved,
+            'name': project['name'],
+            'folder_paths': [str(root / p) for p in current['folders']],
+            'code_root': str(root / saved.get('relative_root', '.')),
+            'graph_path': str(graph_path),
+        }.items()
+        if key != 'files'
+    }
 
 
 SYNCED_AFTER = 'The code was synced after this graph was generated; regenerate it or confirm with read_file.'
@@ -77,8 +87,12 @@ def current_graph(project: dict) -> dict | None:
         if saved.get('status') not in USABLE:
             return None
         source_hash, relative_root = saved['source_hash'], PurePosixPath(saved.get('relative_root', '.'))
-        if (not isinstance(source_hash, str) or not SOURCE_HASH.fullmatch(source_hash)
-                or relative_root.is_absolute() or '..' in relative_root.parts):
+        if (
+            not isinstance(source_hash, str)
+            or not SOURCE_HASH.fullmatch(source_hash)
+            or relative_root.is_absolute()
+            or '..' in relative_root.parts
+        ):
             return None
         graph_path = directory / source_hash / 'graph.sqlite'
         if not graph_path.is_file():
@@ -88,19 +102,33 @@ def current_graph(project: dict) -> dict | None:
             return None
     except (CodeProcessingError, OSError, ValueError, KeyError, TypeError):
         return None
-    graph = {'id': str(project['id']), 'name': project['name'], 'graph_path': str(graph_path),
-             'code_root': str(root / relative_root), 'source_hash': source_hash,
-             'folder_paths': [str(root / folder) for folder in folders], 'generated_at': saved.get('processed_at')}
+    graph = {
+        'id': str(project['id']),
+        'name': project['name'],
+        'graph_path': str(graph_path),
+        'code_root': str(root / relative_root),
+        'source_hash': source_hash,
+        'folder_paths': [str(root / folder) for folder in folders],
+        'generated_at': saved.get('processed_at'),
+    }
     generated, synced = _generated_at(saved.get('processed_at')), project.get('synced_at')
     if generated is not None and synced is not None and synced > generated:
         graph['note'] = SYNCED_AFTER
     return graph
 
 
-async def code_graph(context: RunContext, project_id: str,
-                     action: Literal['overview', 'search', 'routes', 'code', 'context', 'callers', 'callees', 'traverse', 'unresolved'] = 'overview',
-                     query: str = '', node_id: str = '', offset: int = 0, limit: int = 50,
-                     include_code: bool = False) -> str:
+async def code_graph(
+    context: RunContext,
+    project_id: str,
+    action: Literal[
+        'overview', 'search', 'routes', 'code', 'context', 'callers', 'callees', 'traverse', 'unresolved'
+    ] = 'overview',
+    query: str = '',
+    node_id: str = '',
+    offset: int = 0,
+    limit: int = 50,
+    include_code: bool = False,
+) -> str:
     config = context['config']
     if not config['enabled'] or not config['code']['enabled']:
         raise ValueError('Code access is disabled.')
@@ -115,19 +143,47 @@ async def code_graph(context: RunContext, project_id: str,
     else:
         if action not in ('search', 'routes', 'unresolved') and not node_id:
             raise ValueError('Choose a node ID from symbol search.')
-        bridge = Path(os.environ.get('CODEGRAPH_QUERY_BRIDGE', str(
-            Path(__file__).resolve().parents[4] / 'code-graph/query.cjs')))
+        bridge = Path(
+            os.environ.get('CODEGRAPH_QUERY_BRIDGE', str(Path(__file__).resolve().parents[4] / 'code-graph/query.cjs'))
+        )
         with TemporaryDirectory(prefix='knowledge-codegraph-query-') as directory:
             request = Path(directory) / 'request.json'
             output = Path(directory) / 'result.json'
-            request.write_text(json.dumps({'graph': graph, 'action': action, 'query': query,
-                'node_id': node_id, 'offset': offset, 'limit': limit, 'include_code': include_code}), encoding='utf-8')
+            request.write_text(
+                json.dumps(
+                    {
+                        'graph': graph,
+                        'action': action,
+                        'query': query,
+                        'node_id': node_id,
+                        'offset': offset,
+                        'limit': limit,
+                        'include_code': include_code,
+                    }
+                ),
+                encoding='utf-8',
+            )
             # No model credentials, project config, auto-sync or telemetry in this process.
-            env = {'PATH': os.environ.get('PATH', ''), 'HOME': directory,
-                   'CODEGRAPH_TELEMETRY': '0', 'DO_NOT_TRACK': '1', 'CODEGRAPH_NO_DAEMON': '1',
-                   'NODE_NO_WARNINGS': '1', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull}
-            process = await asyncio.create_subprocess_exec('node', str(bridge), str(request), str(output),
-                cwd=directory, env=env, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            env = {
+                'PATH': os.environ.get('PATH', ''),
+                'HOME': directory,
+                'CODEGRAPH_TELEMETRY': '0',
+                'DO_NOT_TRACK': '1',
+                'CODEGRAPH_NO_DAEMON': '1',
+                'NODE_NO_WARNINGS': '1',
+                'GIT_CONFIG_NOSYSTEM': '1',
+                'GIT_CONFIG_GLOBAL': os.devnull,
+            }
+            process = await asyncio.create_subprocess_exec(
+                'node',
+                str(bridge),
+                str(request),
+                str(output),
+                cwd=directory,
+                env=env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
             try:
                 async with asyncio.timeout(60):
                     _, stderr = await process.communicate()
@@ -142,6 +198,10 @@ async def code_graph(context: RunContext, project_id: str,
                 raise ValueError(error or 'CodeGraph query failed. Check the graph snapshot and SDK installation.')
             result = json.loads(output.read_text(encoding='utf-8'))
         note = 'CodeGraph SDK results. An absent or heuristic edge is not proof of runtime behavior; verify source and unresolved calls.'
-        result.update(source_hash=graph['source_hash'], path_base=graph['code_root'], generated_at=graph.get('generated_at'),
-            note=f"{graph['note']} {note}" if graph.get('note') else note)
+        result.update(
+            source_hash=graph['source_hash'],
+            path_base=graph['code_root'],
+            generated_at=graph.get('generated_at'),
+            note=f'{graph["note"]} {note}' if graph.get('note') else note,
+        )
     return redact(json.dumps(result), context['credentials'].values())

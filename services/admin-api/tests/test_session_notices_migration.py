@@ -2,6 +2,7 @@
 the newest id), session rows (update, delete; an update of only the lease or last activity is silent) and queued
 messages (insert, update, delete); other run keys are silent and nothing is sent before commit. Down removes the
 triggers; up restores them."""
+
 import json
 from pathlib import Path
 
@@ -27,10 +28,12 @@ def two_sessions(store):
 
 def insert_events(conn, project, keys: list[str]) -> list[dict]:
     """One INSERT statement for all keys (seq 1, 2, … per key)."""
-    seqs = [keys[:index + 1].count(key) for index, key in enumerate(keys)]
-    return conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        SELECT %s,k,s,'message','ad-hoc','{}' FROM unnest(%s::text[],%s::int[]) AS t(k,s) RETURNING id,run_key''',
-        (project, keys, seqs)).fetchall()
+    seqs = [keys[: index + 1].count(key) for index, key in enumerate(keys)]
+    return conn.execute(
+        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+        SELECT %s,k,s,'message','ad-hoc','{}' FROM unnest(%s::text[],%s::int[]) AS t(k,s) RETURNING id,run_key""",
+        (project, keys, seqs),
+    ).fetchall()
 
 
 def notices(listener) -> list[dict]:
@@ -41,15 +44,27 @@ def test_event_inserts_notify_once_per_statement_and_session_with_the_newest_id(
     project, _, (first, second) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
-        rows = insert_events(conn, project, [f'cc:{first}:1', f'cc:{second}:1', f'cc:{first}:1', f'cc:{first}:2',
-                                             'run:other', f'cc:{second}:x', 'cc:not-a-session:1'])
+        rows = insert_events(
+            conn,
+            project,
+            [
+                f'cc:{first}:1',
+                f'cc:{second}:1',
+                f'cc:{first}:1',
+                f'cc:{first}:2',
+                'run:other',
+                f'cc:{second}:x',
+                'cc:not-a-session:1',
+            ],
+        )
         assert notices(listener) == []  # nothing before commit
         conn.commit()
         got = notices(listener)
         assert len(got) == 2
         assert {(n['s'], n['e']) for n in got} == {
             (str(first), max(r['id'] for r in rows if r['run_key'].startswith(f'cc:{first}:'))),
-            (str(second), next(r['id'] for r in rows if r['run_key'] == f'cc:{second}:1'))}
+            (str(second), next(r['id'] for r in rows if r['run_key'] == f'cc:{second}:1')),
+        }
         insert_events(conn, project, ['run:quiet', 'cc:also-quiet:1'])
         conn.commit()
         assert notices(listener) == []
@@ -66,8 +81,9 @@ def test_session_rows_and_queued_messages_notify_their_session(store):
         conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (second,))
         conn.rollback()
         assert notices(listener) == []  # only committed changes are announced
-        conn.execute("INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Hi')",
-                     (second, actor))
+        conn.execute(
+            "INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Hi')", (second, actor)
+        )
         conn.commit()
         assert notices(listener) == [{'s': str(second)}]
         conn.execute("UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s", (second,))
@@ -95,7 +111,7 @@ def test_lease_only_session_updates_are_silent(store):
         conn.commit()
         assert notices(listener) == []
         for change in ("status='working'", 'turns=1', 'output_tokens=7', "worker_id='w1'"):
-            conn.execute(f"UPDATE ka.agent_sessions SET {change},lease_expires_at=now() WHERE id=%s", (first,))
+            conn.execute(f'UPDATE ka.agent_sessions SET {change},lease_expires_at=now() WHERE id=%s', (first,))
             conn.commit()
             assert notices(listener) == [{'s': str(first)}], change
 

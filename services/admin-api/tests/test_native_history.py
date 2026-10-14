@@ -1,5 +1,6 @@
 """Native session history through the Agents SDK Session interface: the SDK reads the saved history and buffers the
 turn's items; only a committed successful turn reaches the session row."""
+
 import asyncio
 import json
 
@@ -43,8 +44,14 @@ def test_commit_appends_scrubbed_items_in_the_callers_transaction_and_drop_disca
     with store.connect() as conn:
         history = HistorySession.load(conn, sid)
     assert (history.session_id, history.saved, history.pending) == (sid, [], [])
-    asyncio.run(history.add_items([{'role': 'user', 'content': 'key fixture-api-secret\x00 here'},
-                                   {'type': 'function_call_output', 'call_id': 'c1', 'output': 'fixture-api-secret'}]))
+    asyncio.run(
+        history.add_items(
+            [
+                {'role': 'user', 'content': 'key fixture-api-secret\x00 here'},
+                {'type': 'function_call_output', 'call_id': 'c1', 'output': 'fixture-api-secret'},
+            ]
+        )
+    )
     with store.connect() as conn:
         history.commit(conn, ['fixture-api-secret'])
         conn.rollback()  # the caller's transaction decides
@@ -55,7 +62,8 @@ def test_commit_appends_scrubbed_items_in_the_callers_transaction_and_drop_disca
     with store.connect() as conn:
         assert HistorySession.load(conn, sid).saved == [
             {'role': 'user', 'content': 'key [redacted] here'},
-            {'type': 'function_call_output', 'call_id': 'c1', 'output': '[redacted]'}]
+            {'type': 'function_call_output', 'call_id': 'c1', 'output': '[redacted]'},
+        ]
     history.drop()
     assert history.pending == []
     with store.connect() as conn:
@@ -72,8 +80,9 @@ def test_agent_reads_and_buffers_the_conversation_through_the_sdk_session(config
             calls.append(response.usage.total_tokens)
 
     first = HistorySession('s1', [])
-    result = asyncio.run(agent(config, 'Remember the test word apricot.', credentials=SECRET, session=first,
-                               hooks=Hooks(), stream=False))
+    result = asyncio.run(
+        agent(config, 'Remember the test word apricot.', credentials=SECRET, session=first, hooks=Hooks(), stream=False)
+    )
     assert result.final_output == 'Configured agent completed the task.' and calls == [30]
     assert first.saved == []  # nothing is saved by the run itself
     turn = json.dumps(jsonable_encoder(first.pending))  # what commit() stores

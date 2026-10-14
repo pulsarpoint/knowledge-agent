@@ -1,4 +1,5 @@
 """Administrator view of complete agent run records."""
+
 from collections import Counter
 from functools import partial
 
@@ -66,14 +67,29 @@ def build_api(app_name: str, store) -> APIRouter:
     database = partial(storage, store, 'Agent storage')
 
     @router.get('')
-    def runs(agent_id: str | None = None, kind: str | None = None, user: str | None = None,
-             key_prefix: str | None = None, before: int | None = None, limit: int = Query(50, ge=1, le=200)):
+    def runs(
+        agent_id: str | None = None,
+        kind: str | None = None,
+        user: str | None = None,
+        key_prefix: str | None = None,
+        before: int | None = None,
+        limit: int = Query(50, ge=1, le=200),
+    ):
         with database().connect() as conn:
-            params = {'project': store.project(conn, app_name), 'agent_id': agent_id, 'kind': kind,
-                'user': user, 'key_prefix': key_prefix, 'before': before, 'limit': limit + 1}
+            params = {
+                'project': store.project(conn, app_name),
+                'agent_id': agent_id,
+                'kind': kind,
+                'user': user,
+                'key_prefix': key_prefix,
+                'before': before,
+                'limit': limit + 1,
+            }
             rows = conn.execute(RUNS, params).fetchall()
             if agent_id is not None and kind in (None, 'expert_call'):
-                rows = sorted(rows + conn.execute(EXPERT_CALLS, params).fetchall(), key=lambda row: row['id'], reverse=True)
+                rows = sorted(
+                    rows + conn.execute(EXPERT_CALLS, params).fetchall(), key=lambda row: row['id'], reverse=True
+                )
         more = len(rows) > limit
         rows = rows[:limit]
         cursor = rows[-1]['id'] if more else None
@@ -87,23 +103,42 @@ def build_api(app_name: str, store) -> APIRouter:
     def record(run_key: str, call: str | None = Query(None)):
         with database().connect() as conn:
             # the expert's own subagents belong to the call: their run_subagent calls are expert events
-            ids = [call] + [row['call_id'] for row in conn.execute(NESTED_CALLS, (run_key, call, run_key, call)).fetchall()] \
-                if call is not None else None
-            events = conn.execute('''SELECT e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
+            ids = (
+                [call]
+                + [row['call_id'] for row in conn.execute(NESTED_CALLS, (run_key, call, run_key, call)).fetchall()]
+                if call is not None
+                else None
+            )
+            events = conn.execute(
+                """SELECT e.seq,e.kind,e.agent_id,e.payload,e.created_at,p.email AS "user"
                 FROM ka.agent_run_events e LEFT JOIN ka.principals p ON p.id=e.actor_id
                 WHERE e.run_key=%s AND e.project_id=%s
                   AND (%s::text[] IS NULL OR e.payload->>'parent_call_id'=ANY(%s)
                        OR (e.kind IN ('tool_call','tool_result') AND e.payload->>'call_id'=%s))
-                ORDER BY e.seq''', (run_key, store.project(conn, app_name), ids, ids, call)).fetchall()
+                ORDER BY e.seq""",
+                (run_key, store.project(conn, app_name), ids, ids, call),
+            ).fetchall()
             if call is None:
                 counts = tool_counts(conn, [run_key]) if events else []
         if call is not None:
-            calls = Counter(e['payload'].get('name') for e in events
-                            if e['kind'] == 'tool_call' and e['payload'].get('parent_call_id') in ids)
-            counts = [{'name': name, 'calls': n} for name, n in sorted(calls.items(), key=lambda item: (-item[1], item[0]))]
+            calls = Counter(
+                e['payload'].get('name')
+                for e in events
+                if e['kind'] == 'tool_call' and e['payload'].get('parent_call_id') in ids
+            )
+            counts = [
+                {'name': name, 'calls': n} for name, n in sorted(calls.items(), key=lambda item: (-item[1], item[0]))
+            ]
         if not events:
             raise HTTPException(404, 'Run record not found.')
-        return {'run_key': run_key, 'agent_id': events[0]['agent_id'], 'user': events[0]['user'], 'tool_counts': counts,
-                'events': [{key: event[key] for key in ('seq', 'kind', 'agent_id', 'payload', 'created_at')} for event in events]}
+        return {
+            'run_key': run_key,
+            'agent_id': events[0]['agent_id'],
+            'user': events[0]['user'],
+            'tool_counts': counts,
+            'events': [
+                {key: event[key] for key in ('seq', 'kind', 'agent_id', 'payload', 'created_at')} for event in events
+            ],
+        }
 
     return router

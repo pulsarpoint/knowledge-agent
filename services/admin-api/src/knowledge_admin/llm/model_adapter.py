@@ -13,27 +13,39 @@ from openai.types.shared import Reasoning
 
 
 @asynccontextmanager
-async def agent_model(model: dict[str, Any], api_key: str | None,
-                      timeout_seconds: float) -> AsyncIterator[tuple[Model, ModelSettings]]:
+async def agent_model(
+    model: dict[str, Any], api_key: str | None, timeout_seconds: float
+) -> AsyncIterator[tuple[Model, ModelSettings]]:
     """Own the provider client for one agent run."""
     if (model['provider'], model['api_format']) not in (
-        ('openai', 'responses'), ('openai', 'chat_completions'),
-        ('anthropic', 'native'), ('bedrock', 'native'),
+        ('openai', 'responses'),
+        ('openai', 'chat_completions'),
+        ('anthropic', 'native'),
+        ('bedrock', 'native'),
     ):
         raise ValueError('Unsupported model provider or API format.')
     if model['provider'] == 'openai':
-        async with AsyncOpenAI(api_key=api_key or 'unused', base_url=model['base_url'],
-                               max_retries=0, timeout=timeout_seconds) as client:
+        async with AsyncOpenAI(
+            api_key=api_key or 'unused', base_url=model['base_url'], max_retries=0, timeout=timeout_seconds
+        ) as client:
             sdk_model = (OpenAIResponsesModel if model['api_format'] == 'responses' else OpenAIChatCompletionsModel)(
-                model=model['model'], openai_client=client)
+                model=model['model'], openai_client=client
+            )
             effort = model.get('reasoning_effort')
-            yield sdk_model, ModelSettings(store=False, include_usage=True,
-                reasoning=Reasoning(effort=effort) if effort is not None else None)
+            yield (
+                sdk_model,
+                ModelSettings(
+                    store=False, include_usage=True, reasoning=Reasoning(effort=effort) if effort is not None else None
+                ),
+            )
     else:
         if not api_key:
             raise ValueError('Supply the saved API key for this native model connection.')
-        sdk_model = LitellmModel(model=completion_model(model['provider'], model['model']),
-            api_key=api_key, base_url=model['base_url'] if model['provider'] != 'bedrock' else None)
+        sdk_model = LitellmModel(
+            model=completion_model(model['provider'], model['model']),
+            api_key=api_key,
+            base_url=model['base_url'] if model['provider'] != 'bedrock' else None,
+        )
         # Resolve the saved model before adding transport prefixes such as bedrock/invoke/.
         # Otherwise LiteLLM's native path can fall back to 4096 despite knowing this model's allowance.
         capabilities = model_cost.get(model['model'], {})
@@ -56,5 +68,13 @@ async def agent_model(model: dict[str, Any], api_key: str | None,
                     # LiteLLM 1.100 maps Invoke structured outputs through Claude 3,
                     # which incorrectly converts effort into legacy thinking budgets.
                     extra_body = {'thinking': {'type': 'adaptive'}, 'output_config': {'effort': reasoning.effort}}
-        yield sdk_model, ModelSettings(max_tokens=capabilities.get('max_output_tokens'),
-            reasoning=reasoning, include_usage=True, extra_args=extra_args, extra_body=extra_body)
+        yield (
+            sdk_model,
+            ModelSettings(
+                max_tokens=capabilities.get('max_output_tokens'),
+                reasoning=reasoning,
+                include_usage=True,
+                extra_args=extra_args,
+                extra_body=extra_body,
+            ),
+        )

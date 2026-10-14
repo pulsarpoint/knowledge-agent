@@ -1,5 +1,6 @@
 """The Tools tab API: catalog, an agent's tools, replacing them with the save rules and the revision check; default
 tools when a capability is switched on; the wizard's tools; the list summary."""
+
 from uuid import uuid4
 
 from knowledge_admin.knowledge_agents.config import get_agent_config
@@ -18,7 +19,9 @@ def view(client, agent_id='operations') -> dict:
 
 
 def put(client, agent_id, revision, tools):
-    return client.put(f'/api/agents/{agent_id}/tools', headers=HEADERS, json={'expected_revision': revision, 'tools': tools})
+    return client.put(
+        f'/api/agents/{agent_id}/tools', headers=HEADERS, json={'expected_revision': revision, 'tools': tools}
+    )
 
 
 def on(value) -> set[str]:
@@ -27,7 +30,10 @@ def on(value) -> set[str]:
 
 def rows(store, agent_id) -> set[str]:
     with store.connect() as conn:
-        return {row['tool'] for row in conn.execute("SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'", (agent_id,))}
+        return {
+            row['tool']
+            for row in conn.execute("SELECT tool FROM ka.agent_tools WHERE agent_id=%s AND mode='on'", (agent_id,))
+        }
 
 
 CODE_TOOLS = {'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'code_graph'}
@@ -35,7 +41,9 @@ CODE_TOOLS = {'list_files', 'read_file', 'search_files', 'shell_run', 'code_sear
 
 def usage_of(store, agent_id, tool):
     with store.connect() as conn:
-        return conn.execute('SELECT usage FROM ka.agent_tools WHERE agent_id=%s AND tool=%s', (agent_id, tool)).fetchone()['usage']
+        return conn.execute(
+            'SELECT usage FROM ka.agent_tools WHERE agent_id=%s AND tool=%s', (agent_id, tool)
+        ).fetchone()['usage']
 
 
 def profile_of(client, agent_id):
@@ -46,17 +54,29 @@ def test_the_catalog_and_an_agents_tools(store, saved_agent):
     client, mcp = saved_agent[0], saved_agent[4]
     assert client.get('/api/tools').status_code == 403
     catalog = client.get('/api/tools', headers=HEADERS).json()['tools']
-    assert [tool['name'] for tool in catalog] == [name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS]
+    assert [tool['name'] for tool in catalog] == [
+        name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS
+    ]
     assert set(catalog[0]) == {'name', 'group', 'label', 'summary', 'usage', 'needs'}
     current = view(client)
     names = [tool['tool'] for tool in current['tools']]
-    assert names == [*(name for name, spec in CATALOG.items() if name != 'run_subagent' and spec.needs not in RUN_ONLY_NEEDS), f"mcp:{mcp['id']}:lookup"]  # run_subagent: only with its switch
+    assert names == [
+        *(name for name, spec in CATALOG.items() if name != 'run_subagent' and spec.needs not in RUN_ONLY_NEEDS),
+        f'mcp:{mcp["id"]}:lookup',
+    ]  # run_subagent: only with its switch
     lookup = current['tools'][-1]
-    assert (lookup['label'], lookup['group'], lookup['mode'], lookup['available']) == ('Docs / lookup', 'mcp', 'on', True)
+    assert (lookup['label'], lookup['group'], lookup['mode'], lookup['available']) == (
+        'Docs / lookup',
+        'mcp',
+        'on',
+        True,
+    )
     read = current['tools'][1]
     assert read['default_usage'] == CATALOG['read_file'].usage and read['available'] and read['tab'] == 'git'
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET repositories_enabled=false,documents_enabled=false,ssh_enabled=false WHERE id='operations'")
+        conn.execute(
+            "UPDATE ka.agents SET repositories_enabled=false,documents_enabled=false,ssh_enabled=false WHERE id='operations'"
+        )
     unmet = {tool['tool']: tool for tool in view(client)['tools']}
     assert not unmet['read_file']['available']
     assert unmet['read_file']['reason'] == 'Needs code projects, or documents without "Answer only from documents"'
@@ -65,11 +85,19 @@ def test_the_catalog_and_an_agents_tools(store, saved_agent):
 
 def test_put_replaces_the_tools_and_enforces_the_save_rules(store, saved_agent):
     client, mcp = saved_agent[0], saved_agent[4]
-    lookup = f"mcp:{mcp['id']}:lookup"
+    lookup = f'mcp:{mcp["id"]}:lookup'
     revision = view(client)['revision']
-    saved = put(client, 'operations', revision, [
-        {'tool': 'read_file', 'mode': 'on', 'usage': 'Read narrowly.'}, {'tool': 'ssh_run', 'mode': 'on', 'usage': '  '},
-        {'tool': lookup, 'mode': 'off', 'usage': None}, {'tool': 'list_files', 'mode': 'off', 'usage': None}])
+    saved = put(
+        client,
+        'operations',
+        revision,
+        [
+            {'tool': 'read_file', 'mode': 'on', 'usage': 'Read narrowly.'},
+            {'tool': 'ssh_run', 'mode': 'on', 'usage': '  '},
+            {'tool': lookup, 'mode': 'off', 'usage': None},
+            {'tool': 'list_files', 'mode': 'off', 'usage': None},
+        ],
+    )
     assert saved.status_code == 200, saved.text
     body = saved.json()
     assert on(body) == {'read_file', 'ssh_run'} and body['revision'] == revision + 1
@@ -77,23 +105,43 @@ def test_put_replaces_the_tools_and_enforces_the_save_rules(store, saved_agent):
     assert tools['read_file']['usage'] == 'Read narrowly.' and tools['ssh_run']['usage'] is None  # blank: built-in
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert {e['tool'] for e in config['tools']['items'] if e['mode'] == 'on'} == {'read_file', 'ssh_run'}
-    for tool, message in (('grep', UNKNOWN.format(tool='grep')),
-                          (f'mcp:{uuid4()}:lookup', None), (f"mcp:{mcp['id']}:missing", None)):
+    for tool, message in (
+        ('grep', UNKNOWN.format(tool='grep')),
+        (f'mcp:{uuid4()}:lookup', None),
+        (f'mcp:{mcp["id"]}:missing', None),
+    ):
         refused = put(client, 'operations', body['revision'], [{'tool': tool, 'mode': 'on', 'usage': None}])
         assert refused.status_code == 400
         assert refused.json()['error']['message'] == (message or MCP_NOT_SELECTED.format(tool=tool))
     hidden = put(client, 'operations', body['revision'], [{'tool': 'propose_service', 'mode': 'on', 'usage': None}])
     assert hidden.status_code == 400 and hidden.json()['error']['message'] == DISCOVERY_ONLY
-    revision_only = put(client, 'operations', body['revision'], [{'tool': 'save_document', 'mode': 'on', 'usage': None}])
+    revision_only = put(
+        client, 'operations', body['revision'], [{'tool': 'save_document', 'mode': 'on', 'usage': None}]
+    )
     assert revision_only.status_code == 400 and revision_only.json()['error']['message'] == DISCOVERY_ONLY
     assert 'propose_service' not in tools
-    assert put(client, 'operations', body['revision'], [{'tool': 'read_file', 'mode': 'per_run', 'usage': None}]).status_code == 400  # validation: 400 in this app
+    assert (
+        put(
+            client, 'operations', body['revision'], [{'tool': 'read_file', 'mode': 'per_run', 'usage': None}]
+        ).status_code
+        == 400
+    )  # validation: 400 in this app
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET documents_enabled=true,documents_grounded=true WHERE id='operations'")
     grounded = put(client, 'operations', body['revision'], [{'tool': 'search_documents', 'mode': 'on', 'usage': None}])
     assert grounded.status_code == 400 and grounded.json()['error']['message'] == GROUNDED
-    assert put(client, 'operations', body['revision'], [{'tool': 'search_documents', 'mode': 'on', 'usage': None},
-               {'tool': 'report_not_covered', 'mode': 'on', 'usage': None}]).status_code == 200
+    assert (
+        put(
+            client,
+            'operations',
+            body['revision'],
+            [
+                {'tool': 'search_documents', 'mode': 'on', 'usage': None},
+                {'tool': 'report_not_covered', 'mode': 'on', 'usage': None},
+            ],
+        ).status_code
+        == 200
+    )
 
 
 def test_a_stale_revision_is_refused(store, saved_agent):
@@ -111,9 +159,15 @@ def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent)
     assert rows(store, blank['id']) == set()
     code = update(client, blank, repositories_enabled=True).json()
     assert rows(store, blank['id']) == CODE_TOOLS
-    only = put(client, blank['id'], code['revision'], [
-        {'tool': 'read_file', 'mode': 'on', 'usage': 'Read narrowly.'},
-        *({'tool': name, 'mode': 'off', 'usage': None} for name in sorted(CODE_TOOLS - {'read_file'}))]).json()
+    only = put(
+        client,
+        blank['id'],
+        code['revision'],
+        [
+            {'tool': 'read_file', 'mode': 'on', 'usage': 'Read narrowly.'},
+            *({'tool': name, 'mode': 'off', 'usage': None} for name in sorted(CODE_TOOLS - {'read_file'})),
+        ],
+    ).json()
     profile = profile_of(client, blank['id'])
     assert profile['revision'] == only['revision']
     documents = update(client, profile, documents_enabled=True).json()
@@ -139,21 +193,37 @@ def test_a_grounded_documents_only_agent_gets_no_file_tools_on_switch_on(store, 
 
 def test_a_per_run_agent_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
     client = saved_agent[0]
-    role = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Role', resources='per_run', repositories_enabled=True, documents_enabled=True)).json()
+    role = client.post(
+        '/api/agents/wizard',
+        headers=HEADERS,
+        json=wizard_payload('Role', resources='per_run', repositories_enabled=True, documents_enabled=True),
+    ).json()
     assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document'}
     profile = profile_of(client, role['id'])
-    trimmed = put(client, role['id'], profile['revision'], [
-        {'tool': name, 'mode': 'off' if name == 'shell_run' else 'on', 'usage': None}
-        for name in sorted(CODE_TOOLS | {'search_documents', 'read_document'})]).json()
+    trimmed = put(
+        client,
+        role['id'],
+        profile['revision'],
+        [
+            {'tool': name, 'mode': 'off' if name == 'shell_run' else 'on', 'usage': None}
+            for name in sorted(CODE_TOOLS | {'search_documents', 'read_document'})
+        ],
+    ).json()
     assert 'shell_run' not in rows(store, role['id'])
     ssh = update(client, profile_of(client, role['id']), ssh_enabled=True).json()  # a capability on while per run
     assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document', 'ssh_run'}
     assert ssh['revision'] == trimmed['revision'] + 1
     fixed = create(client, 'Fixed first')
     coded = update(client, fixed, repositories_enabled=True).json()
-    put(client, fixed['id'], coded['revision'], [{'tool': name, 'mode': 'off' if name == 'code_search' else 'on',
-                                                  'usage': None} for name in sorted(CODE_TOOLS)])
+    put(
+        client,
+        fixed['id'],
+        coded['revision'],
+        [
+            {'tool': name, 'mode': 'off' if name == 'code_search' else 'on', 'usage': None}
+            for name in sorted(CODE_TOOLS)
+        ],
+    )
     update(client, profile_of(client, fixed['id']), resources='per_run')  # switched to per run
     assert rows(store, fixed['id']) == CODE_TOOLS
 
@@ -162,8 +232,11 @@ def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_age
     """Existing agents are not changed: only switching a capability on (or to per run) switches tools on."""
     client = saved_agent[0]
     for resources in ('fixed', 'per_run'):
-        agent = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-            f'Kept {resources}', resources=resources, repositories_enabled=True)).json()
+        agent = client.post(
+            '/api/agents/wizard',
+            headers=HEADERS,
+            json=wizard_payload(f'Kept {resources}', resources=resources, repositories_enabled=True),
+        ).json()
         profile = profile_of(client, agent['id'])
         put(client, agent['id'], profile['revision'], [{'tool': 'read_file', 'mode': 'off', 'usage': None}])
         update(client, profile_of(client, agent['id']), name=f'Renamed {resources}')
@@ -173,30 +246,48 @@ def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_age
 def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     client = saved_agent[0]
     options = client.get('/api/agents/wizard/options', headers=HEADERS).json()
-    assert [tool['name'] for tool in options['tools']] == [name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS]
-    implied = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Implied', ssh_enabled=True)).json()
+    assert [tool['name'] for tool in options['tools']] == [
+        name for name, spec in CATALOG.items() if spec.needs not in RUN_ONLY_NEEDS
+    ]
+    implied = client.post(
+        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Implied', ssh_enabled=True)
+    ).json()
     assert rows(store, implied['id']) == {'ssh_run'}
-    chosen = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Chosen', repositories_enabled=True, tools=['read_file', 'code_graph'])).json()
+    chosen = client.post(
+        '/api/agents/wizard',
+        headers=HEADERS,
+        json=wizard_payload('Chosen', repositories_enabled=True, tools=['read_file', 'code_graph']),
+    ).json()
     assert rows(store, chosen['id']) == {'read_file', 'code_graph'}
     refused = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Odd', tools=['grep']))
     assert refused.status_code == 400 and refused.json()['error']['message'] == UNKNOWN.format(tool='grep')
     only = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Hidden', tools=['propose_document']))
     assert only.status_code == 400 and only.json()['error']['message'] == DISCOVERY_ONLY
-    revision_only = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Doc', tools=['save_document']))
+    revision_only = client.post(
+        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Doc', tools=['save_document'])
+    )
     assert revision_only.status_code == 400 and revision_only.json()['error']['message'] == DISCOVERY_ONLY
-    empty = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Empty', repositories_enabled=True, tools=[])).json()
+    empty = client.post(
+        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Empty', repositories_enabled=True, tools=[])
+    ).json()
     assert rows(store, empty['id']) == set()  # an explicit empty selection is kept
 
 
 def test_the_list_summarises_the_tools_that_run(store, saved_agent):
     client = saved_agent[0]
     revision = view(client)['revision']
-    put(client, 'operations', revision, [{'tool': 'read_file', 'mode': 'on', 'usage': None},
-                                         {'tool': 'ssh_run', 'mode': 'on', 'usage': None}])
+    put(
+        client,
+        'operations',
+        revision,
+        [{'tool': 'read_file', 'mode': 'on', 'usage': None}, {'tool': 'ssh_run', 'mode': 'on', 'usage': None}],
+    )
     summary = listed(client)['operations']['tools_summary']
-    assert summary == {'on': 3, 'per_run': 0, 'groups': {'code': 1, 'documents': 0, 'servers': 1, 'inventory': 0, 'mcp': 1, 'agents': 0}}
+    assert summary == {
+        'on': 3,
+        'per_run': 0,
+        'groups': {'code': 1, 'documents': 0, 'servers': 1, 'inventory': 0, 'mcp': 1, 'agents': 0},
+    }
 
 
 def offered(store, agent_id, ssh_servers=()) -> set[str]:
@@ -207,15 +298,29 @@ def offered(store, agent_id, ssh_servers=()) -> set[str]:
 def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, saved_agent):
     """After 0078 tools come only from rows: the wizard and a profile save must leave rows the run actually offers."""
     client = saved_agent[0]
-    fresh = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload(
-        'Fresh', repositories_enabled=True, ssh_enabled=True)).json()
+    fresh = client.post(
+        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Fresh', repositories_enabled=True, ssh_enabled=True)
+    ).json()
     assert offered(store, fresh['id'], [{'id': 'server'}]) == {
-        'list_files', 'read_file', 'search_files', 'shell_run', 'code_search', 'ast_grep', 'ssh_run'}  # no graph yet
+        'list_files',
+        'read_file',
+        'search_files',
+        'shell_run',
+        'code_search',
+        'ast_grep',
+        'ssh_run',
+    }  # no graph yet
     blank = create(client, 'Blank')
     assert offered(store, blank['id']) == set()
     documents = update(client, blank, documents_enabled=True).json()
-    assert offered(store, blank['id']) == {'list_files', 'read_file', 'search_files', 'shell_run',
-                                           'search_documents', 'read_document'}
+    assert offered(store, blank['id']) == {
+        'list_files',
+        'read_file',
+        'search_files',
+        'shell_run',
+        'search_documents',
+        'read_document',
+    }
     update(client, documents, documents_grounded=True)
     assert offered(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
 

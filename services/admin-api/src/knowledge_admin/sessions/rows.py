@@ -1,4 +1,5 @@
 """What a session looks like to the API: its row, its detail and its events."""
+
 from typing import Literal
 from uuid import UUID
 
@@ -20,6 +21,7 @@ SELECTION = ('code_project_ids', 'collection_ids', 'environment_ids', 'service_i
 
 class Selection(BaseModel):
     """What a generation documents: each id once, in the order chosen."""
+
     model_config = ConfigDict(extra='forbid')
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=20)
     collection_ids: list[UUID] = Field(default_factory=list, max_length=50)
@@ -57,24 +59,35 @@ def _select(extra: str = '') -> str:
 
 
 SUMMARY = _select()
-DETAIL = _select(',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id,s.target_document_id')
+DETAIL = _select(
+    ',s.document_name,s.draft,s.draft_turn,s.prompt_snapshot,s.context_snapshot,s.model_id,s.run_resources,s.server_id,s.target_document_id'
+)
 
 
 def session_detail(conn, project: UUID, session_id: UUID) -> dict:
     row = conn.execute(DETAIL + ' WHERE s.id=%s AND s.project_id=%s', (session_id, project)).fetchone()
     if row is None:
         raise HTTPException(404, 'Session not found.')
-    row['inputs'] = conn.execute('''SELECT seq,text,status,turn,created_at FROM ka.agent_session_inputs
-        WHERE session_id=%s ORDER BY seq''', (session_id,)).fetchall()
+    row['inputs'] = conn.execute(
+        """SELECT seq,text,status,turn,created_at FROM ka.agent_session_inputs
+        WHERE session_id=%s ORDER BY seq""",
+        (session_id,),
+    ).fetchall()
     row['tool_counts'], row['tool_counts_through_id'] = tool_counts_through(
-        conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)])
+        conn, [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
+    )
     pinned_shown = row['purpose'] in ('test', 'event', 'revision') or (
-        row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {}))  # a new-document run
+        row['purpose'] == 'documents' and 'new_document' in (row['context_snapshot'] or {})
+    )  # a new-document run
     if pinned_shown:  # its pinned configuration (credential references only) and, for Test sessions, its suggestions
-        row['config'] = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
-                                     (session_id,)).fetchone()['agent_config']
-        row['reviews'] = conn.execute('''SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
-            FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id''', (session_id,)).fetchall()
+        row['config'] = conn.execute(
+            'SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (session_id,)
+        ).fetchone()['agent_config']
+        row['reviews'] = conn.execute(
+            """SELECT id,comment,suggestion,response_turn,created_at,context->'changes' AS changes
+            FROM ka.agent_session_reviews WHERE session_id=%s ORDER BY created_at,id""",
+            (session_id,),
+        ).fetchall()
     return row
 
 
@@ -83,5 +96,11 @@ def stream_event(row: dict) -> dict:
     payload = dict(row['payload'])
     if row['kind'] == 'tool_result':
         payload.pop('output', None)
-    return {'id': row['id'], 'turn': int(row['run_key'].rsplit(':', 1)[1]), 'seq': row['seq'], 'kind': row['kind'],
-            'payload': payload, 'created_at': row['created_at']}
+    return {
+        'id': row['id'],
+        'turn': int(row['run_key'].rsplit(':', 1)[1]),
+        'seq': row['seq'],
+        'kind': row['kind'],
+        'payload': payload,
+        'created_at': row['created_at'],
+    }

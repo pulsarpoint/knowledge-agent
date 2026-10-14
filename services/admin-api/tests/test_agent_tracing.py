@@ -1,4 +1,5 @@
 """Native SDK tracing exports to OTel with task-local redaction, including errors."""
+
 import asyncio
 import json
 
@@ -20,12 +21,15 @@ def test_native_traces_redact_inputs_outputs_errors_and_concurrent_credentials()
     async def run(name):
         secret = name + '-private-key'
         with trace_secrets([secret]), trace(name):
-            with function_span(name=secret, input=json.dumps({'credential':secret})) as tool:
+            with function_span(name=secret, input=json.dumps({'credential': secret})) as tool:
                 await asyncio.sleep(0)
                 tool.span_data.output = 'Evidence ' + secret
-                tool.set_error({'message':'provider failed '+secret, 'data':{'key':secret}})
-            with generation_span(model='fixture', input=[{'role':'user','content':secret}],
-                    output=[{'role':'assistant','content':'Finding '+secret}]):
+                tool.set_error({'message': 'provider failed ' + secret, 'data': {'key': secret}})
+            with generation_span(
+                model='fixture',
+                input=[{'role': 'user', 'content': secret}],
+                output=[{'role': 'assistant', 'content': 'Finding ' + secret}],
+            ):
                 await asyncio.sleep(0)
 
     async def both():
@@ -34,7 +38,9 @@ def test_native_traces_redact_inputs_outputs_errors_and_concurrent_credentials()
     try:
         asyncio.run(both())
         recorded = exporter.get_finished_spans()
-        serialized = json.dumps([{'name':s.name,'attributes':dict(s.attributes), 'error':s.status.description} for s in recorded])
+        serialized = json.dumps(
+            [{'name': s.name, 'attributes': dict(s.attributes), 'error': s.status.description} for s in recorded]
+        )
         assert '[redacted]' in serialized and 'Evidence' in serialized and 'Finding' in serialized
         assert 'first-private-key' not in serialized and 'second-private-key' not in serialized
         assert 'provider failed' not in serialized

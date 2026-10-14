@@ -14,6 +14,7 @@ check (dgp-docs, 32/32 docs) came back byte-identical only because none of
 those docs happen to contain a doc that exercises any delta class -- that
 is a property of the corpus, not a guarantee of the implementation.
 """
+
 from __future__ import annotations
 
 import re
@@ -27,7 +28,7 @@ from markdown_it import MarkdownIt
 # document. Contrast with content.render_html, which still builds a fresh
 # MarkdownIt per call -- that one's add_render_rule closures capture a
 # call-local `used_slugs` dict, so *that* instance genuinely is call-scoped.
-_MD = MarkdownIt("gfm-like")
+_MD = MarkdownIt('gfm-like')
 
 # Token types that mean "we are inside a container block" for the purposes
 # of section-break detection: a heading nested inside a blockquote or a
@@ -41,8 +42,8 @@ _MD = MarkdownIt("gfm-like")
 # ordered_list_open don't need their own counters: a heading can only ever
 # be a descendant of a list via an intervening list_item_open, never a
 # direct child of the list token itself.
-_CONTAINER_OPEN = frozenset({"blockquote_open", "list_item_open"})
-_CONTAINER_CLOSE = frozenset({"blockquote_close", "list_item_close"})
+_CONTAINER_OPEN = frozenset({'blockquote_open', 'list_item_open'})
+_CONTAINER_CLOSE = frozenset({'blockquote_close', 'list_item_close'})
 
 
 @dataclass
@@ -55,12 +56,12 @@ class Section:
 class Heading:
     level: int
     text: str  # inline token content -- the rendered heading text, the
-               # same source render_html's `id="..."` slugs are built from.
+    # same source render_html's `id="..."` slugs are built from.
     line: int  # 0-indexed source line the heading starts on (token.map[0]).
     is_root: bool  # False for a heading nested inside a blockquote or list
-               # item (container depth > 0 at the heading). Still a real
-               # heading (still in this list) -- just never a section break
-               # and never "current H2/H3" state (see `chunking.split_sections`).
+    # item (container depth > 0 at the heading). Still a real
+    # heading (still in this list) -- just never a section break
+    # and never "current H2/H3" state (see `chunking.split_sections`).
 
 
 @dataclass
@@ -143,7 +144,7 @@ def parse_structure(body: str) -> DocStructure:
     # markup leaking into indexed chunk text, or worse). Matching
     # markdown_it's own normalization exactly is the only way to guarantee
     # `lines[i]` is the same line `token.map`'s `i` means.
-    lines = re.sub(r"\r\n?", "\n", body).split("\n")
+    lines = re.sub(r'\r\n?', '\n', body).split('\n')
 
     headings: list[Heading] = []
     # (start_line, end_line, level, text) for ROOT-level H1/H2/H3 only --
@@ -161,7 +162,7 @@ def parse_structure(body: str) -> DocStructure:
         if token.type in _CONTAINER_CLOSE:
             container_depth -= 1
             continue
-        if token.type != "heading_open":
+        if token.type != 'heading_open':
             continue
         level = int(token.tag[1:])
         text = tokens[idx + 1].content
@@ -171,15 +172,13 @@ def parse_structure(body: str) -> DocStructure:
         if is_root and level in (1, 2, 3):
             breaks.append((start, end, level, text))
 
-    title = next((h.text for h in headings if h.level == 1 and h.is_root), "")
+    title = next((h.text for h in headings if h.level == 1 and h.is_root), '')
     sections = _split_into_sections(lines, breaks)
 
     return DocStructure(title=title, headings=headings, sections=sections)
 
 
-def _split_into_sections(
-    lines: list[str], breaks: list[tuple[int, int, int, str]]
-) -> list[Section]:
+def _split_into_sections(lines: list[str], breaks: list[tuple[int, int, int, str]]) -> list[Section]:
     """Walk `lines` (already split on the same line boundaries `breaks`'
     start/end indices were computed against -- see `parse_structure`'s
     normalization) and cut it into `Section`s at each ROOT-level H1/H2/H3
@@ -198,21 +197,21 @@ def _split_into_sections(
     buffer: list[str] = []
 
     def flush() -> None:
-        text = "\n".join(buffer).strip()
+        text = '\n'.join(buffer).strip()
         buffer.clear()
         if not text:
             return
         if current_h2 is None and current_h3 is None:
             # Neither a root H2 nor a root H3 has opened yet: this is
             # genuinely pre-first-heading content.
-            path = "(intro)"
+            path = '(intro)'
         elif current_h3 is not None:
             # `current_h2 or ""` matters for a malformed doc where a root
             # H3 appears with no preceding root H2 -- current_h2 is still
             # None there, and the old scanner's heading_path for that case
             # was " > <h3 text>" (a section, however oddly labeled -- not
             # "(intro)"); this preserves that exact string.
-            path = f"{current_h2 or ''} > {current_h3}"
+            path = f'{current_h2 or ""} > {current_h3}'
         else:
             path = current_h2
         sections.append(Section(heading_path=path, text=text))

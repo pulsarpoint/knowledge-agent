@@ -1,4 +1,5 @@
 """RAG collections as agents see them, including configs saved before collections existed."""
+
 import re
 from pathlib import PurePosixPath
 from typing import Any
@@ -56,5 +57,7 @@ def document_collections(config: dict[str, Any]) -> tuple[bool, list[dict[str, A
         if found is None:
             continue
         name, path = found
-        items.setdefault(slug(name), {'name': slug(name), 'description': folder.get('description', ''), 'paths': [str(path)]})
+        items.setdefault(
+            slug(name), {'name': slug(name), 'description': folder.get('description', ''), 'paths': [str(path)]}
+        )
     return bool(documents.get('all_folders')), list(items.values())

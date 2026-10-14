@@ -5,6 +5,7 @@ the run's new-document draft, later saves update it). Which documents a run may 
 checked here with allowed(); the run's session is config['session_id'], set by the worker. A save locks the run's
 session, then its draft (the order the worker and promote take them in), never ka.projects or ka.documents rows, and
 recomputes the draft's sources from the run's tool calls."""
+
 import asyncio
 import json
 import re
@@ -17,8 +18,14 @@ from pydantic import BaseModel, ValidationError
 
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
 from knowledge_admin.capabilities.inventory import connect, project_of
-from knowledge_admin.documents.drafts import (NEW_DEFAULTS, audit, create_draft, document_named, live_content,
-                                             record_run_sources)
+from knowledge_admin.documents.drafts import (
+    NEW_DEFAULTS,
+    audit,
+    create_draft,
+    document_named,
+    live_content,
+    record_run_sources,
+)
 from knowledge_admin.documents.api import Description, Markdown, Title
 
 NO_SESSION = 'The document tools work only in an agent session.'
@@ -39,19 +46,19 @@ NEW_PREFIX = 'new:'
 MAX_READ = 50_000
 FENCE = re.compile(r'^ {0,3}(```|~~~)')
 HEADING = re.compile(r'^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$')
-LIVE = '''SELECT v.id AS version_id,v.version,v.title,v.description,v.purpose,v.audience,v.tags,v.markdown
-    FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s'''
-WORKING = '''SELECT id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
-    WHERE session_id=%s AND document_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1'''
+LIVE = """SELECT v.id AS version_id,v.version,v.title,v.description,v.purpose,v.audience,v.tags,v.markdown
+    FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id WHERE d.id=%s AND d.project_id=%s"""
+WORKING = """SELECT id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
+    WHERE session_id=%s AND document_id=%s AND status='open' AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1"""
 ATTACHED = 'SELECT server_id,service_id,code_project_id FROM ka.inventory_documents WHERE document_id=%s'
-NEW_WORKING = '''SELECT id,document_id,base_version_id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
+NEW_WORKING = """SELECT id,document_id,base_version_id,title,description,purpose,audience,tags,markdown FROM ka.document_drafts
     WHERE session_id=%s AND status='open' AND NOT edited AND ((document_id IS NULL AND folder IS NOT DISTINCT FROM %s AND slug=%s)
     OR document_id=(SELECT id FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s AND slug=%s))
-    ORDER BY created_at DESC,id DESC LIMIT 1'''
-NEW_PREVIOUS = '''SELECT status,edited FROM ka.document_drafts WHERE session_id=%s
+    ORDER BY created_at DESC,id DESC LIMIT 1"""
+NEW_PREVIOUS = """SELECT status,edited FROM ka.document_drafts WHERE session_id=%s
     AND ((document_id IS NULL AND folder IS NOT DISTINCT FROM %s AND slug=%s)
     OR document_id=(SELECT id FROM ka.documents WHERE project_id=%s AND folder IS NOT DISTINCT FROM %s AND slug=%s))
-    ORDER BY created_at DESC,id DESC LIMIT 1'''
+    ORDER BY created_at DESC,id DESC LIMIT 1"""
 
 
 class DraftText(BaseModel):
@@ -79,8 +86,10 @@ def _numbered(lines: list[str], first: int) -> str:
     for offset, line in enumerate(lines):
         text = f'{first + offset}: {line}'
         if not out and len(text) > MAX_READ:  # one line longer than a read: emit its start, so the read always advances
-            return (text[:MAX_READ] + f'\n\nLine {first + offset} was cut at 50,000 characters; '
-                    f'read on with start_line={first + offset + 1}.')
+            return (
+                text[:MAX_READ] + f'\n\nLine {first + offset} was cut at 50,000 characters; '
+                f'read on with start_line={first + offset + 1}.'
+            )
         if size + len(text) + 1 > MAX_READ:
             return '\n'.join(out) + f'\n\nCut at 50,000 characters; read on with start_line={first + offset}.'
         out.append(text)
@@ -89,7 +98,7 @@ def _numbered(lines: list[str], first: int) -> str:
 
 
 def _outline_text(markdown: str) -> str:
-    return '\n'.join(f"{h['line']}: {'#' * h['level']} {h['text']}" for h in outline(markdown)) or '(no headings)'
+    return '\n'.join(f'{h["line"]}: {"#" * h["level"]} {h["text"]}' for h in outline(markdown)) or '(no headings)'
 
 
 def _document_id(value: str) -> UUID:
@@ -123,8 +132,9 @@ def _new_document_draft(conn, session_id, project, entry: dict[str, Any], lock: 
     """The run's open, unedited draft of its new document: the new-document draft with the entry's folder and slug, or
     (when that folder and slug named an existing document at the first save) its draft of that document."""
     folder, slug = entry['folder'], entry['slug']
-    return conn.execute(NEW_WORKING + (' FOR UPDATE' if lock else ''),
-                        (session_id, folder, slug, project, folder, slug)).fetchone()
+    return conn.execute(
+        NEW_WORKING + (' FOR UPDATE' if lock else ''), (session_id, folder, slug, project, folder, slug)
+    ).fetchone()
 
 
 def _new_document_previous(conn, session_id, project, entry: dict[str, Any]) -> dict | None:
@@ -146,8 +156,9 @@ def _get_new_document(config: dict[str, Any], document_id: str) -> tuple[dict | 
     return (draft, None) if draft is not None else (None, NOT_WRITTEN)
 
 
-def _get_document(config: dict[str, Any], document_id: str, section: str | None, start_line: int | None,
-                  end_line: int | None) -> str:
+def _get_document(
+    config: dict[str, Any], document_id: str, section: str | None, start_line: int | None, end_line: int | None
+) -> str:
     if str(document_id).startswith(NEW_PREFIX):
         draft, answer = _get_new_document(config, document_id)
         if draft is None:
@@ -169,8 +180,14 @@ def _get_document(config: dict[str, Any], document_id: str, section: str | None,
     return _render(str(document), draft, live, section, start_line, end_line)
 
 
-def _render(document_id: str, draft: dict | None, live: dict | None, section: str | None, start_line: int | None,
-            end_line: int | None) -> str:
+def _render(
+    document_id: str,
+    draft: dict | None,
+    live: dict | None,
+    section: str | None,
+    start_line: int | None,
+    end_line: int | None,
+) -> str:
     """A read of the run's draft when it has one, else of the live version: a section, a line range or the whole."""
     copy = draft or live
     lines = copy['markdown'].splitlines()
@@ -179,17 +196,28 @@ def _render(document_id: str, draft: dict | None, live: dict | None, section: st
         found = next((h for h in headings if h['text'].strip().lower() == section.strip().lower()), None)
         if found is None:
             return NO_HEADING.format(name=section) + '\n\nOutline:\n' + _outline_text(copy['markdown'])
-        end = next((h['line'] - 1 for h in headings if h['line'] > found['line'] and h['level'] <= found['level']), len(lines))
-        return _numbered(lines[found['line'] - 1:end], found['line'])
+        end = next(
+            (h['line'] - 1 for h in headings if h['line'] > found['line'] and h['level'] <= found['level']), len(lines)
+        )
+        return _numbered(lines[found['line'] - 1 : end], found['line'])
     if start_line is not None or end_line is not None:
         first, last = start_line or 1, min(end_line or len(lines), len(lines))
         if first > len(lines) or last < first:
             return OUT_OF_RANGE.format(n=len(lines))
-        return _numbered(lines[first - 1:last], first)
-    return json.dumps({'id': document_id, 'title': copy['title'], 'description': copy['description'],
-                       'reads': 'your draft' if draft else f"the live version {live['version']}",
-                       'lines': len(lines), 'characters': len(copy['markdown']), 'outline': outline(copy['markdown']),
-                       'markdown': copy['markdown'][:MAX_MARKDOWN], 'truncated': len(copy['markdown']) > MAX_MARKDOWN})
+        return _numbered(lines[first - 1 : last], first)
+    return json.dumps(
+        {
+            'id': document_id,
+            'title': copy['title'],
+            'description': copy['description'],
+            'reads': 'your draft' if draft else f'the live version {live["version"]}',
+            'lines': len(lines),
+            'characters': len(copy['markdown']),
+            'outline': outline(copy['markdown']),
+            'markdown': copy['markdown'][:MAX_MARKDOWN],
+            'truncated': len(copy['markdown']) > MAX_MARKDOWN,
+        }
+    )
 
 
 def _save(config: dict[str, Any], document_id: str, change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
@@ -218,8 +246,11 @@ def _save_once(config: dict[str, Any], document_id: str, change: Callable[[dict[
         text = _text(change, dict(current or live))
         note = ''
         if current is None:
-            previous = conn.execute('''SELECT status,edited FROM ka.document_drafts WHERE session_id=%s AND document_id=%s
-                ORDER BY created_at DESC,id DESC LIMIT 1''', (session['id'], document)).fetchone()
+            previous = conn.execute(
+                """SELECT status,edited FROM ka.document_drafts WHERE session_id=%s AND document_id=%s
+                ORDER BY created_at DESC,id DESC LIMIT 1""",
+                (session['id'], document),
+            ).fetchone()
             note = _note(previous, live['version'])
         _write(conn, config, session, current, text, document)
     saved = SAVED.format(n=len(text.markdown.splitlines()))
@@ -247,38 +278,69 @@ def _note(previous: dict | None, version: int | None) -> str:
 def _run_links(config: dict[str, Any]) -> dict[str, list[str]]:
     """The resources chosen for the run, as the resource_ids a new document links on promote."""
     chosen = config.get('run_resources') or {}
-    return {key: [str(item) for item in chosen.get(key, [])]
-            for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')} | {'deployment_ids': []}
+    return {
+        key: [str(item) for item in chosen.get(key, [])]
+        for key in ('code_project_ids', 'environment_ids', 'service_ids', 'server_ids')
+    } | {'deployment_ids': []}
 
 
-def _write(conn, config: dict[str, Any], session: dict, current: dict | None, text: DraftText,
-           document: UUID | None, new: dict[str, Any] | None = None) -> None:
+def _write(
+    conn,
+    config: dict[str, Any],
+    session: dict,
+    current: dict | None,
+    text: DraftText,
+    document: UUID | None,
+    new: dict[str, Any] | None = None,
+) -> None:
     """Save `text` as the run's draft: update `current`, else create a draft of `document` from its live content (title
     and description from `text`, which started from it), else (no document) of the new document `new`
     ({folder, slug}). Then recompute the draft's sources from the run's tool calls."""
     project = session['project_id']
     if current is not None:
-        conn.execute('UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
-                     (text.title, text.description, text.markdown, current['id']))
-        audit(conn, project, None, 'document.draft.updated', 'document_draft', current['id'],
-              {'session_id': session['id'], 'turn': session['turns']})
+        conn.execute(
+            'UPDATE ka.document_drafts SET title=%s,description=%s,markdown=%s,revision=revision+1 WHERE id=%s',
+            (text.title, text.description, text.markdown, current['id']),
+        )
+        audit(
+            conn,
+            project,
+            None,
+            'document.draft.updated',
+            'document_draft',
+            current['id'],
+            {'session_id': session['id'], 'turn': session['turns']},
+        )
         draft_id = current['id']
     elif document is not None:
         content = {**live_content(conn, project, document), **text.model_dump()}
-        draft_id = create_draft(conn, project, None, content, origin='agent', document_id=document,
-                                session_id=session['id'])
+        draft_id = create_draft(
+            conn, project, None, content, origin='agent', document_id=document, session_id=session['id']
+        )
     else:
-        draft_id = create_draft(conn, project, None, {**NEW_DEFAULTS, **text.model_dump()}, origin='agent',
-                                slug=new['slug'], folder=new['folder'], resources=_run_links(config),
-                                session_id=session['id'])
-    draft = conn.execute('SELECT document_id,base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)).fetchone()
-    record_run_sources(conn, project, draft_id, draft['document_id'], draft['base_version_id'], session['id'],
-                       session['turns'])
+        draft_id = create_draft(
+            conn,
+            project,
+            None,
+            {**NEW_DEFAULTS, **text.model_dump()},
+            origin='agent',
+            slug=new['slug'],
+            folder=new['folder'],
+            resources=_run_links(config),
+            session_id=session['id'],
+        )
+    draft = conn.execute(
+        'SELECT document_id,base_version_id FROM ka.document_drafts WHERE id=%s', (draft_id,)
+    ).fetchone()
+    record_run_sources(
+        conn, project, draft_id, draft['document_id'], draft['base_version_id'], session['id'], session['turns']
+    )
 
 
 def _locked_session(conn, config: dict[str, Any]) -> dict:
-    session = conn.execute('SELECT id,project_id,status,turns FROM ka.agent_sessions WHERE id=%s FOR UPDATE',
-                           (config['session_id'],)).fetchone()
+    session = conn.execute(
+        'SELECT id,project_id,status,turns FROM ka.agent_sessions WHERE id=%s FOR UPDATE', (config['session_id'],)
+    ).fetchone()
     if session is None:
         raise ValueError(DOCUMENT_GONE)  # the run went with its document
     if session['status'] == 'closed':
@@ -299,15 +361,26 @@ def _save_new(config: dict[str, Any], entry: dict[str, Any], change: Callable[[d
         existing = None if current is not None else document_named(conn, project, entry['folder'], entry['slug'])
         live = live_content(conn, project, existing['id']) if existing is not None else None
         # markdown None marks the first save: edit_document has nothing to change yet
-        base = dict(current) if current is not None else {
-            'title': live['title'] if live else entry['title'], 'description': live['description'] if live else '',
-            'markdown': None}
+        base = (
+            dict(current)
+            if current is not None
+            else {
+                'title': live['title'] if live else entry['title'],
+                'description': live['description'] if live else '',
+                'markdown': None,
+            }
+        )
         text = _text(change, base)
         note = ''
         if current is None:
             previous = _new_document_previous(conn, session['id'], project, entry)
-            version = conn.execute('SELECT version FROM ka.document_versions WHERE id=%s',
-                                   (existing['current_version_id'],)).fetchone() if existing is not None else None
+            version = (
+                conn.execute(
+                    'SELECT version FROM ka.document_versions WHERE id=%s', (existing['current_version_id'],)
+                ).fetchone()
+                if existing is not None
+                else None
+            )
             note = _note(previous, version['version'] if version else None)
         _write(conn, config, session, current, text, existing['id'] if existing is not None else None, entry)
     saved = SAVED.format(n=len(text.markdown.splitlines()))
@@ -323,24 +396,37 @@ def _replace(old_text: str, new_text: str) -> Callable[[dict[str, Any]], dict[st
             raise ValueError(NOT_FOUND)
         if count > 1:
             raise ValueError(MANY.format(n=count))
-        return {'title': base['title'], 'description': base['description'],
-                'markdown': base['markdown'].replace(old_text, new_text, 1)}
+        return {
+            'title': base['title'],
+            'description': base['description'],
+            'markdown': base['markdown'].replace(old_text, new_text, 1),
+        }
+
     return change
 
 
-async def get_document(context, document_id: str, section: str | None = None, start_line: int | None = None,
-                       end_line: int | None = None) -> str:
+async def get_document(
+    context, document_id: str, section: str | None = None, start_line: int | None = None, end_line: int | None = None
+) -> str:
     return await asyncio.to_thread(_get_document, context['config'], document_id, section, start_line, end_line)
 
 
-async def save_document(context, document_id: str, markdown: str, title: str | None = None,
-                        description: str | None = None) -> str:
+async def save_document(
+    context, document_id: str, markdown: str, title: str | None = None, description: str | None = None
+) -> str:
     def change(base: dict[str, Any]) -> dict[str, Any]:
         if base['markdown'] is None:  # the first save of a new document (or of the existing one its name matched)
-            return {'title': title or base['title'], 'description': base['description'] if description is None else description,
-                    'markdown': markdown}
-        return {'title': base['title'] if title is None else title,
-                'description': base['description'] if description is None else description, 'markdown': markdown}
+            return {
+                'title': title or base['title'],
+                'description': base['description'] if description is None else description,
+                'markdown': markdown,
+            }
+        return {
+            'title': base['title'] if title is None else title,
+            'description': base['description'] if description is None else description,
+            'markdown': markdown,
+        }
+
     return await asyncio.to_thread(_save, context['config'], document_id, change)
 
 

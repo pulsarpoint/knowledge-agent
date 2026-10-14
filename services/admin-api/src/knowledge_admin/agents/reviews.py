@@ -1,4 +1,5 @@
 """Tuning reviews of a conversation: the reviewer's output (proposed prompt and instruction texts) and applying it."""
+
 from functools import partial
 import json
 from typing import Any, Literal
@@ -63,19 +64,32 @@ def write_changes(conn, project_id, agent_id: str, changes: InstructionChanges, 
     if changes.system_prompt is not None:
         conn.execute('UPDATE ka.agents SET system_prompt=%s WHERE id=%s', (changes.system_prompt, agent_id))
     if changes.instructions is not None:
-        conn.execute("""INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
-            VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING""", (project_id, agent_id))
-        conn.execute('''UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
-            WHERE project_id=%s AND agent=%s AND server_id IS NULL''', (changes.instructions, actor_id, project_id, agent_id))
+        conn.execute(
+            """INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
+            VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING""",
+            (project_id, agent_id),
+        )
+        conn.execute(
+            """UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
+            WHERE project_id=%s AND agent=%s AND server_id IS NULL""",
+            (changes.instructions, actor_id, project_id, agent_id),
+        )
     for change in changes.server_instructions:
-        conn.execute("""INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            VALUES (%s,%s,%s,'',true,true) ON CONFLICT DO NOTHING""", (project_id, agent_id, change.server_id))
-        conn.execute('''UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
-            WHERE project_id=%s AND agent=%s AND server_id=%s''',
-            (change.instructions, actor_id, project_id, agent_id, change.server_id))
+        conn.execute(
+            """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
+            VALUES (%s,%s,%s,'',true,true) ON CONFLICT DO NOTHING""",
+            (project_id, agent_id, change.server_id),
+        )
+        conn.execute(
+            """UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
+            WHERE project_id=%s AND agent=%s AND server_id=%s""",
+            (change.instructions, actor_id, project_id, agent_id, change.server_id),
+        )
     conn.execute('UPDATE ka.agents SET revision=revision+1,updated_by=%s WHERE id=%s', (actor_id, agent_id))
-    conn.execute('UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s',
-                 (actor_id, project_id, agent_id))
+    conn.execute(
+        'UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s',
+        (actor_id, project_id, agent_id),
+    )
 
 
 def build_api(app_name, store):
@@ -84,9 +98,11 @@ def build_api(app_name, store):
     database = partial(storage, store, 'Agent storage')
 
     def review_of(conn, agent_id: str, review_id: UUID) -> dict[str, Any]:
-        row = conn.execute('''SELECT r.suggestion,r.context FROM ka.agent_session_reviews r
-            JOIN ka.agent_sessions s ON s.id=r.session_id WHERE r.id=%s AND s.agent_id=%s''',
-            (review_id, agent_id)).fetchone()
+        row = conn.execute(
+            """SELECT r.suggestion,r.context FROM ka.agent_session_reviews r
+            JOIN ka.agent_sessions s ON s.id=r.session_id WHERE r.id=%s AND s.agent_id=%s""",
+            (review_id, agent_id),
+        ).fetchone()
         if row is None:
             raise HTTPException(404, REVIEW_NOT_FOUND)
         return row
@@ -106,11 +122,23 @@ def build_api(app_name, store):
         with database().connect() as conn:
             review = review_of(conn, agent_id, review_id)
         current = config(agent_id)
-        return {'suggestion': review['suggestion'], 'changes': review['context'].get('changes', NO_CHANGES),
-                'revision': current['revision'], 'fingerprint': fingerprint(current),
-                'system_prompt': current['system_prompt']['content'], 'instructions': current['instructions'],
-                'servers': [{'id': server['id'], 'name': server['name'], 'instructions': server['instructions'],
-                             'inherits': server['instructions_source'] == 'agent'} for server in current['ssh']['servers']]}
+        return {
+            'suggestion': review['suggestion'],
+            'changes': review['context'].get('changes', NO_CHANGES),
+            'revision': current['revision'],
+            'fingerprint': fingerprint(current),
+            'system_prompt': current['system_prompt']['content'],
+            'instructions': current['instructions'],
+            'servers': [
+                {
+                    'id': server['id'],
+                    'name': server['name'],
+                    'instructions': server['instructions'],
+                    'inherits': server['instructions_source'] == 'agent',
+                }
+                for server in current['ssh']['servers']
+            ],
+        }
 
     @router.post('/apply')
     def apply(agent_id: str, review_id: UUID, value: ApplyInput, request: Request):
@@ -137,13 +165,28 @@ def build_api(app_name, store):
                     target = clone(conn, agent_id, actor)['id']
                 except psycopg.errors.UniqueViolation:
                     raise HTTPException(409, NAME_TAKEN) from None
-                conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                    VALUES (%s,%s,'agent.cloned','agent',%s)''', (project, actor, Jsonb({'agent_id': target, 'cloned_from': agent_id})))
+                conn.execute(
+                    """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
+                    VALUES (%s,%s,'agent.cloned','agent',%s)""",
+                    (project, actor, Jsonb({'agent_id': target, 'cloned_from': agent_id})),
+                )
             write_changes(conn, project, target, changes, actor)
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                VALUES (%s,%s,'agent.suggestion.applied','agent',%s)''',
-                (project, actor, Jsonb({'agent_id': target, 'source_agent_id': agent_id, 'review_id': str(review_id),
-                       'target': value.target})))
+            conn.execute(
+                """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
+                VALUES (%s,%s,'agent.suggestion.applied','agent',%s)""",
+                (
+                    project,
+                    actor,
+                    Jsonb(
+                        {
+                            'agent_id': target,
+                            'source_agent_id': agent_id,
+                            'review_id': str(review_id),
+                            'target': value.target,
+                        }
+                    ),
+                ),
+            )
             return {'agent_id': target}
 
     return router

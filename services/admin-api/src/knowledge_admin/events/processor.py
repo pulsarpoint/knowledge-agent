@@ -4,6 +4,7 @@ runs each matching handler's action in a savepoint, records one run per handler 
 failed when a handler failed. Emitted events enter as pending and are processed on a later pass. Nothing is retried:
 an event that cannot be processed at all is logged and marked failed, so it never blocks the queue. Send to agent
 starts an ordinary agent run (sessions.start.start_run; agent-session-worker runs it)."""
+
 import logging
 import threading
 
@@ -44,15 +45,30 @@ def emit(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     if event['depth'] >= MAX_DEPTH:
         raise HandlerFailed(TOO_DEEP)
     new = event_templates.render_emit(handler['emit'], event)
-    key = f"handler:{handler['id']}:{event['id']}"
-    row = conn.execute("""INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,
+    key = f'handler:{handler["id"]}:{event["id"]}'
+    row = conn.execute(
+        """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,
         occurred_at,parent_id,root_id,depth,handler_id) VALUES (%s,'handler',%s,%s,%s,%s,%s,%s,now(),%s,%s,%s,%s)
         ON CONFLICT (project_id,dedupe_key) DO NOTHING RETURNING id""",
-        (event['project_id'], handler['id'], new['type'], new['subject'], new['title'], Jsonb(new['payload']), key,
-         event['id'], event['root_id'], event['depth'] + 1, handler['id'])).fetchone()
+        (
+            event['project_id'],
+            handler['id'],
+            new['type'],
+            new['subject'],
+            new['title'],
+            Jsonb(new['payload']),
+            key,
+            event['id'],
+            event['root_id'],
+            event['depth'] + 1,
+            handler['id'],
+        ),
+    ).fetchone()
     if row is None:  # emitted before (a crash after the commit cannot happen, but a re-run must not duplicate)
-        row = conn.execute('SELECT id FROM ka.events WHERE project_id=%s AND dedupe_key=%s', (event['project_id'], key)).fetchone()
-    return f"Emitted {new['type']}.", {'emitted_event_id': row['id']}
+        row = conn.execute(
+            'SELECT id FROM ka.events WHERE project_id=%s AND dedupe_key=%s', (event['project_id'], key)
+        ).fetchone()
+    return f'Emitted {new["type"]}.', {'emitted_event_id': row['id']}
 
 
 def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str, dict]:
@@ -68,20 +84,32 @@ def send(conn, store: RepositoryStore, handler: dict, event: dict) -> tuple[str,
     if agent['resources'] != 'fixed':
         raise HandlerFailed(PER_RUN)
     prompt = event_templates.render_prompt(handler['prompt'], event)
-    started = f"Started a run of {agent['name']}."
-    row = conn.execute('SELECT id FROM ka.agent_sessions WHERE event_id=%s AND handler_id=%s',
-                       (event['id'], handler['id'])).fetchone()
+    started = f'Started a run of {agent["name"]}.'
+    row = conn.execute(
+        'SELECT id FROM ka.agent_sessions WHERE event_id=%s AND handler_id=%s', (event['id'], handler['id'])
+    ).fetchone()
     if row is not None:
         return started, {'agent_session_id': row['id']}
     try:
         offer = start.agent_options(conn, event['project_id'], handler['agent_id'], store.conninfo)
-        value = start.StartInput(agent_id=handler['agent_id'], message=prompt,
-                                 tools=start.usable_tools(conn, event['project_id'], handler['agent_id'], store.conninfo),
-                                 expert_ids=[expert['id'] for expert in offer['experts']],
-                                 subagents=offer['agent']['subagents_allowed'])
-        session_id = start.start_run(conn, event['project_id'], handler['created_by'], value, store.conninfo,
-                                     purpose='event', event_id=event['id'], handler_id=handler['id'],
-                                     title=f"{agent['name']} · {event['type']} {event['subject']}")
+        value = start.StartInput(
+            agent_id=handler['agent_id'],
+            message=prompt,
+            tools=start.usable_tools(conn, event['project_id'], handler['agent_id'], store.conninfo),
+            expert_ids=[expert['id'] for expert in offer['experts']],
+            subagents=offer['agent']['subagents_allowed'],
+        )
+        session_id = start.start_run(
+            conn,
+            event['project_id'],
+            handler['created_by'],
+            value,
+            store.conninfo,
+            purpose='event',
+            event_id=event['id'],
+            handler_id=handler['id'],
+            title=f'{agent["name"]} · {event["type"]} {event["subject"]}',
+        )
     except HTTPException as exc:
         raise HandlerFailed(str(exc.detail)) from None
     except ValidationError as exc:  # a rendered prompt longer than a message may be
@@ -111,10 +139,19 @@ def process(conn, store: RepositoryStore, event: dict) -> str:
             logger.exception('Handler %s failed on event %s', handler['id'], event['id'])
             status, message = 'failed', UNEXPECTED
         failed = failed or status == 'failed'
-        conn.execute("""INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id,
+        conn.execute(
+            """INSERT INTO ka.event_handler_runs(event_id,handler_id,handler_name,status,message,emitted_event_id,
             agent_session_id) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (event['id'], handler['id'], handler['name'], status, run_message(message),
-             links.get('emitted_event_id'), links.get('agent_session_id')))
+            (
+                event['id'],
+                handler['id'],
+                handler['name'],
+                status,
+                run_message(message),
+                links.get('emitted_event_id'),
+                links.get('agent_session_id'),
+            ),
+        )
     status = 'failed' if failed else 'processed'
     conn.execute('UPDATE ka.events SET status=%s,processed_at=now() WHERE id=%s', (status, event['id']))
     return status
@@ -135,7 +172,7 @@ def run_once(store: RepositoryStore) -> bool:
             conn.execute("UPDATE ka.events SET status='failed',processed_at=now() WHERE id=%s", (event['id'],))
             status = 'failed'
     if status == 'failed':
-        print(f"Event {event['id']} ({event['type']}): failed", flush=True)
+        print(f'Event {event["id"]} ({event["type"]}): failed', flush=True)
     return True
 
 

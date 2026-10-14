@@ -1,6 +1,7 @@
 """What the session workers share: claiming sessions with a lease,
 delivering queued messages as turns, Stop, finishing a turn (draft, tokens and, for native sessions, history in one
 transaction), the idle release and the serve loop. A worker only adds how it runs a turn."""
+
 import asyncio
 import logging
 import time
@@ -55,7 +56,9 @@ def scrub(value: Any, secrets: list[str]) -> Any:
     if isinstance(value, str):
         return clean_text(value, secrets)
     if isinstance(value, dict):
-        return {scrub(key, secrets) if isinstance(key, str) else key: scrub(item, secrets) for key, item in value.items()}
+        return {
+            scrub(key, secrets) if isinstance(key, str) else key: scrub(item, secrets) for key, item in value.items()
+        }
     if isinstance(value, list | tuple):
         return [scrub(item, secrets) for item in value]
     return value
@@ -66,11 +69,15 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
     or a turn left `working` by a worker that stopped (that turn is recorded as failed)."""
     with store.connect() as conn:
         close_idle(conn)
-        conn.execute("""UPDATE ka.agent_sessions SET lease_expires_at=now()+%s*interval '1 second'
-            WHERE worker_id=%s AND id=ANY(%s::uuid[]) AND status<>'closed'""", (LEASE_SECONDS, worker_id, active))
+        conn.execute(
+            """UPDATE ka.agent_sessions SET lease_expires_at=now()+%s*interval '1 second'
+            WHERE worker_id=%s AND id=ANY(%s::uuid[]) AND status<>'closed'""",
+            (LEASE_SECONDS, worker_id, active),
+        )
         if free <= 0:
             return []
-        rows = conn.execute("""WITH picked AS (
+        rows = conn.execute(
+            """WITH picked AS (
                 SELECT s.id,s.status AS previous FROM ka.agent_sessions s
                 WHERE s.status<>'closed' AND (s.lease_expires_at IS NULL OR s.lease_expires_at<now())
                   AND NOT s.id=ANY(%s::uuid[])
@@ -84,18 +91,31 @@ def claim(store: RepositoryStore, worker_id: str, active: list[UUID], free: int)
             FROM picked WHERE s.id=picked.id
             RETURNING s.*,picked.previous,coalesce((SELECT a.name FROM ka.agents a WHERE a.id=s.agent_id), %s) AS agent_name,
                 EXISTS (SELECT 1 FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued""",
-            (active, free, worker_id, LEASE_SECONDS, INTERRUPTED, AD_HOC_NAME)).fetchall()
+            (active, free, worker_id, LEASE_SECONDS, INTERRUPTED, AD_HOC_NAME),
+        ).fetchall()
         for row in rows:
             if row['previous'] == 'working' and not row['queued']:  # failed now; it needs a worker only for a message
-                conn.execute('UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
-                             (row['id'], worker_id))
+                conn.execute(
+                    'UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
+                    (row['id'], worker_id),
+                )
             if row['previous'] == 'working' and row['turns'] > 0:  # comments delivered inside it stay delivered
                 notify_event_run(conn, row['id'], row['turns'], 'failed', INTERRUPTED)
                 key = run_key(row['id'], row['turns'])
                 for kind, payload in (('error', {'message': INTERRUPTED}), ('end', {'status': 'failed'})):
-                    conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                    conn.execute(
+                        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
                         SELECT %s,%s,coalesce(max(seq),0)+1,%s,%s,%s,%s FROM ka.agent_run_events WHERE run_key=%s""",
-                        (row['project_id'], key, kind, row['agent_id'] or AD_HOC_AGENT, row['actor_id'], Jsonb(payload), key))
+                        (
+                            row['project_id'],
+                            key,
+                            kind,
+                            row['agent_id'] or AD_HOC_AGENT,
+                            row['actor_id'],
+                            Jsonb(payload),
+                            key,
+                        ),
+                    )
     return rows
 
 
@@ -103,8 +123,15 @@ class SessionRunner:
     """One session in one asyncio task until the session closes, this worker loses it, or it has been idle for
     `idle_release` seconds. Subclasses implement run_turn (and disconnect, for what they keep between turns)."""
 
-    def __init__(self, store: RepositoryStore, session: dict, *, poll: float = 1.0,
-                 idle_release: float = IDLE_RELEASE_SECONDS, slot: int = 1):
+    def __init__(
+        self,
+        store: RepositoryStore,
+        session: dict,
+        *,
+        poll: float = 1.0,
+        idle_release: float = IDLE_RELEASE_SECONDS,
+        slot: int = 1,
+    ):
         self.store, self.session = store, session
         self.id, self.worker_id, self.slot = session['id'], session['worker_id'], slot
         self.poll, self.idle_release = poll, idle_release
@@ -134,8 +161,11 @@ class SessionRunner:
         """Deliver every queued message as the next turn, once; CLOSED when the session is closed, LOST when this worker
         no longer holds its lease."""
         with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
+            row = conn.execute(
+                """SELECT status,turns,(worker_id=%s AND lease_expires_at>now()) AS owned
+                FROM ka.agent_sessions WHERE id=%s FOR UPDATE""",
+                (self.worker_id, self.id),
+            ).fetchone()
             if row is None or row['status'] == 'closed':
                 return CLOSED
             if not row['owned']:
@@ -144,22 +174,32 @@ class SessionRunner:
             inputs = self._deliver(conn, number)
             if not inputs:
                 return None
-            conn.execute("""UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,
-                stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""", (number, self.id))
+            conn.execute(
+                """UPDATE ka.agent_sessions SET status='working',status_message='',turns=%s,
+                stop_requested_at=NULL,last_activity_at=now() WHERE id=%s""",
+                (number, self.id),
+            )
             return number, '\n\n'.join(item['text'] for item in inputs)
 
-    def queued_comments(self, number: int,
-                        on_delivered: Callable[[Any, list[dict]], None] | None = None) -> list[str]:
+    def queued_comments(self, number: int, on_delivered: Callable[[Any, list[dict]], None] | None = None) -> list[str]:
         """Messages queued while turn `number` runs, marked delivered to that turn once; none when the session is closed,
         no longer this worker's (lease), not running that turn, or the user pressed Stop (a message sent after Stop stays
         queued and becomes the next turn). For delivery inside a running turn.
         `on_delivered(conn, inputs)` (their id and text) runs in the same transaction, such as recording them, so a
         message is never delivered without it."""
         with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,turns,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions WHERE id=%s FOR UPDATE''', (self.worker_id, self.id)).fetchone()
-            if (row is None or row['status'] != 'working' or row['turns'] != number or not row['owned']
-                    or row['stop_requested_at'] is not None):
+            row = conn.execute(
+                """SELECT status,turns,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
+                FROM ka.agent_sessions WHERE id=%s FOR UPDATE""",
+                (self.worker_id, self.id),
+            ).fetchone()
+            if (
+                row is None
+                or row['status'] != 'working'
+                or row['turns'] != number
+                or not row['owned']
+                or row['stop_requested_at'] is not None
+            ):
                 return []
             inputs = self._deliver(conn, number)
             if inputs:
@@ -175,19 +215,28 @@ class SessionRunner:
         if not ids:
             return
         with self.store.connect() as conn:
-            conn.execute("""UPDATE ka.agent_session_inputs i SET turn=NULL,delivered_at=NULL,
+            conn.execute(
+                """UPDATE ka.agent_session_inputs i SET turn=NULL,delivered_at=NULL,
                 status=CASE WHEN s.stop_requested_at IS NOT NULL OR s.status='closed' THEN 'discarded' ELSE 'queued' END
                 FROM ka.agent_sessions s WHERE s.id=i.session_id AND i.session_id=%s AND i.id=ANY(%s)
-                  AND i.status='delivered' AND i.turn=%s""", (self.id, ids, number))
+                  AND i.status='delivered' AND i.turn=%s""",
+                (self.id, ids, number),
+            )
 
     def _deliver(self, conn, number: int) -> list[dict]:
         """Mark every queued message of this session delivered to turn `number`; the caller holds the session row lock
         and has checked the lease."""
-        inputs = conn.execute("""SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
-            ORDER BY seq""", (self.id,)).fetchall()
+        inputs = conn.execute(
+            """SELECT id,text FROM ka.agent_session_inputs WHERE session_id=%s AND status='queued'
+            ORDER BY seq""",
+            (self.id,),
+        ).fetchall()
         if inputs:
-            conn.execute("""UPDATE ka.agent_session_inputs SET status='delivered',turn=%s,delivered_at=now()
-                WHERE id=ANY(%s)""", (number, [item['id'] for item in inputs]))
+            conn.execute(
+                """UPDATE ka.agent_session_inputs SET status='delivered',turn=%s,delivered_at=now()
+                WHERE id=ANY(%s)""",
+                (number, [item['id'] for item in inputs]),
+            )
         return inputs
 
     async def run_turn(self, number: int, text: str) -> None:
@@ -198,12 +247,23 @@ class SessionRunner:
 
     def stop_requested(self) -> bool:
         with self.store.connect() as conn:
-            row = conn.execute('''SELECT status,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
-                FROM ka.agent_sessions WHERE id=%s''', (self.worker_id, self.id)).fetchone()
+            row = conn.execute(
+                """SELECT status,stop_requested_at,(worker_id=%s AND lease_expires_at>now()) AS owned
+                FROM ka.agent_sessions WHERE id=%s""",
+                (self.worker_id, self.id),
+            ).fetchone()
         return row is None or row['status'] == 'closed' or row['stop_requested_at'] is not None or not row['owned']
 
-    def finish_turn(self, number: int, status: str, message: str, *, usage: dict[str, Any] | None,
-                    commit: Callable[[Any], None] | None = None, answer: str = '') -> None:
+    def finish_turn(
+        self,
+        number: int,
+        status: str,
+        message: str,
+        *,
+        usage: dict[str, Any] | None,
+        commit: Callable[[Any], None] | None = None,
+        answer: str = '',
+    ) -> None:
         """Record the turn's outcome; an event run's first turn also writes its notification (`answer` when it
         finished, else `message`). `commit(conn)` runs in the same transaction,
         only for a successful turn this worker still owns: a lease lost after the turn completed leaves the comments
@@ -212,15 +272,23 @@ class SessionRunner:
         sources refreshed."""
         usage = usage or NO_USAGE
         with self.store.connect() as conn:
-            updated = conn.execute("""UPDATE ka.agent_sessions SET
+            updated = conn.execute(
+                """UPDATE ka.agent_sessions SET
                 status=CASE WHEN status='closed' THEN status ELSE %(status)s END,
                 status_message=CASE WHEN status='closed' THEN status_message ELSE %(message)s END,
                 input_tokens=input_tokens+%(input)s, output_tokens=output_tokens+%(output)s,
                 cached_tokens=cached_tokens+%(cached)s,
                 stop_requested_at=NULL, last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s RETURNING id""",
-                {'status': status, 'message': message,
-                 'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'id': self.id, 'worker': self.worker_id}).fetchone()
+                {
+                    'status': status,
+                    'message': message,
+                    'input': usage['input_tokens'],
+                    'output': usage['output_tokens'],
+                    'cached': usage['cached_tokens'],
+                    'id': self.id,
+                    'worker': self.worker_id,
+                },
+            ).fetchone()
             if updated is not None and status == 'waiting' and commit is not None:
                 commit(conn)
             if updated is not None:
@@ -229,12 +297,22 @@ class SessionRunner:
 
     def release(self) -> None:
         with self.store.connect() as conn:
-            conn.execute('UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
-                         (self.id, self.worker_id))
+            conn.execute(
+                'UPDATE ka.agent_sessions SET worker_id=NULL,lease_expires_at=NULL WHERE id=%s AND worker_id=%s',
+                (self.id, self.worker_id),
+            )
 
 
-async def serve(store: RepositoryStore, start: Callable[[dict, int], SessionRunner], *, label: str,
-                stopped: asyncio.Event, worker_id: str, limit: int, poll: float) -> None:
+async def serve(
+    store: RepositoryStore,
+    start: Callable[[dict, int], SessionRunner],
+    *,
+    label: str,
+    stopped: asyncio.Event,
+    worker_id: str,
+    limit: int,
+    poll: float,
+) -> None:
     """Claim sessions and run one task per session until `stopped` is set; leases are renewed every poll.
     Each running session holds one of `limit` slots until its task ends; `start(session, slot)` makes its runner."""
     active: dict[UUID, asyncio.Task] = {}
@@ -247,7 +325,9 @@ async def serve(store: RepositoryStore, start: Callable[[dict, int], SessionRunn
                     del active[session_id]
                     free_slots.append(slots.pop(session_id))
                     if not task.cancelled() and task.exception() is not None:
-                        logger.warning('%s session %s ended with %s', label, session_id, type(task.exception()).__name__)
+                        logger.warning(
+                            '%s session %s ended with %s', label, session_id, type(task.exception()).__name__
+                        )
             try:
                 claimed = await asyncio.to_thread(claim, store, worker_id, list(active), len(free_slots))
             except psycopg.Error as exc:

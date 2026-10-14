@@ -13,8 +13,11 @@ def calls(store, run_key, names, *, kind='tool_call', first_seq=10):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         for offset, name in enumerate(names):
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-                VALUES (%s,%s,%s,%s,'search',%s)''', (project, run_key, first_seq + offset, kind, Jsonb({'name': name})))
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,%s,%s,%s,'search',%s)""",
+                (project, run_key, first_seq + offset, kind, Jsonb({'name': name})),
+            )
 
 
 def test_tool_counts_count_tool_calls_of_exactly_the_given_runs(store):
@@ -23,8 +26,11 @@ def test_tool_counts_count_tool_calls_of_exactly_the_given_runs(store):
     calls(store, 'run:a', ['read_file'], kind='tool_result', first_seq=50)
     calls(store, 'run:ab', ['read_file'])
     with store.connect() as conn:
-        assert tool_counts(conn, ['run:a']) == [{'name': 'read_file', 'calls': 3}, {'name': 'code_graph', 'calls': 2},
-                                                {'name': 'shell_run', 'calls': 1}]
+        assert tool_counts(conn, ['run:a']) == [
+            {'name': 'read_file', 'calls': 3},
+            {'name': 'code_graph', 'calls': 2},
+            {'name': 'shell_run', 'calls': 1},
+        ]
         assert tool_counts(conn, ['run:a', 'run:b'])[-1] == {'name': 'ssh_run', 'calls': 1}
         assert tool_counts(conn, ['run:none']) == [] and tool_counts(conn, []) == []
 
@@ -52,8 +58,10 @@ def test_sessions_count_only_their_own_turns_and_runs(store, sessions):
     detail = sessions.client.get(f'/api/sessions/{sid}', headers=HEADERS).json()
     assert detail['tool_counts'] == [{'name': 'Read', 'calls': 2}, {'name': 'Grep', 'calls': 1}]
     with store.connect() as conn:  # the last tool_call counted, so a live view adds only later streamed calls
-        last = conn.execute("SELECT max(id) AS id FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'",
-                            ([f'cc:{sid}:1', f'cc:{sid}:2'],)).fetchone()['id']
+        last = conn.execute(
+            "SELECT max(id) AS id FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call'",
+            ([f'cc:{sid}:1', f'cc:{sid}:2'],),
+        ).fetchone()['id']
     assert detail['tool_counts_through_id'] == last
 
 

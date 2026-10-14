@@ -1,4 +1,5 @@
 """Named model connections and agent assignments. Credentials are write-only."""
+
 import asyncio
 from functools import partial
 import math
@@ -54,10 +55,18 @@ class ModelInput(BaseModel):
     @model_validator(mode='after')
     def provider_fields(self):
         if self.api_format == 'embeddings':
-            if self.provider not in ('openai', 'bedrock') or self.embedding_dimensions is None or self.embedding_version is None:
+            if (
+                self.provider not in ('openai', 'bedrock')
+                or self.embedding_dimensions is None
+                or self.embedding_version is None
+            ):
                 raise ValueError('Embeddings require OpenAI compatible or Bedrock, dimensions and model version')
-            if self.provider == 'bedrock' and (self.model != 'amazon.titan-embed-text-v2:0' or self.embedding_dimensions not in (256, 512, 1024)):
-                raise ValueError('Bedrock embeddings support amazon.titan-embed-text-v2:0 with 256, 512, or 1024 dimensions')
+            if self.provider == 'bedrock' and (
+                self.model != 'amazon.titan-embed-text-v2:0' or self.embedding_dimensions not in (256, 512, 1024)
+            ):
+                raise ValueError(
+                    'Bedrock embeddings support amazon.titan-embed-text-v2:0 with 256, 512, or 1024 dimensions'
+                )
         elif self.embedding_dimensions is not None or self.embedding_version is not None:
             raise ValueError('Embedding dimensions and version apply only to embedding models')
         if self.provider == 'bedrock':
@@ -68,8 +77,14 @@ class ModelInput(BaseModel):
             if self.api_format not in expected or self.aws_region is not None or self.base_url is None:
                 raise ValueError('Choose the provider API format and enter a base URL, without an AWS region')
             parsed = urlsplit(self.base_url)
-            if (parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username
-                    or parsed.password or parsed.query or parsed.fragment):
+            if (
+                parsed.scheme not in ('http', 'https')
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
                 raise ValueError('Use an HTTP(S) base URL without credentials, query, or fragment')
             self.base_url = self.base_url.rstrip('/')
         return self
@@ -93,24 +108,43 @@ async def probe_model(model) -> None:
     if model.provider == 'bedrock' and model.api_format == 'embeddings':
         await asyncio.to_thread(embed_bedrock, model, ['Connection test'])
     elif model.provider == 'openai':
-        async with AsyncOpenAI(base_url=model.base_url, api_key=model.api_key or 'unused', timeout=25, max_retries=0) as client:
+        async with AsyncOpenAI(
+            base_url=model.base_url, api_key=model.api_key or 'unused', timeout=25, max_retries=0
+        ) as client:
             if model.api_format == 'embeddings':
-                result = await client.embeddings.create(model=model.model, input=['Connection test'], encoding_format='float')
+                result = await client.embeddings.create(
+                    model=model.model, input=['Connection test'], encoding_format='float'
+                )
                 if len(result.data) != 1 or result.data[0].index != 0:
                     raise ValueError('Invalid embedding response')
                 vector = result.data[0].embedding
-                if len(vector) != model.embedding_dimensions or not any(vector) or any(not math.isfinite(v) or abs(v) > 3.4e38 for v in vector):
+                if (
+                    len(vector) != model.embedding_dimensions
+                    or not any(vector)
+                    or any(not math.isfinite(v) or abs(v) > 3.4e38 for v in vector)
+                ):
                     raise ValueError('Embedding dimensions or values do not match the connection')
             elif model.api_format == 'responses':
                 await client.responses.create(model=model.model, input='Reply with OK.', max_output_tokens=32)
             else:
-                await client.chat.completions.create(model=model.model, messages=[{'role': 'user', 'content': 'Reply with OK.'}], max_completion_tokens=32)
+                await client.chat.completions.create(
+                    model=model.model,
+                    messages=[{'role': 'user', 'content': 'Reply with OK.'}],
+                    max_completion_tokens=32,
+                )
     else:
         from litellm import acompletion
-        await acompletion(model=completion_model(model.provider, model.model), api_key=model.api_key,
-            base_url=model.base_url, messages=[{'role': 'user', 'content': 'Reply with OK.'}],
-            max_tokens=32, timeout=25, num_retries=0,
-            **({'aws_region_name': model.aws_region} if model.provider == 'bedrock' else {}))
+
+        await acompletion(
+            model=completion_model(model.provider, model.model),
+            api_key=model.api_key,
+            base_url=model.base_url,
+            messages=[{'role': 'user', 'content': 'Reply with OK.'}],
+            max_tokens=32,
+            timeout=25,
+            num_retries=0,
+            **({'aws_region_name': model.aws_region} if model.provider == 'bedrock' else {}),
+        )
 
 
 def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
@@ -127,8 +161,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     @router.get('')
     def settings():
         with database().connect() as conn:
-            return {'models': conn.execute(f'SELECT {PUBLIC} FROM ka.llm_models ORDER BY name,id').fetchall(),
-                    'assignments': conn.execute('SELECT search_model_id,code_model_id,operations_model_id,revision,updated_at FROM ka.llm_assignments').fetchone()}
+            return {
+                'models': conn.execute(f'SELECT {PUBLIC} FROM ka.llm_models ORDER BY name,id').fetchall(),
+                'assignments': conn.execute(
+                    'SELECT search_model_id,code_model_id,operations_model_id,revision,updated_at FROM ka.llm_assignments'
+                ).fetchone(),
+            }
 
     @router.put('/assignments')
     def assignments(value: AssignmentsInput, request: Request):
@@ -144,15 +182,26 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             for field, model_id in changes.items():
                 if model_id is None:
                     continue
-                model = conn.execute('SELECT provider,api_format,model,enabled FROM ka.llm_models WHERE id=%s', (model_id,)).fetchone()
+                model = conn.execute(
+                    'SELECT provider,api_format,model,enabled FROM ka.llm_models WHERE id=%s', (model_id,)
+                ).fetchone()
                 if model is None or not model['enabled'] or model['api_format'] == 'embeddings':
                     raise HTTPException(400, 'Choose an enabled model')
-                if field != 'search_model_id' and not code_compatible(model['provider'], model['api_format'], model['model']):
-                    raise HTTPException(400, 'These agents require OpenAI Responses or Claude through Anthropic / Bedrock')
-            actor = audit(conn, db, request, 'llm.assignments.updated', None, value.model_dump(mode='json', exclude_unset=True))
+                if field != 'search_model_id' and not code_compatible(
+                    model['provider'], model['api_format'], model['model']
+                ):
+                    raise HTTPException(
+                        400, 'These agents require OpenAI Responses or Claude through Anthropic / Bedrock'
+                    )
+            actor = audit(
+                conn, db, request, 'llm.assignments.updated', None, value.model_dump(mode='json', exclude_unset=True)
+            )
             current.update(changes)
-            return conn.execute('''UPDATE ka.llm_assignments SET search_model_id=%s,code_model_id=%s,operations_model_id=%s,revision=revision+1,updated_by=%s
-                RETURNING search_model_id,code_model_id,operations_model_id,revision,updated_at''', (current['search_model_id'], current['code_model_id'], current['operations_model_id'], actor)).fetchone()
+            return conn.execute(
+                """UPDATE ka.llm_assignments SET search_model_id=%s,code_model_id=%s,operations_model_id=%s,revision=revision+1,updated_by=%s
+                RETURNING search_model_id,code_model_id,operations_model_id,revision,updated_at""",
+                (current['search_model_id'], current['code_model_id'], current['operations_model_id'], actor),
+            ).fetchone()
 
     def save(value: ModelInput, request: Request, model_id: UUID | None):
         db = database()
@@ -162,7 +211,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             with db.connect() as conn:
                 # Serialize assignment and connection edits so compatibility validation cannot race.
                 conn.execute('SELECT singleton FROM ka.llm_assignment_revision FOR UPDATE')
-                old = None if creating else conn.execute('SELECT * FROM ka.llm_models WHERE id=%s FOR UPDATE', (model_id,)).fetchone()
+                old = (
+                    None
+                    if creating
+                    else conn.execute('SELECT * FROM ka.llm_models WHERE id=%s FOR UPDATE', (model_id,)).fetchone()
+                )
                 if not creating and old is None:
                     raise HTTPException(404, 'Model not found')
                 if (creating and value.revision is not None) or (old is not None and old['revision'] != value.revision):
@@ -172,24 +225,58 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 encrypted = old['api_key_ciphertext'] if old is not None else None
                 if old is not None and encrypted is not None and 'api_key' not in value.model_fields_set:
                     if any(old[key] != getattr(value, key) for key in ('provider', 'base_url', 'aws_region')):
-                        raise HTTPException(400, 'Replace or remove the saved key when changing its provider or endpoint.')
+                        raise HTTPException(
+                            400, 'Replace or remove the saved key when changing its provider or endpoint.'
+                        )
                 if 'api_key' in value.model_fields_set:
                     nonce = os.urandom(12)
-                    encrypted = None if value.api_key is None else nonce + db.cipher.encrypt(nonce, value.api_key.get_secret_value().encode(), credential_aad(model_id, value.api_format))
+                    encrypted = (
+                        None
+                        if value.api_key is None
+                        else nonce
+                        + db.cipher.encrypt(
+                            nonce, value.api_key.get_secret_value().encode(), credential_aad(model_id, value.api_format)
+                        )
+                    )
                 if value.provider != 'openai' and encrypted is None:
                     raise HTTPException(400, 'An API key is required for this provider')
-                if conn.execute("SELECT 1 FROM ka.agents WHERE model_id=%s LIMIT 1", (model_id,)).fetchone() and not code_compatible(value.provider, value.api_format, value.model):
+                if conn.execute(
+                    'SELECT 1 FROM ka.agents WHERE model_id=%s LIMIT 1', (model_id,)
+                ).fetchone() and not code_compatible(value.provider, value.api_format, value.model):
                     raise HTTPException(400, 'Choose a compatible code model or remove its agent assignment first.')
-                actor = audit(conn, db, request, 'llm.created' if creating else 'llm.updated', model_id,
-                              {'name': value.name, 'provider': value.provider, 'enabled': value.enabled})
-                values = (value.name, value.provider, value.model, value.api_format, value.base_url, value.aws_region,
-                          value.embedding_dimensions, value.embedding_version, encrypted, value.enabled, actor)
+                actor = audit(
+                    conn,
+                    db,
+                    request,
+                    'llm.created' if creating else 'llm.updated',
+                    model_id,
+                    {'name': value.name, 'provider': value.provider, 'enabled': value.enabled},
+                )
+                values = (
+                    value.name,
+                    value.provider,
+                    value.model,
+                    value.api_format,
+                    value.base_url,
+                    value.aws_region,
+                    value.embedding_dimensions,
+                    value.embedding_version,
+                    encrypted,
+                    value.enabled,
+                    actor,
+                )
                 if creating:
-                    row = conn.execute(f'''INSERT INTO ka.llm_models(name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,api_key_ciphertext,enabled,updated_by,created_by,id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING {PUBLIC}''', (*values, actor, model_id)).fetchone()
+                    row = conn.execute(
+                        f"""INSERT INTO ka.llm_models(name,provider,model,api_format,base_url,aws_region,embedding_dimensions,embedding_version,api_key_ciphertext,enabled,updated_by,created_by,id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING {PUBLIC}""",
+                        (*values, actor, model_id),
+                    ).fetchone()
                 else:
-                    row = conn.execute(f'''UPDATE ka.llm_models SET name=%s,provider=%s,model=%s,api_format=%s,base_url=%s,aws_region=%s,embedding_dimensions=%s,embedding_version=%s,api_key_ciphertext=%s,enabled=%s,updated_by=%s,revision=revision+1
-                        WHERE id=%s RETURNING {PUBLIC}''', (*values, model_id)).fetchone()
+                    row = conn.execute(
+                        f"""UPDATE ka.llm_models SET name=%s,provider=%s,model=%s,api_format=%s,base_url=%s,aws_region=%s,embedding_dimensions=%s,embedding_version=%s,api_key_ciphertext=%s,enabled=%s,updated_by=%s,revision=revision+1
+                        WHERE id=%s RETURNING {PUBLIC}""",
+                        (*values, model_id),
+                    ).fetchone()
                 return row
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A model with this name already exists') from None
@@ -222,8 +309,19 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             await asyncio.wait_for(probe_model(model), timeout=35)
         except Exception:
             # Provider errors may contain credentials, signed requests, or account details.
-            return {'ok': False, 'message': ('Embedding connection failed. Check the endpoint or region, model ID, credentials, and embedding dimensions.'
-                if model.api_format == 'embeddings' else 'Connection failed. Check the endpoint, model ID, credentials, region, and model access.')}
-        return {'ok': True, 'message': 'Embedding model responded with the configured dimensions.' if model.api_format == 'embeddings' else 'Model responded successfully.'}
+            return {
+                'ok': False,
+                'message': (
+                    'Embedding connection failed. Check the endpoint or region, model ID, credentials, and embedding dimensions.'
+                    if model.api_format == 'embeddings'
+                    else 'Connection failed. Check the endpoint, model ID, credentials, region, and model access.'
+                ),
+            }
+        return {
+            'ok': True,
+            'message': 'Embedding model responded with the configured dimensions.'
+            if model.api_format == 'embeddings'
+            else 'Model responded successfully.',
+        }
 
     return router

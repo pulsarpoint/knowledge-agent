@@ -1,4 +1,5 @@
 """Migration 0064 removes the publish-to-RAG columns; its down migration restores them."""
+
 from pathlib import Path
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
@@ -6,8 +7,12 @@ PUBLISH = {'published_path', 'published_at', 'publish_error', 'index_pending'}
 
 
 def columns(conn, table):
-    return {r['column_name'] for r in conn.execute(
-        "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name=%s", (table,))}
+    return {
+        r['column_name']
+        for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='ka' AND table_name=%s", (table,)
+        )
+    }
 
 
 def test_0064_removes_publish_columns_and_down_restores_them(store):

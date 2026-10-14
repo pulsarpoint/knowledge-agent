@@ -17,8 +17,9 @@ TAG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 MAX_TAGS = 10
 BAD_TAG = 'Tags use lowercase letters, digits and -, up to 40 characters.'
 TOO_MANY_TAGS = f'Use at most {MAX_TAGS} tags.'
-PROMPT_COLUMNS = ('id,project_id,name,description,tags,enabled,active_version_id,next_version,revision,'
-                  'created_at,updated_at')
+PROMPT_COLUMNS = (
+    'id,project_id,name,description,tags,enabled,active_version_id,next_version,revision,created_at,updated_at'
+)
 
 
 def clean_tags(tags: list[str]) -> list[str]:
@@ -63,13 +64,15 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     database = partial(storage, store, 'Prompt storage', message='Prompt storage is not configured')
 
     def audit(conn, db, request, project, prompt_id, action, details):
-        subject,email = request_actor(request)
-        actor = db.actor(conn,subject,email)
+        subject, email = request_actor(request)
+        actor = db.actor(conn, subject, email)
         write_audit(conn, project, actor, action, 'documentation_prompt', prompt_id, details)
         return actor
 
     def locked_prompt(conn, project, prompt_id, revision):
-        row = conn.execute('SELECT * FROM ka.documentation_prompts WHERE id=%s AND project_id=%s FOR UPDATE', (prompt_id,project)).fetchone()
+        row = conn.execute(
+            'SELECT * FROM ka.documentation_prompts WHERE id=%s AND project_id=%s FOR UPDATE', (prompt_id, project)
+        ).fetchone()
         if row is None:
             raise HTTPException(404, 'Documentation prompt not found')
         if row['revision'] != revision:
@@ -80,29 +83,40 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def list_prompts(tag: str | None = Query(None, max_length=40)) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            rows = conn.execute(f'''SELECT {', '.join('p.' + column for column in PROMPT_COLUMNS.split(','))},v.version AS active_version,
+            rows = conn.execute(
+                f"""SELECT {', '.join('p.' + column for column in PROMPT_COLUMNS.split(','))},v.version AS active_version,
                 (SELECT count(*) FROM ka.documentation_prompt_versions WHERE prompt_id=p.id) AS version_count
                 FROM ka.documentation_prompts p LEFT JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
                 WHERE p.project_id=%s AND (%s::text IS NULL OR p.tags @> ARRAY[%s]::text[])
-                ORDER BY lower(p.name),p.id''', (project,tag,tag)).fetchall()
-            return {'prompts':rows}
+                ORDER BY lower(p.name),p.id""",
+                (project, tag, tag),
+            ).fetchall()
+            return {'prompts': rows}
 
     @router.get('/tags')
     def tags_in_use() -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            rows = conn.execute('''SELECT tag, count(*) AS count FROM ka.documentation_prompts, unnest(tags) AS tag
-                WHERE project_id=%s GROUP BY tag ORDER BY tag''', (project,)).fetchall()
-        return {'tags':rows}
+            rows = conn.execute(
+                """SELECT tag, count(*) AS count FROM ka.documentation_prompts, unnest(tags) AS tag
+                WHERE project_id=%s GROUP BY tag ORDER BY tag""",
+                (project,),
+            ).fetchall()
+        return {'tags': rows}
 
     @router.get('/{prompt_id}')
     def get_prompt(prompt_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            row = conn.execute(f'SELECT {PROMPT_COLUMNS} FROM ka.documentation_prompts WHERE id=%s AND project_id=%s', (prompt_id,project)).fetchone()
+            row = conn.execute(
+                f'SELECT {PROMPT_COLUMNS} FROM ka.documentation_prompts WHERE id=%s AND project_id=%s',
+                (prompt_id, project),
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Documentation prompt not found')
-            row['versions'] = conn.execute('SELECT * FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC', (prompt_id,)).fetchall()
+            row['versions'] = conn.execute(
+                'SELECT * FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC', (prompt_id,)
+            ).fetchall()
             return row
 
     def save(value: PromptInput, request: Request, prompt_id: UUID | None) -> dict:
@@ -115,67 +129,119 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if is_new:
                     if value.revision is not None:
                         raise HTTPException(400, 'New prompts cannot reuse a revision')
-                    row = conn.execute(f'''INSERT INTO ka.documentation_prompts(project_id,name,description,tags,enabled)
-                        VALUES (%s,%s,%s,%s,%s) RETURNING {PROMPT_COLUMNS}''', (project,value.name,value.description,tags,value.enabled)).fetchone()
+                    row = conn.execute(
+                        f"""INSERT INTO ka.documentation_prompts(project_id,name,description,tags,enabled)
+                        VALUES (%s,%s,%s,%s,%s) RETURNING {PROMPT_COLUMNS}""",
+                        (project, value.name, value.description, tags, value.enabled),
+                    ).fetchone()
                     prompt_id = row['id']
                     revision = 1
                 else:
-                    row = locked_prompt(conn,project,prompt_id,value.revision)
-                    revision = row['revision']+1
-                    conn.execute('''UPDATE ka.documentation_prompts SET name=%s,description=%s,tags=%s,enabled=%s,revision=%s
-                        WHERE id=%s''', (value.name,value.description,tags,value.enabled,revision,prompt_id))
+                    row = locked_prompt(conn, project, prompt_id, value.revision)
+                    revision = row['revision'] + 1
+                    conn.execute(
+                        """UPDATE ka.documentation_prompts SET name=%s,description=%s,tags=%s,enabled=%s,revision=%s
+                        WHERE id=%s""",
+                        (value.name, value.description, tags, value.enabled, revision, prompt_id),
+                    )
                 stored = row['tags'] if is_new else tags
-                actor = audit(conn,db,request,project,prompt_id,'documentation_prompt.saved',{'revision':revision,'tags':stored})
-                latest = conn.execute('SELECT id,content FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC LIMIT 1', (prompt_id,)).fetchone()
+                actor = audit(
+                    conn,
+                    db,
+                    request,
+                    project,
+                    prompt_id,
+                    'documentation_prompt.saved',
+                    {'revision': revision, 'tags': stored},
+                )
+                latest = conn.execute(
+                    'SELECT id,content FROM ka.documentation_prompt_versions WHERE prompt_id=%s ORDER BY version DESC LIMIT 1',
+                    (prompt_id,),
+                ).fetchone()
                 # Metadata edits do not need another identical draft.
                 version_id = latest['id'] if latest is not None else None
                 if latest is None or latest['content'] != value.content:
-                    version_id = conn.execute('''INSERT INTO ka.documentation_prompt_versions(prompt_id,version,content,created_by)
-                        VALUES (%s,%s,%s,%s) RETURNING id''', (prompt_id,row['next_version'],value.content,actor)).fetchone()['id']
-                    conn.execute('UPDATE ka.documentation_prompts SET next_version=next_version+1 WHERE id=%s', (prompt_id,))
-                return {'id':prompt_id,'revision':revision,'version_id':version_id}
+                    version_id = conn.execute(
+                        """INSERT INTO ka.documentation_prompt_versions(prompt_id,version,content,created_by)
+                        VALUES (%s,%s,%s,%s) RETURNING id""",
+                        (prompt_id, row['next_version'], value.content, actor),
+                    ).fetchone()['id']
+                    conn.execute(
+                        'UPDATE ka.documentation_prompts SET next_version=next_version+1 WHERE id=%s', (prompt_id,)
+                    )
+                return {'id': prompt_id, 'revision': revision, 'version_id': version_id}
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A documentation prompt with this name already exists') from None
 
     @router.post('', status_code=201)
     def create_prompt(value: PromptInput, request: Request) -> dict:
-        return save(value,request,None)
+        return save(value, request, None)
 
     @router.put('/{prompt_id}')
     def update_prompt(prompt_id: UUID, value: PromptInput, request: Request) -> dict:
-        return save(value,request,prompt_id)
+        return save(value, request, prompt_id)
 
     @router.post('/{prompt_id}/versions/{version_id}/activate')
     def activate(prompt_id: UUID, version_id: UUID, value: PromptRevision, request: Request) -> dict:
         request_actor(request)
         db = database()
         with workspace(db, app_name) as (conn, project):
-            prompt = locked_prompt(conn,project,prompt_id,value.revision)
-            version = conn.execute('SELECT version FROM ka.documentation_prompt_versions WHERE id=%s AND prompt_id=%s', (version_id,prompt_id)).fetchone()
+            prompt = locked_prompt(conn, project, prompt_id, value.revision)
+            version = conn.execute(
+                'SELECT version FROM ka.documentation_prompt_versions WHERE id=%s AND prompt_id=%s',
+                (version_id, prompt_id),
+            ).fetchone()
             if version is None:
                 raise HTTPException(404, 'Prompt version not found')
             if prompt['active_version_id'] != version_id:
-                conn.execute('UPDATE ka.documentation_prompt_versions SET activated_at=COALESCE(activated_at,now()) WHERE id=%s', (version_id,))
-                conn.execute('UPDATE ka.documentation_prompts SET active_version_id=%s,revision=revision+1 WHERE id=%s', (version_id,prompt_id))
-                audit(conn,db,request,project,prompt_id,'documentation_prompt.activated',{'version':version['version']})
-            return {'id':prompt_id,'active_version_id':version_id}
+                conn.execute(
+                    'UPDATE ka.documentation_prompt_versions SET activated_at=COALESCE(activated_at,now()) WHERE id=%s',
+                    (version_id,),
+                )
+                conn.execute(
+                    'UPDATE ka.documentation_prompts SET active_version_id=%s,revision=revision+1 WHERE id=%s',
+                    (version_id, prompt_id),
+                )
+                audit(
+                    conn,
+                    db,
+                    request,
+                    project,
+                    prompt_id,
+                    'documentation_prompt.activated',
+                    {'version': version['version']},
+                )
+            return {'id': prompt_id, 'active_version_id': version_id}
 
     @router.delete('/{prompt_id}/versions/{version_id}')
-    def delete_version(prompt_id: UUID, version_id: UUID, request: Request, revision: int = Query(ge=1), confirmed: bool = False) -> dict:
+    def delete_version(
+        prompt_id: UUID, version_id: UUID, request: Request, revision: int = Query(ge=1), confirmed: bool = False
+    ) -> dict:
         request_actor(request)
         if not confirmed:
             raise HTTPException(400, 'Confirm prompt version deletion before continuing')
         db = database()
         with workspace(db, app_name) as (conn, project):
-            prompt = locked_prompt(conn,project,prompt_id,revision)
+            prompt = locked_prompt(conn, project, prompt_id, revision)
             if prompt['active_version_id'] == version_id:
                 raise HTTPException(409, 'Activate another version before deleting the active version')
-            row = conn.execute('DELETE FROM ka.documentation_prompt_versions WHERE id=%s AND prompt_id=%s RETURNING version', (version_id,prompt_id)).fetchone()
+            row = conn.execute(
+                'DELETE FROM ka.documentation_prompt_versions WHERE id=%s AND prompt_id=%s RETURNING version',
+                (version_id, prompt_id),
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Prompt version not found')
             conn.execute('UPDATE ka.documentation_prompts SET revision=revision+1 WHERE id=%s', (prompt_id,))
-            audit(conn,db,request,project,prompt_id,'documentation_prompt.version.deleted',{'version':row['version']})
-            return {'id':version_id}
+            audit(
+                conn,
+                db,
+                request,
+                project,
+                prompt_id,
+                'documentation_prompt.version.deleted',
+                {'version': row['version']},
+            )
+            return {'id': version_id}
 
     @router.delete('/{prompt_id}')
     def delete_prompt(prompt_id: UUID, request: Request, revision: int = Query(ge=1), confirmed: bool = False) -> dict:
@@ -184,10 +250,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             raise HTTPException(400, 'Confirm prompt deletion before continuing')
         db = database()
         with workspace(db, app_name) as (conn, project):
-            locked_prompt(conn,project,prompt_id,revision)
+            locked_prompt(conn, project, prompt_id, revision)
             conn.execute('UPDATE ka.documentation_prompts SET active_version_id=NULL WHERE id=%s', (prompt_id,))
             conn.execute('DELETE FROM ka.documentation_prompts WHERE id=%s', (prompt_id,))
-            audit(conn,db,request,project,prompt_id,'documentation_prompt.deleted',{'revision':revision})
-            return {'id':prompt_id}
+            audit(conn, db, request, project, prompt_id, 'documentation_prompt.deleted', {'revision': revision})
+            return {'id': prompt_id}
 
     return router

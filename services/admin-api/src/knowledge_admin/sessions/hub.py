@@ -1,6 +1,7 @@
 """Live session pages without polling. Postgres announces session changes on the channel `ka_sessions` (migration
 0083's triggers, delivered on commit); one listener per API process receives them, and the hub reads the new rows once
 and hands them to every subscriber of that session (the event stream of the Test tab and Generate documents)."""
+
 import asyncio
 import json
 import logging
@@ -18,18 +19,24 @@ from knowledge_admin.documents.drafts import SESSION_DRAFT
 logger = logging.getLogger(__name__)
 
 CHANNEL = 'ka_sessions'
-QUEUE_SIZE = 500  # messages a subscriber may fall behind before it must resync (its queue has one more place, for resync)
+QUEUE_SIZE = (
+    500  # messages a subscriber may fall behind before it must resync (its queue has one more place, for resync)
+)
 PAGE = 500  # events per query
 COALESCE_SECONDS = 0.05  # notices arriving together become one read
 SWEEP_SECONDS = 30.0  # every watched session is read at least this often (a lost notice)
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 CONNECT_TIMEOUT = 5
 
-STATE = """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.model_calls,s.reasoning_tokens,s.draft,
+STATE = (
+    """SELECT s.status,s.status_message,s.turns,s.input_tokens,s.output_tokens,s.cached_tokens,s.model_calls,s.reasoning_tokens,s.draft,
     s.draft_turn,s.document_id,coalesce(s.lease_expires_at > now(), false) AS worker_active,
     (SELECT count(*) FROM ka.agent_session_inputs i WHERE i.session_id=s.id AND i.status='queued') AS queued,
-    """ + SESSION_DRAFT + """
+    """
+    + SESSION_DRAFT
+    + """
     FROM ka.agent_sessions s WHERE s.id=%s"""
+)
 EVENTS = """SELECT id,run_key,seq,kind,
     CASE WHEN kind='tool_result' THEN payload - 'output' ELSE payload END AS payload,created_at FROM ka.agent_run_events
     WHERE run_key=ANY(%s) AND id>%s ORDER BY id LIMIT %s"""
@@ -63,8 +70,15 @@ class SessionHub:
     """One per API process (started in the app lifespan). `subscribe` gives a page its messages; a notice marks the
     session dirty and one reader task reads each dirty session once."""
 
-    def __init__(self, conninfo: str, *, sweep_seconds: float = SWEEP_SECONDS, backoff_start: float = BACKOFF_START,
-                 backoff_max: float = BACKOFF_MAX, coalesce_seconds: float = COALESCE_SECONDS):
+    def __init__(
+        self,
+        conninfo: str,
+        *,
+        sweep_seconds: float = SWEEP_SECONDS,
+        backoff_start: float = BACKOFF_START,
+        backoff_max: float = BACKOFF_MAX,
+        coalesce_seconds: float = COALESCE_SECONDS,
+    ):
         self.conninfo = conninfo
         self.sweep_seconds, self.coalesce_seconds = sweep_seconds, coalesce_seconds
         self.backoff_start, self.backoff_max = backoff_start, backoff_max
@@ -80,8 +94,10 @@ class SessionHub:
     async def start(self) -> None:
         """Start the listener and the reader; returns at once (the database may still be unreachable)."""
         self._stopped = False
-        self._tasks = [asyncio.create_task(self._listen(), name='session-hub-listener'),
-                       asyncio.create_task(self._read_loop(), name='session-hub-reader')]
+        self._tasks = [
+            asyncio.create_task(self._listen(), name='session-hub-listener'),
+            asyncio.create_task(self._read_loop(), name='session-hub-reader'),
+        ]
 
     async def stop(self) -> None:
         """Stop listening and reading. Every open subscription (and any made later) gets resync: its stream ends and
@@ -204,8 +220,9 @@ class SessionHub:
                 if lost:
                     logger.warning('Session hub listener lost its connection (%s); reconnecting', type(exc).__name__)
                 else:
-                    logger.warning('Session hub cannot reach the database (%s); retrying in %.1f s',
-                                   type(exc).__name__, delay)
+                    logger.warning(
+                        'Session hub cannot reach the database (%s); retrying in %.1f s', type(exc).__name__, delay
+                    )
                     self._outage()
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self.backoff_max)
@@ -243,8 +260,9 @@ class SessionHub:
         """Read the dirty sessions over one short-lived connection."""
         if not batch:
             return
-        async with await psycopg.AsyncConnection.connect(self.conninfo, autocommit=True, row_factory=dict_row,
-                                                         connect_timeout=CONNECT_TIMEOUT) as conn:
+        async with await psycopg.AsyncConnection.connect(
+            self.conninfo, autocommit=True, row_factory=dict_row, connect_timeout=CONNECT_TIMEOUT
+        ) as conn:
             for session_id in batch:
                 await self._read(conn, session_id)
 

@@ -1,5 +1,6 @@
 """Stand-ins for the Agents SDK objects a native turn's hooks receive (model responses, tool contexts), shaped like the
 real ones (test_native_session_events checks the fields)."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -41,10 +42,16 @@ def call(call_id: str, name: str, arguments: dict):
 
 def response(*items, input_tokens: int = 0, output_tokens: int = 0, cached: int = 0, reasoning: int = 0):
     """A ModelResponse: its output items and its Usage."""
-    return SimpleNamespace(output=list(items), usage=SimpleNamespace(
-        input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=input_tokens + output_tokens,
-        input_tokens_details=SimpleNamespace(cached_tokens=cached),
-        output_tokens_details=SimpleNamespace(reasoning_tokens=reasoning)))
+    return SimpleNamespace(
+        output=list(items),
+        usage=SimpleNamespace(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            input_tokens_details=SimpleNamespace(cached_tokens=cached),
+            output_tokens_details=SimpleNamespace(reasoning_tokens=reasoning),
+        ),
+    )
 
 
 class Turn:
@@ -58,8 +65,11 @@ class Turn:
 
     async def model_call(self) -> None:
         """What the SDK does before each model request: the filter sees (and may change) the input the model gets."""
-        data = CallModelData(model_data=ModelInputData(input=list(self.items), instructions=self.writer.instructions),
-                             agent=self.writer, context=None)
+        data = CallModelData(
+            model_data=ModelInputData(input=list(self.items), instructions=self.writer.instructions),
+            agent=self.writer,
+            context=None,
+        )
         model = data.model_data
         if self.filter is not None:
             model = await self.filter(data)
@@ -78,12 +88,32 @@ class FakeAgent:
         self.calls: list[dict] = []
         self.running = 0
 
-    async def __call__(self, config, task, *, credentials, session, hooks, max_turns, turn_timeout_seconds,
-                       call_model_input_filter, stream, subagents=None):
+    async def __call__(
+        self,
+        config,
+        task,
+        *,
+        credentials,
+        session,
+        hooks,
+        max_turns,
+        turn_timeout_seconds,
+        call_model_input_filter,
+        stream,
+        subagents=None,
+    ):
         index = len(self.calls)
-        record = {'config': config, 'task': task, 'credentials': dict(credentials), 'history': await session.get_items(),
-                  'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream, 'inputs': [],
-                  'tools': []}
+        record = {
+            'config': config,
+            'task': task,
+            'credentials': dict(credentials),
+            'history': await session.get_items(),
+            'max_turns': max_turns,
+            'turn_timeout_seconds': turn_timeout_seconds,
+            'stream': stream,
+            'inputs': [],
+            'tools': [],
+        }
         self.calls.append(record)
         self.running += 1
         try:
@@ -92,9 +122,15 @@ class FakeAgent:
             await session.add_items([user])
             writer = SimpleNamespace(name=config['name'], instructions='Native prompt for ' + config['name'])
             # The run context the tools see, as agent() builds it: `offered` names the run's catalog tools.
-            context = {'config': config, 'credentials': credentials, 'workspace': Path('/work/agent-workspaces/turn'),
-                       'shell_enabled': False, 'tools': frozenset(script.get('offered', ())), 'mcp_tools': {},
-                       'subagents': subagents}
+            context = {
+                'config': config,
+                'credentials': credentials,
+                'workspace': Path('/work/agent-workspaces/turn'),
+                'shell_enabled': False,
+                'tools': frozenset(script.get('offered', ())),
+                'mcp_tools': {},
+                'subagents': subagents,
+            }
             turn = Turn(record, hooks, writer, call_model_input_filter, [*record['history'], user], context)
             await hooks.on_agent_start(None, writer)
             for step in script.get('steps', []):
@@ -121,16 +157,20 @@ def _input_item(item) -> dict:
 
 def llm(*items, **usage):
     """A model call: its input through the filter, its response through the hooks, its output into the next input."""
+
     async def step(turn: Turn):
         await turn.model_call()
         await turn.hooks.on_llm_end(None, turn.writer, response(*items, **usage))
         turn.items.extend(_input_item(item) for item in items)
+
     return step
 
 
-def tool(call_id: str, name: str, output: str, *, started: asyncio.Event | None = None,
-         gate: asyncio.Event | None = None):
+def tool(
+    call_id: str, name: str, output: str, *, started: asyncio.Event | None = None, gate: asyncio.Event | None = None
+):
     """A tool call's result; with `gate`, a slow tool that has `started` and runs until the gate opens."""
+
     async def step(turn: Turn):
         context, function = SimpleNamespace(tool_call_id=call_id), SimpleNamespace(name=name)
         await turn.hooks.on_tool_start(context, turn.writer, function)  # as the SDK, before the tool runs
@@ -141,12 +181,14 @@ def tool(call_id: str, name: str, output: str, *, started: asyncio.Event | None 
             await gate.wait()
         await turn.hooks.on_tool_end(context, turn.writer, function, output)
         turn.items.append({'type': 'function_call_output', 'call_id': call_id, 'output': output})
+
     return step
 
 
 def hang(where: str, started: asyncio.Event, cancelled: list[str]):
     """Work that never ends by itself: 'connect' (MCP servers, before the first model call), 'model' (a model request,
     after its input) or 'tool' (a slow tool call such as shell_run). Records its cancellation."""
+
     async def step(turn: Turn):
         if where == 'model':
             await turn.model_call()
@@ -156,11 +198,13 @@ def hang(where: str, started: asyncio.Event, cancelled: list[str]):
         except asyncio.CancelledError:
             cancelled.append(where)
             raise
+
     return step
 
 
 def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event):
     """Work that ignores cancellation (a tool that swallows CancelledError and keeps going) until `release` is set."""
+
     async def step(turn: Turn):
         started.set()
         while not release.is_set():
@@ -168,6 +212,7 @@ def stubborn(started: asyncio.Event, ignored: list[str], release: asyncio.Event)
                 await release.wait()
             except asyncio.CancelledError:
                 ignored.append('cancel')
+
     return step
 
 
@@ -180,17 +225,46 @@ class FakeSubagent:
         self.turns = turns
         self.calls: list[dict] = []
 
-    async def __call__(self, config, task, *, credentials, workspace, hooks, max_turns, turn_timeout_seconds,
-                       call_model_input_filter, stream, subagents=None):
-        record = {'config': config, 'task': task, 'credentials': dict(credentials), 'workspace': workspace,
-                  'max_turns': max_turns, 'turn_timeout_seconds': turn_timeout_seconds, 'stream': stream,
-                  'filter': call_model_input_filter, 'subagents': subagents, 'inputs': [], 'tools': []}
+    async def __call__(
+        self,
+        config,
+        task,
+        *,
+        credentials,
+        workspace,
+        hooks,
+        max_turns,
+        turn_timeout_seconds,
+        call_model_input_filter,
+        stream,
+        subagents=None,
+    ):
+        record = {
+            'config': config,
+            'task': task,
+            'credentials': dict(credentials),
+            'workspace': workspace,
+            'max_turns': max_turns,
+            'turn_timeout_seconds': turn_timeout_seconds,
+            'stream': stream,
+            'filter': call_model_input_filter,
+            'subagents': subagents,
+            'inputs': [],
+            'tools': [],
+        }
         self.calls.append(record)
         script = self.turns[task]
         writer = SimpleNamespace(name=config['name'], instructions=config['system_prompt']['content'])
         # The run context its tools see (an expert's run_subagent finds its own host here).
-        context = {'config': config, 'credentials': credentials, 'workspace': workspace, 'shell_enabled': False,
-                   'tools': frozenset(script.get('offered', ())), 'mcp_tools': {}, 'subagents': subagents}
+        context = {
+            'config': config,
+            'credentials': credentials,
+            'workspace': workspace,
+            'shell_enabled': False,
+            'tools': frozenset(script.get('offered', ())),
+            'mcp_tools': {},
+            'subagents': subagents,
+        }
         turn = Turn(record, hooks, writer, call_model_input_filter, [{'role': 'user', 'content': task}], context)
         await hooks.on_agent_start(None, writer)
         for step in script.get('steps', []):
@@ -203,6 +277,7 @@ class FakeSubagent:
 def delegate(call_id: str, task: str, tools: list[str], resources: dict | None = None, results: list | None = None):
     """The parent's run_subagent call as the SDK runs it: on_tool_start, the catalog tool with this call id (a refusal
     becomes the SDK's error text), on_tool_end with its result. `results` collects the results."""
+
     async def step(turn: Turn):
         context, function = SimpleNamespace(tool_call_id=call_id), SimpleNamespace(name='run_subagent')
         await turn.hooks.on_tool_start(context, turn.writer, function)
@@ -217,11 +292,14 @@ def delegate(call_id: str, task: str, tools: list[str], resources: dict | None =
             results.append(output)
         await turn.hooks.on_tool_end(context, turn.writer, function, output)
         turn.items.append({'type': 'function_call_output', 'call_id': call_id, 'output': output})
+
     return step
 
 
 def together(*steps):
     """Steps the SDK runs at once, such as the function calls of one model response."""
+
     async def step(turn: Turn):
         await asyncio.gather(*(each(turn) for each in steps))
+
     return step

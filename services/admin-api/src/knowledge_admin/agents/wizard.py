@@ -101,13 +101,26 @@ class AgentProposal(BaseModel):
         if self.all_collections and self.collection_ids or self.all_repositories and self.repository_ids:
             raise ValueError('Choose all resources or specific resources, not both.')
         server_ids = [s.server_id for s in self.servers]
-        for ids in (self.collection_ids, self.repository_ids, self.skill_ids, self.mcp_server_ids,
-                    self.service_ids, server_ids, *[s.skill_ids for s in self.servers],
-                    *[s.mcp_server_ids for s in self.servers]):
+        for ids in (
+            self.collection_ids,
+            self.repository_ids,
+            self.skill_ids,
+            self.mcp_server_ids,
+            self.service_ids,
+            server_ids,
+            *[s.skill_ids for s in self.servers],
+            *[s.mcp_server_ids for s in self.servers],
+        ):
             if ids is not None and len(ids) != len(set(ids)):
                 raise ValueError('Selections must be unique.')
-        for text in (self.name, self.description, self.when_to_use, self.system_prompt, self.instructions,
-                     *[s.instructions for s in self.servers]):
+        for text in (
+            self.name,
+            self.description,
+            self.when_to_use,
+            self.system_prompt,
+            self.instructions,
+            *[s.instructions for s in self.servers],
+        ):
             if text is not None and '\x00' in text:
                 raise ValueError('Text cannot contain null characters.')
         return self
@@ -115,6 +128,7 @@ class AgentProposal(BaseModel):
 
 class CreateInput(AgentProposal):
     """A reviewed proposal plus the settings the administrator chooses; the designer never proposes them."""
+
     resources: Literal['fixed', 'per_run'] = 'fixed'
     tools: list[str] | None = Field(default=None, max_length=50)  # None: what the capabilities give
     subagents: bool = False  # May start subagents (native agents only)
@@ -129,36 +143,60 @@ class GenerateInput(BaseModel):
 
 def inventory(conn, project):
     """Only public metadata and credential references enter the design context."""
-    models = conn.execute('''SELECT id,name,provider,api_format,model,aws_region FROM ka.llm_models
-        WHERE enabled ORDER BY name''').fetchall()
+    models = conn.execute("""SELECT id,name,provider,api_format,model,aws_region FROM ka.llm_models
+        WHERE enabled ORDER BY name""").fetchall()
     return {
         'models': [m for m in models if code_compatible(m['provider'], m['api_format'], m['model'])],
-        'code_projects': conn.execute('''SELECT r.id,r.name,r.description,r.remote_url,
+        'code_projects': conn.execute(
+            """SELECT r.id,r.name,r.description,r.remote_url,
             ARRAY(SELECT path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY path) AS folder_paths
-            FROM ka.repositories r WHERE r.project_id=%s AND r.archived_at IS NULL ORDER BY r.name''', (project,)).fetchall(),
-        'collections': conn.execute('''SELECT id,name,description FROM ka.rag_collections
-            WHERE project_id=%s AND deleted_at IS NULL ORDER BY name''', (project,)).fetchall(),
-        'servers': conn.execute('''SELECT id,name,description,hostname,tags,username,port,allow_sudo,known_hosts,credential_id
-            FROM ka.servers WHERE project_id=%s AND ssh_allowed AND enabled ORDER BY name''', (project,)).fetchall(),
-        'credentials': conn.execute('''SELECT id,name FROM ka.credentials
-            WHERE project_id=%s AND kind='ssh_private_key' ORDER BY name''', (project,)).fetchall(),
-        'skills': conn.execute('''SELECT id,name,description FROM ka.agent_skills
-            WHERE project_id=%s AND enabled ORDER BY name''', (project,)).fetchall(),
-        'mcp_servers': conn.execute('''SELECT id,name,description FROM ka.mcp_servers
-            WHERE project_id=%s AND enabled ORDER BY name''', (project,)).fetchall(),
-        'services': conn.execute('''SELECT id,name,description,operations_notes,
+            FROM ka.repositories r WHERE r.project_id=%s AND r.archived_at IS NULL ORDER BY r.name""",
+            (project,),
+        ).fetchall(),
+        'collections': conn.execute(
+            """SELECT id,name,description FROM ka.rag_collections
+            WHERE project_id=%s AND deleted_at IS NULL ORDER BY name""",
+            (project,),
+        ).fetchall(),
+        'servers': conn.execute(
+            """SELECT id,name,description,hostname,tags,username,port,allow_sudo,known_hosts,credential_id
+            FROM ka.servers WHERE project_id=%s AND ssh_allowed AND enabled ORDER BY name""",
+            (project,),
+        ).fetchall(),
+        'credentials': conn.execute(
+            """SELECT id,name FROM ka.credentials
+            WHERE project_id=%s AND kind='ssh_private_key' ORDER BY name""",
+            (project,),
+        ).fetchall(),
+        'skills': conn.execute(
+            """SELECT id,name,description FROM ka.agent_skills
+            WHERE project_id=%s AND enabled ORDER BY name""",
+            (project,),
+        ).fetchall(),
+        'mcp_servers': conn.execute(
+            """SELECT id,name,description FROM ka.mcp_servers
+            WHERE project_id=%s AND enabled ORDER BY name""",
+            (project,),
+        ).fetchall(),
+        'services': conn.execute(
+            """SELECT id,name,description,operations_notes,
             ARRAY(SELECT to_code_project_id FROM ka.inventory_links l WHERE l.kind='built_from' AND l.from_service_id=s.id) AS repository_ids,
             ARRAY(SELECT server_id FROM ka.service_deployments d WHERE d.service_id=s.id) AS server_ids
-            FROM ka.services s WHERE project_id=%s ORDER BY name''', (project,)).fetchall(),
+            FROM ka.services s WHERE project_id=%s ORDER BY name""",
+            (project,),
+        ).fetchall(),
         'existing_agents': conn.execute('SELECT name,description,when_to_use FROM ka.agents ORDER BY name').fetchall(),
     }
 
 
 def validate_resources(proposal, catalog):
     selections = [
-        ('models', [proposal.model_id] if proposal.model_id is not None else []), ('collections', proposal.collection_ids),
-        ('code_projects', proposal.repository_ids), ('skills', proposal.skill_ids),
-        ('mcp_servers', proposal.mcp_server_ids), ('services', proposal.service_ids),
+        ('models', [proposal.model_id] if proposal.model_id is not None else []),
+        ('collections', proposal.collection_ids),
+        ('code_projects', proposal.repository_ids),
+        ('skills', proposal.skill_ids),
+        ('mcp_servers', proposal.mcp_server_ids),
+        ('services', proposal.service_ids),
         ('servers', [s.server_id for s in proposal.servers]),
     ]
     for server in proposal.servers:
@@ -181,7 +219,12 @@ def build_api(app_name, store):
         response.headers['Cache-Control'] = 'no-store'
         with database().connect() as conn:
             catalog = inventory(conn, store.project(conn, app_name))
-        return {'catalog': catalog, 'schema': AgentProposal.model_json_schema(), 'prompt': DESIGN_PROMPT, 'tools': catalog_listing()}
+        return {
+            'catalog': catalog,
+            'schema': AgentProposal.model_json_schema(),
+            'prompt': DESIGN_PROMPT,
+            'tools': catalog_listing(),
+        }
 
     @router.post('/generate')
     async def generate(value: GenerateInput, response: Response):
@@ -192,56 +235,87 @@ def build_api(app_name, store):
                 catalog = inventory(conn, store.project(conn, app_name))
                 if value.model_id not in {m['id'] for m in catalog['models']}:
                     raise HTTPException(400, 'Select an enabled model.')
-                model = decode_model(conn.execute('SELECT * FROM ka.llm_models WHERE id=%s', (value.model_id,)).fetchone(), store.cipher)
+                model = decode_model(
+                    conn.execute('SELECT * FROM ka.llm_models WHERE id=%s', (value.model_id,)).fetchone(), store.cipher
+                )
                 return catalog, model
 
         catalog, model = await run_in_threadpool(load)
         model_id = str(model.id)
         config = {
-                'id': 'agent-wizard', 'name': 'Agent designer', 'description': 'Propose a specialist configuration.',
-                'enabled': True, 'system_prompt': {'content': DESIGN_PROMPT}, 'instructions': '',
-                'model': {'name': model.name, 'provider': model.provider, 'api_format': model.api_format,
-                          'model': model.model, 'base_url': model.base_url, 'aws_region': model.aws_region,
-                          'enabled': True, 'api_key_ref': {'id': model_id} if model.api_key else None},
-                'code': {'enabled': False, 'projects': []}, 'documents': {'enabled': False, 'all_collections': False, 'collections': []},
-                'ssh': {'enabled': False, 'servers': []}, 'skills': {'enabled': False, 'items': []},
-                'mcp': {'enabled': False, 'servers': []}, 'services': {'enabled': False, 'items': []},
+            'id': 'agent-wizard',
+            'name': 'Agent designer',
+            'description': 'Propose a specialist configuration.',
+            'enabled': True,
+            'system_prompt': {'content': DESIGN_PROMPT},
+            'instructions': '',
+            'model': {
+                'name': model.name,
+                'provider': model.provider,
+                'api_format': model.api_format,
+                'model': model.model,
+                'base_url': model.base_url,
+                'aws_region': model.aws_region,
+                'enabled': True,
+                'api_key_ref': {'id': model_id} if model.api_key else None,
+            },
+            'code': {'enabled': False, 'projects': []},
+            'documents': {'enabled': False, 'all_collections': False, 'collections': []},
+            'ssh': {'enabled': False, 'servers': []},
+            'skills': {'enabled': False, 'items': []},
+            'mcp': {'enabled': False, 'servers': []},
+            'services': {'enabled': False, 'items': []},
         }
         schema = AgentProposal.model_json_schema()
         # The designer chooses the agent's model only among models that fit an agent.
         offered = {**catalog, 'models': [m for m in catalog['models'] if model_fits(m)]}
-        task = jsonable_encoder({'role': value.role, 'generation_model_id': model_id,
-                                 'catalog': offered, 'output_schema': schema})
+        task = jsonable_encoder(
+            {'role': value.role, 'generation_model_id': model_id, 'catalog': offered, 'output_schema': schema}
+        )
         try:
             async with asyncio.timeout(240):
                 for attempt in range(2):
                     try:
-                        result = await agent(config, json.dumps(task),
-                            credentials={model_id: model.api_key} if model.api_key else {}, timeout_seconds=240,
-                            turn_timeout_seconds=240, output_type=AgentProposal)
+                        result = await agent(
+                            config,
+                            json.dumps(task),
+                            credentials={model_id: model.api_key} if model.api_key else {},
+                            timeout_seconds=240,
+                            turn_timeout_seconds=240,
+                            output_type=AgentProposal,
+                        )
                         proposal = result.final_output
                         validate_resources(proposal, catalog)
                         if proposal.model_id is not None and not any(
-                                m['id'] == proposal.model_id for m in offered['models']):
+                            m['id'] == proposal.model_id for m in offered['models']
+                        ):
                             proposal = proposal.model_copy(update={'model_id': None})  # the administrator picks one
                         return {'proposal': proposal}
                     except (ModelBehaviorError, ValidationError, HTTPException) as exc:
                         if attempt == 1:
-                            raise HTTPException(502, 'The model returned an invalid configuration. Try again or clarify the role.') from None
+                            raise HTTPException(
+                                502, 'The model returned an invalid configuration. Try again or clarify the role.'
+                            ) from None
                         task['correction'] = {
                             'instruction': 'Correct the previous proposal. Return only the schema fields at the top level.',
-                            'errors': [{'field': list(e['loc']), 'message': e['msg']} for e in
-                                       exc.errors(include_input=False, include_context=False)]
-                                      if isinstance(exc, ValidationError) else
-                                      [exc.detail if isinstance(exc, HTTPException) else 'Return valid JSON.'],
+                            'errors': [
+                                {'field': list(e['loc']), 'message': e['msg']}
+                                for e in exc.errors(include_input=False, include_context=False)
+                            ]
+                            if isinstance(exc, ValidationError)
+                            else [exc.detail if isinstance(exc, HTTPException) else 'Return valid JSON.'],
                         }
         except TimeoutError:
-            raise HTTPException(504, 'Agent design timed out. Try a shorter role description or another model.') from None
+            raise HTTPException(
+                504, 'Agent design timed out. Try a shorter role description or another model.'
+            ) from None
         except HTTPException:
             raise
         except Exception:
             # SDK/provider errors can contain credentials and request bodies.
-            raise HTTPException(502, 'The model could not generate an agent. Check its connection in LLM Settings and retry.') from None
+            raise HTTPException(
+                502, 'The model could not generate an agent. Check its connection in LLM Settings and retry.'
+            ) from None
 
     @router.post('', status_code=201)
     def create(value: CreateInput, request: Request):
@@ -259,58 +333,124 @@ def build_api(app_name, store):
                     if name == SUBAGENT:
                         raise HTTPException(400, SUBAGENT_SWITCH)
                 actor = store.actor(conn, *request_actor(request))
-                conn.execute('''INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,resources,system_prompt,
+                conn.execute(
+                    """INSERT INTO ka.agents(id,name,description,when_to_use,enabled,model_id,resources,system_prompt,
                     documents_enabled,repositories_enabled,ssh_enabled,skills_enabled,mcp_enabled,services_enabled,
                     all_collections,all_repositories,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-                    (agent_id,value.name,value.description,value.when_to_use,value.enabled,value.model_id,
-                     value.resources,value.system_prompt,
-                     value.documents_enabled,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,
-                     value.mcp_enabled,value.services_enabled,value.all_collections,value.all_repositories,
-                     actor,actor))
-                proposed = flags({'resources': value.resources,
-                                  'repositories_enabled': value.repositories_enabled,
-                                  'documents_enabled': value.documents_enabled, 'documents_grounded': False,
-                                  'ssh_enabled': value.ssh_enabled})
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        agent_id,
+                        value.name,
+                        value.description,
+                        value.when_to_use,
+                        value.enabled,
+                        value.model_id,
+                        value.resources,
+                        value.system_prompt,
+                        value.documents_enabled,
+                        value.repositories_enabled,
+                        value.ssh_enabled,
+                        value.skills_enabled,
+                        value.mcp_enabled,
+                        value.services_enabled,
+                        value.all_collections,
+                        value.all_repositories,
+                        actor,
+                        actor,
+                    ),
+                )
+                proposed = flags(
+                    {
+                        'resources': value.resources,
+                        'repositories_enabled': value.repositories_enabled,
+                        'documents_enabled': value.documents_enabled,
+                        'documents_grounded': False,
+                        'ssh_enabled': value.ssh_enabled,
+                    }
+                )
                 names = value.tools if value.tools is not None else enabled_capability_tools(proposed)
                 for name in dict.fromkeys(names):
                     conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
                 if value.subagent_blocked:
-                    conn.execute('UPDATE ka.agent_tools SET subagent_allowed=false WHERE agent_id=%s AND tool=ANY(%s)',
-                                 (agent_id, value.subagent_blocked))
+                    conn.execute(
+                        'UPDATE ka.agent_tools SET subagent_allowed=false WHERE agent_id=%s AND tool=ANY(%s)',
+                        (agent_id, value.subagent_blocked),
+                    )
                 if value.subagents:
                     switch_subagents(conn, agent_id, True)
-                for table, column, ids in [('agent_collections','collection_id',value.collection_ids),
-                                          ('agent_repositories','repository_id',value.repository_ids),
-                                          ('agent_services','service_id',value.service_ids)]:
+                for table, column, ids in [
+                    ('agent_collections', 'collection_id', value.collection_ids),
+                    ('agent_repositories', 'repository_id', value.repository_ids),
+                    ('agent_services', 'service_id', value.service_ids),
+                ]:
                     for resource_id in ids:
-                        conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id,resource_id))
+                        conn.execute(
+                            f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id)
+                        )
                 for skill_id in value.skill_ids:
-                    conn.execute('INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)', (agent_id,skill_id,project))
-                conn.execute('INSERT INTO ka.operations_settings(project_id,agent,updated_by) VALUES (%s,%s,%s)', (project,agent_id,actor))
+                    conn.execute(
+                        'INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)',
+                        (agent_id, skill_id, project),
+                    )
+                conn.execute(
+                    'INSERT INTO ka.operations_settings(project_id,agent,updated_by) VALUES (%s,%s,%s)',
+                    (project, agent_id, actor),
+                )
                 for server in value.servers:
-                    conn.execute('INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,%s,%s)', (project,agent_id,server.server_id))
+                    conn.execute(
+                        'INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,%s,%s)',
+                        (project, agent_id, server.server_id),
+                    )
                     if server.connection is not None:
                         ssh = server.connection
-                        conn.execute('''INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,
-                            username,port,allow_sudo,known_hosts,credential_id,updated_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-                            (agent_id,server.server_id,project,ssh.username,ssh.port,ssh.allow_sudo,ssh.known_hosts,ssh.credential_id,actor))
-                configs = [(None,value.instructions,[],value.mcp_server_ids)] + [
-                    (s.server_id,s.instructions,s.skill_ids,s.mcp_server_ids) for s in value.servers
-                    if s.instructions is not None or s.skill_ids is not None or s.mcp_server_ids is not None]
+                        conn.execute(
+                            """INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,
+                            username,port,allow_sudo,known_hosts,credential_id,updated_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (
+                                agent_id,
+                                server.server_id,
+                                project,
+                                ssh.username,
+                                ssh.port,
+                                ssh.allow_sudo,
+                                ssh.known_hosts,
+                                ssh.credential_id,
+                                actor,
+                            ),
+                        )
+                configs = [(None, value.instructions, [], value.mcp_server_ids)] + [
+                    (s.server_id, s.instructions, s.skill_ids, s.mcp_server_ids)
+                    for s in value.servers
+                    if s.instructions is not None or s.skill_ids is not None or s.mcp_server_ids is not None
+                ]
                 for server_id, instructions, skills, mcp in configs:
-                    config_id = conn.execute('''INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,
-                        inherit_skills,inherit_mcp_servers,updated_by) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
-                        (project,agent_id,server_id,instructions,skills is None,mcp is None,actor)).fetchone()['id']
-                    for table, column, ids in [('agent_config_skills','skill_id',skills), ('agent_config_mcp_servers','mcp_server_id',mcp)]:
+                    config_id = conn.execute(
+                        """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,
+                        inherit_skills,inherit_mcp_servers,updated_by) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (project, agent_id, server_id, instructions, skills is None, mcp is None, actor),
+                    ).fetchone()['id']
+                    for table, column, ids in [
+                        ('agent_config_skills', 'skill_id', skills),
+                        ('agent_config_mcp_servers', 'mcp_server_id', mcp),
+                    ]:
                         for resource_id in ids or []:
-                            conn.execute(f'INSERT INTO ka.{table}(config_id,project_id,{column}) VALUES (%s,%s,%s)', (config_id,project,resource_id))
-                conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
-                    VALUES (%s,%s,'agent.created','agent',%s)''', (project,actor,Jsonb({'agent_id':agent_id,'source':'wizard','resources':value.resources})))
+                            conn.execute(
+                                f'INSERT INTO ka.{table}(config_id,project_id,{column}) VALUES (%s,%s,%s)',
+                                (config_id, project, resource_id),
+                            )
+                conn.execute(
+                    """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
+                    VALUES (%s,%s,'agent.created','agent',%s)""",
+                    (project, actor, Jsonb({'agent_id': agent_id, 'source': 'wizard', 'resources': value.resources})),
+                )
         except psycopg.errors.UniqueViolation:
-            raise HTTPException(409, 'An agent with this name already exists. Open it from the list or choose another name.') from None
+            raise HTTPException(
+                409, 'An agent with this name already exists. Open it from the list or choose another name.'
+            ) from None
         except psycopg.errors.ForeignKeyViolation:
-            raise HTTPException(409, 'A resource changed while saving. Reload the wizard and review the selections.') from None
+            raise HTTPException(
+                409, 'A resource changed while saving. Reload the wizard and review the selections.'
+            ) from None
         return {'id': agent_id}
 
     return router

@@ -1,5 +1,6 @@
 """The ad-hoc agent of Generate documents: no agents row, the user's prompt and model, exactly the selection as its
 resources and the tools of the selected kinds."""
+
 import json
 from types import SimpleNamespace
 from uuid import UUID
@@ -33,8 +34,17 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
     assert config['system_prompt'] == {'content': 'You document.'} and config['instructions'] == ''
     assert config['model']['id'] == s.gpt and config['skills']['enabled'] is False and config['mcp']['enabled'] is False
     assert [p['name'] for p in config['code']['projects']] == ['Payments API'] and config['code']['enabled'] is True
-    assert (config['documents']['enabled'], config['ssh']['enabled'], config['services']['enabled']) == (False, False, False)
-    assert config['run_resources'] == {'code_project_ids': [s.repo], 'collection_ids': [], 'server_ids': [], 'service_ids': []}
+    assert (config['documents']['enabled'], config['ssh']['enabled'], config['services']['enabled']) == (
+        False,
+        False,
+        False,
+    )
+    assert config['run_resources'] == {
+        'code_project_ids': [s.repo],
+        'collection_ids': [],
+        'server_ids': [],
+        'service_ids': [],
+    }
     offered = [spec.name for spec, _ in effective_tools(config, [])]
     assert 'read_file' in offered and 'ssh_run' not in offered and 'search_documents' not in offered
     assert 'report_not_covered' not in offered
@@ -44,7 +54,9 @@ def test_the_ad_hoc_agent_gets_exactly_the_selection(sessions):
 def test_an_environment_brings_its_services_code_and_servers(sessions):
     s = sessions
     with s.store.connect() as conn:  # prod-1 gets a usable connection of its own
-        conn.execute("UPDATE ka.servers SET username='deploy',enabled=true,ssh_allowed=true WHERE id=%s", (s.server['id'],))
+        conn.execute(
+            "UPDATE ka.servers SET username='deploy',enabled=true,ssh_allowed=true WHERE id=%s", (s.server['id'],)
+        )
     config = build(s, chosen(environment_ids=[s.environment]))
     assert config['run_resources']['service_ids'] == [s.service]
     assert sorted(config['run_resources']['code_project_ids']) == sorted([s.repo, s.worker])
@@ -56,8 +68,10 @@ def test_a_services_connects_to_links_reach_the_ad_hoc_agent(sessions):
     s = sessions
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        conn.execute("INSERT INTO ka.inventory_links(project_id,kind,from_service_id,to_server_id) VALUES (%s,'connects_to',%s,%s)",
-                     (project, s.service, s.server['id']))
+        conn.execute(
+            "INSERT INTO ka.inventory_links(project_id,kind,from_service_id,to_server_id) VALUES (%s,'connects_to',%s,%s)",
+            (project, s.service, s.server['id']),
+        )
     config = build(s, chosen(service_ids=[s.service]))
     links = config['services']['items'][0]['links']
     assert [l['kind'] for l in links] == ['connects_to']
@@ -106,7 +120,9 @@ def test_a_saved_agent_called_ad_hoc_never_blocks_ad_hoc_turns(sessions):
     s = sessions
     config = build(s, chosen(code_project_ids=[s.repo]))
     with s.store.connect() as conn:
-        conn.execute("INSERT INTO ka.agents(id,name,system_prompt,enabled) VALUES ('ad-hoc','Saved lookalike','x',false),('saved-off','Saved off','x',false)")
+        conn.execute(
+            "INSERT INTO ka.agents(id,name,system_prompt,enabled) VALUES ('ad-hoc','Saved lookalike','x',false),('saved-off','Saved off','x',false)"
+        )
     assert isinstance(load_credentials(s.store, config), dict)  # no 'Agent is disabled.'
     with pytest.raises(ValueError, match='Agent is disabled.'):
         load_credentials(s.store, {**config, 'id': 'saved-off'})

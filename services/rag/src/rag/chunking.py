@@ -9,6 +9,7 @@ under a folder and prints the three chunk-contract warning classes
 (section-split, heading-less doc, duplicate heading text) to stderr. It writes
 nothing; the app-docs plugin uses it as an authoring feedback loop.
 """
+
 from __future__ import annotations
 
 import re
@@ -20,7 +21,7 @@ import yaml
 
 from rag.structure import DocStructure, Section, parse_structure
 
-_FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_FRONT_MATTER_RE = re.compile(r'\A---\s*\n(.*?)\n---\s*\n', re.DOTALL)
 
 
 def parse_front_matter(text: str) -> tuple[dict, str]:
@@ -33,7 +34,7 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
         meta = {}
     if not isinstance(meta, dict):
         meta = {}
-    return meta, text[match.end():]
+    return meta, text[match.end() :]
 
 
 # The chunker's cap/overlap: a section longer than CAP gets split;
@@ -55,7 +56,7 @@ OVERLAP = 200
 # line start (three or more), not just a fixed 3-character prefix. This
 # follows CommonMark: a fence only closes on a line whose delimiter run
 # uses the same character and is at least as long as the opening run.
-_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_FENCE_RE = re.compile(r'^(`{3,}|~{3,})')
 
 
 def split_sections(body: str) -> tuple[str, list[Section]]:
@@ -140,10 +141,10 @@ def _fence_aware_paragraphs(text: str) -> list[str]:
     mid-fence split THERE is accepted and disclosed: never fail is more
     important than never producing an unsafe boundary when no safe one
     exists)."""
-    lines = text.split("\n")
+    lines = text.split('\n')
     groups: list[list[str]] = [[]]
     in_fence = False
-    fence_delim = ""
+    fence_delim = ''
     for line in lines:
         inside_fence = in_fence
         fence_match = _FENCE_RE.match(line)
@@ -154,16 +155,16 @@ def _fence_aware_paragraphs(text: str) -> list[str]:
                 fence_delim = delim
             elif delim[0] == fence_delim[0] and len(delim) >= len(fence_delim):
                 in_fence = False
-                fence_delim = ""
+                fence_delim = ''
             # else: a differing delimiter character, or a same-character
             # run shorter than the one that opened the fence (e.g. a ```
             # line inside a widened ```` block), is just fence content,
             # not a close -- see `_FENCE_RE`'s comment.
-        if line.strip() == "" and not inside_fence:
+        if line.strip() == '' and not inside_fence:
             groups.append([])
         else:
             groups[-1].append(line)
-    return ["\n".join(group) for group in groups if group]
+    return ['\n'.join(group) for group in groups if group]
 
 
 def _split_oversized(text: str, cap: int, overlap: int) -> list[str]:
@@ -200,24 +201,24 @@ def _split_oversized(text: str, cap: int, overlap: int) -> list[str]:
     for para in paragraphs:
         if len(para) > cap:
             if current:
-                pieces.append("\n\n".join(current))
+                pieces.append('\n\n'.join(current))
                 current = []
             pieces.extend(_hard_slice(para, cap, overlap))
             continue
-        if current and len("\n\n".join(current + [para])) > cap:
-            pieces.append("\n\n".join(current))
+        if current and len('\n\n'.join(current + [para])) > cap:
+            pieces.append('\n\n'.join(current))
             tail = current[-1]
-            carried = f"{tail}\n\n{para}"
+            carried = f'{tail}\n\n{para}'
             current = [tail, para] if len(carried) <= cap else [para]
             continue
         current.append(para)
     if current:
-        pieces.append("\n\n".join(current))
+        pieces.append('\n\n'.join(current))
     return pieces
 
 
 def _chunk_sections_with_facts(
-        sections: list[Section], cap: int = CAP, overlap: int = OVERLAP
+    sections: list[Section], cap: int = CAP, overlap: int = OVERLAP
 ) -> tuple[list[Section], list[tuple[str, int, int]]]:
     """`chunk_sections`'s real implementation, additionally returning the
     section-split warning facts `check_folder` needs: one
@@ -226,7 +227,7 @@ def _chunk_sections_with_facts(
     that function's return type (a bare `list[Section]`, pinned by
     existing tests/callers) never has to change to carry this data."""
     if overlap >= cap:
-        raise ValueError("overlap must be smaller than cap")
+        raise ValueError('overlap must be smaller than cap')
     out: list[Section] = []
     facts: list[tuple[str, int, int]] = []
     for section in sections:
@@ -234,20 +235,17 @@ def _chunk_sections_with_facts(
             out.append(section)
             continue
         pieces = _split_oversized(section.text, cap, overlap)
-        out.extend(Section(heading_path=section.heading_path, text=piece)
-                   for piece in pieces)
+        out.extend(Section(heading_path=section.heading_path, text=piece) for piece in pieces)
         facts.append((section.heading_path, len(section.text), len(pieces)))
     return out, facts
 
 
-def chunk_sections(sections: list[Section], cap: int = CAP,
-                   overlap: int = OVERLAP) -> list[Section]:
+def chunk_sections(sections: list[Section], cap: int = CAP, overlap: int = OVERLAP) -> list[Section]:
     chunks, _facts = _chunk_sections_with_facts(sections, cap, overlap)
     return chunks
 
 
-def _emit_doc_warnings(collection: str, rel: str, doc: DocStructure,
-                       split_facts: list[tuple[str, int, int]]) -> int:
+def _emit_doc_warnings(collection: str, rel: str, doc: DocStructure, split_facts: list[tuple[str, int, int]]) -> int:
     """Print the three chunk-contract warning classes for one (re)indexed
     doc straight to stderr in the brief's exact formats, and return how
     many lines were printed. Every fact here comes from `doc` (this doc's
@@ -278,19 +276,20 @@ def _emit_doc_warnings(collection: str, rel: str, doc: DocStructure,
     """
     count = 0
     if not doc.headings and doc.sections:
-        print(f"rag index: warning: {collection}: {rel}: no headings -- "
-              f"content not deep-linkable", file=sys.stderr)
+        print(f'rag index: warning: {collection}: {rel}: no headings -- content not deep-linkable', file=sys.stderr)
         count += 1
     for text, n in Counter(h.text for h in doc.headings).items():
         if n > 1:
-            print(f"rag index: warning: {collection}: {rel}: duplicate "
-                  f"heading '{text}' (x{n}) -- anchors suffixed",
-                  file=sys.stderr)
+            print(
+                f"rag index: warning: {collection}: {rel}: duplicate heading '{text}' (x{n}) -- anchors suffixed",
+                file=sys.stderr,
+            )
             count += 1
     for heading_path, chars, n_chunks in split_facts:
-        print(f"rag index: warning: {collection}: {rel} > "
-              f"'{heading_path}': {chars} chars, split into {n_chunks} "
-              f"chunks", file=sys.stderr)
+        print(
+            f"rag index: warning: {collection}: {rel} > '{heading_path}': {chars} chars, split into {n_chunks} chunks",
+            file=sys.stderr,
+        )
         count += 1
     return count
 
@@ -302,11 +301,11 @@ def check_folder(path: Path, name: str | None = None) -> tuple[int, int]:
     defaults to the folder name. Warn, never fail: nothing is written."""
     collection = name if name is not None else path.name
     documents = warnings = 0
-    for md_file in sorted(path.rglob("*.md")):
+    for md_file in sorted(path.rglob('*.md')):
         rel = md_file.relative_to(path)
-        if rel.parts[0] == ".docs-wiki":
+        if rel.parts[0] == '.docs-wiki':
             continue
-        _meta, body = parse_front_matter(md_file.read_text(encoding="utf-8"))
+        _meta, body = parse_front_matter(md_file.read_text(encoding='utf-8'))
         doc = parse_structure(body)
         _chunks, split_facts = _chunk_sections_with_facts(doc.sections)
         warnings += _emit_doc_warnings(collection, str(rel), doc, split_facts)

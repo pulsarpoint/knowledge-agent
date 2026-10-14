@@ -1,4 +1,5 @@
 """Migration 0061 stores ordered, typed events for every agent run."""
+
 from pathlib import Path
 
 import psycopg
@@ -10,9 +11,11 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 
 def insert(conn, project, **values):
     row = {'run_key': 'run-1', 'seq': 1, 'kind': 'start', 'agent_id': 'search', 'payload': Jsonb({}), **values}
-    conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        VALUES (%s,%(run_key)s,%(seq)s,%(kind)s,%(agent_id)s,%(payload)s)'''.replace('%s', '%(project)s'),
-        {**row, 'project': project})
+    conn.execute(
+        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+        VALUES (%s,%(run_key)s,%(seq)s,%(kind)s,%(agent_id)s,%(payload)s)""".replace('%s', '%(project)s'),
+        {**row, 'project': project},
+    )
 
 
 def test_events_are_ordered_and_unique_per_run(store):

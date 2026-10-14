@@ -1,4 +1,5 @@
 """The Jira pull shared by Fetch tickets and the scheduled auto pull (target jira.pull)."""
+
 from uuid import uuid4
 
 import httpx
@@ -14,7 +15,12 @@ from test_repositories import HEADERS
 def a_schedule(store) -> dict:
     with store.connect() as conn:
         connection = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
-    return {'id': uuid4(), 'project_id': connection['project_id'], 'target_kind': 'jira.pull', 'target_id': connection['id']}
+    return {
+        'id': uuid4(),
+        'project_id': connection['project_id'],
+        'target_kind': 'jira.pull',
+        'target_id': connection['id'],
+    }
 
 
 def audits(store) -> list[dict]:
@@ -35,13 +41,19 @@ def test_auto_pull_uses_the_query_and_limit_of_the_last_fetch(store, tmp_path):
 
 def test_auto_pull_before_any_fetch_uses_25(store, tmp_path):
     setup(store, tmp_path)
-    assert auto_pull(store, a_schedule(store), transport=httpx.MockTransport(jira_response)) == ('succeeded', 'Pulled 7 of 7 tickets · 7 new events.')
+    assert auto_pull(store, a_schedule(store), transport=httpx.MockTransport(jira_response)) == (
+        'succeeded',
+        'Pulled 7 of 7 tickets · 7 new events.',
+    )
 
 
 def test_auto_pull_without_token_raises_the_button_error(store, tmp_path):
     client, config = setup(store, tmp_path)
-    removed = client.put('/api/jira/settings', headers=HEADERS, json={
-        'base_url': config['base_url'], 'username': config['username'], 'revision': 1, 'token': None})
+    removed = client.put(
+        '/api/jira/settings',
+        headers=HEADERS,
+        json={'base_url': config['base_url'], 'username': config['username'], 'revision': 1, 'token': None},
+    )
     assert removed.status_code == 200
     with pytest.raises(HTTPException) as error:
         auto_pull(store, a_schedule(store), transport=httpx.MockTransport(jira_response))
@@ -84,10 +96,18 @@ def test_auto_pull_uses_its_own_query_after_a_manual_fetch(store, tmp_path):
         return jira_response(request)
 
     client, _ = setup(store, tmp_path, handler)
-    assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5, 'jql': 'project = MANUAL'}).status_code == 200
+    assert (
+        client.post(
+            '/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5, 'jql': 'project = MANUAL'}
+        ).status_code
+        == 200
+    )
     schedule = {**a_schedule(store), 'params': {'jql': 'project = AUTO', 'limit': 7}}
     calls.clear()
-    assert auto_pull(store, schedule, transport=httpx.MockTransport(handler)) == ('succeeded', 'Pulled 0 of 0 tickets · 0 new events.')
+    assert auto_pull(store, schedule, transport=httpx.MockTransport(handler)) == (
+        'succeeded',
+        'Pulled 0 of 0 tickets · 0 new events.',
+    )
     searches = [url for url in calls if url.path.endswith('/search')]
     assert searches[0].params['jql'] == 'project = AUTO' and searches[0].params['maxResults'] == '7'
 
@@ -95,4 +115,7 @@ def test_auto_pull_uses_its_own_query_after_a_manual_fetch(store, tmp_path):
 def test_auto_pull_without_params_falls_back_to_the_connection(store, tmp_path):
     client, _ = setup(store, tmp_path)
     assert client.post('/api/jira/tickets/fetch', headers=HEADERS, json={'limit': 5}).status_code == 200
-    assert auto_pull(store, {**a_schedule(store), 'params': {}}, transport=httpx.MockTransport(jira_response)) == ('succeeded', 'Pulled 5 of 7 tickets · 5 new events.')
+    assert auto_pull(store, {**a_schedule(store), 'params': {}}, transport=httpx.MockTransport(jira_response)) == (
+        'succeeded',
+        'Pulled 5 of 7 tickets · 5 new events.',
+    )

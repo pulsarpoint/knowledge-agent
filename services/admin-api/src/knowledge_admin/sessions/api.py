@@ -1,5 +1,6 @@
 """/api/sessions: starting a run (options, preview, start), the run operations for every kind of run (detail, send,
 stop, close, the event stream) and the lists."""
+
 import asyncio
 from functools import partial
 import json
@@ -15,8 +16,15 @@ from knowledge_admin.db import audit as write_audit, storage, workspace
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.text import close_idle, notify_closed_before_first_turn
 from knowledge_admin.sessions import start
-from knowledge_admin.sessions.rows import (CLOSED, NOTHING_TO_STOP, SUMMARY, MessageInput, SessionPurpose, session_detail,
-                                           stream_event)
+from knowledge_admin.sessions.rows import (
+    CLOSED,
+    NOTHING_TO_STOP,
+    SUMMARY,
+    MessageInput,
+    SessionPurpose,
+    session_detail,
+    stream_event,
+)
 
 DEFAULT_KEEPALIVE_SECONDS = 15.0
 KEEPALIVE_SECONDS = DEFAULT_KEEPALIVE_SECONDS
@@ -24,13 +32,20 @@ HISTORY_LIMIT = 100  # events per page; the session page opens with the latest p
 LIVE_UNAVAILABLE = 'Live session updates are not running.'
 
 
-LIST = SUMMARY.replace('FROM ka.agent_sessions s', ''',p.email AS started_by,
+LIST = SUMMARY.replace(
+    'FROM ka.agent_sessions s',
+    """,p.email AS started_by,
         (SELECT x.id FROM ka.document_drafts x WHERE x.session_id=s.id AND x.status='open'
          ORDER BY x.created_at DESC,x.id DESC LIMIT 1) AS draft_id
-        FROM ka.agent_sessions s LEFT JOIN ka.principals p ON p.id=s.actor_id''', 1)
+        FROM ka.agent_sessions s LEFT JOIN ka.principals p ON p.id=s.actor_id""",
+    1,
+)
 assert LIST != SUMMARY
-PROPOSAL_COUNTS = ''.join(f""",(SELECT count(*) FROM ka.discovery_proposals dp WHERE dp.session_id=s.id
-        AND dp.status='{status}')::int AS {status}""" for status in ('pending', 'accepted', 'rejected'))
+PROPOSAL_COUNTS = ''.join(
+    f""",(SELECT count(*) FROM ka.discovery_proposals dp WHERE dp.session_id=s.id
+        AND dp.status='{status}')::int AS {status}"""
+    for status in ('pending', 'accepted', 'rejected')
+)
 LIST_WITH_PROPOSALS = LIST.replace(',p.email AS started_by', ',p.email AS started_by' + PROPOSAL_COUNTS, 1)
 assert LIST_WITH_PROPOSALS != LIST
 
@@ -44,19 +59,28 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         write_audit(conn, store.project(conn, app_name), actor, action, resource_type, resource_id, details)
 
     def locked(conn, project, session_id: UUID) -> dict:
-        row = conn.execute('SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE',
-                           (session_id, project)).fetchone()
+        row = conn.execute(
+            'SELECT id,status FROM ka.agent_sessions WHERE id=%s AND project_id=%s FOR UPDATE', (session_id, project)
+        ).fetchone()
         if row is None:
             raise HTTPException(404, 'Session not found.')
         return row
 
     def discard(conn, session_id: UUID) -> int:
-        return conn.execute("UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'",
-                            (session_id,)).rowcount
+        return conn.execute(
+            "UPDATE ka.agent_session_inputs SET status='discarded' WHERE session_id=%s AND status='queued'",
+            (session_id,),
+        ).rowcount
 
     @router.get('')
-    def sessions(response: Response, purpose: SessionPurpose | None = None, document_id: UUID | None = None,
-                 agent_id: str | None = None, server_id: UUID | None = None, offset: int = Query(0, ge=0)) -> dict:
+    def sessions(
+        response: Response,
+        purpose: SessionPurpose | None = None,
+        document_id: UUID | None = None,
+        agent_id: str | None = None,
+        server_id: UUID | None = None,
+        offset: int = Query(0, ge=0),
+    ) -> dict:
         """Runs, newest first: those started from a document (open first, then by activity), of one purpose, an
         agent's Test and event sessions, or the runs started from a server (with their proposal counts)."""
         response.headers['Cache-Control'] = 'no-store'
@@ -65,21 +89,34 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             close_idle(conn)
             where, values = ['s.project_id=%s'], [db.project(conn, app_name)]
             if document_id is not None:
-                where.append('s.target_document_id=%s'); values.append(document_id)
+                where.append('s.target_document_id=%s')
+                values.append(document_id)
             if purpose is not None:
-                where.append('s.purpose=%s'); values.append(purpose)
+                where.append('s.purpose=%s')
+                values.append(purpose)
             if agent_id is not None:
-                where.append("s.agent_id=%s AND s.purpose IN ('test','event')"); values.append(agent_id)
+                where.append("s.agent_id=%s AND s.purpose IN ('test','event')")
+                values.append(agent_id)
             if server_id is not None:
-                where.append("s.server_id=%s AND s.purpose='discovery'"); values.append(server_id)
+                where.append("s.server_id=%s AND s.purpose='discovery'")
+                values.append(server_id)
             query = LIST_WITH_PROPOSALS if server_id is not None else LIST
             order = "s.status='closed',s.last_activity_at DESC,s.id" if document_id else 's.created_at DESC,s.id'
-            return {'sessions': conn.execute(f"{query} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s OFFSET %s",
-                                             (*values, 100 if document_id or agent_id else 50, offset)).fetchall()}
+            return {
+                'sessions': conn.execute(
+                    f'{query} WHERE {" AND ".join(where)} ORDER BY {order} LIMIT %s OFFSET %s',
+                    (*values, 100 if document_id or agent_id else 50, offset),
+                ).fetchall()
+            }
 
     @router.get('/options')
-    def options(request: Request, document_id: UUID | None = Query(None), agent_id: str | None = Query(None),
-                new_document: bool = Query(False), server_id: UUID | None = Query(None)) -> dict:
+    def options(
+        request: Request,
+        document_id: UUID | None = Query(None),
+        agent_id: str | None = Query(None),
+        new_document: bool = Query(False),
+        server_id: UUID | None = Query(None),
+    ) -> dict:
         db = database()
         starts = sum((document_id is not None, new_document, server_id is not None))
         if starts > 1 or (agent_id is not None and (new_document or server_id is not None)):
@@ -90,9 +127,12 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if agent_id is not None:
                 return start.agent_options(conn, db.project(conn, app_name), agent_id, db.conninfo)
             subject, _ = request_actor(request)  # read-only: a GET does not create the principal
-            actor = conn.execute('SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)).fetchone()
-            return start.options(conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document,
-                                 server_id)
+            actor = conn.execute(
+                'SELECT id FROM ka.principals WHERE issuer=%s AND subject=%s', (db.issuer, subject)
+            ).fetchone()
+            return start.options(
+                conn, db.project(conn, app_name), actor['id'] if actor else None, document_id, new_document, server_id
+            )
 
     @router.post('/preview')
     def preview(value: start.StartInput) -> dict:
@@ -134,10 +174,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['status'] == 'closed':
                 raise HTTPException(409, CLOSED)
             actor = db.actor(conn, *request_actor(request))
-            seq = conn.execute('SELECT coalesce(max(seq),0)+1 AS seq FROM ka.agent_session_inputs WHERE session_id=%s',
-                               (session_id,)).fetchone()['seq']
-            conn.execute('INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
-                         (session_id, seq, actor, value.text))
+            seq = conn.execute(
+                'SELECT coalesce(max(seq),0)+1 AS seq FROM ka.agent_session_inputs WHERE session_id=%s', (session_id,)
+            ).fetchone()['seq']
+            conn.execute(
+                'INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,%s,%s,%s)',
+                (session_id, seq, actor, value.text),
+            )
             conn.execute('UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s', (session_id,))
             return {'seq': seq, 'status': 'queued', 'working': row['status'] == 'working'}
 
@@ -161,31 +204,43 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             actor = db.actor(conn, *request_actor(request))  # before the session: promote's lock order
             row = locked(conn, project, session_id)
             if row['status'] != 'closed':
-                conn.execute("""UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
-                    WHERE id=%s""", (session_id,))
+                conn.execute(
+                    """UPDATE ka.agent_sessions SET status='closed',closed_at=now(),status_message='Closed.'
+                    WHERE id=%s""",
+                    (session_id,),
+                )
                 discard(conn, session_id)
                 notify_closed_before_first_turn(conn, session_id)
                 audit(conn, actor, 'generation.session.closed', 'agent_session', {}, session_id)
             return {'id': session_id}
 
     @router.get('/{session_id}/events/history')
-    def history(session_id: UUID, response: Response, before: int | None = Query(None, ge=1),
-                limit: int = Query(HISTORY_LIMIT, ge=1, le=500)) -> dict:
+    def history(
+        session_id: UUID,
+        response: Response,
+        before: int | None = Query(None, ge=1),
+        limit: int = Query(HISTORY_LIMIT, ge=1, le=500),
+    ) -> dict:
         """A page of the session's events, oldest first: the latest page, or the page before an event id. Each event is
         what the stream sends (a tool result keeps its preview; the full output stays in the run record)."""
         response.headers['Cache-Control'] = 'no-store'
         db = database()
         with db.connect() as conn:
-            row = conn.execute('SELECT turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
-                               (session_id, db.project(conn, app_name))).fetchone()
+            row = conn.execute(
+                'SELECT turns FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                (session_id, db.project(conn, app_name)),
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Session not found.')
             keys = [f'cc:{session_id}:{turn}' for turn in range(1, row['turns'] + 1)]
-            rows = conn.execute('''SELECT id,run_key,seq,kind,payload,created_at FROM ka.agent_run_events
-                WHERE run_key=ANY(%s) AND (%s::bigint IS NULL OR id<%s) ORDER BY id DESC LIMIT %s''',
-                (keys, before, before, limit + 1)).fetchall()
-        return jsonable_encoder({'events': [stream_event(item) for item in reversed(rows[:limit])],
-                                 'has_more': len(rows) > limit})
+            rows = conn.execute(
+                """SELECT id,run_key,seq,kind,payload,created_at FROM ka.agent_run_events
+                WHERE run_key=ANY(%s) AND (%s::bigint IS NULL OR id<%s) ORDER BY id DESC LIMIT %s""",
+                (keys, before, before, limit + 1),
+            ).fetchall()
+        return jsonable_encoder(
+            {'events': [stream_event(item) for item in reversed(rows[:limit])], 'has_more': len(rows) > limit}
+        )
 
     @router.get('/{session_id}/events')
     async def events(session_id: UUID, request: Request, after: int = Query(0, ge=0)):
@@ -195,8 +250,13 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         process's SessionHub reads the database; the stream holds no connection."""
         db = database()
         with db.connect() as conn:
-            if conn.execute('SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
-                            (session_id, db.project(conn, app_name))).fetchone() is None:
+            if (
+                conn.execute(
+                    'SELECT 1 FROM ka.agent_sessions WHERE id=%s AND project_id=%s',
+                    (session_id, db.project(conn, app_name)),
+                ).fetchone()
+                is None
+            ):
                 raise HTTPException(404, 'Session not found.')
         hub = getattr(request.app.state, 'session_hub', None)
         if hub is None:
@@ -216,8 +276,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         yield ': keepalive\n\n'
                         continue
                     if kind == 'event':
-                        yield (f"id: {value['id']}\nevent: run_event\n"
-                               f'data: {json.dumps(jsonable_encoder(stream_event(value)))}\n\n')
+                        yield (
+                            f'id: {value["id"]}\nevent: run_event\n'
+                            f'data: {json.dumps(jsonable_encoder(stream_event(value)))}\n\n'
+                        )
                     elif kind == 'session':
                         yield f'event: session\ndata: {json.dumps(value)}\n\n'
                     elif kind == 'unavailable':
@@ -229,7 +291,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                         yield 'event: closed\ndata: {}\n\n'
                         return
 
-        return StreamingResponse(stream(), media_type='text/event-stream',
-                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+        return StreamingResponse(
+            stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'}
+        )
 
     return router

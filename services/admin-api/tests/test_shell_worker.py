@@ -20,8 +20,10 @@ from test_sdk_agent import config, responses_api
 
 shell_run = tool('shell_run')
 
-pytestmark = pytest.mark.skipif(shutil.which('bwrap') is None or not Path('/work/agent-workspaces').is_dir(),
-                               reason='Requires the Linux shell-worker container with /work test mounts.')
+pytestmark = pytest.mark.skipif(
+    shutil.which('bwrap') is None or not Path('/work/agent-workspaces').is_dir(),
+    reason='Requires the Linux shell-worker container with /work test mounts.',
+)
 
 
 @pytest.fixture
@@ -65,12 +67,21 @@ ast-grep --version
     result = json.loads(asyncio.run(invoke(shell_run, shell_context, command=command)))
     assert result['exit_code'] == 0, result
     assert 'bash\npython\nrg\nast-grep' in result['stdout'] and 'ast-grep 0.39.4' in result['stdout']
-    again = json.loads(asyncio.run(invoke(shell_run, shell_context, command="python -c \"import json; print(json.load(open('notes.json'))['found'])\"")))
+    again = json.loads(
+        asyncio.run(
+            invoke(
+                shell_run,
+                shell_context,
+                command="python -c \"import json; print(json.load(open('notes.json'))['found'])\"",
+            )
+        )
+    )
     assert again['stdout'].strip() == '42'
 
 
 def test_configured_source_mount_is_allowed_without_exposing_other_roots(monkeypatch):
     from fastapi import HTTPException
+
     with TemporaryDirectory(dir='/tmp') as directory, TemporaryDirectory(dir='/work/agent-workspaces') as scratch:
         source = Path(directory) / 'example.py'
         source.write_text('print("selected source")\n')
@@ -119,11 +130,12 @@ SCRIPT
 
 
 def test_errors_limits_redaction_and_disabled_access(shell_context):
-    result = json.loads(asyncio.run(invoke(shell_run, shell_context,
-        command="printf 'test-tool-secret'; printf 'failure' >&2; exit 7")))
+    result = json.loads(
+        asyncio.run(invoke(shell_run, shell_context, command="printf 'test-tool-secret'; printf 'failure' >&2; exit 7"))
+    )
     assert result['exit_code'] == 7 and result['stderr'] == 'failure'
     assert 'test-tool-secret' not in json.dumps(result)
-    limited = json.loads(asyncio.run(invoke(shell_run, shell_context, command="python -c \"print('x'*100000)\"")))
+    limited = json.loads(asyncio.run(invoke(shell_run, shell_context, command='python -c "print(\'x\'*100000)"')))
     assert len(limited['stdout']) == 32768 and limited['truncated']['stdout']
     shell_context['shell_enabled'] = False
     assert 'disabled' in asyncio.run(invoke(shell_run, shell_context, command='pwd'))
@@ -133,25 +145,29 @@ def test_timeout_and_http_disconnect_stop_background_commands(shell_context):
     result = json.loads(asyncio.run(invoke(shell_run, shell_context, command='sleep 10', timeout_seconds=1)))
     assert result['timed_out']
     marker = shell_context['workspace'] / 'must-not-exist'
+
     async def cancel():
-        task = asyncio.create_task(invoke(shell_run, shell_context,
-            command=f'(sleep 2; touch {marker}) & wait'))
+        task = asyncio.create_task(invoke(shell_run, shell_context, command=f'(sleep 2; touch {marker}) & wait'))
         await asyncio.sleep(0.3)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
         await asyncio.sleep(2.2)
+
     asyncio.run(cancel())
     assert not marker.exists()
 
 
 def test_rejects_paths_outside_worker_mounts_and_symlink_escape(shell_context, tmp_path):
     from fastapi import HTTPException
+
     outside = tmp_path / 'code' / 'escape'
     outside.symlink_to('/etc')
     for path in ('/etc', str(outside)):
         with pytest.raises(HTTPException) as error:
-            asyncio.run(execute(ShellRequest(command='pwd', workspace=str(shell_context['workspace']), read_paths=[path])))
+            asyncio.run(
+                execute(ShellRequest(command='pwd', workspace=str(shell_context['workspace']), read_paths=[path]))
+            )
         assert error.value.status_code == 422
     with pytest.raises(HTTPException):
         asyncio.run(execute(ShellRequest(command='pwd', workspace='/tmp', read_paths=[])))
@@ -160,7 +176,9 @@ def test_rejects_paths_outside_worker_mounts_and_symlink_escape(shell_context, t
 def test_sdk_calls_shell_worker_and_receives_python_result(shell_context, config, responses_api, monkeypatch):
     monkeypatch.setenv('AGENT_WORKSPACE_ROOT', '/work/agent-workspaces')
     before = set(Path('/work/agent-workspaces').iterdir())
-    result = asyncio.run(agent(config, 'SHELL_TOOL_CYCLE', credentials={'model-key': 'fixture-api-secret'}, stream=False))
+    result = asyncio.run(
+        agent(config, 'SHELL_TOOL_CYCLE', credentials={'model-key': 'fixture-api-secret'}, stream=False)
+    )
     assert result.final_output == 'Configured agent completed the task.'
     output = next(item for item in responses_api[1][-1]['body']['input'] if item.get('type') == 'function_call_output')
     executed = json.loads(output['output'])

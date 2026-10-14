@@ -17,9 +17,21 @@ async def scan_source(context: RunContext, paths: list[Path], rules: list[dict])
         config = Path(directory) / 'sgconfig.yml'
         config.write_text('ruleDirs: []\n', encoding='utf-8')
         process = await asyncio.create_subprocess_exec(
-            'ast-grep', 'scan', '--config', str(config), '--inline-rules', inline,
-            '--json=compact', '--color=never', '--threads=1', '--', *map(str, paths), cwd=directory,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            'ast-grep',
+            'scan',
+            '--config',
+            str(config),
+            '--inline-rules',
+            inline,
+            '--json=compact',
+            '--color=never',
+            '--threads=1',
+            '--',
+            *map(str, paths),
+            cwd=directory,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         try:
             async with asyncio.timeout(30):
                 stdout, stderr = await process.communicate()
@@ -38,9 +50,14 @@ async def scan_source(context: RunContext, paths: list[Path], rules: list[dict])
     return matches, error
 
 
-async def ast_grep(context: RunContext, path: str, language: str,
-                   pattern: str | None = None, rule: str | None = None,
-                   max_matches: int = 20) -> str:
+async def ast_grep(
+    context: RunContext,
+    path: str,
+    language: str,
+    pattern: str | None = None,
+    rule: str | None = None,
+    max_matches: int = 20,
+) -> str:
     if not context['config']['code']['enabled']:
         raise ValueError('Code access is disabled.')
     require_given(context['config'], 'code')
@@ -58,11 +75,20 @@ async def ast_grep(context: RunContext, path: str, language: str,
     selected = _path(context, path)
     if not selected.is_file() and not selected.is_dir():
         raise ValueError('Choose a regular source file or directory.')
-    matches, error = await scan_source(context, [selected], [
-        {'id': 'agent-source-search', 'language': language, 'rule': matcher}])
-    result = {'matches': [{'path': str(_path(context, match['file'])),
-        'start_line': match['range']['start']['line'] + 1,
-        'end_line': match['range']['end']['line'] + 1,
-        'code': match['text']} for match in matches[:max_matches]],
-        'truncated': len(matches) > max_matches, 'warning': error or None}
+    matches, error = await scan_source(
+        context, [selected], [{'id': 'agent-source-search', 'language': language, 'rule': matcher}]
+    )
+    result = {
+        'matches': [
+            {
+                'path': str(_path(context, match['file'])),
+                'start_line': match['range']['start']['line'] + 1,
+                'end_line': match['range']['end']['line'] + 1,
+                'code': match['text'],
+            }
+            for match in matches[:max_matches]
+        ],
+        'truncated': len(matches) > max_matches,
+        'warning': error or None,
+    }
     return redact(json.dumps(result), context['credentials'].values())

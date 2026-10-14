@@ -57,8 +57,15 @@ def register(endpoint: str | None, api_key: str | None) -> bool:
         import phoenix.otel
 
         # The project name predates the admin API; existing traces live under it.
-        phoenix.otel.register(endpoint=endpoint, project_name='docs-wiki', batch=True, api_key=api_key or None,
-                              auto_instrument=False, set_global_tracer_provider=True, verbose=False)
+        phoenix.otel.register(
+            endpoint=endpoint,
+            project_name='docs-wiki',
+            batch=True,
+            api_key=api_key or None,
+            auto_instrument=False,
+            set_global_tracer_provider=True,
+            verbose=False,
+        )
     except Exception:
         logger.warning('Phoenix tracing setup failed; continuing untraced.', exc_info=True)
         return False

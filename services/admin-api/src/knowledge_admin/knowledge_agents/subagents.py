@@ -9,6 +9,7 @@ Running (Subagents): one per native turn, in parallel up to AGENT_MAX_SUBAGENTS,
 with parent_call_id and counted in the session's totals; Stop cancels them with the turn. Expert calls (ask_<name>,
 Subagents.ask) run the same way and share the slots and the per-turn limit, but with the expert's own saved
 configuration and credentials (experts.load)."""
+
 import asyncio
 import copy
 import logging
@@ -55,13 +56,18 @@ def _listed(config: Mapping[str, Any], capability: str) -> dict[str, dict[str, A
     """The parent's current resources of one kind, by id; none for a kind it does not use."""
     if not config[capability]['enabled']:
         return {}
-    items = {'code': lambda: config['code']['projects'], 'documents': lambda: config['documents'].get('collections', []),
-             'ssh': lambda: config['ssh']['servers'], 'services': lambda: config['services']['items']}[capability]()
+    items = {
+        'code': lambda: config['code']['projects'],
+        'documents': lambda: config['documents'].get('collections', []),
+        'ssh': lambda: config['ssh']['servers'],
+        'services': lambda: config['services']['items'],
+    }[capability]()
     return {str(entry['id']): entry for entry in items if 'id' in entry}
 
 
-def _given_tools(config: Mapping[str, Any], tools: list[str], offered: Collection[str],
-                 mcp_tools: Mapping[str, str]) -> tuple[set[str], dict[str, set[str]]]:
+def _given_tools(
+    config: Mapping[str, Any], tools: list[str], offered: Collection[str], mcp_tools: Mapping[str, str]
+) -> tuple[set[str], dict[str, set[str]]]:
     """The given catalog tools, and the given MCP tools by server id. Each name must be offered to this run (MCP
     tools by the name the model sees), allowed for subagents, and not run_subagent."""
     if not tools:
@@ -116,8 +122,12 @@ def _narrow(sub: dict[str, Any], resources: Mapping[str, list[str]]) -> None:
     given = check_given(sub, resources)
     chosen = {kind.key: [_listed(sub, kind.capability)[entry] for entry in given[kind.key]] for kind in KINDS}
     code_ids = set(given['code_project_ids'])
-    sub['code'] = {**sub['code'], 'all_projects': False, 'projects': chosen['code_project_ids'],
-                   'graphs': [graph for graph in sub['code'].get('graphs', []) if str(graph.get('id')) in code_ids]}
+    sub['code'] = {
+        **sub['code'],
+        'all_projects': False,
+        'projects': chosen['code_project_ids'],
+        'graphs': [graph for graph in sub['code'].get('graphs', []) if str(graph.get('id')) in code_ids],
+    }
     documents = {key: value for key, value in sub['documents'].items() if key not in ('folders', 'all_folders')}
     sub['documents'] = {**documents, 'all_collections': False, 'collections': chosen['collection_ids']}
     sub['ssh'] = {**sub['ssh'], 'servers': chosen['server_ids']}
@@ -136,8 +146,13 @@ def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_
 
     def keep(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [server for server in servers if str(server['id']) in mcp]
-    sub['mcp'] = {**sub['mcp'], 'enabled': bool(mcp) and sub['mcp']['enabled'], 'servers': keep(sub['mcp']['servers']),
-                  'allowlist': True}
+
+    sub['mcp'] = {
+        **sub['mcp'],
+        'enabled': bool(mcp) and sub['mcp']['enabled'],
+        'servers': keep(sub['mcp']['servers']),
+        'allowlist': True,
+    }
     for server in sub['ssh']['servers']:
         server['mcp_servers'] = keep(server.get('mcp_servers', []))
     if 'ssh_run' not in catalog:
@@ -148,15 +163,23 @@ def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_
     kept = [*sub['mcp']['servers'], *(found for server in sub['ssh']['servers'] for found in server['mcp_servers'])]
     for server_id, given in sorted(mcp.items()):
         listed = {tool['name'] for server in kept if str(server['id']) == server_id for tool in server.get('tools', [])}
-        listed |= {name.split(':', 2)[2] for name in [*mcp_tools.values(), *rows] if name.startswith(f'mcp:{server_id}:')}
+        listed |= {
+            name.split(':', 2)[2] for name in [*mcp_tools.values(), *rows] if name.startswith(f'mcp:{server_id}:')
+        }
         for tool in sorted(listed):
             name = f'mcp:{server_id}:{tool}'
             items.append(item(name, 'on' if tool in given else 'off', rows.get(name, {}).get('usage'), group='mcp'))
     sub['tools'] = {'items': items}
 
 
-def subagent_config(config: Mapping[str, Any], tools: list[str], resources: Mapping[str, list[str]] | None, *,
-                    offered: Collection[str], mcp_tools: Mapping[str, str]) -> dict[str, Any]:
+def subagent_config(
+    config: Mapping[str, Any],
+    tools: list[str],
+    resources: Mapping[str, list[str]] | None,
+    *,
+    offered: Collection[str],
+    mcp_tools: Mapping[str, str],
+) -> dict[str, Any]:
     """The configuration a subagent runs with, or a ValueError naming the tool or resource that cannot be given.
     `offered`: the catalog tools of the parent's run (context['tools']); `mcp_tools`: its MCP tools as the model sees
     them (context['mcp_tools']). resources None: the parent's lists and mode; otherwise a per-run run of exactly those."""
@@ -168,7 +191,7 @@ def subagent_config(config: Mapping[str, Any], tools: list[str], resources: Mapp
     if resources is not None:
         _narrow(sub, resources)
     _only(sub, catalog, mcp, mcp_tools)
-    sub['name'] = f"{config['name']} · subagent"
+    sub['name'] = f'{config["name"]} · subagent'
     sub['system_prompt'] = {'content': PROMPT}
     sub['instructions'] = ''
     sub['skills'] = {'enabled': False, 'items': []}
@@ -210,9 +233,16 @@ class SubagentEvents(SessionEvents):
     (close(), which runs before the parent's events close), so a subagent that outlives its turn, or ignores its
     cancellation while close() waits, starts no tool call and records nothing more."""
 
-    def __init__(self, parent: SessionEvents, parent_call_id: str, *, secrets: list[str],
-                 record_usage: Callable[[dict[str, Any]], None] | None, host: 'Subagents | None' = None,
-                 agent_id: str | None = None):
+    def __init__(
+        self,
+        parent: SessionEvents,
+        parent_call_id: str,
+        *,
+        secrets: list[str],
+        record_usage: Callable[[dict[str, Any]], None] | None,
+        host: 'Subagents | None' = None,
+        agent_id: str | None = None,
+    ):
         super().__init__(parent.recorder, secrets=secrets, first=True, record_usage=record_usage)
         self.parent, self.parent_call_id, self.host, self.agent_id = parent, parent_call_id, host, agent_id
 
@@ -242,12 +272,19 @@ class Subagents:
     the turn (Stop) cancels the tool call and with it the run; close() (the end of the turn) cancels any still running,
     the experts' subagents too, and empties their credentials."""
 
-    def __init__(self, parent: SessionEvents, *, secrets: list[str],
-                 record_usage: Callable[[dict[str, Any]], None] | None, run_agent: Callable[..., Awaitable[Any]],
-                 limit: int | None = None,
-                 load_expert: Callable[[dict[str, Any], Mapping[str, list[str]] | None],
-                                       tuple[dict[str, Any], dict[str, str]]] | None = None,
-                 root: 'Subagents | None' = None, agent_id: str | None = None):
+    def __init__(
+        self,
+        parent: SessionEvents,
+        *,
+        secrets: list[str],
+        record_usage: Callable[[dict[str, Any]], None] | None,
+        run_agent: Callable[..., Awaitable[Any]],
+        limit: int | None = None,
+        load_expert: Callable[[dict[str, Any], Mapping[str, list[str]] | None], tuple[dict[str, Any], dict[str, str]]]
+        | None = None,
+        root: 'Subagents | None' = None,
+        agent_id: str | None = None,
+    ):
         self.parent, self.secrets, self.record_usage, self.run_agent = parent, secrets, record_usage, run_agent
         self.load_expert = load_expert
         self.root = root or self  # the turn's host: it counts every start of the turn (MAX_PER_TURN)
@@ -267,13 +304,20 @@ class Subagents:
             raise asyncio.CancelledError
         return data.model_data
 
-    async def run(self, context: Mapping[str, Any], task: str, tools: list[str],
-                  resources: Mapping[str, list[str]] | None, call_id: str) -> str:
+    async def run(
+        self,
+        context: Mapping[str, Any],
+        task: str,
+        tools: list[str],
+        resources: Mapping[str, list[str]] | None,
+        call_id: str,
+    ) -> str:
         """One run_subagent call: the subagent's final answer (redacted), FAILED with the redacted reason when it fails,
         or a ValueError for a refused call (refused calls do not count towards MAX_PER_TURN)."""
         check_task(task)
-        sub = subagent_config(context['config'], tools, resources, offered=context['tools'],
-                              mcp_tools=context.get('mcp_tools', {}))
+        sub = subagent_config(
+            context['config'], tools, resources, offered=context['tools'], mcp_tools=context.get('mcp_tools', {})
+        )
         if self.closed or self.parent.closed:
             raise asyncio.CancelledError
         if self.root.started >= MAX_PER_TURN:
@@ -282,16 +326,29 @@ class Subagents:
         credentials = referenced_credentials(sub, context['credentials'])
         self.issued.append(credentials)
         try:
-            events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage,
-                                    host=self, agent_id=self.agent_id)
+            events = SubagentEvents(
+                self.parent,
+                call_id,
+                secrets=self.secrets,
+                record_usage=self.record_usage,
+                host=self,
+                agent_id=self.agent_id,
+            )
             events.add('input', {'task': task, 'subagent': {'task': task}})
-            return await self._drive(events, sub, task, credentials, context['workspace'],
-                                     lambda message: FAILED.format(message=message))
+            return await self._drive(
+                events, sub, task, credentials, context['workspace'], lambda message: FAILED.format(message=message)
+            )
         finally:
             credentials.clear()
 
-    async def ask(self, context: Mapping[str, Any], entry: Mapping[str, Any], task: str,
-                  resources: Mapping[str, list[str]] | None, call_id: str) -> str:
+    async def ask(
+        self,
+        context: Mapping[str, Any],
+        entry: Mapping[str, Any],
+        task: str,
+        resources: Mapping[str, list[str]] | None,
+        call_id: str,
+    ) -> str:
         """One expert call (ask_<name>): the expert's answer (redacted), experts.FAILED when its run fails, or a
         ValueError for a refused call (refused calls do not count towards MAX_PER_TURN). The given resources must be
         the caller's own; the expert runs its own saved configuration (resolved with them when it is per run) and
@@ -325,23 +382,50 @@ class Subagents:
             # The turn's own list, extended in place: the turn's recorder, its events, its answer and its history
             # redact the expert's secrets too.
             self.secrets[:] = list(dict.fromkeys([*self.secrets, *(value for value in credentials.values() if value)]))
-            events = SubagentEvents(self.parent, call_id, secrets=self.secrets, record_usage=self.record_usage,
-                                    host=self, agent_id=str(entry['id']))
+            events = SubagentEvents(
+                self.parent,
+                call_id,
+                secrets=self.secrets,
+                record_usage=self.record_usage,
+                host=self,
+                agent_id=str(entry['id']),
+            )
             # The expert's own host for its subagents: recorded in the turn under the expert, closed with its call.
-            nested = Subagents(events, secrets=self.secrets, record_usage=self.record_usage, run_agent=self.run_agent,
-                               limit=self.limit, root=self.root, agent_id=str(entry['id']))
+            nested = Subagents(
+                events,
+                secrets=self.secrets,
+                record_usage=self.record_usage,
+                run_agent=self.run_agent,
+                limit=self.limit,
+                root=self.root,
+                agent_id=str(entry['id']),
+            )
             self.nested.append(nested)
             events.add('input', {'task': task, 'expert': {'id': entry['id'], 'name': entry['name']}})
-            return await self._drive(events, config, task, credentials, context['workspace'],
-                                     lambda message: experts.FAILED.format(name=entry['name'], message=message),
-                                     subagents=nested)
+            return await self._drive(
+                events,
+                config,
+                task,
+                credentials,
+                context['workspace'],
+                lambda message: experts.FAILED.format(name=entry['name'], message=message),
+                subagents=nested,
+            )
         finally:
             if nested is not None:
                 nested.forget()
             credentials.clear()
 
-    async def _drive(self, events: SubagentEvents, config: dict[str, Any], task: str, credentials: dict[str, str],
-                     workspace: Any, failed: Callable[[str], str], subagents: 'Subagents | None' = None) -> str:
+    async def _drive(
+        self,
+        events: SubagentEvents,
+        config: dict[str, Any],
+        task: str,
+        credentials: dict[str, str],
+        workspace: Any,
+        failed: Callable[[str], str],
+        subagents: 'Subagents | None' = None,
+    ) -> str:
         """Run one started call in a slot: its answer (redacted), or `failed(redacted reason)` when its run fails.
         subagents: an expert's own host (a subagent starts no subagents)."""
         # The slot first, then the flush: calls take slots in the order they were made (a waiting call's input
@@ -350,10 +434,20 @@ class Subagents:
             if self.closed or self.parent.closed:  # the turn ended while this call waited for a slot
                 raise asyncio.CancelledError
             await asyncio.to_thread(self.parent.recorder.flush)
-            running = asyncio.create_task(self.run_agent(
-                config, task, credentials=credentials, workspace=workspace, hooks=events, max_turns=None,
-                turn_timeout_seconds=None, call_model_input_filter=self.model_filter, stream=False,
-                subagents=subagents))
+            running = asyncio.create_task(
+                self.run_agent(
+                    config,
+                    task,
+                    credentials=credentials,
+                    workspace=workspace,
+                    hooks=events,
+                    max_turns=None,
+                    turn_timeout_seconds=None,
+                    call_model_input_filter=self.model_filter,
+                    stream=False,
+                    subagents=subagents,
+                )
+            )
             self.running.add(running)
             running.add_done_callback(self.running.discard)
             try:

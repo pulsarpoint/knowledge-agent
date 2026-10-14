@@ -1,5 +1,6 @@
 """Schedules run one target (a named job, e.g. the Jira pull) on a cron timetable in a time zone. This module holds the
 cron rules; scheduler.py claims and runs due schedules, schedules_api.py edits them."""
+
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
 

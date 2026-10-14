@@ -1,4 +1,5 @@
 """Collection folders: confinement, glob matching, skips and freshness."""
+
 import os
 import time
 from pathlib import Path
@@ -6,8 +7,17 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from rag.collections import (DataRoot, FolderMissing, glob_regex, indexable, matches, overlaps, relative_path, source_path,
-                             visible)
+from rag.collections import (
+    DataRoot,
+    FolderMissing,
+    glob_regex,
+    indexable,
+    matches,
+    overlaps,
+    relative_path,
+    source_path,
+    visible,
+)
 
 FOLDERS = ('code', 'code-index', 'docs', 'generated-documents', 'jira')
 
@@ -22,14 +32,17 @@ def data_root(tmp_path):
     return DataRoot(base, '/srv/data', 'jira'), roots
 
 
-@pytest.mark.parametrize('value', ['jira', 'code/payments/src', 'generated-documents', 'docs', 'exports/tools',
-                                   'any-folder/v1.2', 'rag-data/demo'])
+@pytest.mark.parametrize(
+    'value',
+    ['jira', 'code/payments/src', 'generated-documents', 'docs', 'exports/tools', 'any-folder/v1.2', 'rag-data/demo'],
+)
 def test_valid_source_paths(value):
     assert source_path(value) == value
 
 
-@pytest.mark.parametrize('value', ['', 'jira/../code', 'jira/.hidden', '/jira', 'jira//x', 'code/a b', '.hidden',
-                                   '..', 'code/', 'a' * 501])
+@pytest.mark.parametrize(
+    'value', ['', 'jira/../code', 'jira/.hidden', '/jira', 'jira//x', 'code/a b', '.hidden', '..', 'code/', 'a' * 501]
+)
 def test_invalid_source_paths(value):
     with pytest.raises(HTTPException):
         source_path(value)
@@ -201,8 +214,17 @@ def test_documents_exclude_keeps_slugs_that_start_with_a_version():
 def test_indexable_refuses_hidden_env_and_skipped_segments():
     include = ['**/*']
     assert indexable('docs/a.md', include, [])
-    for path in ('.env', '.env.local', 'sub/.env.production', '.git/config', 'a/.git/HEAD', 'node_modules/x/README.md',
-                 '.github/workflows/ci.md', '.commit-update-test/README.md', 'a/.hidden.md'):
+    for path in (
+        '.env',
+        '.env.local',
+        'sub/.env.production',
+        '.git/config',
+        'a/.git/HEAD',
+        'node_modules/x/README.md',
+        '.github/workflows/ci.md',
+        '.commit-update-test/README.md',
+        'a/.hidden.md',
+    ):
         assert not indexable(path, include, []), path
         assert not visible(path), path
     assert not indexable('app.py', ['**/*.md'], [])
@@ -260,7 +282,10 @@ def test_top_level_listing_shows_visible_folders_of_the_data_root(data_root):
     (roots['data'] / '.local-archive').mkdir()
     (roots['data'] / 'notes.md').write_text('x')
     os.symlink(roots['code'], roots['data'] / 'linked')
-    assert data_root.subfolders(None) == (['code', 'code-index', 'docs', 'exports', 'generated-documents', 'jira'], False)
+    assert data_root.subfolders(None) == (
+        ['code', 'code-index', 'docs', 'exports', 'generated-documents', 'jira'],
+        False,
+    )
 
 
 def test_reads_go_through_the_one_data_root_and_never_follow_links(data_root, tmp_path):
@@ -300,9 +325,13 @@ def test_walk_paths_merges_full_paths_and_reports_missing(data_root):
     (repo / 'tests' / 'test_retry.py').write_text('x')
     (roots['jira'] / 'jira').mkdir()
     (roots['jira'] / 'jira' / 'DEMO-1.md').write_text('# D')
-    walk = data_root.walk_paths(['code/payments', 'jira/jira', 'docs/absent'], ['**/*.py', '**/*.md'], ['tests/**'], truncate=True)
+    walk = data_root.walk_paths(
+        ['code/payments', 'jira/jira', 'docs/absent'], ['**/*.py', '**/*.md'], ['tests/**'], truncate=True
+    )
     assert [(f['path'], f['source']) for f in walk.files] == [
-        ('code/payments/src/retry.py', 'code/payments'), ('jira/jira/DEMO-1.md', 'jira/jira')]
+        ('code/payments/src/retry.py', 'code/payments'),
+        ('jira/jira/DEMO-1.md', 'jira/jira'),
+    ]
     assert walk.missing == ['docs/absent'] and not walk.truncated
     with pytest.raises(FolderMissing, match='Path docs/absent is missing') as error:
         data_root.walk_paths(['code/payments', 'docs/absent'], ['**/*.py'], [])
@@ -340,7 +369,9 @@ def test_walk_paths_newest_change_spans_paths(data_root):
 
 def test_overlapping_paths():
     assert overlaps('code/a', 'code/a') and overlaps('code/a', 'code/a/b') and overlaps('code', 'code/a')
-    assert not overlaps('code/a', 'code/ab') and not overlaps('code/a', 'jira/a') and not overlaps('code/a/b', 'code/a/c')
+    assert (
+        not overlaps('code/a', 'code/ab') and not overlaps('code/a', 'jira/a') and not overlaps('code/a/b', 'code/a/c')
+    )
 
 
 def test_single_walk_keeps_relative_paths_and_names_its_source(data_root):
@@ -348,7 +379,11 @@ def test_single_walk_keeps_relative_paths_and_names_its_source(data_root):
     (roots['jira'] / 'notes').mkdir()
     (roots['jira'] / 'notes' / 'a.md').write_text('# A')
     assert data_root.walk('jira/notes', ['**/*.md'], []).files[0] | {'size': 0, 'mtime': 0} == {
-        'path': 'a.md', 'source': 'jira/notes', 'size': 0, 'mtime': 0}
+        'path': 'a.md',
+        'source': 'jira/notes',
+        'size': 0,
+        'mtime': 0,
+    }
 
 
 def test_subfolders_hide_hidden_skipped_links_and_unaddable_names(data_root):

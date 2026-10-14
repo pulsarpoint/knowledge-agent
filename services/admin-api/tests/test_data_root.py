@@ -1,7 +1,16 @@
 import pytest
 
-from knowledge_admin.data_root import (DATA_FOLDER_RULE, FOLDER_RULE, data_dir, data_folder, data_path, documentation_folder,
-                                       generated_docs_folder, host_path, jira_folder)
+from knowledge_admin.data_root import (
+    DATA_FOLDER_RULE,
+    FOLDER_RULE,
+    data_dir,
+    data_folder,
+    data_path,
+    documentation_folder,
+    generated_docs_folder,
+    host_path,
+    jira_folder,
+)
 
 
 def test_paths_follow_the_container_data_root(monkeypatch):
@@ -34,14 +43,32 @@ def test_defaults_and_misconfiguration(monkeypatch):
 def test_documentation_folders_follow_the_rag_segment_rule():
     for good in ('payments', 'team/payments', 'v1.2_docs-x', 'a/b-c', 'team/services'):
         assert documentation_folder(good) == good
-    for bad in ('', '/payments', 'payments/', 'a//b', '../payments', 'team/..', '.hidden', 'team/.git', 'my docs',
-                'team/node_modules', 'node_modules', 'services', 'services/payments', 'é', 'x' * 201,
-                'Payments', 'team/Payments', 'A/b-c'):
+    for bad in (
+        '',
+        '/payments',
+        'payments/',
+        'a//b',
+        '../payments',
+        'team/..',
+        '.hidden',
+        'team/.git',
+        'my docs',
+        'team/node_modules',
+        'node_modules',
+        'services',
+        'services/payments',
+        'é',
+        'x' * 201,
+        'Payments',
+        'team/Payments',
+        'A/b-c',
+    ):
         with pytest.raises(ValueError) as error:
             documentation_folder(bad)
         assert str(error.value) == FOLDER_RULE
-    assert FOLDER_RULE.startswith('A documentation folder is a path such as payments or team/payments: each segment '
-                                  'uses lowercase letters')
+    assert FOLDER_RULE.startswith(
+        'A documentation folder is a path such as payments or team/payments: each segment uses lowercase letters'
+    )
 
 
 def test_generated_documents_folder_is_relative_to_the_data_root(monkeypatch):

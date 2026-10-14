@@ -14,7 +14,7 @@ code_search = tool('code_search')
 
 def test_go_methods_imports_calls_and_complete_bodies(context, tmp_path):
     path = tmp_path / 'code' / 'handler.go'
-    source = '''package controller
+    source = """package controller
 import limits "example.test/personal_limits"
 // func Handle() { fake() }
 func (c *Ctrl) Handle() {
@@ -25,7 +25,7 @@ func (c *Ctrl) Handle() {
     println(text, "test-tool-secret")
 }
 func Handle() { another() }
-'''
+"""
     path.write_text(source, encoding='utf-8')
     args = {'path': str(path), 'language': 'go', 'name': 'Handle'}
     result = json.loads(asyncio.run(invoke(code_search, context, **args)))
@@ -43,12 +43,30 @@ func Handle() { another() }
     assert path.read_text(encoding='utf-8') == source
 
 
-@pytest.mark.parametrize(('language', 'extension', 'source', 'expected'), [
-    ('Python', 'py', 'import storage as db\nclass Service:\n    async def save(self):\n        return db.insert(1)\n', 'db.insert'),
-    ('JavaScript', 'js', 'import db from "db";\nconst save = async (x) => { return db.insert(x); };\n', 'db.insert'),
-    ('TypeScript', 'ts', 'import db from "db";\nclass Service { save(x: number): number { return db.insert(x); } }\n', 'db.insert'),
-    ('Tsx', 'tsx', 'import React from "react";\nfunction save() { return <div>{load()}</div>; }\n', 'load'),
-])
+@pytest.mark.parametrize(
+    ('language', 'extension', 'source', 'expected'),
+    [
+        (
+            'Python',
+            'py',
+            'import storage as db\nclass Service:\n    async def save(self):\n        return db.insert(1)\n',
+            'db.insert',
+        ),
+        (
+            'JavaScript',
+            'js',
+            'import db from "db";\nconst save = async (x) => { return db.insert(x); };\n',
+            'db.insert',
+        ),
+        (
+            'TypeScript',
+            'ts',
+            'import db from "db";\nclass Service { save(x: number): number { return db.insert(x); } }\n',
+            'db.insert',
+        ),
+        ('Tsx', 'tsx', 'import React from "react";\nfunction save() { return <div>{load()}</div>; }\n', 'load'),
+    ],
+)
 def test_languages(context, tmp_path, language, extension, source, expected):
     path = tmp_path / 'code' / f'source.{extension}'
     path.write_text(source, encoding='utf-8')
@@ -85,7 +103,9 @@ def test_literal_names_stable_pagination_and_scope(context, tmp_path):
     assert 'disabled' in asyncio.run(invoke(code_search, context, **args))
 
 
-@pytest.mark.parametrize('extra', [{'name': ''}, {'limit': 0}, {'offset': -1}, {'language': 'invalid'}, {'match': 'regex'}])
+@pytest.mark.parametrize(
+    'extra', [{'name': ''}, {'limit': 0}, {'offset': -1}, {'language': 'invalid'}, {'match': 'regex'}]
+)
 def test_invalid_arguments(context, tmp_path, extra):
     args = {'path': str(tmp_path / 'code'), 'language': 'Go', 'name': 'Handle'} | extra
     assert 'error' in asyncio.run(invoke(code_search, context, **args)).lower()

@@ -1,4 +1,5 @@
 """Every recorded agent run keeps its instructions, input, reasoning, tool calls, outputs and answer."""
+
 import asyncio
 from types import SimpleNamespace
 
@@ -19,13 +20,22 @@ def captured(monkeypatch):
 
 
 def recorded(config):
-    return {**config, 'record': {'run_key': 'run:test-1', 'project_id': 'p1', 'actor_id': None,
-                                 'kind': 'test', 'title': 'List the files'}}
+    return {
+        **config,
+        'record': {
+            'run_key': 'run:test-1',
+            'project_id': 'p1',
+            'actor_id': None,
+            'kind': 'test',
+            'title': 'List the files',
+        },
+    }
 
 
 def test_agent_run_records_full_timeline(config, captured):
-    result = asyncio.run(agent(recorded(config), 'RESPONSES_REASONING_CYCLE list the files',
-                               credentials={'model-key': 'fixture-secret'}))
+    result = asyncio.run(
+        agent(recorded(config), 'RESPONSES_REASONING_CYCLE list the files', credentials={'model-key': 'fixture-secret'})
+    )
     assert result.final_output == 'Configured agent completed the task.'
     kinds = [event['kind'] for event in captured]
     assert kinds[:3] == ['start', 'input', 'instructions']
@@ -53,6 +63,7 @@ def test_unrecorded_runs_write_nothing(config, captured):
 def test_failed_run_records_error(config, captured, monkeypatch):
     def explode(*args, **kwargs):
         raise RuntimeError('provider exploded fixture-secret')
+
     monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', explode)
     with pytest.raises(RuntimeError):
         asyncio.run(agent(recorded(config), 'Explain', credentials={'model-key': 'fixture-secret'}))
@@ -64,8 +75,11 @@ def test_failed_run_records_error(config, captured, monkeypatch):
 def test_tool_output_is_stored_in_full_and_redacted(captured):
     recorder = RunRecorder(run_key='run:x', project_id='p1', agent_id='a', actor_id=None, secrets=['TOKEN123'])
     output = 'x' * 50000 + ' TOKEN123'
-    asyncio.run(recorder.on_tool_end(SimpleNamespace(tool_call_id='c1'), SimpleNamespace(name='Agent'),
-                                     SimpleNamespace(name='shell_run'), output))
+    asyncio.run(
+        recorder.on_tool_end(
+            SimpleNamespace(tool_call_id='c1'), SimpleNamespace(name='Agent'), SimpleNamespace(name='shell_run'), output
+        )
+    )
     recorder.flush()
     payload = captured[0]['payload']
     assert len(payload['output']) == 50000 + len(' [redacted]') and payload['output'].endswith('[redacted]')
@@ -111,7 +125,9 @@ def test_events_persist_to_database(store):
         recorder.add('message', {'text': 'answer'})
         recorder.flush()
         with store.connect() as conn:
-            rows = conn.execute("SELECT seq,kind,payload FROM ka.agent_run_events WHERE run_key='run:db' ORDER BY seq").fetchall()
+            rows = conn.execute(
+                "SELECT seq,kind,payload FROM ka.agent_run_events WHERE run_key='run:db' ORDER BY seq"
+            ).fetchall()
         assert [(r['seq'], r['kind']) for r in rows] == [(1, 'start'), (2, 'message')]
     finally:
         run_record.configure(None, None)
@@ -130,7 +146,9 @@ def test_null_characters_are_removed_before_redaction(store):
     """Postgres rejects U+0000 in jsonb: a tool output with a NUL byte must not fail the run, nor hide a key from redaction."""
     run_record.configure(store, 'shop')
     try:
-        recorder = RunRecorder(run_key='run:nul', project_id=None, agent_id='search', actor_id=None, secrets=['TOKEN123'])
+        recorder = RunRecorder(
+            run_key='run:nul', project_id=None, agent_id='search', actor_id=None, secrets=['TOKEN123']
+        )
         recorder.add('tool_result', {'output': 'bin\x00ary TOK\x00EN123', 'ke\x00y': ['a\x00b']})
         recorder.flush()
         with store.connect() as conn:

@@ -1,4 +1,5 @@
 """0091: ka.events.source also allows 'manual'; the down step deletes manual events."""
+
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,13 +17,20 @@ def run(conn, name: str) -> None:
 
 
 def a_manual_event(conn, project=None, **values) -> dict:
-    return an_event(conn, project, **{'source': 'manual', 'source_id': None, 'dedupe_key': f'manual:{uuid4()}', **values})
+    return an_event(
+        conn, project, **{'source': 'manual', 'source_id': None, 'dedupe_key': f'manual:{uuid4()}', **values}
+    )
 
 
 def test_manual_is_a_source(store):
     with store.connect() as conn:
         event = a_manual_event(conn)
-    assert (event['source'], event['source_id'], event['status'], event['root_id'] == event['id']) == ('manual', None, 'pending', True)
+    assert (event['source'], event['source_id'], event['status'], event['root_id'] == event['id']) == (
+        'manual',
+        None,
+        'pending',
+        True,
+    )
 
 
 def test_other_checks_still_hold_for_manual(store):
@@ -37,10 +45,24 @@ def test_down_deletes_manual_events_and_up_again(store):
     with store.connect() as conn:
         manual = a_manual_event(conn)
         jira = an_event(conn, project=manual['project_id'])
-        made = an_event(conn, project=manual['project_id'], source='handler', handler_id=uuid4(), parent_id=manual['id'],
-                        root_id=manual['id'], depth=1)
-        grandchild = an_event(conn, project=manual['project_id'], source='handler', handler_id=uuid4(), parent_id=made['id'],
-                              root_id=manual['id'], depth=2)
+        made = an_event(
+            conn,
+            project=manual['project_id'],
+            source='handler',
+            handler_id=uuid4(),
+            parent_id=manual['id'],
+            root_id=manual['id'],
+            depth=1,
+        )
+        grandchild = an_event(
+            conn,
+            project=manual['project_id'],
+            source='handler',
+            handler_id=uuid4(),
+            parent_id=made['id'],
+            root_id=manual['id'],
+            depth=2,
+        )
 
         run(conn, '0091_manual_events.down.sql')
         assert [r['id'] for r in conn.execute('SELECT id FROM ka.events').fetchall()] == [jira['id']]

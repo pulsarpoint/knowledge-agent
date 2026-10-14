@@ -1,4 +1,5 @@
 """Named agent profiles and their explicit knowledge and asset selections."""
+
 from functools import partial
 from uuid import UUID
 from typing import Literal
@@ -45,7 +46,7 @@ class ProfileInput(BaseModel):
     expert: bool | None = Field(default=None, strict=True)  # Offer as an expert; None keeps the switch
     model_id: UUID | None = None  # Left out keeps the model; null clears it
 
-    @field_validator('collection_ids','repository_ids','service_ids','skill_ids')
+    @field_validator('collection_ids', 'repository_ids', 'service_ids', 'skill_ids')
     @classmethod
     def unique(cls, value):
         if value is not None and len(value) != len(set(value)):
@@ -92,30 +93,40 @@ class PromptInput(BaseModel):
         return value
 
 
-HISTORY_REFUSED = 'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
-WORKING_REFUSED = ('This agent is working right now. Stop its documentation sessions and runs, '
-                   'or wait for them to finish, then delete it.')
+HISTORY_REFUSED = (
+    'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
+)
+WORKING_REFUSED = (
+    'This agent is working right now. Stop its documentation sessions and runs, '
+    'or wait for them to finish, then delete it.'
+)
 # Anything still in progress for the agent: Test and documentation sessions run in the session workers.
-WORKING = '''SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1'''
+WORKING = """SELECT 1 FROM ka.agent_sessions WHERE agent_id=%(a)s AND status IN ('starting','working') LIMIT 1"""
 
 
 def agent_history(conn, agent_id) -> dict[str, int]:
     """What deleting the agent with its history removes (test_chats: Test and event sessions); saved documents are not part of it. `run_records` are the
     records of Test chats from before migration 0081 (run:<id> keys)."""
-    return conn.execute('''SELECT
+    return conn.execute(
+        """SELECT
         (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose IN ('test','event'))::int AS test_chats,
         (SELECT count(*) FROM ka.agent_sessions WHERE agent_id=%(agent)s AND purpose='documents')::int
             AS documentation_sessions,
         (SELECT count(*) FROM ka.agent_run_events WHERE agent_id=%(agent)s AND kind='start'
-            AND starts_with(run_key, 'run:'))::int AS run_records''', {'agent': agent_id}).fetchone()
+            AND starts_with(run_key, 'run:'))::int AS run_records""",
+        {'agent': agent_id},
+    ).fetchone()
 
 
 def delete_history(conn, agent_id) -> None:
     """Remove the agent's sessions and run records. Run records have no foreign keys: run:<id> (old Test chats) belong
     to the agent by agent_id, cc:<session>:<turn> by their session; inputs and suggestions cascade with the session."""
-    conn.execute('''DELETE FROM ka.agent_run_events WHERE (starts_with(run_key, 'run:') AND agent_id=%s)
+    conn.execute(
+        """DELETE FROM ka.agent_run_events WHERE (starts_with(run_key, 'run:') AND agent_id=%s)
         OR (starts_with(run_key, 'cc:') AND split_part(run_key, ':', 2) IN (
-            SELECT id::text FROM ka.agent_sessions WHERE agent_id=%s))''', (agent_id, agent_id))
+            SELECT id::text FROM ka.agent_sessions WHERE agent_id=%s))""",
+        (agent_id, agent_id),
+    )
     conn.execute('DELETE FROM ka.agent_sessions WHERE agent_id=%s', (agent_id,))
 
 
@@ -129,22 +140,34 @@ def build_api(app_name, store):
             row = profile(conn, agent_id)
         except ModelUnavailable:
             raise HTTPException(404, 'Agent not found') from None
-        row['collection_ids'] = [r['collection_id'] for r in conn.execute('SELECT a.collection_id FROM ka.agent_collections a JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY a.collection_id', (agent_id,))]
+        row['collection_ids'] = [
+            r['collection_id']
+            for r in conn.execute(
+                'SELECT a.collection_id FROM ka.agent_collections a JOIN ka.rag_collections c ON c.id=a.collection_id WHERE a.agent_id=%s AND c.deleted_at IS NULL ORDER BY a.collection_id',
+                (agent_id,),
+            )
+        ]
         row['service_ids'] = [r['id'] for r in row['services']]
         row['skill_ids'] = [r['id'] for r in row['skills']]
-        row['original'] = conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone() if row['cloned_from'] else None
+        row['original'] = (
+            conn.execute('SELECT id,name FROM ka.agents WHERE id=%s', (row['cloned_from'],)).fetchone()
+            if row['cloned_from']
+            else None
+        )
         row['subagents'] = subagents_on(conn, agent_id)
         return row
 
     def audit(conn, request, agent_id, action, **details):
         actor = store.actor(conn, *request_actor(request))
-        write_audit(conn, store.project(conn, app_name), actor, action, 'agent', None, {'agent_id': agent_id, **details})
+        write_audit(
+            conn, store.project(conn, app_name), actor, action, 'agent', None, {'agent_id': agent_id, **details}
+        )
         return actor
 
     @router.get('')
     def listing():
         with database().connect() as conn:
-            rows = conn.execute('''SELECT a.*,m.name AS model_name,o.name AS original_name,
+            rows = conn.execute("""SELECT a.*,m.name AS model_name,o.name AS original_name,
                 (SELECT count(*) FROM ka.agent_repositories x JOIN ka.repositories r ON r.id=x.repository_id
                     WHERE x.agent_id=a.id AND r.archived_at IS NULL)::int AS code_count,
                 (SELECT count(*) FROM ka.agent_collections x JOIN ka.rag_collections c ON c.id=x.collection_id
@@ -156,29 +179,42 @@ def build_api(app_name, store):
                 (SELECT count(*) FROM ka.agent_services x WHERE x.agent_id=a.id)::int AS service_count
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
                 LEFT JOIN ka.agents o ON o.id=a.cloned_from
-                ORDER BY a.created_at,a.id''').fetchall()
+                ORDER BY a.created_at,a.id""").fetchall()
             saved_tools: dict[str, list[dict]] = {}
             for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
                 saved_tools.setdefault(tool['agent_id'], []).append(tool)
             agent_mcp: dict[str, list[dict]] = {}
-            for server in conn.execute('''SELECT c.agent,m.id::text AS id,m.tools FROM ka.agent_configs c
+            for server in conn.execute("""SELECT c.agent,m.id::text AS id,m.tools FROM ka.agent_configs c
                     JOIN ka.agent_config_mcp_servers s ON s.config_id=c.id JOIN ka.mcp_servers m ON m.id=s.mcp_server_id
-                    WHERE c.server_id IS NULL AND m.enabled'''):
+                    WHERE c.server_id IS NULL AND m.enabled"""):
                 agent_mcp.setdefault(server['agent'], []).append(server)
             for row in rows:
                 row.pop('system_prompt')  # read with the agent, not in the list
                 code_count, collection_count = row.pop('code_count'), row.pop('collection_count')
-                limits = {'code': 'any' if row['all_repositories'] else code_count,
-                          'documents': 'any' if row['all_collections'] else collection_count,
-                          'servers': row.pop('server_count'), 'services': row.pop('service_count')}
-                row['tools_summary'] = tools_summary({
-                    **flags(row),
-                    'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
-                    'tools': tool_items(saved_tools.get(row['id'], []))})
-                enabled = {'code': row['repositories_enabled'], 'documents': row['documents_enabled'],
-                           'servers': row['ssh_enabled'], 'services': row['services_enabled']}
-                row['accepts'] = ([{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
-                                  if row['resources'] == 'per_run' else [])
+                limits = {
+                    'code': 'any' if row['all_repositories'] else code_count,
+                    'documents': 'any' if row['all_collections'] else collection_count,
+                    'servers': row.pop('server_count'),
+                    'services': row.pop('service_count'),
+                }
+                row['tools_summary'] = tools_summary(
+                    {
+                        **flags(row),
+                        'mcp': {'enabled': row['mcp_enabled'], 'servers': agent_mcp.get(row['id'], [])},
+                        'tools': tool_items(saved_tools.get(row['id'], [])),
+                    }
+                )
+                enabled = {
+                    'code': row['repositories_enabled'],
+                    'documents': row['documents_enabled'],
+                    'servers': row['ssh_enabled'],
+                    'services': row['services_enabled'],
+                }
+                row['accepts'] = (
+                    [{'kind': kind, 'limit': limit} for kind, limit in limits.items() if enabled[kind]]
+                    if row['resources'] == 'per_run'
+                    else []
+                )
             return {'agents': rows}
 
     @router.get('/{agent_id}')
@@ -217,10 +253,21 @@ def build_api(app_name, store):
             read(conn, agent_id)
             project = store.project(conn, app_name)
             return {
-                'collections': conn.execute('SELECT id,name,description FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name', (project,)).fetchall(),
-                'repositories': conn.execute('SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL ORDER BY name', (project,)).fetchall(),
-                'services': conn.execute('SELECT id,name,description FROM ka.services WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
-                'skills': conn.execute('SELECT id,name,description,enabled FROM ka.agent_skills WHERE project_id=%s ORDER BY name', (project,)).fetchall(),
+                'collections': conn.execute(
+                    'SELECT id,name,description FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name',
+                    (project,),
+                ).fetchall(),
+                'repositories': conn.execute(
+                    'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL ORDER BY name',
+                    (project,),
+                ).fetchall(),
+                'services': conn.execute(
+                    'SELECT id,name,description FROM ka.services WHERE project_id=%s ORDER BY name', (project,)
+                ).fetchall(),
+                'skills': conn.execute(
+                    'SELECT id,name,description,enabled FROM ka.agent_skills WHERE project_id=%s ORDER BY name',
+                    (project,),
+                ).fetchall(),
             }
 
     @router.put('/{agent_id}')
@@ -240,45 +287,109 @@ def build_api(app_name, store):
                     raise HTTPException(400, 'Choose all resources or specific resources, not both.')
                 resources = value.resources or old['resources']
                 model_id = str(value.model_id) if value.model_id else None
-                new_model = 'model_id' in value.model_fields_set and model_id != (str(old['model_id']) if old['model_id'] else None)
+                new_model = 'model_id' in value.model_fields_set and model_id != (
+                    str(old['model_id']) if old['model_id'] else None
+                )
                 if not new_model:
                     model_id = old['model_id']
                 if new_model and model_id is not None:
                     check_model(conn, model_id)
                 project = store.project(conn, app_name)
-                switch = {**({'resources': {'from': old['resources'], 'to': resources}} if resources != old['resources'] else {}),
-                          **({'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}} if new_model else {}),
-                          **({'expert': expert} if expert != old['expert'] else {})}
+                switch = {
+                    **(
+                        {'resources': {'from': old['resources'], 'to': resources}}
+                        if resources != old['resources']
+                        else {}
+                    ),
+                    **(
+                        {'model_id': {'from': old['model_id'] and str(old['model_id']), 'to': model_id}}
+                        if new_model
+                        else {}
+                    ),
+                    **({'expert': expert} if expert != old['expert'] else {}),
+                }
                 actor = audit(conn, request, agent_id, 'agent.updated', **switch)
                 if value.skill_ids is not None and set(value.skill_ids) != set(old['skill_ids']):
-                    skills = conn.execute('SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE', (project, value.skill_ids)).fetchall()
+                    skills = conn.execute(
+                        'SELECT id FROM ka.agent_skills WHERE project_id=%s AND enabled AND id=ANY(%s) FOR SHARE',
+                        (project, value.skill_ids),
+                    ).fetchall()
                     if len(skills) != len(value.skill_ids):
                         raise HTTPException(400, 'Select enabled skills.')
                     conn.execute('DELETE FROM ka.skills_agents WHERE agent_id=%s', (agent_id,))
                     for skill_id in value.skill_ids:
-                        conn.execute('INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)', (agent_id,skill_id,project))
-                    conn.execute('UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s', (actor,project,agent_id))
+                        conn.execute(
+                            'INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)',
+                            (agent_id, skill_id, project),
+                        )
+                    conn.execute(
+                        'UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s',
+                        (actor, project, agent_id),
+                    )
                 for table, column, source, ids, condition in [
-                    ('agent_collections','collection_id','rag_collections',value.collection_ids,' AND deleted_at IS NULL'),
-                    ('agent_repositories','repository_id','repositories',value.repository_ids,' AND archived_at IS NULL'),
-                    ('agent_services','service_id','services',value.service_ids,''),
+                    (
+                        'agent_collections',
+                        'collection_id',
+                        'rag_collections',
+                        value.collection_ids,
+                        ' AND deleted_at IS NULL',
+                    ),
+                    (
+                        'agent_repositories',
+                        'repository_id',
+                        'repositories',
+                        value.repository_ids,
+                        ' AND archived_at IS NULL',
+                    ),
+                    ('agent_services', 'service_id', 'services', value.service_ids, ''),
                 ]:
-                    found = conn.execute(f'SELECT id FROM ka.{source} WHERE project_id=%s AND id=ANY(%s){condition} FOR SHARE', (project, ids)).fetchall()
+                    found = conn.execute(
+                        f'SELECT id FROM ka.{source} WHERE project_id=%s AND id=ANY(%s){condition} FOR SHARE',
+                        (project, ids),
+                    ).fetchall()
                     if len(found) != len(ids):
                         raise HTTPException(400, 'A selected resource is unavailable. Reload the available options.')
                     conn.execute(f'DELETE FROM ka.{table} WHERE agent_id=%s', (agent_id,))
                     for resource_id in ids:
-                        conn.execute(f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id))
+                        conn.execute(
+                            f'INSERT INTO ka.{table}(agent_id,{column}) VALUES (%s,%s)', (agent_id, resource_id)
+                        )
                 grounded = old['documents_grounded'] if value.documents_grounded is None else value.documents_grounded
-                conn.execute('''UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
-                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,resources=%s,model_id=%s,expert=%s,revision=revision+1,updated_by=%s WHERE id=%s''',
-                    (value.name,value.description,value.when_to_use,value.enabled,value.all_collections,value.all_repositories,value.documents_enabled,grounded,value.repositories_enabled,value.ssh_enabled,value.skills_enabled,value.mcp_enabled,value.services_enabled,resources,model_id,expert,actor,agent_id))
+                conn.execute(
+                    """UPDATE ka.agents SET name=%s,description=%s,when_to_use=%s,enabled=%s,all_collections=%s,
+                    all_repositories=%s,documents_enabled=%s,documents_grounded=%s,repositories_enabled=%s,ssh_enabled=%s,skills_enabled=%s,mcp_enabled=%s,services_enabled=%s,resources=%s,model_id=%s,expert=%s,revision=revision+1,updated_by=%s WHERE id=%s""",
+                    (
+                        value.name,
+                        value.description,
+                        value.when_to_use,
+                        value.enabled,
+                        value.all_collections,
+                        value.all_repositories,
+                        value.documents_enabled,
+                        grounded,
+                        value.repositories_enabled,
+                        value.ssh_enabled,
+                        value.skills_enabled,
+                        value.mcp_enabled,
+                        value.services_enabled,
+                        resources,
+                        model_id,
+                        expert,
+                        actor,
+                        agent_id,
+                    ),
+                )
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
-                now = flags({'resources': resources,
-                             'repositories_enabled': value.repositories_enabled,
-                             'documents_enabled': value.documents_enabled, 'documents_grounded': grounded,
-                             'ssh_enabled': value.ssh_enabled})
+                now = flags(
+                    {
+                        'resources': resources,
+                        'repositories_enabled': value.repositories_enabled,
+                        'documents_enabled': value.documents_enabled,
+                        'documents_grounded': grounded,
+                        'ssh_enabled': value.ssh_enabled,
+                    }
+                )
                 switch_on_defaults(conn, agent_id, flags(old), now)
                 if value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
                     switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
@@ -295,8 +406,10 @@ def build_api(app_name, store):
             if old['revision'] != value.revision:
                 raise HTTPException(409, PROMPT_STALE)
             actor = audit(conn, request, agent_id, 'agent.prompt.updated')
-            conn.execute('UPDATE ka.agents SET system_prompt=%s,revision=revision+1,updated_by=%s WHERE id=%s',
-                         (value.system_prompt, actor, agent_id))
+            conn.execute(
+                'UPDATE ka.agents SET system_prompt=%s,revision=revision+1,updated_by=%s WHERE id=%s',
+                (value.system_prompt, actor, agent_id),
+            )
             return read(conn, agent_id)
 
     @router.get('/{agent_id}/history')
@@ -321,7 +434,9 @@ def build_api(app_name, store):
                     raise HTTPException(409, HISTORY_REFUSED)
                 delete_history(conn, agent_id)
             audit(conn, request, agent_id, 'agent.deleted', **({'history': history} if any(history.values()) else {}))
-            credentials = conn.execute('DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)).fetchall()
+            credentials = conn.execute(
+                'DELETE FROM ka.agent_server_connections WHERE agent_id=%s RETURNING credential_id', (agent_id,)
+            ).fetchall()
             for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents'):
                 conn.execute(f'DELETE FROM ka.{table} WHERE agent_id=%s', (agent_id,))
             conn.execute('DELETE FROM ka.operations_servers WHERE agent=%s', (agent_id,))
@@ -332,10 +447,12 @@ def build_api(app_name, store):
             for row in credentials:
                 credential = row['credential_id']
                 if credential is not None:
-                    conn.execute('''DELETE FROM ka.credentials WHERE id=%s
+                    conn.execute(
+                        """DELETE FROM ka.credentials WHERE id=%s
                         AND NOT EXISTS (SELECT 1 FROM ka.servers WHERE credential_id=%s)
-                        AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections WHERE credential_id=%s)''',
-                        (credential, credential, credential))
+                        AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections WHERE credential_id=%s)""",
+                        (credential, credential, credential),
+                    )
             conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1')
         return Response(status_code=204)
 
@@ -350,7 +467,11 @@ def build_api(app_name, store):
             if value.model_id is not None:
                 check_model(conn, value.model_id)
             actor = audit(conn, request, agent_id, 'agent.model.updated')
-            conn.execute('UPDATE ka.agents SET model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s', (value.model_id,actor,agent_id))
+            conn.execute(
+                'UPDATE ka.agents SET model_id=%s,revision=revision+1,updated_by=%s WHERE id=%s',
+                (value.model_id, actor, agent_id),
+            )
             conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
             return read(conn, agent_id)
+
     return router

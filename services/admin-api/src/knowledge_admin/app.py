@@ -30,10 +30,14 @@ async def backfill_document_exports(store: RepositoryStore | None) -> None:
         logger.exception('Document export backfill failed')
 
 
-def create_app(cfg: Config, *, server: ServerConfig,
-               backoffice_client: httpx.Client | None = None,
-               repository_store: RepositoryStore | None = None,
-               jira_transport: httpx.BaseTransport | None = None) -> FastAPI:
+def create_app(
+    cfg: Config,
+    *,
+    server: ServerConfig,
+    backoffice_client: httpx.Client | None = None,
+    repository_store: RepositoryStore | None = None,
+    jira_transport: httpx.BaseTransport | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
@@ -49,33 +53,38 @@ def create_app(cfg: Config, *, server: ServerConfig,
             if hub is not None:
                 await hub.stop()
 
-    app = FastAPI(title="Knowledge Agent Administration", docs_url=None,
-                  redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app = FastAPI(
+        title='Knowledge Agent Administration', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
+    )
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
         # A dict detail carries a code the UI recognises beside the message, e.g. {"message": ..., "code": "STALE_BASE"}.
-        error = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
-        return JSONResponse(status_code=exc.status_code, content={"error": error})
+        error = exc.detail if isinstance(exc.detail, dict) else {'message': str(exc.detail)}
+        return JSONResponse(status_code=exc.status_code, content={'error': error})
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError):
         # Validation inputs may contain a GitHub token. Return messages only, never inputs/context.
-        message = "; ".join(error["msg"] for error in exc.errors())
-        return JSONResponse(status_code=400, content={"error": {"message": message}})
+        message = '; '.join(error['msg'] for error in exc.errors())
+        return JSONResponse(status_code=400, content={'error': {'message': message}})
 
     @app.exception_handler(psycopg.Error)
     async def database_error(request: Request, exc: psycopg.Error):
-        return JSONResponse(status_code=503, content={"error": {"message": "Administration database unavailable"}})
+        return JSONResponse(status_code=503, content={'error': {'message': 'Administration database unavailable'}})
 
-    @app.get("/health")
+    @app.get('/health')
     def health():
-        return {"status": "ok"}
+        return {'status': 'ok'}
 
-    app.include_router(build_api({a.name: a for a in cfg.apps}, server, backoffice_client, repository_store, jira_transport))
+    app.include_router(
+        build_api({a.name: a for a in cfg.apps}, server, backoffice_client, repository_store, jira_transport)
+    )
     if repository_store is not None:
         from knowledge_admin.sessions import run_record
+
         run_record.configure(repository_store, cfg.apps[0].name)
         from knowledge_admin.capabilities import inventory
+
         inventory.configure(repository_store)
     return app

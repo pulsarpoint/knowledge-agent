@@ -13,8 +13,8 @@ from knowledge_admin.sessions.activity import redact
 MAX_TEXT = 1_000_000
 TRUNCATED = '\n[truncated]'
 
-TOOL_COUNTS = '''SELECT payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events
-    WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1'''
+TOOL_COUNTS = """SELECT payload->>'name' AS name, count(*)::int AS calls FROM ka.agent_run_events
+    WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1"""
 
 
 def tool_counts(conn, run_keys: list[str]) -> list[dict[str, Any]]:
@@ -29,10 +29,13 @@ def tool_counts_through(conn, run_keys: list[str]) -> tuple[list[dict[str, Any]]
     view can add only the streamed tool calls after it."""
     if not run_keys:
         return [], 0
-    rows = conn.execute('''SELECT payload->>'name' AS name, count(*)::int AS calls, max(id) AS last
-        FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1''',
-        (list(run_keys),)).fetchall()
+    rows = conn.execute(
+        """SELECT payload->>'name' AS name, count(*)::int AS calls, max(id) AS last
+        FROM ka.agent_run_events WHERE run_key=ANY(%s) AND kind='tool_call' GROUP BY 1 ORDER BY 2 DESC, 1""",
+        (list(run_keys),),
+    ).fetchall()
     return [{'name': row['name'], 'calls': row['calls']} for row in rows], max((row['last'] for row in rows), default=0)
+
 
 _store = None
 _app_name = None
@@ -54,16 +57,27 @@ def _write(conn, store, events: list[dict[str, Any]]) -> None:
     for event in events:
         if event['project_id'] is None:
             project = project or store.project(conn, _app_name)
-        conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (event['project_id'] or project, event['run_key'], event['seq'],
-            event['kind'], event['agent_id'], event['actor_id'], Jsonb(event['payload'])))
+        conn.execute(
+            """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                event['project_id'] or project,
+                event['run_key'],
+                event['seq'],
+                event['kind'],
+                event['agent_id'],
+                event['actor_id'],
+                Jsonb(event['payload']),
+            ),
+        )
 
 
 class RunRecorder(RunHooks):
     """Buffer one run's events in order; flush() writes them in one transaction."""
 
-    def __init__(self, *, run_key: str, project_id: str | None, agent_id: str, actor_id: str | None,
-                 secrets: Iterable[str]):
+    def __init__(
+        self, *, run_key: str, project_id: str | None, agent_id: str, actor_id: str | None, secrets: Iterable[str]
+    ):
         self.run_key, self.project_id, self.agent_id, self.actor_id = run_key, project_id, agent_id, actor_id
         self._secrets = secrets  # read live: callers may add keys after the run starts
         self.events: list[dict[str, Any]] = []
@@ -78,7 +92,10 @@ class RunRecorder(RunHooks):
             text = redact(value.replace('\x00', ''), tuple(secret for secret in self._secrets if secret))
             return text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + TRUNCATED
         if isinstance(value, dict):
-            return {key.replace('\x00', '') if isinstance(key, str) else key: self._clean(item) for key, item in value.items()}
+            return {
+                key.replace('\x00', '') if isinstance(key, str) else key: self._clean(item)
+                for key, item in value.items()
+            }
         if isinstance(value, list):
             return [self._clean(item) for item in value]
         return value
@@ -87,10 +104,17 @@ class RunRecorder(RunHooks):
         """One event; agent_id: the agent it belongs to when not the run's own (an expert called in this run)."""
         if self.closed:
             return
-        self.events.append({'run_key': self.run_key, 'seq': len(self.events) + 1, 'kind': kind,
-                            'project_id': self.project_id, 'agent_id': agent_id or self.agent_id,
-                            'actor_id': self.actor_id,
-                            'payload': self._clean(jsonable_encoder(payload))})
+        self.events.append(
+            {
+                'run_key': self.run_key,
+                'seq': len(self.events) + 1,
+                'kind': kind,
+                'project_id': self.project_id,
+                'agent_id': agent_id or self.agent_id,
+                'actor_id': self.actor_id,
+                'payload': self._clean(jsonable_encoder(payload)),
+            }
+        )
 
     def close(self) -> None:
         """The run has ended (its last event added): later add() calls, such as from work that outlived the run, are
@@ -99,7 +123,7 @@ class RunRecorder(RunHooks):
 
     def flush(self) -> None:
         with self._lock:
-            pending = self.events[self.flushed:]
+            pending = self.events[self.flushed :]
             if not pending:
                 return
             if _store is None:
@@ -111,7 +135,7 @@ class RunRecorder(RunHooks):
         """flush() inside the caller's transaction, so the events commit (or roll back) with the caller's changes.
         `flushed` advances before the caller commits: a rollback only leaves a gap in seq."""
         with self._lock:
-            pending = self.events[self.flushed:]
+            pending = self.events[self.flushed :]
             if pending:
                 _write(conn, _store, pending)
                 self.flushed += len(pending)
@@ -134,15 +158,31 @@ class RunRecorder(RunHooks):
                 text = ''.join(getattr(part, 'text', '') for part in item.content)
                 self.add('message', {'agent': agent.name, 'text': text})
             elif kind == 'function_call':
-                self.add('tool_call', {'agent': agent.name, 'name': item.name, 'call_id': item.call_id,
-                                       'arguments': item.arguments})
+                self.add(
+                    'tool_call',
+                    {'agent': agent.name, 'name': item.name, 'call_id': item.call_id, 'arguments': item.arguments},
+                )
         usage = response.usage
-        self.add('usage', {'agent': agent.name, 'input_tokens': usage.input_tokens,
-                           'output_tokens': usage.output_tokens, 'total_tokens': usage.total_tokens})
+        self.add(
+            'usage',
+            {
+                'agent': agent.name,
+                'input_tokens': usage.input_tokens,
+                'output_tokens': usage.output_tokens,
+                'total_tokens': usage.total_tokens,
+            },
+        )
 
     async def on_tool_end(self, context, agent, tool, result) -> None:
-        self.add('tool_result', {'agent': agent.name, 'name': tool.name,
-                                 'call_id': getattr(context, 'tool_call_id', None), 'output': str(result)})
+        self.add(
+            'tool_result',
+            {
+                'agent': agent.name,
+                'name': tool.name,
+                'call_id': getattr(context, 'tool_call_id', None),
+                'output': str(result),
+            },
+        )
 
 
 class CompositeHooks(RunHooks):

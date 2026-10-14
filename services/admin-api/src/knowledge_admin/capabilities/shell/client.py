@@ -10,8 +10,7 @@ from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _roots
 
 
-async def shell_run(context: RunContext, command: str,
-                    timeout_seconds: int = 60) -> str:
+async def shell_run(context: RunContext, command: str, timeout_seconds: int = 60) -> str:
     if not context['config']['enabled'] or not context['shell_enabled']:
         raise ValueError('Local command execution is disabled for this agent run.')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
@@ -24,8 +23,14 @@ async def shell_run(context: RunContext, command: str,
     if context['config']['code']['enabled']:
         paths.extend(graph['graph_path'] for graph in context['config']['code'].get('graphs', []))
     async with httpx.AsyncClient(timeout=timeout_seconds + 10, trust_env=False) as client:
-        response = await client.post(endpoint.rstrip('/') + '/run', json={
-            'command': command, 'timeout_seconds': timeout_seconds,
-            'workspace': str(workspace), 'read_paths': paths})
+        response = await client.post(
+            endpoint.rstrip('/') + '/run',
+            json={
+                'command': command,
+                'timeout_seconds': timeout_seconds,
+                'workspace': str(workspace),
+                'read_paths': paths,
+            },
+        )
         response.raise_for_status()
         return redact(json.dumps(response.json()), context['credentials'].values())

@@ -1,4 +1,5 @@
 """Small helpers for the plain-SQL routers: the 503 when storage is missing, a connection with its project, the audit row."""
+
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -27,5 +28,8 @@ def workspace(store: 'RepositoryStore', app_name: str) -> Iterator[tuple[object,
 
 
 def audit(conn, project, actor, action: str, resource_type: str, resource_id, details: dict) -> None:
-    conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-        VALUES (%s,%s,%s,%s,%s,%s)''', (project, actor, action, resource_type, resource_id, Jsonb(jsonable_encoder(details))))
+    conn.execute(
+        """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+        VALUES (%s,%s,%s,%s,%s,%s)""",
+        (project, actor, action, resource_type, resource_id, Jsonb(jsonable_encoder(details))),
+    )

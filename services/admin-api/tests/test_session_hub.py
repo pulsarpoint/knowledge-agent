@@ -1,5 +1,6 @@
 """The session hub (knowledge_admin.sessions.hub) against the disposable PostgreSQL: migration 0083's notices drive
 reads, a burst becomes one read, and each subscriber gets exactly what it is missing."""
+
 import asyncio
 import time
 from uuid import UUID
@@ -30,15 +31,21 @@ def write(store, *statements) -> None:
 
 
 def event(session_id, seq: int, turn: int = 1):
-    return ('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-        SELECT project_id,%s,%s,'message','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s''',
-            (f'cc:{session_id}:{turn}', seq, Jsonb({'text': f'event {seq}'}), session_id))
+    return (
+        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+        SELECT project_id,%s,%s,'message','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s""",
+        (f'cc:{session_id}:{turn}', seq, Jsonb({'text': f'event {seq}'}), session_id),
+    )
 
 
 def event_ids(store, session_id) -> list[int]:
     with store.connect() as conn:
-        return [row['id'] for row in conn.execute(
-            'SELECT id FROM ka.agent_run_events WHERE run_key LIKE %s ORDER BY id', (f'cc:{session_id}:%',))]
+        return [
+            row['id']
+            for row in conn.execute(
+                'SELECT id FROM ka.agent_run_events WHERE run_key LIKE %s ORDER BY id', (f'cc:{session_id}:%',)
+            )
+        ]
 
 
 async def db(fn, *args):
@@ -52,8 +59,10 @@ async def take(subscription, count: int, timeout: float = 5.0) -> list[tuple]:
 
 def summary(messages) -> list[tuple]:
     """('event', id), ('session', status) or (kind, None)."""
-    return [(kind, value['id'] if kind == 'event' else value['status'] if kind == 'session' else None)
-            for kind, value in messages]
+    return [
+        (kind, value['id'] if kind == 'event' else value['status'] if kind == 'session' else None)
+        for kind, value in messages
+    ]
 
 
 async def nothing_more(subscription, wait: float = 0.3) -> bool:
@@ -84,8 +93,12 @@ def test_two_subscribers_at_different_positions_get_exactly_their_missing_events
         hub = await running(store)
         try:
             async with hub.subscribe(session, 0) as early, hub.subscribe(session, e2) as late:
-                assert summary(await take(early, 4)) == [('event', e1), ('event', e2), ('event', e3),
-                                                         ('session', 'working')]
+                assert summary(await take(early, 4)) == [
+                    ('event', e1),
+                    ('event', e2),
+                    ('event', e3),
+                    ('session', 'working'),
+                ]
                 assert summary(await take(late, 2)) == [('event', e3), ('session', 'working')]
                 await db(write, store, event(session, 4))
                 e4 = (await db(event_ids, store, session))[-1]
@@ -94,6 +107,7 @@ def test_two_subscribers_at_different_positions_get_exactly_their_missing_events
                 assert await nothing_more(early) and await nothing_more(late)
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -113,6 +127,7 @@ def test_a_burst_of_notices_for_one_session_is_one_read(store):
                 assert hub.reads - before == 1
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -128,16 +143,30 @@ def test_the_state_is_sent_only_when_it_changed(store):
                 await db(write, store, ("UPDATE ka.agent_sessions SET title='Renamed' WHERE id=%s", (session,)))
                 await until(lambda: hub.reads > before)
                 assert await nothing_more(page)  # read, but nothing the page shows changed
-                await db(write, store, ("UPDATE ka.agent_sessions SET status='waiting',draft='# Draft',draft_turn=1 "
-                                        'WHERE id=%s', (session,)))
+                await db(
+                    write,
+                    store,
+                    (
+                        "UPDATE ka.agent_sessions SET status='waiting',draft='# Draft',draft_turn=1 WHERE id=%s",
+                        (session,),
+                    ),
+                )
                 [(kind, state)] = await take(page, 1)
                 assert kind == 'session' and state['status'] == 'waiting' and state['draft'] == '# Draft'
-                await db(write, store, ("""INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text)
-                    SELECT id,1,actor_id,'More' FROM ka.agent_sessions WHERE id=%s""", (session,)))
+                await db(
+                    write,
+                    store,
+                    (
+                        """INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text)
+                    SELECT id,1,actor_id,'More' FROM ka.agent_sessions WHERE id=%s""",
+                        (session,),
+                    ),
+                )
                 [(kind, state)] = await take(page, 1)
                 assert kind == 'session' and state['queued'] == 1
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -150,8 +179,12 @@ def test_closed_and_deleted_sessions_end_every_subscription_and_are_forgotten(st
             async with hub.subscribe(closing, 0) as a, hub.subscribe(closing, 0) as b, hub.subscribe(deleted, 0) as c:
                 for page in (a, b, c):
                     assert summary(await take(page, 1)) == [('session', 'working')]
-                await db(write, store, event(closing, 1), (
-                    "UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (closing,)))
+                await db(
+                    write,
+                    store,
+                    event(closing, 1),
+                    ("UPDATE ka.agent_sessions SET status='closed',closed_at=now() WHERE id=%s", (closing,)),
+                )
                 [last] = await db(event_ids, store, closing)
                 for page in (a, b):
                     assert summary(await take(page, 3)) == [('event', last), ('session', 'closed'), ('closed', None)]
@@ -162,14 +195,21 @@ def test_closed_and_deleted_sessions_end_every_subscription_and_are_forgotten(st
                 assert summary(await take(late, 3)) == [('event', last), ('session', 'closed'), ('closed', None)]
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
 def test_a_page_far_behind_gets_every_event_in_order_page_by_page(store, monkeypatch):
     monkeypatch.setattr(session_hub, 'PAGE', 2)
     session = a_session(store, turns=2)
-    write(store, event(session, 1), event(session, 2), event(session, 3), event(session, 1, turn=2),
-          event(session, 2, turn=2))
+    write(
+        store,
+        event(session, 1),
+        event(session, 2),
+        event(session, 3),
+        event(session, 1, turn=2),
+        event(session, 2, turn=2),
+    )
     ids = event_ids(store, session)
     write(store, event(session, 1, turn=3))  # turn 3 has not started (turns = 2): not part of the session yet
 
@@ -182,6 +222,7 @@ def test_a_page_far_behind_gets_every_event_in_order_page_by_page(store, monkeyp
                 assert hub.reads == 1  # one read, three queries
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -194,15 +235,22 @@ def test_malformed_and_unwatched_notices_change_nothing(store):
             async with hub.subscribe(watched, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
                 before = hub.reads
-                await db(write, store, *[("SELECT pg_notify('ka_sessions', %s)", (payload,))
-                                         for payload in ('nonsense', '{"s": "not-a-uuid"}', '{"s": 5}', '[1]', '{}')],
-                         event(other, 1))
+                await db(
+                    write,
+                    store,
+                    *[
+                        ("SELECT pg_notify('ka_sessions', %s)", (payload,))
+                        for payload in ('nonsense', '{"s": "not-a-uuid"}', '{"s": 5}', '[1]', '{}')
+                    ],
+                    event(other, 1),
+                )
                 await asyncio.sleep(0.3)
                 assert hub.reads == before and page.queue.empty()
                 await db(write, store, event(watched, 1))
                 assert [kind for kind, _ in await take(page, 1)] == ['event']  # the listener still works
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -219,6 +267,7 @@ def test_a_page_that_leaves_is_forgotten_and_never_read(store):
             async def hold():  # a stream cancelled by a browser disconnect
                 async with hub.subscribe(session, 0):
                     await asyncio.Event().wait()
+
             task = asyncio.create_task(hold())
             await until(lambda: hub.subscribers(session) == 1)
             task.cancel()
@@ -230,6 +279,7 @@ def test_a_page_that_leaves_is_forgotten_and_never_read(store):
             assert hub.reads == before
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -241,13 +291,20 @@ def test_a_tool_result_reaches_the_subscriber_without_its_full_output(store):
         try:
             async with hub.subscribe(session, 0) as page:
                 assert summary(await take(page, 1)) == [('session', 'working')]
-                await db(write, store, ('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-                    SELECT project_id,%s,1,'tool_result','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s''',
-                    (f'cc:{session}:1', Jsonb({'preview': 'short', 'output': 'x' * 10000}), session)))
+                await db(
+                    write,
+                    store,
+                    (
+                        """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                    SELECT project_id,%s,1,'tool_result','ad-hoc',%s FROM ka.agent_sessions WHERE id=%s""",
+                        (f'cc:{session}:1', Jsonb({'preview': 'short', 'output': 'x' * 10000}), session),
+                    ),
+                )
                 [(kind, row)] = await take(page, 1)
                 assert kind == 'event' and row['payload'] == {'preview': 'short'}
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -260,6 +317,7 @@ def gated_reconnects(hub) -> asyncio.Event:
         if opened[0] > 1:
             await gate.wait()
         return await connect()
+
     hub._listener_connection = gated
     return gate
 
@@ -287,6 +345,7 @@ def test_the_listener_reconnects_and_reads_every_watched_session_again(store):
                 assert await nothing_more(page)  # no 'unavailable': the database was reachable
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -301,12 +360,15 @@ def test_any_error_on_the_listener_connection_is_survived(store):
             conn = await connect()
             opened[0] += 1
             if opened[0] == 1:
+
                 async def notifies(**_options):
                     await fail.wait()
                     raise OSError('connection reset')
                     yield  # an async generator
+
                 conn.notifies = notifies
             return conn
+
         hub._listener_connection = breaking
         await hub.start()
         await asyncio.wait_for(hub.listening.wait(), 5)
@@ -324,6 +386,7 @@ def test_any_error_on_the_listener_connection_is_survived(store):
                 assert await nothing_more(page)
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -341,6 +404,7 @@ def test_the_periodic_check_finds_an_event_whose_notice_was_suppressed(store):
                 assert kind == 'event' and row['seq'] == 1
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -354,8 +418,12 @@ def test_a_subscriber_that_falls_behind_gets_resync_and_is_dropped(store, monkey
         hub = await running(store)
         try:
             async with hub.subscribe(session, 0) as slow, hub.subscribe(session, ids[3]) as current:
-                assert summary(await take(slow, 4)) == [('event', ids[0]), ('event', ids[1]), ('event', ids[2]),
-                                                        ('resync', None)]
+                assert summary(await take(slow, 4)) == [
+                    ('event', ids[0]),
+                    ('event', ids[1]),
+                    ('event', ids[2]),
+                    ('resync', None),
+                ]
                 assert summary(await take(current, 2)) == [('event', ids[4]), ('session', 'working')]
                 assert hub.subscribers(session) == 1
                 await db(write, store, event(session, 6))
@@ -363,6 +431,7 @@ def test_a_subscriber_that_falls_behind_gets_resync_and_is_dropped(store, monkey
                 assert await nothing_more(slow)
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -373,8 +442,11 @@ def test_an_outage_sends_unavailable_once_and_recovery_resumes(store, postgres):
 
     def connections(allowed: bool) -> None:
         with psycopg.connect(postgres, autocommit=True) as admin:
-            admin.execute(sql.SQL('ALTER DATABASE {} WITH ALLOW_CONNECTIONS {}').format(
-                sql.Identifier(name), sql.SQL('true' if allowed else 'false')))
+            admin.execute(
+                sql.SQL('ALTER DATABASE {} WITH ALLOW_CONNECTIONS {}').format(
+                    sql.Identifier(name), sql.SQL('true' if allowed else 'false')
+                )
+            )
             if not allowed:
                 admin.execute('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=%s', (name,))
 
@@ -396,6 +468,7 @@ def test_an_outage_sends_unavailable_once_and_recovery_resumes(store, postgres):
         finally:
             await hub.stop()
             await db(connections, True)
+
     asyncio.run(scenario())
 
 
@@ -408,6 +481,7 @@ def failing_reads(hub, count: int, error: Exception) -> None:
             left[0] -= 1
             raise error
         await read(conn, session_id)
+
     hub._read = flaky
 
 
@@ -424,7 +498,9 @@ def test_a_failed_read_never_ends_the_reader(store):
                 assert summary(await take(page, 1)) == [('unavailable', None)]
                 [(kind, row)] = await take(page, 1)  # retried
                 assert kind == 'event' and row['seq'] == 1
-                assert summary(await take(page, 1)) == [('session', 'working')]  # the state again: it was told unavailable
+                assert summary(await take(page, 1)) == [
+                    ('session', 'working')
+                ]  # the state again: it was told unavailable
                 failing_reads(hub, 1, RuntimeError('a bug'))  # not even an unexpected error ends it
                 await db(write, store, event(session, 2))
                 assert summary(await take(page, 1)) == [('unavailable', None)]  # told again: it had recovered
@@ -434,6 +510,7 @@ def test_a_failed_read_never_ends_the_reader(store):
                 assert await nothing_more(page)
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -457,6 +534,7 @@ def test_a_failed_read_retries_every_session_of_its_batch(store):
                     assert await nothing_more(page)
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -477,6 +555,7 @@ def test_a_failing_reader_retries_at_once_when_the_database_is_back(store):
                 assert summary(await take(page, 1, timeout=2)) == [('session', 'working')]
         finally:
             await hub.stop()
+
     asyncio.run(scenario())
 
 
@@ -493,4 +572,5 @@ def test_stopping_the_hub_ends_every_subscription_with_resync(store):
         async with hub.subscribe(session, 0) as late:  # after stop: nobody would ever read for it
             assert summary(await take(late, 1, timeout=1)) == [('resync', None)]
             assert not hub._dirty  # no read is scheduled for it
+
     asyncio.run(scenario())

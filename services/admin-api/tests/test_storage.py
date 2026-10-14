@@ -27,19 +27,42 @@ def test_storage_overview_lists_the_data_root_and_its_folders_with_host_paths(st
     assert response.status_code == 200
     locations = {value['id']: value for value in response.json()['locations']}
     assert list(locations) == ['data', 'code', 'code_index', 'jira', 'documents', 'bootstrap']
-    assert locations['data'] == {'id': 'data', 'container_path': str(root.parent), 'host_path': '/opt/knowledge-agent',
-                                 'variable': 'DATA_ROOT', 'status': 'available'}
-    assert locations['code'] == {'id': 'code', 'container_path': str(root), 'host_path': '/opt/knowledge-agent/code',
-                                 'variable': 'CODE_FOLDER', 'status': 'available'}
+    assert locations['data'] == {
+        'id': 'data',
+        'container_path': str(root.parent),
+        'host_path': '/opt/knowledge-agent',
+        'variable': 'DATA_ROOT',
+        'status': 'available',
+    }
+    assert locations['code'] == {
+        'id': 'code',
+        'container_path': str(root),
+        'host_path': '/opt/knowledge-agent/code',
+        'variable': 'CODE_FOLDER',
+        'status': 'available',
+    }
     assert (locations['jira']['host_path'], locations['jira']['variable'], locations['jira']['status']) == (
-        '/opt/knowledge-agent/jira', 'JIRA_FOLDER', 'unavailable')
-    assert locations['documents'] == {'id': 'documents', 'container_path': None, 'host_path': None,
-                                      'variable': 'GENERATED_DOCS_FOLDER', 'status': 'unconfigured'}
-    assert locations['bootstrap']['variable'] == 'DOCS_FOLDER' and locations['code_index']['variable'] == 'CODE_INDEX_FOLDER'
+        '/opt/knowledge-agent/jira',
+        'JIRA_FOLDER',
+        'unavailable',
+    )
+    assert locations['documents'] == {
+        'id': 'documents',
+        'container_path': None,
+        'host_path': None,
+        'variable': 'GENERATED_DOCS_FOLDER',
+        'status': 'unconfigured',
+    }
+    assert (
+        locations['bootstrap']['variable'] == 'DOCS_FOLDER'
+        and locations['code_index']['variable'] == 'CODE_INDEX_FOLDER'
+    )
     assert 'must-not-appear' not in response.text
 
 
-@pytest.mark.parametrize('path', ['/api/storage', '/api/storage/code/entries', '/api/storage/code/file?path=billing/README.md'])
+@pytest.mark.parametrize(
+    'path', ['/api/storage', '/api/storage/code/entries', '/api/storage/code/file?path=billing/README.md']
+)
 def test_storage_requires_admin_before_reading_paths(storage, path):
     client, _ = storage
     assert client.get(path).status_code == 403
@@ -62,7 +85,10 @@ def test_browse_nested_folders_and_preview_text_without_writing(storage):
     assert client.get('/api/storage/rag/entries', headers=HEADERS).status_code == 400
 
 
-@pytest.mark.parametrize('path', ['../outside', '/etc/passwd', 'billing/../billing', 'billing//README.md', 'billing\\README.md', 'billing/\x00'])
+@pytest.mark.parametrize(
+    'path',
+    ['../outside', '/etc/passwd', 'billing/../billing', 'billing//README.md', 'billing\\README.md', 'billing/\x00'],
+)
 def test_storage_rejects_escape_and_invalid_paths(storage, path):
     client, _ = storage
     assert client.get('/api/storage/code/file', params={'path': path}, headers=HEADERS).status_code in (400, 403)
@@ -75,7 +101,10 @@ def test_storage_does_not_follow_links_or_open_special_files(storage, tmp_path):
     (root / 'linked').symlink_to(secret)
     (root / 'linked-folder').symlink_to(tmp_path, target_is_directory=True)
     assert client.get('/api/storage/code/file', params={'path': 'linked'}, headers=HEADERS).status_code == 403
-    assert client.get('/api/storage/code/file', params={'path': 'linked-folder/outside.txt'}, headers=HEADERS).status_code == 403
+    assert (
+        client.get('/api/storage/code/file', params={'path': 'linked-folder/outside.txt'}, headers=HEADERS).status_code
+        == 403
+    )
     response = client.get('/api/storage/code/entries', headers=HEADERS).json()
     assert next(e for e in response['entries'] if e['name'] == 'linked')['kind'] == 'symlink'
     assert client.get('/api/storage/jira/entries', headers=HEADERS).status_code == 503

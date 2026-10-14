@@ -1,5 +1,6 @@
 """Starting a run from a document through /api/sessions: the panel's options, Preview equal to what Start pins,
 refusals, the audit, and the runs going with their document."""
+
 from uuid import uuid4
 
 from test_sessions_world import ask, keyless, post  # noqa: F401  (fixtures)
@@ -8,16 +9,22 @@ from test_repositories import HEADERS
 
 
 def test_options_mark_the_documents_links_and_unusable_servers(ask):
-    options = ask.s.client.get(f"/api/sessions/options?document_id={ask.document['id']}", headers=HEADERS).json()
+    options = ask.s.client.get(f'/api/sessions/options?document_id={ask.document["id"]}', headers=HEADERS).json()
     servers = {item['name']: item for item in options['resources']['servers']}
     assert servers['web-1']['linked'] and servers['web-1']['usable']
     assert not servers['prod-1']['linked'] and servers['prod-1']['reason'] == 'SSH is not set up for this server.'
     assert [item['name'] for item in options['resources']['services'] if item['linked']] == ['Payments']
     assert options['default_prompt_id'] == next(p['id'] for p in options['prompts'] if p['name'] == 'Revise a document')
-    assert options['resources']['documents'] == [{'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True, 'editable': True}]
+    assert options['resources']['documents'] == [
+        {'id': ask.document['id'], 'name': 'Payments runbook', 'linked': True, 'editable': True}
+    ]
     tools = {item['name']: item for item in options['tools']}
     assert tools['save_document']['requires'] == 'a document to edit' and 'get_document' in tools
-    assert tools['ssh_run']['requires'] == 'at least one server' and 'run_subagent' not in tools and 'propose_service' not in tools
+    assert (
+        tools['ssh_run']['requires'] == 'at least one server'
+        and 'run_subagent' not in tools
+        and 'propose_service' not in tools
+    )
     assert ask.s.gpt in {item['id'] for item in options['models']}
 
 
@@ -28,13 +35,19 @@ def test_preview_is_exactly_what_start_pins(ask):
     assert started.status_code == 201, started.text
     session = started.json()
     assert (session['purpose'], session['target_document_id'], session['title']) == (
-        'revision', ask.document['id'], 'Add a section on log rotation.')
+        'revision',
+        ask.document['id'],
+        'Add a section on log rotation.',
+    )
     pinned = session['config']
     assert pinned['document_access'] == [{'id': ask.document['id'], 'title': 'Payments runbook', 'editable': True}]
     assert preview.json()['config'] == pinned
     assert preview.json()['first_message'] == ask.body['message']
     modes = {item['tool']: item for item in pinned['tools']['items']}
-    assert all(modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed'] for name in ('save_document', 'edit_document'))
+    assert all(
+        modes[name]['mode'] == 'on' and not modes[name]['subagent_allowed']
+        for name in ('save_document', 'edit_document')
+    )
     assert modes['get_document']['mode'] == 'on'
     assert modes['ssh_run']['mode'] == 'on' and modes['get_server_info_basic']['mode'] == 'off'
     assert modes['run_subagent']['mode'] == 'off' and pinned['experts'] == []
@@ -48,12 +61,15 @@ def test_preview_is_exactly_what_start_pins(ask):
 def test_start_refuses_what_cannot_run(ask):
     web = [ask.web['id']]
     for change, message in (
-            ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'read_file needs a code project or a collection.'),
-            # Payments is deployed only on prod-1, whose SSH is not set up, so it brings no server.
-            ({'tools': ['ssh_run'], 'resources': {'service_ids': [ask.s.service]}}, 'ssh_run needs at least one server.'),
-            ({'tools': ['nope']}, 'Unknown tool: nope.'),
-            ({'expert_ids': ['00000000-0000-0000-0000-000000000001']},
-             'This expert is not available: 00000000-0000-0000-0000-000000000001.')):
+        ({'tools': ['read_file'], 'resources': {'server_ids': web}}, 'read_file needs a code project or a collection.'),
+        # Payments is deployed only on prod-1, whose SSH is not set up, so it brings no server.
+        ({'tools': ['ssh_run'], 'resources': {'service_ids': [ask.s.service]}}, 'ssh_run needs at least one server.'),
+        ({'tools': ['nope']}, 'Unknown tool: nope.'),
+        (
+            {'expert_ids': ['00000000-0000-0000-0000-000000000001']},
+            'This expert is not available: 00000000-0000-0000-0000-000000000001.',
+        ),
+    ):
         for path in ('/preview', ''):
             response = post(ask, path, **change)
             assert response.status_code == 400 and response.json()['error']['message'] == message, response.text
@@ -62,7 +78,9 @@ def test_start_refuses_what_cannot_run(ask):
 def test_start_refuses_an_unusable_server_a_disabled_model_and_a_missing_document(ask):
     prod = ask.s.server['id']
     assert post(ask, resources={'server_ids': [prod]}).json()['error']['message'] in (
-        'Server prod-1: SSH is not set up for this server.', 'Server prod-1: SSH is not allowed for this server.')
+        'Server prod-1: SSH is not set up for this server.',
+        'Server prod-1: SSH is not allowed for this server.',
+    )
     assert post(ask, model_id=str(uuid4())).json()['error']['message'] == 'Choose an enabled model.'
     gone = post(ask, started_from={'document_id': str(uuid4())})
     assert gone.status_code == 404 and gone.json()['error']['message'] == 'Document not found'
@@ -71,18 +89,22 @@ def test_start_refuses_an_unusable_server_a_disabled_model_and_a_missing_documen
 def test_start_is_audited(ask):
     assert post(ask).status_code == 201
     with ask.s.store.connect() as conn:
-        details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created'").fetchone()['details']
+        details = conn.execute("SELECT details FROM ka.audit_events WHERE action='agent_run.created'").fetchone()[
+            'details'
+        ]
     assert details['document_id'] == ask.document['id'] and 'get_server_info_basic' in details['tools_off']
     assert 'kind' not in details
 
 
 def test_deleting_the_document_deletes_its_runs(ask):
     session = post(ask).json()
-    current = ask.s.client.get(f"/api/documentation/documents/{ask.document['id']}", headers=HEADERS).json()
-    deleted = ask.s.client.delete(f"/api/documentation/documents/{ask.document['id']}?revision={current['revision']}&confirmed=true",
-                                  headers=HEADERS)
+    current = ask.s.client.get(f'/api/documentation/documents/{ask.document["id"]}', headers=HEADERS).json()
+    deleted = ask.s.client.delete(
+        f'/api/documentation/documents/{ask.document["id"]}?revision={current["revision"]}&confirmed=true',
+        headers=HEADERS,
+    )
     assert deleted.status_code in (200, 204), deleted.text
-    assert ask.s.client.get(f"/api/sessions/{session['id']}", headers=HEADERS).status_code == 404
+    assert ask.s.client.get(f'/api/sessions/{session["id"]}', headers=HEADERS).status_code == 404
 
 
 def test_a_server_without_a_key_brought_by_a_service_is_not_pinned(ask, keyless):
@@ -104,34 +126,49 @@ def test_options_say_what_each_service_and_environment_brings(ask, keyless):
     with ask.s.store.connect() as conn:
         project = ask.s.store.project(conn, 'shop')
         conn.execute("INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,'Gateway')", (gateway, project))
-        conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
-            VALUES (%s,%s,%s,'Staging','gateway',8080)""", (project, gateway, ask.web['id']))
+        conn.execute(
+            """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name,port)
+            VALUES (%s,%s,%s,'Staging','gateway',8080)""",
+            (project, gateway, ask.web['id']),
+        )
         conn.execute("INSERT INTO ka.environments(id,project_id,name) VALUES (%s,%s,'Staging')", (staging, project))
-        conn.execute('INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
-                     (project, staging, ask.web['id']))
-    options = ask.s.client.get(f"/api/sessions/options?document_id={ask.document['id']}", headers=HEADERS).json()
-    flags = {item['name']: (item['brings_code'], item['brings_servers'])
-             for kind in ('services', 'environments') for item in options['resources'][kind]}
+        conn.execute(
+            'INSERT INTO ka.environment_servers(project_id,environment_id,server_id) VALUES (%s,%s,%s)',
+            (project, staging, ask.web['id']),
+        )
+    options = ask.s.client.get(f'/api/sessions/options?document_id={ask.document["id"]}', headers=HEADERS).json()
+    flags = {
+        item['name']: (item['brings_code'], item['brings_servers'])
+        for kind in ('services', 'environments')
+        for item in options['resources'][kind]
+    }
     # Payments: two code projects, deployed only on prod-1 (SSH not set up); Ledger: only bare-1 (no key).
-    assert flags == {'Payments': (True, False), 'Ledger': (False, False), 'Gateway': (False, True),
-                     'Production': (True, False), 'Staging': (False, True)}
+    assert flags == {
+        'Payments': (True, False),
+        'Ledger': (False, False),
+        'Gateway': (False, True),
+        'Production': (True, False),
+        'Staging': (False, True),
+    }
 
 
 def test_start_names_every_tool_it_cannot_give_at_once(ask):
     for path in ('/preview', ''):
         response = post(ask, path, tools=['read_file', 'ssh_run', 'get_service_info'], resources={})
         assert response.status_code == 400 and response.json()['error']['message'] == (
-            'read_file needs a code project or a collection. ssh_run needs at least one server.'), response.text
+            'read_file needs a code project or a collection. ssh_run needs at least one server.'
+        ), response.text
 
 
 def test_options_default_to_the_model_last_used_on_the_document(ask):
-    url = f"/api/sessions/options?document_id={ask.document['id']}"
+    url = f'/api/sessions/options?document_id={ask.document["id"]}'
     assert post(ask, model_id=ask.s.gpt).status_code == 201
     assert ask.s.client.get(url, headers=HEADERS).json()['default_model_id'] == ask.s.gpt
 
 
 def test_start_says_document_not_found_when_the_document_goes_before_the_insert(ask, monkeypatch):
     from knowledge_admin.sessions import start
+
     real = start.build
 
     def build_then_delete(conn, project, value, session_id, conninfo):
@@ -139,6 +176,7 @@ def test_start_says_document_not_found_when_the_document_goes_before_the_insert(
         with ask.s.store.connect() as other:  # another transaction deletes the document after build() read it
             other.execute('DELETE FROM ka.documents WHERE id=%s', (ask.document['id'],))
         return built
+
     monkeypatch.setattr(start, 'build', build_then_delete)
     response = post(ask)
     assert response.status_code == 404 and response.json()['error']['message'] == 'Document not found', response.text

@@ -22,12 +22,15 @@ def test_go_module_root_resolves_package_function_instead_of_same_named_method(t
     (app / 'controller').mkdir(parents=True)
     (app / 'store').mkdir()
     (app / 'go.mod').write_text('module example.test/app\n\ngo 1.25\n', encoding='utf-8')
-    (app / 'controller/main.go').write_text('''package controller
+    (app / 'controller/main.go').write_text(
+        """package controller
 import "example.test/app/store"
 type Ctrl struct{}
 func (c *Ctrl) Handle() { store.Read() }
 func (c *Ctrl) Read() {}
-''', encoding='utf-8')
+""",
+        encoding='utf-8',
+    )
     (app / 'store/main.go').write_text('package store\nfunc Read() { Fix() }\nfunc Fix() {}\n', encoding='utf-8')
     monkeypatch.setenv('CODE_ROOT', str(root))
     monkeypatch.setenv('CODE_INDEX_ROOT', str(tmp_path / 'indexes'))
@@ -36,13 +39,33 @@ func (c *Ctrl) Read() {}
     assert graph['relative_root'] == 'app' and graph['code_root'] == str(app)
     assert process_code(project)['reused']
     assert load_code_graph_hashing(project, graph['source_hash'])['code_root'] == str(app)
-    context = ToolContext({'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [graph]}},
-        'credentials': {}}, tool_name='code_graph', tool_call_id='test', tool_arguments='{}')
+    context = ToolContext(
+        {'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [graph]}}, 'credentials': {}},
+        tool_name='code_graph',
+        tool_call_id='test',
+        tool_arguments='{}',
+    )
+
     async def inspect():
-        result = json.loads(await code_graph.on_invoke_tool(context, json.dumps({
-            'project_id': project['id'], 'action': 'search', 'query': 'Handle'})))
-        return json.loads(await code_graph.on_invoke_tool(context, json.dumps({
-            'project_id': project['id'], 'action': 'traverse', 'node_id': result['entries'][0]['id'], 'include_code': True})))
+        result = json.loads(
+            await code_graph.on_invoke_tool(
+                context, json.dumps({'project_id': project['id'], 'action': 'search', 'query': 'Handle'})
+            )
+        )
+        return json.loads(
+            await code_graph.on_invoke_tool(
+                context,
+                json.dumps(
+                    {
+                        'project_id': project['id'],
+                        'action': 'traverse',
+                        'node_id': result['entries'][0]['id'],
+                        'include_code': True,
+                    }
+                ),
+            )
+        )
+
     result = asyncio.run(inspect())
     assert any(n['name'] == 'Read' and n['filePath'] == 'store/main.go' for n in result['entries'])
     assert any(n['name'] == 'Fix' for n in result['entries'])
@@ -81,18 +104,30 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     client = _client(tmp_path, repository_store=store)
     with store.connect() as conn:
         workspace = store.project(conn, 'shop')
-        conn.execute("INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'mixed','Mixed')", (project['id'],workspace))
+        conn.execute(
+            "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'mixed','Mixed')",
+            (project['id'], workspace),
+        )
     view = client.get('/api/code-projects/' + project['id'] + '/graph', headers=HEADERS)
     assert view.status_code == 200 and view.json()['total'] == 2
-    symbols = client.get('/api/code-projects/' + project['id'] + '/graph', headers=HEADERS, params={'file': 'app/main.py'}).json()
+    symbols = client.get(
+        '/api/code-projects/' + project['id'] + '/graph', headers=HEADERS, params={'file': 'app/main.py'}
+    ).json()
     assert {n['label'] for n in symbols['nodes']} == {'save_record', 'handle'}
     assert symbols['edges'][0]['label'] == 'calls'
     before = (mirror / 'app/main.py').stat().st_mtime_ns
     assert process_code(project)['reused'] is True
     assert (mirror / 'app/main.py').stat().st_mtime_ns == before
-    context = ToolContext({'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [first]}}, 'credentials': {}}, tool_name='code_graph', tool_call_id='test', tool_arguments='{}')
+    context = ToolContext(
+        {'config': {'enabled': True, 'code': {'enabled': True, 'graphs': [first]}}, 'credentials': {}},
+        tool_name='code_graph',
+        tool_call_id='test',
+        tool_arguments='{}',
+    )
+
     async def query(**args):
         return json.loads(await code_graph.on_invoke_tool(context, json.dumps({'project_id': project['id'], **args})))
+
     found = asyncio.run(query(action='search', query='save_record'))
     assert len(found['entries']) == 1 and found['path_base'] == str(root)
     callers = asyncio.run(query(action='callers', node_id=found['entries'][0]['id']))
@@ -106,6 +141,7 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     original_stat = (app / 'main.py').stat()
     (app / 'main.py').write_text('def store_value():\n    return 2\n\ndef handle():\n    return store_value()\n')
     import os
+
     os.utime(app / 'main.py', ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
     (app / 'main.go').unlink()
     with pytest.raises(CodeProcessingError, match='changed'):
@@ -117,12 +153,19 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
         assert db.execute("SELECT count(*) FROM nodes WHERE name IN ('store','save_record')").fetchone()[0] == 0
     # Previously generated documentation can still query its immutable evidence snapshot.
     assert asyncio.run(query(action='search', query='save_record'))['entries']
-    earlier = client.get('/api/code-projects/' + project['id'] + '/graph', headers=HEADERS,
-        params={'source_hash': first['source_hash'], 'file': 'app/main.py'})
+    earlier = client.get(
+        '/api/code-projects/' + project['id'] + '/graph',
+        headers=HEADERS,
+        params={'source_hash': first['source_hash'], 'file': 'app/main.py'},
+    )
     assert earlier.json()['source_hash'] == first['source_hash']
     assert {n['label'] for n in earlier.json()['nodes']} == {'save_record', 'handle'}
-    assert client.get('/api/code-projects/' + project['id'] + '/graph', headers=HEADERS,
-        params={'source_hash': '../source'}).status_code == 400
+    assert (
+        client.get(
+            '/api/code-projects/' + project['id'] + '/graph', headers=HEADERS, params={'source_hash': '../source'}
+        ).status_code
+        == 400
+    )
     project['folder_paths'] = ['missing']
     empty = process_code(project)
     assert empty['status'] == 'unavailable' and empty['missing_folders'] == ['missing']
@@ -131,12 +174,16 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
 
 def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(store, tmp_path, monkeypatch):
     from knowledge_admin.code_projects import worker as repository_worker
+
     root = tmp_path / 'code'
     (root / 'app').mkdir(parents=True)
     monkeypatch.setenv('CODE_ROOT', str(root))
     client = _client(tmp_path, repository_store=store)
-    response = client.post('/api/code-projects', headers=HEADERS, json={
-        'name': 'Local source', 'remote_url': None, 'folder_paths': ['app']})
+    response = client.post(
+        '/api/code-projects',
+        headers=HEADERS,
+        json={'name': 'Local source', 'remote_url': None, 'folder_paths': ['app']},
+    )
     assert response.status_code == 201
     project_id = response.json()['id']
     url = f'/api/code-projects/{project_id}/process'
@@ -146,11 +193,15 @@ def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(s
     assert queued.status_code == 202
     assert client.post(url, headers=HEADERS).json() == queued.json()
     calls = []
+
     def process(project):
         calls.append(project)
         return {'status': 'ready', 'source_hash': 'snapshot', 'stats': {'nodeCount': 3}}
+
     monkeypatch.setattr(repository_worker, 'process_code', process)
-    monkeypatch.setattr(store, 'decrypt_git_credentials', lambda *_: pytest.fail('Code indexing must not resolve Git tokens'))
+    monkeypatch.setattr(
+        store, 'decrypt_git_credentials', lambda *_: pytest.fail('Code indexing must not resolve Git tokens')
+    )
     assert repository_worker.run_once(store, root)
     assert calls[0]['folder_paths'] == ['app']
     row = client.get('/api/code-projects', headers=HEADERS).json()['projects'][0]
@@ -161,6 +212,7 @@ def test_processing_api_and_worker_use_mapped_projects_without_git_credentials(s
 def _saved_before_data_root(tmp_path, monkeypatch):
     """A graph written while code lived at /work/code and graphs at /work/code-index."""
     from knowledge_admin.code_projects.processing import source_inventory
+
     root = tmp_path / 'data' / 'code'
     (root / 'app').mkdir(parents=True)
     (root / 'app' / 'main.py').write_text('def handle():\n    return 1\n', encoding='utf-8')
@@ -173,9 +225,16 @@ def _saved_before_data_root(tmp_path, monkeypatch):
     snapshot = directory / inventory['source_hash']
     snapshot.mkdir(parents=True)
     (snapshot / 'graph.sqlite').write_bytes(b'')
-    old = {'id': project['id'], 'name': 'Upgraded', 'source_hash': inventory['source_hash'],
-        'folder_paths': ['/work/code/app'], 'missing_folders': [], 'relative_root': '.',
-        'graph_path': f"/work/code-index/{project['id']}/{inventory['source_hash']}/graph.sqlite", 'code_root': '/work/code/.'}
+    old = {
+        'id': project['id'],
+        'name': 'Upgraded',
+        'source_hash': inventory['source_hash'],
+        'folder_paths': ['/work/code/app'],
+        'missing_folders': [],
+        'relative_root': '.',
+        'graph_path': f'/work/code-index/{project["id"]}/{inventory["source_hash"]}/graph.sqlite',
+        'code_root': '/work/code/.',
+    }
     (snapshot / 'summary.json').write_text(json.dumps(old))
     (directory / 'manifest.json').write_text(json.dumps({**old, 'files': inventory['files']}))
     return project, root, snapshot, inventory['source_hash']
@@ -191,6 +250,7 @@ def test_a_graph_saved_under_the_old_mounts_is_read_at_the_current_folders(tmp_p
 
 def test_a_generation_queued_before_the_upgrade_reads_code_at_the_current_folder(tmp_path, monkeypatch):
     from knowledge_admin.code_projects.paths import rebase_code_path
+
     project, root, _, source_hash = _saved_before_data_root(tmp_path, monkeypatch)
     assert rebase_code_path('/work/code/app') == str(root / 'app')
     assert rebase_code_path(str(root / 'app')) == str(root / 'app')

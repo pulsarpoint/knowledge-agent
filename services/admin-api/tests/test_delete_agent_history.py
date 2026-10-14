@@ -1,4 +1,5 @@
 """An agent with sessions or runs is deleted together with its history only when asked; nothing else goes with it."""
+
 from uuid import uuid4
 
 import pytest
@@ -11,8 +12,10 @@ from test_repositories import HEADERS
 
 FULL = {'test_chats': 2, 'documentation_sessions': 1, 'run_records': 2}
 NONE = {'test_chats': 0, 'documentation_sessions': 0, 'run_records': 0}
-WORKING = ('This agent is working right now. Stop its documentation sessions and runs, '
-           'or wait for them to finish, then delete it.')
+WORKING = (
+    'This agent is working right now. Stop its documentation sessions and runs, '
+    'or wait for them to finish, then delete it.'
+)
 
 
 def add_history(conn, agent_id: str, model_id: str) -> dict:
@@ -20,28 +23,42 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
     project = conn.execute('SELECT id FROM ka.projects WHERE archived_at IS NULL LIMIT 1').fetchone()['id']
     actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
     ids = {'project': project, 'actor': actor}
-    ids['tests'] = [add_test_session(conn, project, actor, agent_id, model_id, message='Check disk', status='waiting',
-                                     turns=1) for _ in range(2)]
+    ids['tests'] = [
+        add_test_session(conn, project, actor, agent_id, model_id, message='Check disk', status='waiting', turns=1)
+        for _ in range(2)
+    ]
     ids['review'] = add_review(conn, ids['tests'][0], actor, changes={})
     document, version = uuid4(), uuid4()
-    conn.execute('INSERT INTO ka.documents(id,project_id,slug,current_version_id) VALUES (%s,%s,%s,%s)',
-                 (document, project, f'payments-{document.hex[:6]}', version))
-    conn.execute("""INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
+    conn.execute(
+        'INSERT INTO ka.documents(id,project_id,slug,current_version_id) VALUES (%s,%s,%s,%s)',
+        (document, project, f'payments-{document.hex[:6]}', version),
+    )
+    conn.execute(
+        """INSERT INTO ka.document_versions(id,document_id,project_id,version,title,description,purpose,audience,
         markdown,content_hash,source_snapshot,origin,created_by) VALUES (%s,%s,%s,1,'Payments','','api','both',
         '# Payments',encode(sha256(convert_to('# Payments','UTF8')),'hex'),%s,'manual',%s)""",
-        (version, document, project, Jsonb({'code_projects': []}), actor))
+        (version, document, project, Jsonb({'code_projects': []}), actor),
+    )
     ids['document'] = document
     cc = uuid4()
-    conn.execute('''INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+    conn.execute(
+        """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
         context_snapshot,document_name,folder,turns,document_id,status,agent_config) VALUES (%s,%s,%s,%s,%s,'Payments','{}','{}',
-        'Payments','payments',2,%s,'waiting',%s)''', (cc, project, agent_id, actor, model_id, document, Jsonb({'id': agent_id})))
-    conn.execute("INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Write it')", (cc, actor))
+        'Payments','payments',2,%s,'waiting',%s)""",
+        (cc, project, agent_id, actor, model_id, document, Jsonb({'id': agent_id})),
+    )
+    conn.execute(
+        "INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text) VALUES (%s,1,%s,'Write it')", (cc, actor)
+    )
     ids['cc'] = cc
     old = [uuid4(), uuid4()]  # Test chat turns from before 0081: only their run records are left
-    keys = [f'run:{old[0]}', f'run:{old[1]}', f'cc:{cc}:1', f'cc:{cc}:2', f"cc:{ids['tests'][0]}:1"]
+    keys = [f'run:{old[0]}', f'run:{old[1]}', f'cc:{cc}:1', f'cc:{cc}:2', f'cc:{ids["tests"][0]}:1']
     for key in keys:
-        conn.execute("""INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-            VALUES (%s,%s,1,'start',%s,'{}')""", (project, key, agent_id))
+        conn.execute(
+            """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+            VALUES (%s,%s,1,'start',%s,'{}')""",
+            (project, key, agent_id),
+        )
     ids['keys'] = keys
     return ids
 
@@ -49,9 +66,17 @@ def add_history(conn, agent_id: str, model_id: str) -> dict:
 @pytest.fixture
 def agents(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
-    model = client.post('/api/llm/models', headers=HEADERS, json={
-        'name': 'GPT', 'provider': 'openai', 'model': 'gpt-5', 'api_format': 'responses',
-        'base_url': 'http://model.test/v1'}).json()['id']
+    model = client.post(
+        '/api/llm/models',
+        headers=HEADERS,
+        json={
+            'name': 'GPT',
+            'provider': 'openai',
+            'model': 'gpt-5',
+            'api_format': 'responses',
+            'base_url': 'http://model.test/v1',
+        },
+    ).json()['id']
     target, other = create(client, 'Target agent'), create(client, 'Other agent')
     with store.connect() as conn:
         mine = add_history(conn, target['id'], model)
@@ -61,8 +86,9 @@ def agents(store, tmp_path):
 
 def delete(client, agent_id, **body):
     revision = client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()['revision']
-    return client.request('DELETE', f'/api/agents/{agent_id}', headers=HEADERS,
-                          json={'revision': revision, 'confirmed': True, **body})
+    return client.request(
+        'DELETE', f'/api/agents/{agent_id}', headers=HEADERS, json={'revision': revision, 'confirmed': True, **body}
+    )
 
 
 def test_history_counts_what_a_delete_would_remove(agents):
@@ -77,24 +103,35 @@ def test_history_counts_what_a_delete_would_remove(agents):
 def test_event_sessions_count_as_test_chats(agents, store):
     client, target, _, mine, _ = agents
     with store.connect() as conn:
-        add_test_session(conn, mine['project'], mine['actor'], target, conn.execute(
-            'SELECT model_id FROM ka.agent_sessions WHERE id=%s', (mine['tests'][0],)).fetchone()['model_id'],
-            message='Triage', status='waiting', turns=1, purpose='event')
+        add_test_session(
+            conn,
+            mine['project'],
+            mine['actor'],
+            target,
+            conn.execute('SELECT model_id FROM ka.agent_sessions WHERE id=%s', (mine['tests'][0],)).fetchone()[
+                'model_id'
+            ],
+            message='Triage',
+            status='waiting',
+            turns=1,
+            purpose='event',
+        )
     assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json() == {**FULL, 'test_chats': 3}
 
 
 def test_an_agent_without_history_has_none(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     agent = create(client, 'Fresh agent')
-    assert client.get(f"/api/agents/{agent['id']}/history", headers=HEADERS).json() == NONE
+    assert client.get(f'/api/agents/{agent["id"]}/history', headers=HEADERS).json() == NONE
 
 
 def test_delete_without_history_flag_is_refused(agents, store):
     client, target, _, _, _ = agents
     refused = delete(client, target)
     assert refused.status_code == 409
-    assert refused.json()['error']['message'] == ('This agent has sessions or run history. Delete it with its history, '
-                                                  'or disable it to keep the history.')
+    assert refused.json()['error']['message'] == (
+        'This agent has sessions or run history. Delete it with its history, or disable it to keep the history.'
+    )
     assert client.get(f'/api/agents/{target}', headers=HEADERS).status_code == 200
 
 
@@ -104,8 +141,10 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
     assert deleted.status_code == 204, deleted.text
     assert client.get(f'/api/agents/{target}', headers=HEADERS).status_code == 404
     with store.connect() as conn:
+
         def count(sql, *args):
             return conn.execute(f'SELECT count(*) AS n FROM {sql}', args).fetchone()['n']
+
         for agent_id, expected in ((target, 0), (other, 1)):
             ids = mine if agent_id == target else theirs
             assert count("ka.agent_sessions WHERE agent_id=%s AND purpose='test'", agent_id) == 2 * expected
@@ -124,17 +163,24 @@ def test_delete_with_history_removes_only_this_agents_history(agents, store):
 
 def test_delete_with_history_still_checks_the_revision(agents):
     client, target, _, _, _ = agents
-    stale = client.request('DELETE', f'/api/agents/{target}', headers=HEADERS,
-                           json={'revision': 999, 'confirmed': True, 'with_history': True})
+    stale = client.request(
+        'DELETE',
+        f'/api/agents/{target}',
+        headers=HEADERS,
+        json={'revision': 999, 'confirmed': True, 'with_history': True},
+    )
     assert stale.status_code == 409 and 'Reload before deleting' in stale.text
     assert client.get(f'/api/agents/{target}/history', headers=HEADERS).json()['run_records'] == 2
 
 
-@pytest.mark.parametrize('working', [
-    "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s",
-    "UPDATE ka.agent_sessions SET status='starting' WHERE agent_id=%(a)s",
-    "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s AND purpose='test'",
-])
+@pytest.mark.parametrize(
+    'working',
+    [
+        "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s",
+        "UPDATE ka.agent_sessions SET status='starting' WHERE agent_id=%(a)s",
+        "UPDATE ka.agent_sessions SET status='working' WHERE agent_id=%(a)s AND purpose='test'",
+    ],
+)
 def test_a_working_agent_is_not_deleted(agents, store, working):
     client, target, _, _, _ = agents
     with store.connect() as conn:

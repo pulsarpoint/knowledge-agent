@@ -1,4 +1,5 @@
 """The run context every capability receives, and the per-run rule for kinds a run was given nothing of."""
+
 from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
@@ -42,8 +43,12 @@ def require_given(config: dict[str, Any], kind: str) -> None:
     require_run_resources(config)
     code = config['code']['projects'] if config['code']['enabled'] else []
     collections = document_collections(config)[1] if config['documents']['enabled'] else []
-    empty = {'code': not code, 'documents': not collections, 'ssh': not config['ssh']['servers'],
-             'files': not code and not collections}
+    empty = {
+        'code': not code,
+        'documents': not collections,
+        'ssh': not config['ssh']['servers'],
+        'files': not code and not collections,
+    }
     if empty[kind]:
         raise ValueError(NOTHING_GIVEN[kind])
 

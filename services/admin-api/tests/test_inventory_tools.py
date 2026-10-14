@@ -1,4 +1,5 @@
 """Inventory read tools: what an agent can read about servers, services, code projects and attached documents."""
+
 import asyncio
 import json
 from uuid import uuid4
@@ -7,15 +8,25 @@ from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import document_tools, inventory
 from knowledge_admin.tools.catalog import CATALOG, implied_tools, tools_summary
 
-TOOLS = ('get_server_info_basic', 'get_server_services', 'get_server_docs', 'get_service_info', 'get_service_docs',
-         'get_project_info', 'get_document')
+TOOLS = (
+    'get_server_info_basic',
+    'get_server_services',
+    'get_server_docs',
+    'get_service_info',
+    'get_service_docs',
+    'get_project_info',
+    'get_document',
+)
 
 
 def pinned(world, project=None):
     """A run given web-1, nginx and Shop: the entries these tests read."""
-    return {'project_id': str(project or world.project), 'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}]},
-            'services': {'enabled': True, 'items': [{'id': str(world.nginx)}]},
-            'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]}}
+    return {
+        'project_id': str(project or world.project),
+        'ssh': {'enabled': True, 'servers': [{'id': world.server['id']}]},
+        'services': {'enabled': True, 'items': [{'id': str(world.nginx)}]},
+        'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]},
+    }
 
 
 def call(world, tool, **arguments):
@@ -74,9 +85,15 @@ def test_lists_stop_at_100(world):
     with world.store.connect() as conn:
         for number in range(101):
             service = uuid4()
-            conn.execute('INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,%s)', (service, world.project, f'svc-{number:03}'))
-            conn.execute("""INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
-                VALUES (%s,%s,%s,'Production','x')""", (world.project, service, world.server['id']))
+            conn.execute(
+                'INSERT INTO ka.services(id,project_id,name) VALUES (%s,%s,%s)',
+                (service, world.project, f'svc-{number:03}'),
+            )
+            conn.execute(
+                """INSERT INTO ka.service_deployments(project_id,service_id,server_id,environment,runtime_name)
+                VALUES (%s,%s,%s,'Production','x')""",
+                (world.project, service, world.server['id']),
+            )
     listed = call(world, 'get_server_services', hostname='web-1')
     assert len(listed['items']) == 100 and listed['truncated']
 
@@ -93,6 +110,11 @@ def test_another_workspace_is_not_visible(world):
 def test_inventory_tools_are_a_group_that_existing_agents_have_off():
     for name in TOOLS:
         assert CATALOG[name].group == 'inventory' and CATALOG[name].needs is None
-    config = {'documents': {'enabled': False}, 'code': {'enabled': False}, 'ssh': {'enabled': False}, 'mcp': {'enabled': False, 'servers': []}}
+    config = {
+        'documents': {'enabled': False},
+        'code': {'enabled': False},
+        'ssh': {'enabled': False},
+        'mcp': {'enabled': False, 'servers': []},
+    }
     assert all(item['mode'] == 'off' for item in implied_tools(config)['items'] if item['tool'] in TOOLS)
     assert 'inventory' in tools_summary({**config, 'tools': {'items': []}})['groups']

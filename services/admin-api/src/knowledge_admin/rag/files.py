@@ -1,4 +1,5 @@
 """Read and write files in the Jira folder through the RAG backoffice API."""
+
 from uuid import UUID
 
 import httpx
@@ -42,6 +43,13 @@ class RagFiles:
                 raise HTTPException(409, f'{path} belongs to another source. The existing file was preserved')
             if previous['content'] == content:
                 return {'path': path, 'status': 'unchanged', 'hash': previous['hash']}
-        saved = self.request('PUT', 'file', json={'path': path, 'content': content,
-                                                  'expected_hash': previous['hash'] if previous is not None else None})
+        saved = self.request(
+            'PUT',
+            'file',
+            json={
+                'path': path,
+                'content': content,
+                'expected_hash': previous['hash'] if previous is not None else None,
+            },
+        )
         return {'path': path, 'status': 'updated' if previous is not None else 'created', 'hash': saved['hash']}

@@ -1,5 +1,6 @@
 """Per-run agents' tools reach exactly what the run was given: anything else is refused like any resource outside an
 agent's configuration, and a kind the run got nothing of is refused, never widened to every resource."""
+
 import asyncio
 import json
 
@@ -14,8 +15,16 @@ from tool_helpers import tool, tools
 from test_document_tools import rag  # noqa: F401  (fixture)
 
 ast_grep, code_graph, code_search, read_document, search_documents, list_files, read_file, shell_run, ssh_run = tools(
-    'ast_grep', 'code_graph', 'code_search', 'read_document', 'search_documents', 'list_files', 'read_file', 'shell_run',
-    'ssh_run')
+    'ast_grep',
+    'code_graph',
+    'code_search',
+    'read_document',
+    'search_documents',
+    'list_files',
+    'read_file',
+    'shell_run',
+    'ssh_run',
+)
 
 PATTERN = 'def $F($$$A): $$$B'
 
@@ -37,20 +46,52 @@ def folders(tmp_path):
 
 def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
     """A per-run agent's tool context with the configuration resolve() builds: the lists are the run's resources."""
-    host = {'id': 'host', 'name': 'Host', 'hostname': 'host.test', 'port': 22, 'username': 'operator',
-            'enabled': True, 'ssh_allowed': True, 'allow_sudo': False, 'known_hosts': '', 'private_key_ref': {'id': 'key'}}
+    host = {
+        'id': 'host',
+        'name': 'Host',
+        'hostname': 'host.test',
+        'port': 22,
+        'username': 'operator',
+        'enabled': True,
+        'ssh_allowed': True,
+        'allow_sudo': False,
+        'known_hosts': '',
+        'private_key_ref': {'id': 'key'},
+    }
     config = {
-        'id': 'analyst', 'name': 'Code analyst', 'description': '', 'enabled': True, 'resources': 'per_run',
-        'instructions': '', 'system_prompt': {'content': 'Analyse code.'},
-        'code': {'enabled': True, 'all_projects': False, 'projects': [
-            {'id': 'given', 'name': 'Given', 'folder_paths': [str(folders['given'])]}] if 'given' in code else []},
-        'documents': {'enabled': True, 'grounded': False, 'all_collections': False, 'collections': [
-            {'id': '1', 'name': 'payments', 'description': '', 'paths': []}] if 'payments' in collections else []},
+        'id': 'analyst',
+        'name': 'Code analyst',
+        'description': '',
+        'enabled': True,
+        'resources': 'per_run',
+        'instructions': '',
+        'system_prompt': {'content': 'Analyse code.'},
+        'code': {
+            'enabled': True,
+            'all_projects': False,
+            'projects': [{'id': 'given', 'name': 'Given', 'folder_paths': [str(folders['given'])]}]
+            if 'given' in code
+            else [],
+        },
+        'documents': {
+            'enabled': True,
+            'grounded': False,
+            'all_collections': False,
+            'collections': [{'id': '1', 'name': 'payments', 'description': '', 'paths': []}]
+            if 'payments' in collections
+            else [],
+        },
         'ssh': {'enabled': True, 'servers': [host] if 'host' in servers else []},
-        'skills': {'enabled': False, 'items': []}, 'mcp': {'enabled': False, 'servers': []},
+        'skills': {'enabled': False, 'items': []},
+        'mcp': {'enabled': False, 'servers': []},
         'services': {'enabled': False, 'items': []},
-        'run_resources': {'code_project_ids': list(code), 'collection_ids': list(collections),
-                          'server_ids': list(servers), 'service_ids': []}}
+        'run_resources': {
+            'code_project_ids': list(code),
+            'collection_ids': list(collections),
+            'server_ids': list(servers),
+            'service_ids': [],
+        },
+    }
     return {'config': config, 'credentials': {}, 'workspace': folders['workspace'], 'shell_enabled': True}
 
 
@@ -70,8 +111,12 @@ def test_a_kind_the_run_got_nothing_of_is_refused_never_widened(folders, monkeyp
     context = run_context(folders)
     assert NOTHING_GIVEN['files'] in invoke(list_files, context)
     assert NOTHING_GIVEN['files'] in invoke(shell_run, context, command='ls /')
-    assert NOTHING_GIVEN['code'] in invoke(code_search, context, path=str(folders['given']), language='Python', name='given')
-    assert NOTHING_GIVEN['code'] in invoke(ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN)
+    assert NOTHING_GIVEN['code'] in invoke(
+        code_search, context, path=str(folders['given']), language='Python', name='given'
+    )
+    assert NOTHING_GIVEN['code'] in invoke(
+        ast_grep, context, path=str(folders['given']), language='Python', pattern=PATTERN
+    )
     assert NOTHING_GIVEN['code'] in invoke(code_graph, context, project_id='given')
     assert NOTHING_GIVEN['ssh'] in invoke(ssh_run, context, server_id='host', command='uptime')
     assert NOTHING_GIVEN['documents'] in invoke(search_documents, context, query='limits')
@@ -88,12 +133,16 @@ def test_document_search_uses_only_the_given_collections(rag, folders):
     assert '[1] payments/retries.md' in invoke(search_documents, context, query='retries')
     search = next(json.loads(call.content) for call in calls if call.url.path == '/search')
     assert search['collections'] == ['payments']
-    assert 'outside the agent’s document collections' in invoke(search_documents, context, query='x', collection='private')
+    assert 'outside the agent’s document collections' in invoke(
+        search_documents, context, query='x', collection='private'
+    )
 
 
 def test_ssh_reaches_only_the_given_servers(folders):
     context = run_context(folders, servers=['host'])
-    assert 'This server is not available in this run.' in invoke(ssh_run, context, server_id='elsewhere', command='uptime')
+    assert 'This server is not available in this run.' in invoke(
+        ssh_run, context, server_id='elsewhere', command='uptime'
+    )
 
 
 def test_the_prompt_says_the_run_got_only_these_resources(folders):

@@ -1,5 +1,6 @@
 """Handler templates: Jinja in a sandbox with the matched event as `event`. Emit renders the new event's type, subject,
 title and payload (JSON that must be an object); Send to agent renders the agent's first message."""
+
 import atexit
 import json
 import math
@@ -31,6 +32,7 @@ class TemplateProblem(ValueError):
 
 class Sandbox(SandboxedEnvironment):
     """Jinja's sandbox that also refuses to build huge strings, lists or numbers ('x' * 10**9, 9 ** 9 ** 9)."""
+
     intercepted_binops = frozenset({'*', '**'})
 
     def call_binop(self, context, operator, left, right):
@@ -52,10 +54,18 @@ ENV = Sandbox(undefined=StrictUndefined, autoescape=False)
 
 def context(event: dict) -> dict[str, Any]:
     occurred = event.get('occurred_at')
-    return {'id': event['id'], 'source': event['source'], 'type': event['type'], 'subject': event['subject'],
-            'title': event['title'], 'occurred_at': occurred.isoformat() if hasattr(occurred, 'isoformat') else occurred,
-            'payload': event['payload'], 'parent_id': event.get('parent_id'), 'root_id': event.get('root_id'),
-            'depth': event.get('depth', 0)}
+    return {
+        'id': event['id'],
+        'source': event['source'],
+        'type': event['type'],
+        'subject': event['subject'],
+        'title': event['title'],
+        'occurred_at': occurred.isoformat() if hasattr(occurred, 'isoformat') else occurred,
+        'payload': event['payload'],
+        'parent_id': event.get('parent_id'),
+        'root_id': event.get('root_id'),
+        'depth': event.get('depth', 0),
+    }
 
 
 def check(source: str, label: str) -> None:
@@ -88,6 +98,7 @@ def init_child() -> None:
     """Caps the child's address space where the platform enforces it (Linux); elsewhere the timeout is the guard."""
     try:
         import resource
+
         resource.setrlimit(resource.RLIMIT_AS, (CHILD_MEMORY, CHILD_MEMORY))
     except Exception:  # noqa: BLE001 - not supported on this platform
         pass
@@ -129,8 +140,9 @@ def render(source: str, event: dict) -> str:
     with _lock:  # one render at a time, so a timeout only ever kills the render that overran
         try:
             if _pool is None:
-                _pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context('spawn'),
-                                            initializer=init_child)
+                _pool = ProcessPoolExecutor(
+                    max_workers=1, mp_context=multiprocessing.get_context('spawn'), initializer=init_child
+                )
                 _pool.submit(ping).result(timeout=START_SECONDS)
             return _pool.submit(render_in_child, source, ctx).result(timeout=RENDER_SECONDS)
         except FutureTimeout:
@@ -144,7 +156,12 @@ def render(source: str, event: dict) -> str:
 def check_emit(emit: dict) -> None:
     if not (emit.get('type') or '').strip():
         raise TemplateProblem('New event type: enter a type, e.g. triage.requested.')
-    for field, label in (('type', 'New event type'), ('subject', 'Subject'), ('title', 'Title'), ('payload', 'Payload')):
+    for field, label in (
+        ('type', 'New event type'),
+        ('subject', 'Subject'),
+        ('title', 'Title'),
+        ('payload', 'Payload'),
+    ):
         check(emit.get(field) or DEFAULTS.get(field, ''), label)
 
 
@@ -169,7 +186,9 @@ def render_emit(emit: dict, event: dict) -> dict:
         raise TemplateProblem('New event type: enter a type, e.g. triage.requested.')
     kind = render(emit['type'], event).strip()
     if not EVENT_TYPE.fullmatch(kind):
-        raise TemplateProblem(f'The new event type "{kind[:100]}" is not valid; use lowercase dotted names such as triage.requested.')
+        raise TemplateProblem(
+            f'The new event type "{kind[:100]}" is not valid; use lowercase dotted names such as triage.requested.'
+        )
     subject = render(emit.get('subject') or DEFAULTS['subject'], event).strip()
     if not subject:
         raise TemplateProblem('The new event subject is empty.')
@@ -179,7 +198,9 @@ def render_emit(emit: dict, event: dict) -> dict:
     try:
         payload = json.loads(render(emit.get('payload') or DEFAULTS['payload'], event))
     except json.JSONDecodeError as exc:
-        raise TemplateProblem(f'The payload template must render JSON ({exc.msg}, line {exc.lineno}). Use | tojson for values.') from None
+        raise TemplateProblem(
+            f'The payload template must render JSON ({exc.msg}, line {exc.lineno}). Use | tojson for values.'
+        ) from None
     if not isinstance(payload, dict):
         raise TemplateProblem('The payload template must render a JSON object.')
     if has_nul(subject) or has_nul(title) or has_nul(payload):

@@ -1,4 +1,5 @@
 """0069 makes documentation folders lowercase-only: Payments and payments are one directory on macOS."""
+
 import psycopg
 import pytest
 

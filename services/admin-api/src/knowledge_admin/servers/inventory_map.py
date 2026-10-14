@@ -3,6 +3,7 @@ infrastructure (environment › server › service, from memberships and deploym
 projects, flat). Links (ka.inventory_links) are drawn between the nodes that show their entries. A view shows one node's
 inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every link up to the
 nodes shown (graph in graph)."""
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -28,11 +29,11 @@ class ViewError(Exception):
 
 @dataclass
 class Inventory:
-    entries: dict[Key, dict]                                # name, description (archived code projects left out)
-    environment_servers: set[tuple[UUID, UUID]] = field(default_factory=set)    # (environment, server)
-    environment_services: set[tuple[UUID, UUID]] = field(default_factory=set)   # (environment, service)
+    entries: dict[Key, dict]  # name, description (archived code projects left out)
+    environment_servers: set[tuple[UUID, UUID]] = field(default_factory=set)  # (environment, server)
+    environment_services: set[tuple[UUID, UUID]] = field(default_factory=set)  # (environment, service)
     deployments: set[tuple[UUID, UUID, UUID | None]] = field(default_factory=set)  # (service, server, environment)
-    links: list[dict] = field(default_factory=list)          # id, kind, from: Key, to: Key
+    links: list[dict] = field(default_factory=list)  # id, kind, from: Key, to: Key
     documents: dict[Key, list[dict]] = field(default_factory=dict)
 
 
@@ -45,24 +46,50 @@ ENTRY_ROWS = {
 
 
 def load(conn, project: UUID) -> Inventory:
-    entries = {(kind, row['id']): {'name': row['name'], 'description': row['description']}
-               for kind, sql in ENTRY_ROWS.items() for row in conn.execute(sql, (project,))}
+    entries = {
+        (kind, row['id']): {'name': row['name'], 'description': row['description']}
+        for kind, sql in ENTRY_ROWS.items()
+        for row in conn.execute(sql, (project,))
+    }
     documents: dict[Key, list[dict]] = {}
-    for row in conn.execute('''SELECT a.entry_kind,a.entry_id,d.id,d.slug,d.title FROM ka.inventory_documents a
-            JOIN ka.document_details d ON d.id=a.document_id WHERE a.project_id=%s ORDER BY lower(d.title),d.id''', (project,)):
-        documents.setdefault((row['entry_kind'], row['entry_id']), []).append({'id': row['id'], 'slug': row['slug'], 'title': row['title']})
+    for row in conn.execute(
+        """SELECT a.entry_kind,a.entry_id,d.id,d.slug,d.title FROM ka.inventory_documents a
+            JOIN ka.document_details d ON d.id=a.document_id WHERE a.project_id=%s ORDER BY lower(d.title),d.id""",
+        (project,),
+    ):
+        documents.setdefault((row['entry_kind'], row['entry_id']), []).append(
+            {'id': row['id'], 'slug': row['slug'], 'title': row['title']}
+        )
     return Inventory(
         entries=entries,
-        environment_servers={(r['environment_id'], r['server_id']) for r in conn.execute(
-            'SELECT environment_id,server_id FROM ka.environment_servers WHERE project_id=%s', (project,))},
-        environment_services={(r['environment_id'], r['service_id']) for r in conn.execute(
-            'SELECT environment_id,service_id FROM ka.environment_services WHERE project_id=%s', (project,))},
-        deployments={(r['service_id'], r['server_id'], r['environment_id']) for r in conn.execute(
-            'SELECT service_id,server_id,environment_id FROM ka.service_deployments WHERE project_id=%s', (project,))},
-        links=[{'id': r['id'], 'kind': r['kind'], 'from': (r['from_kind'], r['from_id']), 'to': (r['to_kind'], r['to_id'])}
-               for r in conn.execute('''SELECT id,kind,from_kind,from_id,to_kind,to_id FROM ka.inventory_links
-                   WHERE project_id=%s ORDER BY id''', (project,))],
-        documents=documents)
+        environment_servers={
+            (r['environment_id'], r['server_id'])
+            for r in conn.execute(
+                'SELECT environment_id,server_id FROM ka.environment_servers WHERE project_id=%s', (project,)
+            )
+        },
+        environment_services={
+            (r['environment_id'], r['service_id'])
+            for r in conn.execute(
+                'SELECT environment_id,service_id FROM ka.environment_services WHERE project_id=%s', (project,)
+            )
+        },
+        deployments={
+            (r['service_id'], r['server_id'], r['environment_id'])
+            for r in conn.execute(
+                'SELECT service_id,server_id,environment_id FROM ka.service_deployments WHERE project_id=%s', (project,)
+            )
+        },
+        links=[
+            {'id': r['id'], 'kind': r['kind'], 'from': (r['from_kind'], r['from_id']), 'to': (r['to_kind'], r['to_id'])}
+            for r in conn.execute(
+                """SELECT id,kind,from_kind,from_id,to_kind,to_id FROM ka.inventory_links
+                   WHERE project_id=%s ORDER BY id""",
+                (project,),
+            )
+        ],
+        documents=documents,
+    )
 
 
 def node_id(kind: str, entry: UUID, *where: UUID | None) -> str:
@@ -91,8 +118,16 @@ def placements(inventory: Inventory, view: str) -> tuple[nx.DiGraph, dict[Key, l
         if kind == 'environment':
             add(node_id('environment', entry), ('environment', entry), None, entry)
     homes: dict[UUID, set] = defaultdict(set)  # server → environments it is placed in (None = top level)
-    deployments = sorted((d for d in inventory.deployments if ('service', d[0]) in known and ('server', d[1]) in known
-                          and (d[2] is None or ('environment', d[2]) in known)), key=str)
+    deployments = sorted(
+        (
+            d
+            for d in inventory.deployments
+            if ('service', d[0]) in known
+            and ('server', d[1]) in known
+            and (d[2] is None or ('environment', d[2]) in known)
+        ),
+        key=str,
+    )
     for environment, server in inventory.environment_servers:
         if ('environment', environment) in known:
             homes[server].add(environment)
@@ -110,8 +145,17 @@ def placements(inventory: Inventory, view: str) -> tuple[nx.DiGraph, dict[Key, l
             add(node, ('service', service), node_id('server', server, environment), environment)
         deployed.add((environment, service))
     for environment, service in inventory.environment_services:
-        if (environment, service) not in deployed and ('service', service) in known and ('environment', environment) in known:
-            add(node_id('service', service, environment), ('service', service), node_id('environment', environment), environment)
+        if (
+            (environment, service) not in deployed
+            and ('service', service) in known
+            and ('environment', environment) in known
+        ):
+            add(
+                node_id('service', service, environment),
+                ('service', service),
+                node_id('environment', environment),
+                environment,
+            )
     return tree, shown
 
 
@@ -166,9 +210,15 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
             holder = node
             inner = kids(node)
             data = tree.nodes[node]
-            rows[node] = {**about(node), 'parent_id': visible_parent, 'description': data['description'],
-                          'child_count': len(inner), 'expandable': bool(inner) and level == depth, 'internal_edges': 0,
-                          'documents': list(inventory.documents.get(data['entry'], []))}
+            rows[node] = {
+                **about(node),
+                'parent_id': visible_parent,
+                'description': data['description'],
+                'child_count': len(inner),
+                'expandable': bool(inner) and level == depth,
+                'internal_edges': 0,
+                'documents': list(inventory.documents.get(data['entry'], [])),
+            }
             if len(rows) > MAX_VISIBLE:
                 raise ViewError(422, TOO_MANY)
         representative[node] = holder
@@ -213,8 +263,10 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         grouped.setdefault((a, b, edge['type']), set()).add(edge['id'])
     if len(rows) + len(boundary) > MAX_VISIBLE:
         raise ViewError(422, TOO_MANY)
-    rolled = [{'from': a, 'to': b, 'type': kind, 'count': len(ids), 'link_ids': sorted(ids, key=str)[:MAX_LINK_IDS]}
-              for (a, b, kind), ids in grouped.items()]
+    rolled = [
+        {'from': a, 'to': b, 'type': kind, 'count': len(ids), 'link_ids': sorted(ids, key=str)[:MAX_LINK_IDS]}
+        for (a, b, kind), ids in grouped.items()
+    ]
     nodes = []
 
     def emit(node: str) -> None:  # parents before children, siblings by name
@@ -222,6 +274,7 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
         for child in kids(node):
             if child in rows:
                 emit(child)
+
     for child in kids(root):
         emit(child)
     return {
@@ -237,7 +290,10 @@ def build_view(inventory: Inventory, view: str, root: str | None, depth: int) ->
 
 def search(inventory: Inventory, q: str, kind: str | None, limit: int) -> list[dict]:
     needle = q.strip().lower()
-    hits = [(key, data) for key, data in inventory.entries.items()
-            if (kind is None or key[0] == kind) and needle in data['name'].lower()]
+    hits = [
+        (key, data)
+        for key, data in inventory.entries.items()
+        if (kind is None or key[0] == kind) and needle in data['name'].lower()
+    ]
     hits.sort(key=lambda hit: (hit[1]['name'].lower(), hit[0][0], str(hit[0][1])))
     return [{'entry_kind': key[0], 'entry_id': key[1], 'name': data['name']} for key, data in hits[:limit]]

@@ -1,5 +1,6 @@
 """The session machinery the worker shares: a turn's commit runs in the transaction that records it, only for a
 successful turn this worker still owns."""
+
 from uuid import UUID
 
 from knowledge_admin.knowledge_agents import session_worker as shared
@@ -21,16 +22,16 @@ def test_finish_turn_commits_with_a_successful_turn_only(sessions):
     runner.finish_turn(1, 'failed', 'Broken.', usage=None, commit=commit)
     runner.finish_turn(2, 'stopped', shared.STOPPED, usage=None, commit=commit)
     assert committed == []
-    runner.finish_turn(3, 'waiting', '', commit=commit,
-                       usage={'input_tokens': 3, 'output_tokens': 2, 'cached_tokens': 1})
+    runner.finish_turn(
+        3, 'waiting', '', commit=commit, usage={'input_tokens': 3, 'output_tokens': 2, 'cached_tokens': 1}
+    )
     assert committed == [{'status': 'waiting'}]
     with store.connect() as conn:
         conn.execute("UPDATE ka.agent_sessions SET worker_id='other' WHERE id=%s", (sid,))
     runner.finish_turn(4, 'waiting', '', usage=None, commit=commit)
     assert len(committed) == 1  # a runner that lost the session writes nothing
     with store.connect() as conn:
-        final = conn.execute('SELECT input_tokens,cached_tokens FROM ka.agent_sessions WHERE id=%s',
-                             (sid,)).fetchone()
+        final = conn.execute('SELECT input_tokens,cached_tokens FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()
     assert final == {'input_tokens': 3, 'cached_tokens': 1}
 
 
@@ -49,8 +50,9 @@ def test_comments_reach_only_the_running_turn_of_a_session_this_worker_holds(ses
     assert runner.queued_comments(1) == ['Also cover retries.', 'And errors.']
     assert runner.queued_comments(1) == []  # once
     with store.connect() as conn:
-        delivered = conn.execute("SELECT turn FROM ka.agent_session_inputs WHERE session_id=%s AND status='delivered'",
-                                 (sid,)).fetchall()
+        delivered = conn.execute(
+            "SELECT turn FROM ka.agent_session_inputs WHERE session_id=%s AND status='delivered'", (sid,)
+        ).fetchall()
         assert [item['turn'] for item in delivered] == [1, 1, 1]
         conn.execute("UPDATE ka.agent_sessions SET worker_id='other' WHERE id=%s", (sid,))
     assert sessions.client.post(url, headers=HEADERS, json={'text': 'Lost?'}).status_code == 202
@@ -69,6 +71,7 @@ def test_an_interrupted_ad_hoc_turn_is_recorded_under_the_ad_hoc_agent(sessions)
     assert (row['id'], row['agent_id']) == (sid, None)
     with store.connect() as conn:
         assert conn.execute('SELECT status FROM ka.agent_sessions WHERE id=%s', (sid,)).fetchone()['status'] == 'failed'
-        events = conn.execute('SELECT kind,agent_id FROM ka.agent_run_events WHERE run_key=%s ORDER BY seq',
-                              (shared.run_key(sid, 1),)).fetchall()
+        events = conn.execute(
+            'SELECT kind,agent_id FROM ka.agent_run_events WHERE run_key=%s ORDER BY seq', (shared.run_key(sid, 1),)
+        ).fetchall()
     assert [(e['kind'], e['agent_id']) for e in events] == [('error', 'ad-hoc'), ('end', 'ad-hoc')]

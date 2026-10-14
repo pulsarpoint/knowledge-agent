@@ -1,6 +1,7 @@
 """Part 5: when an event run's first turn ends (finished, failed or stopped), the worker writes one notification in the
 turn's finishing transaction — the answer, or why it failed — linked to the run, its event and handler. Later turns and
 Test runs write none. The worker no longer runs agent tasks."""
+
 import asyncio
 import importlib.util
 import inspect
@@ -31,12 +32,16 @@ def a_run(sessions, purpose='event'):
     with sessions.store.connect() as conn:
         project = sessions.store.project(conn, 'shop')
         actor = sessions.store.actor(conn, 'admin-id', 'admin@example.test')
-        sid = add_test_session(conn, project, actor, agent_id, sessions.claude, config=config, message='Triage DEMO-1',
-                               purpose=purpose)
-        conn.execute("UPDATE ka.agent_sessions SET title='Event agent · jira.ticket.updated DEMO-1' WHERE id=%s", (sid,))
+        sid = add_test_session(
+            conn, project, actor, agent_id, sessions.claude, config=config, message='Triage DEMO-1', purpose=purpose
+        )
+        conn.execute(
+            "UPDATE ka.agent_sessions SET title='Event agent · jira.ticket.updated DEMO-1' WHERE id=%s", (sid,)
+        )
         if purpose == 'event':
-            conn.execute('UPDATE ka.agent_sessions SET event_id=%s,handler_id=%s WHERE id=%s',
-                         (event['id'], handler['id'], sid))
+            conn.execute(
+                'UPDATE ka.agent_sessions SET event_id=%s,handler_id=%s WHERE id=%s', (event['id'], handler['id'], sid)
+            )
     return sid, agent_id, event, handler
 
 
@@ -74,14 +79,35 @@ def play(sessions, sid, fake, *, second: str | None = None, until=lambda s: s['s
 
 def test_a_finished_first_turn_writes_one_succeeded_notification_and_later_turns_none(worker):
     sid, agent_id, event, handler = a_run(worker)
-    fake = FakeAgent([{'steps': [llm(message('Triaged: a timeout.'))], 'answer': 'Triaged: a timeout.'},
-                      {'steps': [llm(message('More.'))], 'answer': 'More.'}])
+    fake = FakeAgent(
+        [
+            {'steps': [llm(message('Triaged: a timeout.'))], 'answer': 'Triaged: a timeout.'},
+            {'steps': [llm(message('More.'))], 'answer': 'More.'},
+        ]
+    )
     play(worker, sid, fake, second='Tell me more.')
     [note] = notifications(worker.store)
-    assert (note['kind'], note['status'], note['title'], note['body'], note['event_id'], note['handler_id'],
-            note['agent_id'], note['session_id'], note['agent_task_id']) == (
-        'agent.response', 'succeeded', 'Event agent · jira.ticket.updated DEMO-1', 'Triaged: a timeout.', event['id'],
-        handler['id'], agent_id, sid, None)
+    assert (
+        note['kind'],
+        note['status'],
+        note['title'],
+        note['body'],
+        note['event_id'],
+        note['handler_id'],
+        note['agent_id'],
+        note['session_id'],
+        note['agent_task_id'],
+    ) == (
+        'agent.response',
+        'succeeded',
+        'Event agent · jira.ticket.updated DEMO-1',
+        'Triaged: a timeout.',
+        event['id'],
+        handler['id'],
+        agent_id,
+        sid,
+        None,
+    )
 
 
 def test_a_failed_first_turn_writes_a_failed_notification_with_the_status_message(worker):
@@ -115,10 +141,15 @@ def test_a_first_turn_the_worker_lost_writes_a_failed_notification(worker):
     sid, *_ = a_run(worker)
     store = worker.store
     with store.connect() as conn:  # a worker died during turn 1
-        conn.execute("""UPDATE ka.agent_sessions SET status='working',turns=1,worker_id='gone',
-            lease_expires_at=now()-interval '1 second' WHERE id=%s""", (sid,))
-        conn.execute("UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now() WHERE session_id=%s",
-                     (sid,))
+        conn.execute(
+            """UPDATE ka.agent_sessions SET status='working',turns=1,worker_id='gone',
+            lease_expires_at=now()-interval '1 second' WHERE id=%s""",
+            (sid,),
+        )
+        conn.execute(
+            "UPDATE ka.agent_session_inputs SET status='delivered',turn=1,delivered_at=now() WHERE session_id=%s",
+            (sid,),
+        )
     shared.claim(store, 'worker-1', [], 4)
     [note] = notifications(store)
     assert (note['status'], note['body'], note['session_id']) == ('failed', shared.INTERRUPTED, sid)
@@ -177,8 +208,9 @@ def serve_one(sessions, sid, fake) -> dict:
 
     async def scenario():
         stopped = asyncio.Event()
-        serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
-                                                            poll=0.02))
+        serving = asyncio.create_task(
+            native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1, poll=0.02)
+        )
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
         try:
             return await wait_for(store, sid, lambda s: s['worker_id'] is None, timeout=1.0)
@@ -193,8 +225,16 @@ def serve_one(sessions, sid, fake) -> dict:
 
 def test_an_event_run_releases_its_worker_slot_when_its_turn_ends(worker):
     sid, *_ = a_run(worker)
-    row = serve_one(worker, sid, FakeAgent([{'steps': [llm(message('Done.'))], 'answer': 'Done.'},
-                                             {'steps': [llm(message('Again.'))], 'answer': 'Again.'}]))
+    row = serve_one(
+        worker,
+        sid,
+        FakeAgent(
+            [
+                {'steps': [llm(message('Done.'))], 'answer': 'Done.'},
+                {'steps': [llm(message('Again.'))], 'answer': 'Again.'},
+            ]
+        ),
+    )
     assert (row['status'], row['worker_id'], row['lease_expires_at']) == ('waiting', None, None)
     asyncio.run(post(worker, f'/api/sessions/{sid}/messages', {'text': 'And?'}))
     [again] = shared.claim(worker.store, 'worker-2', [], 4)  # a later message is claimed again

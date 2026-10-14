@@ -1,5 +1,6 @@
 """The scheduler: claim a due schedule, run its target, record the result. It runs as a thread in repository-worker;
 the lease keeps several workers from running the same schedule, and a worker whose lease ran out records nothing."""
+
 import logging
 import threading
 from collections.abc import Callable
@@ -51,8 +52,11 @@ def run(store: RepositoryStore, schedule: dict, targets: dict[str, Target]) -> t
 def finish(store: RepositoryStore, schedule: dict, status: str, message: str) -> None:
     """Record the run and set the next time from the schedule as it is now (it may have been edited or paused)."""
     with store.connect() as conn:
-        current = conn.execute("""SELECT cron,timezone,enabled FROM ka.schedules WHERE id=%s AND lease_expires_at=%s
-            FOR UPDATE""", (schedule['id'], schedule['lease_expires_at'])).fetchone()
+        current = conn.execute(
+            """SELECT cron,timezone,enabled FROM ka.schedules WHERE id=%s AND lease_expires_at=%s
+            FOR UPDATE""",
+            (schedule['id'], schedule['lease_expires_at']),
+        ).fetchone()
         if current is None:
             return  # deleted, or the lease ran out and another worker took the schedule over
         next_run = None
@@ -60,17 +64,31 @@ def finish(store: RepositoryStore, schedule: dict, status: str, message: str) ->
             try:
                 next_run = next_after(current['cron'], current['timezone'], datetime.now(UTC))
             except Exception:
-                logger.exception('Schedule %s has no usable next run time; it will not run again until edited', schedule['id'])
+                logger.exception(
+                    'Schedule %s has no usable next run time; it will not run again until edited', schedule['id']
+                )
                 status, message = 'failed', UNEXPECTED
-        conn.execute("""UPDATE ka.schedules SET lease_expires_at=NULL,run_requested=false,next_run_at=%s,
+        conn.execute(
+            """UPDATE ka.schedules SET lease_expires_at=NULL,run_requested=false,next_run_at=%s,
             last_finished_at=clock_timestamp(),last_status=%s,last_message=%s WHERE id=%s""",
-            (next_run, status, message, schedule['id']))
-        conn.execute("""INSERT INTO ka.schedule_runs(schedule_id,trigger,started_at,finished_at,status,message)
+            (next_run, status, message, schedule['id']),
+        )
+        conn.execute(
+            """INSERT INTO ka.schedule_runs(schedule_id,trigger,started_at,finished_at,status,message)
             VALUES (%s,%s,%s,clock_timestamp(),%s,%s)""",
-            (schedule['id'], 'manual' if schedule['run_requested'] else 'schedule', schedule['last_run_at'], status, message))
-        conn.execute("""DELETE FROM ka.schedule_runs WHERE schedule_id=%s AND id NOT IN
+            (
+                schedule['id'],
+                'manual' if schedule['run_requested'] else 'schedule',
+                schedule['last_run_at'],
+                status,
+                message,
+            ),
+        )
+        conn.execute(
+            """DELETE FROM ka.schedule_runs WHERE schedule_id=%s AND id NOT IN
             (SELECT id FROM ka.schedule_runs WHERE schedule_id=%s ORDER BY id DESC LIMIT %s)""",
-            (schedule['id'], schedule['id'], KEEP_RUNS))
+            (schedule['id'], schedule['id'], KEEP_RUNS),
+        )
 
 
 def run_once(store: RepositoryStore, targets: dict[str, Target] | None = None) -> bool:
@@ -79,7 +97,7 @@ def run_once(store: RepositoryStore, targets: dict[str, Target] | None = None) -
         return False
     status, message = run(store, schedule, TARGETS if targets is None else targets)
     finish(store, schedule, status, message)
-    print(f"Schedule {schedule['id']} ({schedule['target_kind']}): {status}", flush=True)
+    print(f'Schedule {schedule["id"]} ({schedule["target_kind"]}): {status}', flush=True)
     return True
 
 

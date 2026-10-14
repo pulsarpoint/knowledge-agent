@@ -1,5 +1,6 @@
 """Event handler matching: an event type pattern plus field conditions that must all hold. Used by the event processor
 and by the handler API (validation on save, the reason shown by Preview)."""
+
 import json
 import re
 from typing import Any
@@ -62,7 +63,8 @@ def type_matches(pattern: str, event_type: str) -> bool:
     parts = pattern.split('.')
     expression = r'\.'.join(
         (r'[a-z0-9_]+(\.[a-z0-9_]+)*' if index == len(parts) - 1 else r'[a-z0-9_]+') if part == '*' else re.escape(part)
-        for index, part in enumerate(parts))
+        for index, part in enumerate(parts)
+    )
     return re.fullmatch(expression, event_type) is not None
 
 
@@ -115,7 +117,7 @@ def show(value: Any) -> str:
 def explain(handler: dict, event: dict) -> str | None:
     """None when the handler matches the event, else the first failing check in words (Preview shows it)."""
     if not type_matches(handler['type_pattern'], event['type']):
-        return f"type is {show(event['type'])}, not {handler['type_pattern']}"
+        return f'type is {show(event["type"])}, not {handler["type_pattern"]}'
     for condition in handler['conditions']:
         actual = lookup(event, condition['field'])
         if holds(condition, actual):
@@ -123,7 +125,7 @@ def explain(handler: dict, event: dict) -> str | None:
         field, op, value = condition['field'], condition['op'], condition['value']
         if op == 'equals':
             return f'{field} is {show(actual)}, not {show(value)}'
-        return f"{field} is {show(actual)}; it must {WANTED[op]}{'' if op == 'exists' else ' ' + show(value)}"
+        return f'{field} is {show(actual)}; it must {WANTED[op]}{"" if op == "exists" else " " + show(value)}'
     return None
 
 

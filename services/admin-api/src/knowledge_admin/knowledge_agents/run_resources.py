@@ -5,6 +5,7 @@ each run passes its own. `resolve` checks the request and narrows each resource 
 so the existing tools, which only reach what the configuration lists, reach exactly what the run was given. Nothing
 passed for a kind leaves that list empty: never "all". Fixed agents keep their configuration and refuse run
 resources. Credentials stay references; nothing is decrypted here."""
+
 import copy
 import os
 from collections.abc import Iterable
@@ -26,17 +27,19 @@ NOT_AVAILABLE = '{label} {name} is not available: it was removed, archived or di
 
 
 class Kind(NamedTuple):
-    key: str         # the run resources key
+    key: str  # the run resources key
     capability: str  # the config section with its switch
-    label: str       # one resource, in messages
-    plural: str      # the kind, in messages
-    option: str      # the options() key
+    label: str  # one resource, in messages
+    plural: str  # the kind, in messages
+    option: str  # the options() key
 
 
-KINDS = (Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_projects'),
-         Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collections'),
-         Kind('server_ids', 'ssh', 'Server', 'servers', 'servers'),
-         Kind('service_ids', 'services', 'Service', 'services', 'services'))
+KINDS = (
+    Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_projects'),
+    Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collections'),
+    Kind('server_ids', 'ssh', 'Server', 'servers', 'servers'),
+    Kind('service_ids', 'services', 'Service', 'services', 'services'),
+)
 
 # The id, name and whether it can be given now, of the requested resources of one kind in this workspace.
 FOUND = {
@@ -59,15 +62,15 @@ COLLECTIONS = """SELECT c.id,c.name,c.description,
     ARRAY(SELECT p.source_path FROM ka.rag_collection_paths p WHERE p.collection_id=c.id ORDER BY p.source_path) AS source_paths
     FROM ka.rag_collections c WHERE c.project_id=%s AND c.id=ANY(%s) AND c.deleted_at IS NULL"""
 # What services and environments bring: only usable code projects (not archived) and servers (SSH allowed).
-ENVIRONMENT_SERVICES = '''SELECT es.service_id AS id FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
-    WHERE es.project_id=%s AND es.environment_id=ANY(%s) ORDER BY lower(s.name),s.id'''
-ENVIRONMENT_SERVERS = '''SELECT es.server_id AS id FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
-    WHERE es.project_id=%s AND es.environment_id=ANY(%s) AND s.ssh_allowed ORDER BY lower(s.name),s.id'''
-SERVICE_CODE = '''SELECT r.id FROM ka.inventory_links l JOIN ka.repositories r ON r.id=l.to_code_project_id
+ENVIRONMENT_SERVICES = """SELECT es.service_id AS id FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
+    WHERE es.project_id=%s AND es.environment_id=ANY(%s) ORDER BY lower(s.name),s.id"""
+ENVIRONMENT_SERVERS = """SELECT es.server_id AS id FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
+    WHERE es.project_id=%s AND es.environment_id=ANY(%s) AND s.ssh_allowed ORDER BY lower(s.name),s.id"""
+SERVICE_CODE = """SELECT r.id FROM ka.inventory_links l JOIN ka.repositories r ON r.id=l.to_code_project_id
     WHERE l.kind='built_from' AND r.project_id=%s AND l.from_service_id=ANY(%s) AND r.archived_at IS NULL
-    ORDER BY lower(r.name),r.id'''
-SERVICE_SERVERS = '''SELECT h.id FROM ka.service_deployments d JOIN ka.servers h ON h.id=d.server_id
-    WHERE h.project_id=%s AND d.service_id=ANY(%s) AND h.ssh_allowed ORDER BY lower(h.name),h.id'''
+    ORDER BY lower(r.name),r.id"""
+SERVICE_SERVERS = """SELECT h.id FROM ka.service_deployments d JOIN ka.servers h ON h.id=d.server_id
+    WHERE h.project_id=%s AND d.service_id=ANY(%s) AND h.ssh_allowed ORDER BY lower(h.name),h.id"""
 
 
 class RunResourceError(ValueError):
@@ -76,6 +79,7 @@ class RunResourceError(ValueError):
 
 class RunResources(BaseModel):
     """What a caller passes to one run of a per-run agent: each id once, in the caller's order."""
+
     model_config = ConfigDict(extra='forbid')
     code_project_ids: list[UUID] = Field(default_factory=list, max_length=50)
     collection_ids: list[UUID] = Field(default_factory=list, max_length=200)
@@ -96,7 +100,11 @@ def _selection(config: dict[str, Any], kind: Kind) -> dict[str, dict[str, Any]] 
     """The agent's saved selection of one kind, by id, as its snapshot lists it; None when it allows any (All code
     projects, All collections)."""
     if kind.capability == 'code':
-        return None if config['code'].get('all_projects') else {str(item['id']): item for item in config['code']['projects']}
+        return (
+            None
+            if config['code'].get('all_projects')
+            else {str(item['id']): item for item in config['code']['projects']}
+        )
     if kind.capability == 'documents':
         everything, items = document_collections(config)
         return None if everything else {str(item['id']): item for item in items if 'id' in item}
@@ -123,7 +131,9 @@ def _fresh(conn, project_id, kind: Kind, ids: list[str]) -> dict[str, dict[str, 
     return {str(row['id']): jsonable_encoder(row) for row in rows}
 
 
-def bring(conn, project_id, service_ids: Iterable[str], environment_ids: Iterable[UUID | str] = ()) -> dict[str, list[str]]:
+def bring(
+    conn, project_id, service_ids: Iterable[str], environment_ids: Iterable[UUID | str] = ()
+) -> dict[str, list[str]]:
     """What chosen services and environments bring: an environment its services and servers, a service (chosen or
     brought) its code projects and the servers it is deployed on. Only code projects not archived and servers with SSH
     allowed; the ids of what was chosen itself are not repeated in service_ids."""
@@ -139,8 +149,9 @@ def bring(conn, project_id, service_ids: Iterable[str], environment_ids: Iterabl
     return brought
 
 
-def resolve(conn, project_id, config: dict[str, Any], requested: RunResources | None, *,
-            environment_ids: Iterable[UUID] = ()) -> dict[str, Any]:
+def resolve(
+    conn, project_id, config: dict[str, Any], requested: RunResources | None, *, environment_ids: Iterable[UUID] = ()
+) -> dict[str, Any]:
     """The configuration one run uses.
 
     Fixed agents: their own configuration, unchanged; passing run resources is refused (FIXED).
@@ -215,7 +226,10 @@ def options(conn, project_id, config: dict[str, Any]) -> dict[str, list[dict[str
             continue
         selection = _selection(config, kind)
         result[kind.option] = [
-            {'id': str(row['id']), 'name': row['name']} for row in conn.execute(LISTED[kind.key], (project_id,))
-            if selection is None or str(row['id']) in selection and (
-                kind.capability != 'ssh' or _usable_server(selection[str(row['id'])]))]
+            {'id': str(row['id']), 'name': row['name']}
+            for row in conn.execute(LISTED[kind.key], (project_id,))
+            if selection is None
+            or str(row['id']) in selection
+            and (kind.capability != 'ssh' or _usable_server(selection[str(row['id'])]))
+        ]
     return result

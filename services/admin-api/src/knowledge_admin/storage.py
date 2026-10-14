@@ -48,30 +48,58 @@ def build_api() -> APIRouter:
         for area, (container_variable, variable) in ROOTS.items():
             configured = os.environ.get(container_variable) or None
             available = bool(configured and Path(configured).is_absolute() and Path(configured).is_dir())
-            locations.append({'id': area, 'container_path': configured, 'host_path': host_path(configured),
-                              'variable': variable,
-                              'status': 'available' if available else 'unavailable' if configured else 'unconfigured'})
+            locations.append(
+                {
+                    'id': area,
+                    'container_path': configured,
+                    'host_path': host_path(configured),
+                    'variable': variable,
+                    'status': 'available' if available else 'unavailable' if configured else 'unconfigured',
+                }
+            )
         return {'locations': locations}
 
     @router.get('/{area}/entries')
-    def entries(area: StorageArea, path: str = Query(default='', max_length=1000), offset: int = Query(default=0, ge=0)):
+    def entries(
+        area: StorageArea, path: str = Query(default='', max_length=1000), offset: int = Query(default=0, ge=0)
+    ):
         directory = storage_path(area, path)
         if not directory.is_dir():
             raise HTTPException(404, 'Folder not found.')
         try:
             with os.scandir(directory) as iterator:
-                children = sorted(iterator, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.casefold(), e.name))
+                children = sorted(
+                    iterator, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.casefold(), e.name)
+                )
             values = []
-            for entry in children[offset:offset+200]:
+            for entry in children[offset : offset + 200]:
                 stat = entry.stat(follow_symlinks=False)
-                kind = 'symlink' if entry.is_symlink() else 'folder' if entry.is_dir(follow_symlinks=False) else 'file' if entry.is_file(follow_symlinks=False) else 'other'
-                values.append({'name': entry.name, 'path': f'{path}/{entry.name}' if path else entry.name,
-                               'kind': kind, 'size': stat.st_size if kind == 'file' else None,
-                               'modified_at': datetime.fromtimestamp(stat.st_mtime, timezone.utc)})
+                kind = (
+                    'symlink'
+                    if entry.is_symlink()
+                    else 'folder'
+                    if entry.is_dir(follow_symlinks=False)
+                    else 'file'
+                    if entry.is_file(follow_symlinks=False)
+                    else 'other'
+                )
+                values.append(
+                    {
+                        'name': entry.name,
+                        'path': f'{path}/{entry.name}' if path else entry.name,
+                        'kind': kind,
+                        'size': stat.st_size if kind == 'file' else None,
+                        'modified_at': datetime.fromtimestamp(stat.st_mtime, timezone.utc),
+                    }
+                )
         except OSError:
             raise HTTPException(503, 'Could not read this folder. Check mount permissions and refresh.') from None
-        return {'path': path, 'entries': values, 'total': len(children),
-                'next_offset': offset+200 if offset+200 < len(children) else None}
+        return {
+            'path': path,
+            'entries': values,
+            'total': len(children),
+            'next_offset': offset + 200 if offset + 200 < len(children) else None,
+        }
 
     @router.get('/{area}/file')
     def file(area: StorageArea, path: str = Query(min_length=1, max_length=1000)):

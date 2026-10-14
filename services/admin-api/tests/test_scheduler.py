@@ -1,4 +1,5 @@
 """The scheduler claims due schedules with a lease, runs their target and records the result."""
+
 import threading
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -12,11 +13,24 @@ from knowledge_admin.events.schedules import MISSING, TargetMissing
 def a_schedule(store, **values) -> dict:
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        row = {'project_id': project, 'name': 'Jira auto pull', 'target_kind': 'jira.pull', 'target_id': uuid4(),
-               'cron': '*/15 * * * *', 'timezone': 'UTC', **values}
-        schedule = conn.execute(f"""INSERT INTO ka.schedules({','.join(row)}) VALUES ({','.join(['%s'] * len(row))})
-            RETURNING id""", tuple(row.values())).fetchone()
-        conn.execute("UPDATE ka.schedules SET next_run_at=coalesce(next_run_at, now()-interval '1 minute') WHERE id=%s AND enabled", (schedule['id'],))
+        row = {
+            'project_id': project,
+            'name': 'Jira auto pull',
+            'target_kind': 'jira.pull',
+            'target_id': uuid4(),
+            'cron': '*/15 * * * *',
+            'timezone': 'UTC',
+            **values,
+        }
+        schedule = conn.execute(
+            f"""INSERT INTO ka.schedules({','.join(row)}) VALUES ({','.join(['%s'] * len(row))})
+            RETURNING id""",
+            tuple(row.values()),
+        ).fetchone()
+        conn.execute(
+            "UPDATE ka.schedules SET next_run_at=coalesce(next_run_at, now()-interval '1 minute') WHERE id=%s AND enabled",
+            (schedule['id'],),
+        )
     return schedule
 
 
@@ -27,7 +41,9 @@ def row(store, schedule) -> dict:
 
 def runs(store, schedule) -> list[dict]:
     with store.connect() as conn:
-        return conn.execute('SELECT * FROM ka.schedule_runs WHERE schedule_id=%s ORDER BY id', (schedule['id'],)).fetchall()
+        return conn.execute(
+            'SELECT * FROM ka.schedule_runs WHERE schedule_id=%s ORDER BY id', (schedule['id'],)
+        ).fetchall()
 
 
 def ok(store, schedule):
@@ -64,7 +80,9 @@ def test_expired_lease_is_claimable_and_the_stale_finish_records_nothing(store):
     schedule = a_schedule(store)
     stale = scheduler.claim(store)
     with store.connect() as conn:
-        conn.execute("UPDATE ka.schedules SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (schedule['id'],))
+        conn.execute(
+            "UPDATE ka.schedules SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (schedule['id'],)
+        )
     fresh = scheduler.claim(store)
     assert fresh is not None
     scheduler.finish(store, stale, 'failed', 'late')
@@ -83,8 +101,11 @@ def test_failures_are_recorded_and_the_schedule_moves_on(store):
     def gone(store, schedule):
         raise TargetMissing()
 
-    for target, message in [(jira_down, 'Could not reach Jira. Check the URL, network access, and TLS certificate'),
-                            (broken, scheduler.UNEXPECTED), (gone, MISSING)]:
+    for target, message in [
+        (jira_down, 'Could not reach Jira. Check the URL, network access, and TLS certificate'),
+        (broken, scheduler.UNEXPECTED),
+        (gone, MISSING),
+    ]:
         schedule = a_schedule(store)
         assert scheduler.run_once(store, {'jira.pull': target}) is True
         saved = row(store, schedule)
@@ -100,7 +121,9 @@ def test_an_unknown_target_fails(store):
 
 def test_a_skipped_run_is_recorded_as_skipped(store):
     schedule = a_schedule(store)
-    scheduler.run_once(store, {'jira.pull': lambda store, schedule: ('skipped', 'A manual fetch ran at the same time.')})
+    scheduler.run_once(
+        store, {'jira.pull': lambda store, schedule: ('skipped', 'A manual fetch ran at the same time.')}
+    )
     assert row(store, schedule)['last_status'] == 'skipped'
 
 
@@ -109,7 +132,9 @@ def test_pausing_during_a_run_keeps_it_paused(store):
 
     def pause_meanwhile(store, claimed):
         with store.connect() as conn:
-            conn.execute("UPDATE ka.schedules SET enabled=false,next_run_at=NULL,cron='0 * * * *' WHERE id=%s", (claimed['id'],))
+            conn.execute(
+                "UPDATE ka.schedules SET enabled=false,next_run_at=NULL,cron='0 * * * *' WHERE id=%s", (claimed['id'],)
+            )
         return ok(store, claimed)
 
     scheduler.run_once(store, {'jira.pull': pause_meanwhile})
@@ -131,8 +156,11 @@ def test_history_keeps_the_newest_100(store):
     schedule = a_schedule(store)
     with store.connect() as conn:
         for _ in range(105):
-            conn.execute("""INSERT INTO ka.schedule_runs(schedule_id,trigger,started_at,finished_at,status,message)
-                VALUES (%s,'schedule',now(),now(),'succeeded','old')""", (schedule['id'],))
+            conn.execute(
+                """INSERT INTO ka.schedule_runs(schedule_id,trigger,started_at,finished_at,status,message)
+                VALUES (%s,'schedule',now(),now(),'succeeded','old')""",
+                (schedule['id'],),
+            )
     scheduler.run_once(store, {'jira.pull': ok})
     kept = runs(store, schedule)
     assert len(kept) == scheduler.KEEP_RUNS and kept[-1]['message'] == 'Pulled 3 of 3 tickets.'

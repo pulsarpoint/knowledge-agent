@@ -25,20 +25,30 @@ MAX_FOLDERS = 1000  # the folder browser lists at most this many children
 class FolderMissing(HTTPException):
     def __init__(self, source: str):
         self.source = source
-        super().__init__(409, f'Path {source} is missing. Nothing was removed from the index; '
-                              'restore the folder or remove the path from the collection.')
+        super().__init__(
+            409,
+            f'Path {source} is missing. Nothing was removed from the index; '
+            'restore the folder or remove the path from the collection.',
+        )
 
 
 def source_path(value: str) -> str:
     if len(value) > 500 or not SOURCE_PATH.fullmatch(value):
-        raise HTTPException(400, 'Choose a folder inside DATA_ROOT: names of letters, digits, ".", "_" and "-" '
-                                 'separated by "/", none starting with "."')
+        raise HTTPException(
+            400,
+            'Choose a folder inside DATA_ROOT: names of letters, digits, ".", "_" and "-" '
+            'separated by "/", none starting with "."',
+        )
     return value
 
 
 def link_or_not_folder(error: OSError) -> bool:
     """A path through a symbolic link (refused by O_NOFOLLOW) or through a file used as a folder."""
-    return isinstance(error, (NotADirectoryError, IsADirectoryError)) or error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR)
+    return isinstance(error, (NotADirectoryError, IsADirectoryError)) or error.errno in (
+        errno.ELOOP,
+        errno.ENOTDIR,
+        errno.EISDIR,
+    )
 
 
 def overlaps(a: str, b: str) -> bool:
@@ -48,8 +58,13 @@ def overlaps(a: str, b: str) -> bool:
 
 def relative_path(value: str) -> str:
     parts = value.split('/')
-    if (not value or len(value) > 1000 or value.startswith('/') or '\\' in value
-            or any(part in ('', '.', '..') or len(part) > 255 or any(ord(c) < 32 for c in part) for part in parts)):
+    if (
+        not value
+        or len(value) > 1000
+        or value.startswith('/')
+        or '\\' in value
+        or any(part in ('', '.', '..') or len(part) > 255 or any(ord(c) < 32 for c in part) for part in parts)
+    ):
         raise HTTPException(400, 'Use a file path inside the collection folder')
     return value
 
@@ -60,25 +75,32 @@ def glob_regex(pattern: str) -> re.Pattern:
     out, i = [], 0
     while i < len(pattern):
         if pattern.startswith('**/', i):
-            out.append('(?:.*/)?'); i += 3
+            out.append('(?:.*/)?')
+            i += 3
         elif pattern.startswith('**', i):
-            out.append('.*'); i += 2
+            out.append('.*')
+            i += 2
         elif pattern[i] == '*':
-            out.append('[^/]*'); i += 1
+            out.append('[^/]*')
+            i += 1
         elif pattern[i] == '?':
-            out.append('[^/]'); i += 1
+            out.append('[^/]')
+            i += 1
         elif pattern[i] == '[':
             end = pattern.find(']', i + 1)
-            body = pattern[i + 1:end] if end != -1 else ''
+            body = pattern[i + 1 : end] if end != -1 else ''
             negated = body.startswith('!')
             members = body[1:] if negated else body
             if end == -1 or not members:
-                out.append(re.escape('[')); i += 1
+                out.append(re.escape('['))
+                i += 1
             else:
                 members = members.replace('\\', '\\\\').replace('[', '\\[').replace('^', '\\^')
-                out.append('(?!/)[' + ('^' if negated else '') + members + ']'); i = end + 1
+                out.append('(?!/)[' + ('^' if negated else '') + members + ']')
+                i = end + 1
         else:
-            out.append(re.escape(pattern[i])); i += 1
+            out.append(re.escape(pattern[i]))
+            i += 1
     try:
         return re.compile(''.join(out), re.DOTALL)
     except re.error:
@@ -86,8 +108,9 @@ def glob_regex(pattern: str) -> re.Pattern:
 
 
 def matches(path: str, include: list[str], exclude: list[str]) -> bool:
-    return (any(glob_regex(p).fullmatch(path) for p in include)
-            and not any(glob_regex(p).fullmatch(path) for p in exclude))
+    return any(glob_regex(p).fullmatch(path) for p in include) and not any(
+        glob_regex(p).fullmatch(path) for p in exclude
+    )
 
 
 def visible(path: str) -> bool:
@@ -109,7 +132,9 @@ def refuse_hidden(path: str) -> None:
 class Walk:
     files: list[dict] = field(default_factory=list)
     newest_mtime: float | None = None
-    skipped: dict[str, int] = field(default_factory=lambda: {'links': 0, 'special': 0, 'unreadable': 0, 'invalid_names': 0})
+    skipped: dict[str, int] = field(
+        default_factory=lambda: {'links': 0, 'special': 0, 'unreadable': 0, 'invalid_names': 0}
+    )
     truncated: bool = False
     missing: list[str] = field(default_factory=list)  # paths absent during a truncating walk
     visited: int = 0  # entries visited, counted across every path of a collection
@@ -155,8 +180,10 @@ class DataRoot:
         path, root = PurePosixPath(jira), PurePosixPath(container)
         relative = path.relative_to(root).as_posix() if path.is_absolute() and path.is_relative_to(root) else ''
         if '..' in path.parts or relative in ('', '.') or not SOURCE_PATH.fullmatch(relative) or len(relative) > 500:
-            raise RuntimeError(f'JIRA_EXPORT_ROOT ({jira}) must be a visible folder inside DATA_ROOT_DIR ({container}), '
-                               'such as DATA_ROOT_DIR/jira')
+            raise RuntimeError(
+                f'JIRA_EXPORT_ROOT ({jira}) must be a visible folder inside DATA_ROOT_DIR ({container}), '
+                'such as DATA_ROOT_DIR/jira'
+            )
         return relative
 
     def _root(self) -> Path:
@@ -235,8 +262,17 @@ class DataRoot:
                 raise HTTPException(404, 'Folder does not exist') from None
             raise
 
-    def walk(self, source: str, include: list[str], exclude: list[str], *, limit: int | None = None,
-             truncate: bool = False, max_entries: int | None = None, into: Walk | None = None) -> Walk:
+    def walk(
+        self,
+        source: str,
+        include: list[str],
+        exclude: list[str],
+        *,
+        limit: int | None = None,
+        truncate: bool = False,
+        max_entries: int | None = None,
+        into: Walk | None = None,
+    ) -> Walk:
         """List indexable files of one folder; patterns match paths relative to it.
 
         `limit` caps matching files (default MAX_FILES); `max_entries` caps every entry visited (default
@@ -263,8 +299,11 @@ class DataRoot:
                     if truncate:
                         result.truncated = True
                         return False
-                    raise HTTPException(400, f'This collection has more than {max_entries} entries in its folders; '
-                                             'narrow its paths or include patterns')
+                    raise HTTPException(
+                        400,
+                        f'This collection has more than {max_entries} entries in its folders; '
+                        'narrow its paths or include patterns',
+                    )
                 try:
                     name.encode('utf-8')
                 except UnicodeEncodeError:
@@ -302,9 +341,17 @@ class DataRoot:
                         if truncate:
                             result.truncated = True
                             return False
-                        raise HTTPException(400, f'This collection selects more than {limit} files; narrow its include patterns')
-                    result.files.append({'path': relative if into is None else f'{source}/{relative}', 'source': source,
-                                         'size': entry.st_size, 'mtime': entry.st_mtime})
+                        raise HTTPException(
+                            400, f'This collection selects more than {limit} files; narrow its include patterns'
+                        )
+                    result.files.append(
+                        {
+                            'path': relative if into is None else f'{source}/{relative}',
+                            'source': source,
+                            'size': entry.st_size,
+                            'mtime': entry.st_mtime,
+                        }
+                    )
                     newer(entry.st_mtime)
                 elif indexable(relative, include, exclude):
                     result.skipped['special'] += 1
@@ -317,13 +364,23 @@ class DataRoot:
                 raise FolderMissing(source) from None
             except OSError as error:
                 if error.errno == errno.ELOOP:
-                    raise HTTPException(409, f'The collection folder {source} is a link; point the collection at a real folder') from None
+                    raise HTTPException(
+                        409, f'The collection folder {source} is a link; point the collection at a real folder'
+                    ) from None
                 raise
             visit(fd, '')
         return result
 
-    def walk_paths(self, sources: list[str], include: list[str], exclude: list[str], *, limit: int | None = None,
-                   truncate: bool = False, max_entries: int | None = None) -> Walk:
+    def walk_paths(
+        self,
+        sources: list[str],
+        include: list[str],
+        exclude: list[str],
+        *,
+        limit: int | None = None,
+        truncate: bool = False,
+        max_entries: int | None = None,
+    ) -> Walk:
         """Walk every path of a collection into one result with full DATA_ROOT-relative file paths.
 
         The caps apply to the collection as a whole. With `truncate` (status and listings) a missing
@@ -335,7 +392,9 @@ class DataRoot:
             if result.truncated:
                 break
             try:
-                self.walk(source, include, exclude, limit=limit, truncate=truncate, max_entries=max_entries, into=result)
+                self.walk(
+                    source, include, exclude, limit=limit, truncate=truncate, max_entries=max_entries, into=result
+                )
             except FolderMissing:
                 if not truncate:
                     raise
@@ -357,8 +416,11 @@ class DataRoot:
     def write(self, source: str, path: str, data: bytes) -> None:
         """Create or replace `path` inside `source`, which must be the Jira folder or inside it."""
         if not self.writable(source):
-            raise HTTPException(403, f'Only files inside {self.jira_folder or "the Jira folder"} can be written; '
-                                     'other folders are read-only')
+            raise HTTPException(
+                403,
+                f'Only files inside {self.jira_folder or "the Jira folder"} can be written; '
+                'other folders are read-only',
+            )
         *parents, name = relative_path(path).split('/')
         refuse_hidden(path)
         try:

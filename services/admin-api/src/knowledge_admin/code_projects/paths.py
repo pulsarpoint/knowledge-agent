@@ -1,4 +1,5 @@
 """Paths in the application's mounted code directory."""
+
 import os
 from pathlib import Path, PurePosixPath
 
@@ -6,8 +7,14 @@ from fastapi import HTTPException
 
 
 def relative_code_path(value: str) -> str:
-    if (not value or len(value)>1000 or '\\' in value or '\x00' in value or PurePosixPath(value).is_absolute()
-            or any(part in ('', '.', '..', '.git', '.ka-sync') for part in value.split('/'))):
+    if (
+        not value
+        or len(value) > 1000
+        or '\\' in value
+        or '\x00' in value
+        or PurePosixPath(value).is_absolute()
+        or any(part in ('', '.', '..', '.git', '.ka-sync') for part in value.split('/'))
+    ):
         raise ValueError('Choose a folder path inside the code root, without dot segments or Git internals.')
     return value
 

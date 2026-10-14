@@ -1,5 +1,6 @@
 """agent-session-worker with a fake native runtime: turns, events, the draft, tokens, history, Stop at any point,
 comments delivered inside a running turn, failures and credentials."""
+
 import asyncio
 import json
 import tomllib
@@ -45,8 +46,12 @@ def comment(text: str) -> dict:
 
 def inputs(store, sid) -> list[tuple]:
     with store.connect() as conn:
-        return [(row['text'], row['status'], row['turn']) for row in conn.execute(
-            'SELECT text,status,turn FROM ka.agent_session_inputs WHERE session_id=%s ORDER BY seq', (sid,))]
+        return [
+            (row['text'], row['status'], row['turn'])
+            for row in conn.execute(
+                'SELECT text,status,turn FROM ka.agent_session_inputs WHERE session_id=%s ORDER BY seq', (sid,)
+            )
+        ]
 
 
 def leftover_tasks() -> list[asyncio.Task]:
@@ -57,21 +62,37 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     sessions, sid = native
     store, url, data = sessions.store, f'/api/sessions/{sid}', sessions.data
     with store.connect() as conn:  # a run record setting never reaches a session turn (agent() would record it)
-        conn.execute('UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
-                     (Jsonb({'record': {'run_key': 'run:x'}}), sid))
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'read_file', {'path': f'{data}/code/app/main.py'}), input_tokens=100, output_tokens=10,
-                       cached=40),
-                   tool('c1', 'read_file', 'import app'),
-                   llm(message('# Payments API'), input_tokens=120, output_tokens=30)],
-         'answer': '# Payments API'},
-        {'steps': [llm(message('# Payments API\n\nShort.'), input_tokens=50, output_tokens=8)],
-         'answer': '# Payments API\n\nShort.'}])
+        conn.execute(
+            'UPDATE ka.agent_sessions SET agent_config=agent_config || %s WHERE id=%s',
+            (Jsonb({'record': {'run_key': 'run:x'}}), sid),
+        )
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(
+                        call('c1', 'read_file', {'path': f'{data}/code/app/main.py'}),
+                        input_tokens=100,
+                        output_tokens=10,
+                        cached=40,
+                    ),
+                    tool('c1', 'read_file', 'import app'),
+                    llm(message('# Payments API'), input_tokens=120, output_tokens=30),
+                ],
+                'answer': '# Payments API',
+            },
+            {
+                'steps': [llm(message('# Payments API\n\nShort.'), input_tokens=50, output_tokens=8)],
+                'answer': '# Payments API\n\nShort.',
+            },
+        ]
+    )
 
     async def scenario():
         stopped = asyncio.Event()
-        serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=2,
-                                                            poll=0.02))
+        serving = asyncio.create_task(
+            native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=2, poll=0.02)
+        )
         first = await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
         assert first['worker_id'] == 'native-1'
         await post(sessions, url + '/messages', {'text': 'Shorten it.'})
@@ -85,7 +106,9 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     first, second = fake.calls
     assert first['task'].startswith('Write the API reference.') and second['task'] == 'Shorten it.'
     assert first['history'] == [] and second['history'] == [
-        {'role': 'user', 'content': first['task']}, {'role': 'assistant', 'content': '# Payments API'}]
+        {'role': 'user', 'content': first['task']},
+        {'role': 'assistant', 'content': '# Payments API'},
+    ]
     # No turn limits: a session turn runs until it ends or Stop.
     assert (first['turn_timeout_seconds'], first['max_turns'], first['stream']) == (None, None, False)
     assert first['credentials'] == {sessions.claude: KEY}  # decrypted in the worker, for this turn
@@ -93,27 +116,60 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
     code = first['config']['code']
     assert code['enabled'] and [p['folder_paths'] for p in code['projects']] == [[f'{data}/code/app']]
     row = session_row(store, sid)
-    assert (row['status'], row['draft'], row['draft_turn'], row['input_tokens'], row['output_tokens'],
-            row['cached_tokens']) == ('closed', None, None, 270, 48, 40)  # the answer is no longer kept as a draft
-    assert row['history'] == [*second['history'], {'role': 'user', 'content': 'Shorten it.'},
-                              {'role': 'assistant', 'content': '# Payments API\n\nShort.'}]
+    assert (
+        row['status'],
+        row['draft'],
+        row['draft_turn'],
+        row['input_tokens'],
+        row['output_tokens'],
+        row['cached_tokens'],
+    ) == ('closed', None, None, 270, 48, 40)  # the answer is no longer kept as a draft
+    assert row['history'] == [
+        *second['history'],
+        {'role': 'user', 'content': 'Shorten it.'},
+        {'role': 'assistant', 'content': '# Payments API\n\nShort.'},
+    ]
     recorded = events(store, sid)
     turn1 = [e for e in recorded if e['run_key'] == f'cc:{sid}:1']
-    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
-                                          'message', 'usage', 'end']
-    assert turn1[0]['payload'] == {'kind': 'native_session', 'title': 'Write the API reference.', 'agent': 'Ad-hoc agent',
-                                   'turn': 1}
+    assert [e['kind'] for e in turn1] == [
+        'start',
+        'input',
+        'instructions',
+        'tool_call',
+        'usage',
+        'tool_result',
+        'message',
+        'usage',
+        'end',
+    ]
+    assert turn1[0]['payload'] == {
+        'kind': 'native_session',
+        'title': 'Write the API reference.',
+        'agent': 'Ad-hoc agent',
+        'turn': 1,
+    }
     assert turn1[1]['payload'] == {'task': first['task']}  # no empty history from agent()'s own run record
     assert turn1[2]['payload']['text'] == 'Native prompt for Ad-hoc agent'
-    assert turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
+    assert (
+        turn1[3]['payload']['summary'] == f'{data}/code/app/main.py' and turn1[5]['payload']['preview'] == 'import app'
+    )
     assert [e['payload'] for e in turn1 if e['kind'] == 'usage'] == [  # one per model call
         {'input_tokens': 100, 'output_tokens': 10, 'cached_tokens': 40, 'reasoning_tokens': 0, 'total_tokens': 110},
-        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150}]
-    assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == ['start', 'input', 'message', 'usage', 'end']
+        {'input_tokens': 120, 'output_tokens': 30, 'cached_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 150},
+    ]
+    assert [e['kind'] for e in recorded if e['run_key'] == f'cc:{sid}:2'] == [
+        'start',
+        'input',
+        'message',
+        'usage',
+        'end',
+    ]
     assert {e['run_key'] for e in recorded} == {f'cc:{sid}:1', f'cc:{sid}:2'}
     runs = sessions.client.get('/api/agent-runs?kind=native_session', headers=HEADERS).json()['runs']
     assert [(r['run_key'], r['status'], r['agent'], r['total_tokens']) for r in runs] == [
-        (f'cc:{sid}:2', 'completed', 'Ad-hoc agent', 58), (f'cc:{sid}:1', 'completed', 'Ad-hoc agent', 260)]
+        (f'cc:{sid}:2', 'completed', 'Ad-hoc agent', 58),
+        (f'cc:{sid}:1', 'completed', 'Ad-hoc agent', 260),
+    ]
     page = sessions.client.get(url + '/events/history', headers=HEADERS).json()['events']
     assert [e['kind'] for e in page if e['turn'] == 1][3:6] == ['tool_call', 'usage', 'tool_result']
     assert 'output' not in next(e['payload'] for e in page if e['kind'] == 'tool_result')  # the page gets the preview
@@ -122,11 +178,14 @@ def test_native_turns_write_session_events_the_draft_tokens_and_history(native):
 def test_failed_and_stopped_turns_keep_the_history_and_draft(native):
     sessions, sid = native
     store, url = sessions.store, f'/api/sessions/{sid}'
-    fake = FakeAgent([
-        {'steps': [llm(message('# Draft one'), input_tokens=10, output_tokens=5)], 'answer': '# Draft one'},
-        {'steps': [llm(message('Reading more'), input_tokens=7, output_tokens=1)], 'error': RuntimeError('boom')},
-        {'steps': [llm(message('Partial'), input_tokens=3, output_tokens=1)], 'answer': 'never reached'},
-    ], gates={2: asyncio.Event()})
+    fake = FakeAgent(
+        [
+            {'steps': [llm(message('# Draft one'), input_tokens=10, output_tokens=5)], 'answer': '# Draft one'},
+            {'steps': [llm(message('Reading more'), input_tokens=7, output_tokens=1)], 'error': RuntimeError('boom')},
+            {'steps': [llm(message('Partial'), input_tokens=3, output_tokens=1)], 'answer': 'never reached'},
+        ],
+        gates={2: asyncio.Event()},
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -160,9 +219,11 @@ def test_a_grounding_failure_still_finishes_the_turn_as_waiting_with_its_answer(
 
     def broken(result, answer):
         raise ValueError(f'bad citation near {KEY}')
+
     monkeypatch.setattr(native_sessions, 'grounding_of', broken)
-    fake = FakeAgent([{'steps': [llm(message('# Payments API'), input_tokens=10, output_tokens=5)],
-                       'answer': '# Payments API'}])
+    fake = FakeAgent(
+        [{'steps': [llm(message('# Payments API'), input_tokens=10, output_tokens=5)], 'answer': '# Payments API'}]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -189,16 +250,34 @@ def test_session_tokens_rise_after_every_model_call_and_count_once(native):
         async def step(turn):
             reached[n].set()
             await go[n].wait()
+
         return step
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'read_file', {'path': 'a'}), input_tokens=100, output_tokens=10, cached=40), pause(0),
-                   tool('c1', 'read_file', 'a'),
-                   llm(call('c2', 'read_file', {'path': 'b'}), input_tokens=200, output_tokens=20, cached=80), pause(1),
-                   tool('c2', 'read_file', 'b'),
-                   llm(message('# Docs'), input_tokens=300, output_tokens=30), pause(2)],
-         'answer': '# Docs'},
-        {'steps': [llm(call('c3', 'read_file', {'path': 'c'}), input_tokens=7, output_tokens=3), pause(3),
-                   hang('tool', asyncio.Event(), [])], 'answer': 'never reached'}])
+
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(call('c1', 'read_file', {'path': 'a'}), input_tokens=100, output_tokens=10, cached=40),
+                    pause(0),
+                    tool('c1', 'read_file', 'a'),
+                    llm(call('c2', 'read_file', {'path': 'b'}), input_tokens=200, output_tokens=20, cached=80),
+                    pause(1),
+                    tool('c2', 'read_file', 'b'),
+                    llm(message('# Docs'), input_tokens=300, output_tokens=30),
+                    pause(2),
+                ],
+                'answer': '# Docs',
+            },
+            {
+                'steps': [
+                    llm(call('c3', 'read_file', {'path': 'c'}), input_tokens=7, output_tokens=3),
+                    pause(3),
+                    hang('tool', asyncio.Event(), []),
+                ],
+                'answer': 'never reached',
+            },
+        ]
+    )
 
     def tokens(row: dict) -> tuple:
         return row['input_tokens'], row['output_tokens'], row['cached_tokens']
@@ -239,8 +318,9 @@ def test_stop_ends_the_turn_wherever_it_is_and_leaves_nothing_running(native, wh
     steps = [hang(where, started, cancelled)]
     if where == 'tool':
         steps = [llm(call('c1', 'shell_run', {'command': 'sleep 3600'}), input_tokens=4, output_tokens=2), *steps]
-    fake = FakeAgent([{'steps': steps, 'answer': 'never reached'},
-                      {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
+    fake = FakeAgent(
+        [{'steps': steps, 'answer': 'never reached'}, {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -274,8 +354,7 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
     after = [tool('c9', 'shell_run', f'{KEY} printed'), llm(message(f'Key {KEY}'))]
     late = [stubborn(started, ignored, release), *(after if attempt == 'tool' else after[::-1])]  # after Stop
-    fake = FakeAgent([{'steps': late, 'answer': f'# {KEY}'},
-                      {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
+    fake = FakeAgent([{'steps': late, 'answer': f'# {KEY}'}, {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -294,8 +373,10 @@ def test_stop_ends_the_turn_even_when_the_runtime_ignores_cancellation(native, m
 
     stopped = asyncio.run(scenario())
     assert stopped['status_message'] == shared.STOPPED and ignored
-    assert session_row(store, sid)['history'] == [{'role': 'user', 'content': 'Continue.'},
-                                                  {'role': 'assistant', 'content': '# Docs'}]
+    assert session_row(store, sid)['history'] == [
+        {'role': 'user', 'content': 'Continue.'},
+        {'role': 'assistant', 'content': '# Docs'},
+    ]
     assert 'did not end within' in caplog.text and str(sid) in caplog.text
     assert (fake.calls[0]['tools'], fake.calls[0]['inputs']) == ([], [])  # neither started
     recorded = events(store, sid)
@@ -310,6 +391,7 @@ def test_a_runner_cancelled_during_the_stop_grace_still_cancels_and_tracks_the_t
     wait and kept tracked, so an error it raises later is retrieved, never logged with its unredacted traceback."""
     import gc
     from types import SimpleNamespace
+
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
     cancels, release, started = [], asyncio.Event(), asyncio.Event()
 
@@ -322,19 +404,25 @@ def test_a_runner_cancelled_during_the_stop_grace_still_cancels_and_tracks_the_t
                 cancels.append(1)  # ignores every cancellation
         raise RuntimeError(f'failed with {KEY}')
 
-    runner = SimpleNamespace(run_agent=stubborn_turn, poll=0.01, stop_requested=lambda: True, stop_deadline=None,
-                             id='session-1')
+    runner = SimpleNamespace(
+        run_agent=stubborn_turn, poll=0.01, stop_requested=lambda: True, stop_deadline=None, id='session-1'
+    )
 
     async def scenario():
-        driving = asyncio.create_task(native_sessions.NativeRunner.drive(runner, {}, 'task', {}, None, None, None, None))
+        driving = asyncio.create_task(
+            native_sessions.NativeRunner.drive(runner, {}, 'task', {}, None, None, None, None)
+        )
         await asyncio.wait_for(started.wait(), 5)
         while not cancels:  # Stop cancelled the turn; drive now waits its grace
             await asyncio.sleep(0.01)
         start = asyncio.get_running_loop().time()
         driving.cancel()  # the worker stops
         await asyncio.wait({driving})
-        seen = {'waited': asyncio.get_running_loop().time() - start, 'cancels': len(cancels),
-                'tracked': len(native_sessions._abandoned)}
+        seen = {
+            'waited': asyncio.get_running_loop().time() - start,
+            'cancels': len(cancels),
+            'tracked': len(native_sessions._abandoned),
+        }
         del driving
         release.set()  # the turn ends with an error that holds a secret
         await asyncio.sleep(0.05)
@@ -355,8 +443,12 @@ def test_a_message_sent_after_stop_is_not_delivered_to_the_stopped_turn_but_star
     store, url = sessions.store, f'/api/sessions/{sid}'
     monkeypatch.setattr(native_sessions, 'STOP_GRACE_SECONDS', 5.0)
     started, ignored, release = asyncio.Event(), [], asyncio.Event()
-    fake = FakeAgent([{'steps': [stubborn(started, ignored, release), llm(message('Late'))], 'answer': 'Late'},
-                      {'steps': [llm(message('# Docs'))], 'answer': '# Docs'}])
+    fake = FakeAgent(
+        [
+            {'steps': [stubborn(started, ignored, release), llm(message('Late'))], 'answer': 'Late'},
+            {'steps': [llm(message('# Docs'))], 'answer': '# Docs'},
+        ]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -384,13 +476,21 @@ def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     sessions, sid = native
     store, url = sessions.store, f'/api/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
-                   tool('c1', 'shell_run', 'built', started=started, gate=gate),
-                   llm(call('c2', 'read_file', {'path': 'README.md'})),
-                   tool('c2', 'read_file', 'text'),
-                   llm(message('# Docs'))], 'answer': '# Docs'},
-        {'steps': [llm(message('# Short docs'))], 'answer': '# Short docs'}])
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(call('c1', 'shell_run', {'command': 'make docs'})),
+                    tool('c1', 'shell_run', 'built', started=started, gate=gate),
+                    llm(call('c2', 'read_file', {'path': 'README.md'})),
+                    tool('c2', 'read_file', 'text'),
+                    llm(message('# Docs')),
+                ],
+                'answer': '# Docs',
+            },
+            {'steps': [llm(message('# Short docs'))], 'answer': '# Short docs'},
+        ]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -408,13 +508,29 @@ def test_a_comment_reaches_the_next_model_call_of_the_running_turn_once(native):
     before, after, last = first['inputs']
     note = comment('Also cover retries.')
     assert note not in before and after[-1] == note
-    assert last.count(note) == 1 and last[:len(after)] == after  # kept in place for the later model calls
+    assert last.count(note) == 1 and last[: len(after)] == after  # kept in place for the later model calls
     assert second['task'] == 'Shorten it.'
-    assert second['history'] == [{'role': 'user', 'content': first['task']}, note,
-                                 {'role': 'assistant', 'content': '# Docs'}]
+    assert second['history'] == [
+        {'role': 'user', 'content': first['task']},
+        note,
+        {'role': 'assistant', 'content': '# Docs'},
+    ]
     turn1 = [e for e in events(store, sid) if e['run_key'] == f'cc:{sid}:1']
-    assert [e['kind'] for e in turn1] == ['start', 'input', 'instructions', 'tool_call', 'usage', 'tool_result',
-                                          'input', 'tool_call', 'usage', 'tool_result', 'message', 'usage', 'end']
+    assert [e['kind'] for e in turn1] == [
+        'start',
+        'input',
+        'instructions',
+        'tool_call',
+        'usage',
+        'tool_result',
+        'input',
+        'tool_call',
+        'usage',
+        'tool_result',
+        'message',
+        'usage',
+        'end',
+    ]
     assert turn1[6]['payload'] == {'task': 'Also cover retries.', 'comment': True}
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'delivered', 1), ('Shorten it.', 'delivered', 2)]
 
@@ -423,11 +539,19 @@ def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_tur
     sessions, sid = native
     store, url = sessions.store, f'/api/sessions/{sid}'
     started, gate = asyncio.Event(), asyncio.Event()
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
-                   tool('c1', 'shell_run', 'built', started=started, gate=gate),
-                   llm(message('Almost'))], 'error': RuntimeError('provider down')},
-        {'steps': [llm(message('# Docs with retries'))], 'answer': '# Docs with retries'}])
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(call('c1', 'shell_run', {'command': 'make docs'})),
+                    tool('c1', 'shell_run', 'built', started=started, gate=gate),
+                    llm(message('Almost')),
+                ],
+                'error': RuntimeError('provider down'),
+            },
+            {'steps': [llm(message('# Docs with retries'))], 'answer': '# Docs with retries'},
+        ]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -444,17 +568,27 @@ def test_a_comment_delivered_to_a_failed_turn_is_delivered_again_as_the_next_tur
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'delivered', 2)]
     recorded = events(store, sid)
     assert [(e['run_key'], e['payload']) for e in recorded if e['kind'] == 'input'][1:] == [
-        (f'cc:{sid}:1', {'task': 'Also cover retries.', 'comment': True}), (f'cc:{sid}:2', {'task': 'Also cover retries.'})]
+        (f'cc:{sid}:1', {'task': 'Also cover retries.', 'comment': True}),
+        (f'cc:{sid}:2', {'task': 'Also cover retries.'}),
+    ]
 
 
 def test_a_comment_delivered_to_a_turn_the_user_stopped_is_discarded_like_queued_messages(native):
     sessions, sid = native
     store, url = sessions.store, f'/api/sessions/{sid}'
     started, gate, waiting, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event(), []
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'shell_run', {'command': 'make docs'})),
-                   tool('c1', 'shell_run', 'built', started=started, gate=gate),
-                   hang('model', waiting, cancelled)], 'answer': 'never reached'}])
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(call('c1', 'shell_run', {'command': 'make docs'})),
+                    tool('c1', 'shell_run', 'built', started=started, gate=gate),
+                    hang('model', waiting, cancelled),
+                ],
+                'answer': 'never reached',
+            }
+        ]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -507,7 +641,8 @@ def test_comments_are_marked_delivered_only_with_their_input_event(native):
     assert inputs(store, sid)[1:] == [('Also cover retries.', 'queued', None)]
     seen = []
     assert runner.queued_comments(1, on_delivered=lambda conn, rows: seen.extend(r['text'] for r in rows)) == [
-        'Also cover retries.']
+        'Also cover retries.'
+    ]
     assert seen == ['Also cover retries.'] and inputs(store, sid)[1:] == [('Also cover retries.', 'delivered', 1)]
 
 
@@ -515,12 +650,20 @@ def test_no_credential_reaches_events_history_the_draft_or_the_status(native, ca
     caplog.set_level('DEBUG')
     sessions, sid = native
     store, url = sessions.store, f'/api/sessions/{sid}'
-    fake = FakeAgent([
-        {'steps': [llm(call('c1', 'shell_run', {'command': f'echo {KEY}'})),
-                   tool('c1', 'shell_run', f'{KEY}\x00 printed'), llm(message(f'Key {KEY}'))],
-         'answer': f'# Keys {KEY}'},
-        {'steps': [], 'error': ValueError(f'Agent folder is unavailable: /work/{KEY}')},
-        {'steps': [], 'error': RuntimeError(f'provider said {KEY}')}])
+    fake = FakeAgent(
+        [
+            {
+                'steps': [
+                    llm(call('c1', 'shell_run', {'command': f'echo {KEY}'})),
+                    tool('c1', 'shell_run', f'{KEY}\x00 printed'),
+                    llm(message(f'Key {KEY}')),
+                ],
+                'answer': f'# Keys {KEY}',
+            },
+            {'steps': [], 'error': ValueError(f'Agent folder is unavailable: /work/{KEY}')},
+            {'steps': [], 'error': RuntimeError(f'provider said {KEY}')},
+        ]
+    )
 
     async def scenario():
         runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, poll=0.02).run())
@@ -539,21 +682,27 @@ def test_no_credential_reaches_events_history_the_draft_or_the_status(native, ca
     assert KEY not in stored and '\\u0000' not in stored
     assert row['draft'] is None and row['history'][-1] == {'role': 'assistant', 'content': '# Keys [redacted]'}
     assert config_error['status_message'] == 'Agent folder is unavailable: /work/[redacted]'
-    assert other['status_message'] == ('Agent execution failed (RuntimeError). Check the model connection and agent '
-                                       'resources.')
+    assert other['status_message'] == (
+        'Agent execution failed (RuntimeError). Check the model connection and agent resources.'
+    )
     [result] = [e['payload'] for e in events(store, sid) if e['kind'] == 'tool_result']
     assert result['output'] == '[redacted] printed'
 
 
 def test_failure_messages():
     from cryptography.exceptions import InvalidTag
+
     assert native_sessions.failure(InvalidTag(), []) == native_sessions.UNREADABLE
-    assert native_sessions.failure(ValueError('Line one\n  line two ' + 'x' * 600), []) == (
-        'Line one line two ' + 'x' * 600)[:500]
+    assert (
+        native_sessions.failure(ValueError('Line one\n  line two ' + 'x' * 600), [])
+        == ('Line one line two ' + 'x' * 600)[:500]
+    )
     assert native_sessions.failure(ValueError(''), []) == (
-        'Agent execution failed (ValueError). Check the model connection and agent resources.')
+        'Agent execution failed (ValueError). Check the model connection and agent resources.'
+    )
     assert native_sessions.failure(TimeoutError(), []) == (
-        'Agent execution failed (TimeoutError). Check the model connection and agent resources.')
+        'Agent execution failed (TimeoutError). Check the model connection and agent resources.'
+    )
 
 
 def test_a_disabled_model_fails_the_turn_before_the_runtime_starts(native):
@@ -584,17 +733,38 @@ def test_a_turn_without_a_turn_limit_outlasts_the_request_timeout(config, respon
             await asyncio.sleep(0.6)  # a slow step after the model request
 
     def extra(data):
-        return ModelInputData(input=[*data.model_data.input, {'role': 'user', 'content': 'FILTER_COMMENT'}],
-                              instructions=data.model_data.instructions)
+        return ModelInputData(
+            input=[*data.model_data.input, {'role': 'user', 'content': 'FILTER_COMMENT'}],
+            instructions=data.model_data.instructions,
+        )
 
-    result = asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=0.3,
-                               turn_timeout_seconds=None, max_turns=None, hooks=Slow(), stream=False,
-                               call_model_input_filter=extra))
+    result = asyncio.run(
+        agent(
+            config,
+            'Inspect.',
+            credentials={'model-key': 'fixture-api-secret'},
+            timeout_seconds=0.3,
+            turn_timeout_seconds=None,
+            max_turns=None,
+            hooks=Slow(),
+            stream=False,
+            call_model_input_filter=extra,
+        )
+    )
     assert result.final_output == 'Configured agent completed the task.'
     assert requests[-1]['body']['input'][-1]['content'] == 'FILTER_COMMENT'
     with pytest.raises(TimeoutError):
-        asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}, timeout_seconds=0.3,
-                          turn_timeout_seconds=0.3, hooks=Slow(), stream=False))
+        asyncio.run(
+            agent(
+                config,
+                'Inspect.',
+                credentials={'model-key': 'fixture-api-secret'},
+                timeout_seconds=0.3,
+                turn_timeout_seconds=0.3,
+                hooks=Slow(),
+                stream=False,
+            )
+        )
 
 
 def test_the_worker_script_is_installed():
@@ -618,9 +788,18 @@ def test_a_comment_stays_in_place_in_the_real_sdk_input_and_history(config, resp
 
     history = HistorySession('session', [])
     comments = native_sessions.Comments(Runner(), 1, None, history)
-    result = asyncio.run(agent(config, 'FILES_TOOL_CYCLE', credentials={'model-key': 'fixture-api-secret'},
-                               session=history, max_turns=None, turn_timeout_seconds=None,
-                               call_model_input_filter=comments, stream=False))
+    result = asyncio.run(
+        agent(
+            config,
+            'FILES_TOOL_CYCLE',
+            credentials={'model-key': 'fixture-api-secret'},
+            session=history,
+            max_turns=None,
+            turn_timeout_seconds=None,
+            call_model_input_filter=comments,
+            stream=False,
+        )
+    )
     assert result.final_output == 'Configured agent completed the task.'
     first, second = (request['body']['input'] for request in requests if request['path'] == '/v1/responses')
     note = comment('Also cover retries.')
@@ -643,8 +822,9 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
 
     async def scenario():
         stopped = asyncio.Event()
-        serving = asyncio.create_task(native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1,
-                                                            poll=0.02))
+        serving = asyncio.create_task(
+            native_sessions.serve(store, fake, stopped=stopped, worker_id='native-1', limit=1, poll=0.02)
+        )
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
         await post(sessions, f'/api/sessions/{sid}/close')
         await wait_for(store, sid, lambda s: s['worker_id'] is None)
@@ -654,8 +834,9 @@ def test_an_ad_hoc_session_runs_and_records_its_turn_as_the_ad_hoc_agent(native)
     asyncio.run(scenario())
     assert session_row(store, sid)['draft'] is None  # the answer is history, not a draft
     with store.connect() as conn:
-        agents = conn.execute('SELECT DISTINCT agent_id FROM ka.agent_run_events WHERE starts_with(run_key,%s)',
-                              (f'cc:{sid}:',)).fetchall()
+        agents = conn.execute(
+            'SELECT DISTINCT agent_id FROM ka.agent_run_events WHERE starts_with(run_key,%s)', (f'cc:{sid}:',)
+        ).fetchall()
     assert [a['agent_id'] for a in agents] == ['ad-hoc']
     [start_event] = [e for e in events(store, sid) if e['kind'] == 'start']
     assert start_event['payload']['agent'] == 'Ad-hoc agent'

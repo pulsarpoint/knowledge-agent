@@ -22,8 +22,16 @@ EXPERT_FAILED = re.compile(r'Expert [^\n]+? failed: ')  # experts.FAILED: Expert
 
 def redact(text: str, secrets: Iterable[str], *, partial: bool = False) -> str:
     """Withhold secret prefixes at stream boundaries before publishing snapshots."""
-    values = sorted({encoded for value in secrets if value for encoded in
-                     (value, json.dumps(value, ensure_ascii=False)[1:-1], json.dumps(value)[1:-1])}, key=len, reverse=True)
+    values = sorted(
+        {
+            encoded
+            for value in secrets
+            if value
+            for encoded in (value, json.dumps(value, ensure_ascii=False)[1:-1], json.dumps(value)[1:-1])
+        },
+        key=len,
+        reverse=True,
+    )
     for value in values:
         text = text.replace(value, '[redacted]')
     if partial:
@@ -56,7 +64,9 @@ def tool_failed(detail: str) -> bool:
 class SdkActivity(RunHooks):
     """Publish Agents SDK messages and tool lifecycle events to the UI."""
 
-    def __init__(self, secrets: Iterable[str], callback: ActivityCallback | None, on_usage: UsageCallback | None = None):
+    def __init__(
+        self, secrets: Iterable[str], callback: ActivityCallback | None, on_usage: UsageCallback | None = None
+    ):
         self.secrets = tuple(secrets)
         self.callback = callback
         self.on_usage = on_usage
@@ -71,8 +81,14 @@ class SdkActivity(RunHooks):
     async def on_tool_start(self, context, agent, tool) -> None:
         key = context.tool_call_id
         title = tool.name
-        self.items[key] = {'id': self.run_id + ':' + key, 'kind': 'tool', 'title': title,
-            'detail': context.tool_arguments, 'status': 'inProgress', 'time': datetime.now(UTC).isoformat()}
+        self.items[key] = {
+            'id': self.run_id + ':' + key,
+            'kind': 'tool',
+            'title': title,
+            'detail': context.tool_arguments,
+            'status': 'inProgress',
+            'time': datetime.now(UTC).isoformat(),
+        }
         await self.publish(key)
 
     async def on_tool_end(self, context, agent, tool, result: object) -> None:
@@ -96,9 +112,14 @@ class SdkActivity(RunHooks):
             key, text, status = event.item.raw_item.id, ItemHelpers.text_message_output(event.item), 'completed'
         else:
             return
-        self.items[key] = {'id': self.run_id + ':' + key, 'kind': 'agentMessage', 'title': 'Agent update',
-            'detail': text[:131072], 'status': status,
-            'time': self.items.get(key, {}).get('time', datetime.now(UTC).isoformat())}
+        self.items[key] = {
+            'id': self.run_id + ':' + key,
+            'kind': 'agentMessage',
+            'title': 'Agent update',
+            'detail': text[:131072],
+            'status': status,
+            'time': self.items.get(key, {}).get('time', datetime.now(UTC).isoformat()),
+        }
         if status != 'inProgress' or monotonic() - self.published.get(key, 0) >= 0.25:
             await self.publish(key)
 
@@ -110,7 +131,7 @@ class SdkActivity(RunHooks):
         public['detail'] = clean[:4000]
         # PostgreSQL NOTIFY is bounded to 8 KB, including envelope fields.
         while len(json.dumps(public).encode()) > 6500:
-            public['detail'] = public['detail'][:len(public['detail']) // 2]
+            public['detail'] = public['detail'][: len(public['detail']) // 2]
         if len(public['detail']) < len(clean):
             public['detail'] += '\n[Preview truncated; open the trace for more.]'
         self.published[key] = monotonic()
@@ -122,8 +143,14 @@ class SdkActivity(RunHooks):
 
     async def on_agent_start(self, context, agent):
         key = self.run_id + ':' + agent.name
-        self.items[key] = {'id': key, 'kind': 'agentMessage', 'title': agent.name,
-            'detail': 'Started.', 'status': 'inProgress', 'time': datetime.now(UTC).isoformat()}
+        self.items[key] = {
+            'id': key,
+            'kind': 'agentMessage',
+            'title': agent.name,
+            'detail': 'Started.',
+            'status': 'inProgress',
+            'time': datetime.now(UTC).isoformat(),
+        }
         current = trace.get_current_span().get_span_context()
         if current.is_valid:
             self.items[key].update(trace_id=format(current.trace_id, '032x'), span_id=format(current.span_id, '016x'))

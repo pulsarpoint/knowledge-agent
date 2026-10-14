@@ -1,6 +1,7 @@
 """The session event stream on the hub: keepalive, resync and resume, no database connection per open stream, a
 worker's flush reaching an open stream without polling, open streams ending when the app stops, and 503 when the hub
 is not running."""
+
 import threading
 import time
 from uuid import UUID
@@ -23,14 +24,16 @@ def open_stream(client, sid: str, headers=HEADERS):
     """GET the stream in a thread (TestClient returns only when the stream ends); the returned function joins it and
     gives the response."""
     result = {}
-    thread = threading.Thread(target=lambda: result.update(
-        response=client.get(f'/api/sessions/{sid}/events', headers=headers)))
+    thread = threading.Thread(
+        target=lambda: result.update(response=client.get(f'/api/sessions/{sid}/events', headers=headers))
+    )
     thread.start()
 
     def finish(timeout: float = 10.0):
         thread.join(timeout)
         assert not thread.is_alive(), 'the stream did not end'
         return result['response']
+
     return finish
 
 
@@ -70,8 +73,7 @@ def test_a_stream_that_falls_behind_ends_with_retry_and_resumes_from_its_last_id
     assert first.text.endswith('retry: 1000\n\n')  # the browser reconnects with Last-Event-ID
     monkeypatch.setattr(session_hub, 'QUEUE_SIZE', 500)
     close(store, sid)
-    resumed = client.get(f'/api/sessions/{sid}/events',
-                         headers={**HEADERS, 'Last-Event-ID': str(runs[-1]['id'])})
+    resumed = client.get(f'/api/sessions/{sid}/events', headers={**HEADERS, 'Last-Event-ID': str(runs[-1]['id'])})
     events = parse(resumed.text)
     assert [e['data']['seq'] for e in events if e['event'] == 'run_event'] == [3, 4, 5]
     assert events[-1]['event'] == 'closed'
@@ -85,9 +87,10 @@ def test_open_streams_hold_no_database_connection(sessions, live):
 
     def connections() -> int:
         with store.connect() as conn:
-            return conn.execute('''SELECT count(*) AS n FROM pg_stat_activity
+            return conn.execute("""SELECT count(*) AS n FROM pg_stat_activity
                 WHERE datname=current_database() AND pid<>pg_backend_pid()
-                AND backend_type='client backend' ''').fetchone()['n']
+                AND backend_type='client backend' """).fetchone()['n']
+
     wait_until(lambda: connections() <= 2)  # the listener, and the reader's only while it reads
     for _ in range(5):
         assert connections() <= 2

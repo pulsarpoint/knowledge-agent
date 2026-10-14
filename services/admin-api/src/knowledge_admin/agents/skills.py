@@ -52,16 +52,20 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def list_skills(enabled: bool | None = None) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            rows = conn.execute(f'''SELECT {SUMMARY_FIELDS} FROM ka.agent_skills
-                WHERE project_id=%s AND (%s::boolean IS NULL OR enabled=%s) ORDER BY name,id''',
-                (project, enabled, enabled)).fetchall()
+            rows = conn.execute(
+                f"""SELECT {SUMMARY_FIELDS} FROM ka.agent_skills
+                WHERE project_id=%s AND (%s::boolean IS NULL OR enabled=%s) ORDER BY name,id""",
+                (project, enabled, enabled),
+            ).fetchall()
         return {'skills': rows}
 
     @router.get('/{skill_id}')
     def get_skill(skill_id: UUID) -> dict:
         db = database()
         with workspace(db, app_name) as (conn, project):
-            row = conn.execute(f'SELECT {DETAIL_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s', (skill_id, project)).fetchone()
+            row = conn.execute(
+                f'SELECT {DETAIL_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s', (skill_id, project)
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Skill not found')
         return row
@@ -75,23 +79,48 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 if skill_id is None:
                     if value.revision is not None:
                         raise HTTPException(400, 'New skills cannot reuse a revision')
-                    row = conn.execute(f'''INSERT INTO ka.agent_skills(project_id,name,description,instructions,enabled,created_by,updated_by)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING {DETAIL_FIELDS}''',
-                        (project, value.name, value.description, value.instructions, value.enabled, actor, actor)).fetchone()
+                    row = conn.execute(
+                        f"""INSERT INTO ka.agent_skills(project_id,name,description,instructions,enabled,created_by,updated_by)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING {DETAIL_FIELDS}""",
+                        (project, value.name, value.description, value.instructions, value.enabled, actor, actor),
+                    ).fetchone()
                     action = 'skill.created'
                 else:
-                    existing = conn.execute('SELECT revision,enabled FROM ka.agent_skills WHERE id=%s AND project_id=%s FOR UPDATE', (skill_id, project)).fetchone()
+                    existing = conn.execute(
+                        'SELECT revision,enabled FROM ka.agent_skills WHERE id=%s AND project_id=%s FOR UPDATE',
+                        (skill_id, project),
+                    ).fetchone()
                     if existing is None:
                         raise HTTPException(404, 'Skill not found')
                     if value.revision != existing['revision']:
-                        raise HTTPException(409, 'This skill changed since you opened it. Cancel and reopen it before saving')
-                    row = conn.execute(f'''UPDATE ka.agent_skills SET name=%s,description=%s,instructions=%s,
-                        enabled=%s,updated_by=%s,revision=revision+1 WHERE id=%s AND project_id=%s RETURNING {DETAIL_FIELDS}''',
-                        (value.name, value.description, value.instructions,
-                         value.enabled if 'enabled' in value.model_fields_set else existing['enabled'], actor, skill_id, project)).fetchone()
+                        raise HTTPException(
+                            409, 'This skill changed since you opened it. Cancel and reopen it before saving'
+                        )
+                    row = conn.execute(
+                        f"""UPDATE ka.agent_skills SET name=%s,description=%s,instructions=%s,
+                        enabled=%s,updated_by=%s,revision=revision+1 WHERE id=%s AND project_id=%s RETURNING {DETAIL_FIELDS}""",
+                        (
+                            value.name,
+                            value.description,
+                            value.instructions,
+                            value.enabled if 'enabled' in value.model_fields_set else existing['enabled'],
+                            actor,
+                            skill_id,
+                            project,
+                        ),
+                    ).fetchone()
                     action = 'skill.updated'
-                conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                    VALUES (%s,%s,%s,'skill',%s,%s)''', (project, actor, action, row['id'], Jsonb({'name': row['name'], 'revision': row['revision'], 'enabled': row['enabled']})))
+                conn.execute(
+                    """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+                    VALUES (%s,%s,%s,'skill',%s,%s)""",
+                    (
+                        project,
+                        actor,
+                        action,
+                        row['id'],
+                        Jsonb({'name': row['name'], 'revision': row['revision'], 'enabled': row['enabled']}),
+                    ),
+                )
             return row
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'A skill with this name already exists') from None
@@ -109,7 +138,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         subject, email = request_actor(request)
         db = database()
         with workspace(db, app_name) as (conn, project):
-            row = conn.execute(f'SELECT {SUMMARY_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s FOR UPDATE', (skill_id, project)).fetchone()
+            row = conn.execute(
+                f'SELECT {SUMMARY_FIELDS} FROM ka.agent_skills WHERE id=%s AND project_id=%s FOR UPDATE',
+                (skill_id, project),
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, 'Skill not found')
             if row['revision'] != value.revision:
@@ -117,11 +149,22 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if row['enabled'] == value.enabled:
                 return row
             actor = db.actor(conn, subject, email)
-            row = conn.execute(f'''UPDATE ka.agent_skills SET enabled=%s,updated_by=%s,revision=revision+1
-                WHERE id=%s AND project_id=%s RETURNING {SUMMARY_FIELDS}''', (value.enabled, actor, skill_id, project)).fetchone()
-            conn.execute('''INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
-                VALUES (%s,%s,%s,'skill',%s,%s)''', (project, actor, 'skill.enabled' if value.enabled else 'skill.disabled', skill_id,
-                                                   Jsonb({'name': row['name'], 'revision': row['revision'], 'enabled': row['enabled']})))
+            row = conn.execute(
+                f"""UPDATE ka.agent_skills SET enabled=%s,updated_by=%s,revision=revision+1
+                WHERE id=%s AND project_id=%s RETURNING {SUMMARY_FIELDS}""",
+                (value.enabled, actor, skill_id, project),
+            ).fetchone()
+            conn.execute(
+                """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)
+                VALUES (%s,%s,%s,'skill',%s,%s)""",
+                (
+                    project,
+                    actor,
+                    'skill.enabled' if value.enabled else 'skill.disabled',
+                    skill_id,
+                    Jsonb({'name': row['name'], 'revision': row['revision'], 'enabled': row['enabled']}),
+                ),
+            )
         return row
 
     return router

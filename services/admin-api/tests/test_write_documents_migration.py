@@ -1,4 +1,5 @@
 """0101: the new-document prompt is in the prompt library; open Generate documents runs from before are closed."""
+
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,22 +32,37 @@ def test_up_closes_open_documents_runs_and_their_queued_messages_but_not_revisio
     with store.connect() as conn:
         project, runbook = world(conn, store)
         generated = uuid4()
-        conn.execute("""INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
+        conn.execute(
+            """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,prompt_snapshot,
             context_snapshot,purpose,document_name,folder,agent_config)
             SELECT %s,project_id,NULL,actor_id,model_id,'Payments','{}','{}','documents','Payments','payments','{}'
-            FROM ka.agent_sessions WHERE id=%s""", (generated, session(conn, project, runbook)))
+            FROM ka.agent_sessions WHERE id=%s""",
+            (generated, session(conn, project, runbook)),
+        )
         revision = session(conn, project, runbook)
         for sid in (generated, revision):
             conn.execute("UPDATE ka.agent_sessions SET status='working' WHERE id=%s", (sid,))
-            conn.execute("""INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text,status)
-                SELECT %s,1,actor_id,'Next.','queued' FROM ka.agent_sessions WHERE id=%s""", (sid, sid))
+            conn.execute(
+                """INSERT INTO ka.agent_session_inputs(session_id,seq,actor_id,text,status)
+                SELECT %s,1,actor_id,'Next.','queued' FROM ka.agent_sessions WHERE id=%s""",
+                (sid, sid),
+            )
         conn.commit()  # the migration files carry their own BEGIN/COMMIT
         run(conn, DOWN)
         run(conn, UP)
-        rows = {row['id']: row for row in conn.execute('SELECT id,status,status_message FROM ka.agent_sessions WHERE id=ANY(%s)',
-                                                       ([generated, revision],))}
-        queued = {row['session_id']: row['status'] for row in conn.execute(
-            'SELECT session_id,status FROM ka.agent_session_inputs WHERE session_id=ANY(%s)', ([generated, revision],))}
+        rows = {
+            row['id']: row
+            for row in conn.execute(
+                'SELECT id,status,status_message FROM ka.agent_sessions WHERE id=ANY(%s)', ([generated, revision],)
+            )
+        }
+        queued = {
+            row['session_id']: row['status']
+            for row in conn.execute(
+                'SELECT session_id,status FROM ka.agent_session_inputs WHERE session_id=ANY(%s)',
+                ([generated, revision],),
+            )
+        }
     assert rows[generated]['status'] == 'closed' and rows[generated]['status_message'] == CLOSED
     assert rows[revision]['status'] == 'working'
     assert queued == {generated: 'discarded', revision: 'queued'}
@@ -55,12 +71,18 @@ def test_up_closes_open_documents_runs_and_their_queued_messages_but_not_revisio
 def test_down_refuses_a_customized_prompt_then_round_trips(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        conn.execute("UPDATE ka.documentation_prompts SET revision=revision+1 WHERE project_id=%s AND name='Write a document'", (project,))
+        conn.execute(
+            "UPDATE ka.documentation_prompts SET revision=revision+1 WHERE project_id=%s AND name='Write a document'",
+            (project,),
+        )
         conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match='customized'):
             run(conn, DOWN)
         conn.rollback()
-        conn.execute("UPDATE ka.documentation_prompts SET revision=revision-1 WHERE project_id=%s AND name='Write a document'", (project,))
+        conn.execute(
+            "UPDATE ka.documentation_prompts SET revision=revision-1 WHERE project_id=%s AND name='Write a document'",
+            (project,),
+        )
         conn.commit()
         run(conn, DOWN)
         assert conn.execute(PROMPT, (project,)).fetchone() is None

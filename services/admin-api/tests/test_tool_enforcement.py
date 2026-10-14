@@ -1,5 +1,6 @@
 """What the model is given: exactly the selected catalog tools, the MCP tools not switched off, edited usage as
 the description or as Tool notes, and per-run narrowing unchanged."""
+
 import asyncio
 
 from agents import Runner
@@ -11,10 +12,20 @@ from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
 def choose(cfg, on: dict[str, str | None], mcp: dict[str, tuple[str, str | None]] = {}):
     """Switch on exactly `on` (tool → usage or None); MCP rows as name → (mode, usage)."""
-    items = [{'tool': name, 'group': spec.group, 'mode': 'on' if name in on else 'off', 'usage': on.get(name),
-              'subagent_allowed': True} for name, spec in CATALOG.items()]
-    items += [{'tool': name, 'group': 'mcp', 'mode': mode, 'usage': usage, 'subagent_allowed': True}
-              for name, (mode, usage) in mcp.items()]
+    items = [
+        {
+            'tool': name,
+            'group': spec.group,
+            'mode': 'on' if name in on else 'off',
+            'usage': on.get(name),
+            'subagent_allowed': True,
+        }
+        for name, spec in CATALOG.items()
+    ]
+    items += [
+        {'tool': name, 'group': 'mcp', 'mode': mode, 'usage': usage, 'subagent_allowed': True}
+        for name, (mode, usage) in mcp.items()
+    ]
     cfg['tools'] = {'items': items}
 
 
@@ -40,6 +51,7 @@ def test_the_shell_is_switched_by_the_shell_tool(config, responses_api, monkeypa
     def spy(assistant, task, *, context, **kwargs):
         seen.update(tools=context['tools'], shell=context['shell_enabled'])
         return real(assistant, task, context=context, **kwargs)
+
     monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', spy)
     choose(config, {'read_file': None})
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
@@ -51,8 +63,17 @@ def test_the_shell_is_switched_by_the_shell_tool(config, responses_api, monkeypa
 
 def test_mcp_tools_switched_off_never_reach_the_model(config, responses_api):
     url, requests = responses_api
-    servers = [{'id': name, 'name': name, 'description': 'Fixture', 'url': url.removesuffix('/v1') + '/mcp',
-                'enabled': True, 'bearer_token_ref': None} for name in ('docs-one', 'docs-two')]
+    servers = [
+        {
+            'id': name,
+            'name': name,
+            'description': 'Fixture',
+            'url': url.removesuffix('/v1') + '/mcp',
+            'enabled': True,
+            'bearer_token_ref': None,
+        }
+        for name in ('docs-one', 'docs-two')
+    ]
     config['mcp'] = {'enabled': True, 'servers': servers}
     choose(config, {}, {'mcp:docs-one:lookup': ('off', None), 'mcp:docs-two:lookup': ('on', 'Ask for one page only.')})
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
@@ -64,8 +85,15 @@ def test_mcp_tools_switched_off_never_reach_the_model(config, responses_api):
 
 def test_prompt_tool_notes_name_the_server_and_only_edited_tools(config):
     config['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'description': '', 'enabled': True}]}
-    choose(config, {}, {'mcp:m1:lookup': ('on', 'Use for API pages.'), 'mcp:m1:search': ('on', None),
-                        'mcp:m1:delete': ('off', 'Never.')})
+    choose(
+        config,
+        {},
+        {
+            'mcp:m1:lookup': ('on', 'Use for API pages.'),
+            'mcp:m1:search': ('on', None),
+            'mcp:m1:delete': ('off', 'Never.'),
+        },
+    )
     prompt = get_prompt(config, [], config['mcp']['servers'])
     assert prompt.endswith('Tool notes:\n- Docs/lookup: Use for API pages.')
     choose(config, {})

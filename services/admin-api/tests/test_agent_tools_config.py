@@ -13,12 +13,21 @@ def test_the_configuration_lists_every_catalog_tool_and_the_changed_mcp_tools(st
     mcp = saved_agent[4]
     with store.connect() as conn:
         conn.execute("DELETE FROM ka.agent_tools WHERE agent_id='operations'")
-        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,usage) VALUES ('operations','read_file','Read narrowly.')")
-        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations',%s,'off')", (f"mcp:{mcp['id']}:lookup",))
+        conn.execute(
+            "INSERT INTO ka.agent_tools(agent_id,tool,usage) VALUES ('operations','read_file','Read narrowly.')"
+        )
+        conn.execute(
+            "INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('operations',%s,'off')",
+            (f'mcp:{mcp["id"]}:lookup',),
+        )
     config = get_agent_config('operations', conninfo=store.conninfo)
-    assert [entry['tool'] for entry in config['tools']['items']] == [*CATALOG, f"mcp:{mcp['id']}:lookup"]
+    assert [entry['tool'] for entry in config['tools']['items']] == [*CATALOG, f'mcp:{mcp["id"]}:lookup']
     assert modes(config)['read_file'] == 'on' and modes(config)['list_files'] == 'off'
-    assert config['tools']['items'][1] == {'tool': 'read_file', 'group': 'code', 'mode': 'on',
-                                           'usage': 'Read narrowly.', 'subagent_allowed': True}
-    assert config['tools']['items'][-1]['group'] == 'mcp' and modes(config)[f"mcp:{mcp['id']}:lookup"] == 'off'
-
+    assert config['tools']['items'][1] == {
+        'tool': 'read_file',
+        'group': 'code',
+        'mode': 'on',
+        'usage': 'Read narrowly.',
+        'subagent_allowed': True,
+    }
+    assert config['tools']['items'][-1]['group'] == 'mcp' and modes(config)[f'mcp:{mcp["id"]}:lookup'] == 'off'

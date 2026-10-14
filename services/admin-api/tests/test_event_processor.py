@@ -1,5 +1,6 @@
 """The event processor: each pending event goes once through the enabled handlers of its project; emitted events join
 the chain and are processed on a later pass; failures are recorded and nothing is retried. Send to agent: test_event_runs."""
+
 import threading
 from uuid import uuid4
 
@@ -13,20 +14,40 @@ from knowledge_admin.events import processor as event_processor
 def an_event(store, project=None, **values) -> dict:
     with store.connect() as conn:
         project = project or store.project(conn, 'shop')
-        row = {'project_id': project, 'source': 'jira', 'source_id': uuid4(), 'type': 'jira.ticket.updated',
-               'subject': 'DEMO-1', 'title': 'Fix login', 'payload': Jsonb({'status': 'In Progress', 'labels': ['agent']}),
-               'dedupe_key': f'k{uuid4()}', 'occurred_at': '2026-10-09T10:00:00Z', **values}
-        return conn.execute(f"INSERT INTO ka.events({','.join(row)}) VALUES ({','.join(['%s'] * len(row))}) RETURNING *",
-                            tuple(row.values())).fetchone()
+        row = {
+            'project_id': project,
+            'source': 'jira',
+            'source_id': uuid4(),
+            'type': 'jira.ticket.updated',
+            'subject': 'DEMO-1',
+            'title': 'Fix login',
+            'payload': Jsonb({'status': 'In Progress', 'labels': ['agent']}),
+            'dedupe_key': f'k{uuid4()}',
+            'occurred_at': '2026-10-09T10:00:00Z',
+            **values,
+        }
+        return conn.execute(
+            f'INSERT INTO ka.events({",".join(row)}) VALUES ({",".join(["%s"] * len(row))}) RETURNING *',
+            tuple(row.values()),
+        ).fetchone()
 
 
 def a_handler(store, name='Triage', **values) -> dict:
     with store.connect() as conn:
-        row = {'project_id': store.project(conn, 'shop'), 'name': name, 'type_pattern': 'jira.ticket.*',
-               'conditions': Jsonb([]), 'action': 'emit', 'emit': Jsonb({'type': 'triage.requested'}),
-               'created_by': store.actor(conn, 'admin-id', 'admin@example.test'), **values}
-        return conn.execute(f"INSERT INTO ka.event_handlers({','.join(row)}) VALUES ({','.join(['%s'] * len(row))}) RETURNING *",
-                            tuple(row.values())).fetchone()
+        row = {
+            'project_id': store.project(conn, 'shop'),
+            'name': name,
+            'type_pattern': 'jira.ticket.*',
+            'conditions': Jsonb([]),
+            'action': 'emit',
+            'emit': Jsonb({'type': 'triage.requested'}),
+            'created_by': store.actor(conn, 'admin-id', 'admin@example.test'),
+            **values,
+        }
+        return conn.execute(
+            f'INSERT INTO ka.event_handlers({",".join(row)}) VALUES ({",".join(["%s"] * len(row))}) RETURNING *',
+            tuple(row.values()),
+        ).fetchone()
 
 
 def event(store, event_id) -> dict:
@@ -48,20 +69,43 @@ def test_an_event_without_a_handler_is_processed(store):
 
 
 def test_emit_creates_a_pending_child_in_the_chain(store):
-    handler = a_handler(store, conditions=Jsonb([{'field': 'payload.labels', 'op': 'contains', 'value': 'agent'}]),
-                        emit=Jsonb({'type': 'triage.requested', 'title': 'Triage {{ event.subject }}',
-                                    'payload': '{"from": {{ event.payload.status | tojson }}}'}))
+    handler = a_handler(
+        store,
+        conditions=Jsonb([{'field': 'payload.labels', 'op': 'contains', 'value': 'agent'}]),
+        emit=Jsonb(
+            {
+                'type': 'triage.requested',
+                'title': 'Triage {{ event.subject }}',
+                'payload': '{"from": {{ event.payload.status | tojson }}}',
+            }
+        ),
+    )
     parent = an_event(store)
     assert event_processor.run_once(store) is True
     [run] = runs(store, parent['id'])
     child = event(store, run['emitted_event_id'])
     assert (run['status'], run['message'], run['handler_name'], run['handler_id']) == (
-        'succeeded', 'Emitted triage.requested.', 'Triage', handler['id'])
+        'succeeded',
+        'Emitted triage.requested.',
+        'Triage',
+        handler['id'],
+    )
     assert (child['source'], child['source_id'], child['type'], child['subject'], child['title'], child['payload']) == (
-        'handler', handler['id'], 'triage.requested', 'DEMO-1', 'Triage DEMO-1', {'from': 'In Progress'})
+        'handler',
+        handler['id'],
+        'triage.requested',
+        'DEMO-1',
+        'Triage DEMO-1',
+        {'from': 'In Progress'},
+    )
     assert (child['parent_id'], child['root_id'], child['depth'], child['handler_id'], child['status']) == (
-        parent['id'], parent['root_id'], 1, handler['id'], 'pending')
-    assert child['dedupe_key'] == f"handler:{handler['id']}:{parent['id']}"
+        parent['id'],
+        parent['root_id'],
+        1,
+        handler['id'],
+        'pending',
+    )
+    assert child['dedupe_key'] == f'handler:{handler["id"]}:{parent["id"]}'
     assert event(store, parent['id'])['status'] == 'processed'
     assert event_processor.run_once(store) is True  # the child: no handler matches triage.* → processed
     assert event(store, child['id'])['status'] == 'processed'
@@ -70,7 +114,9 @@ def test_emit_creates_a_pending_child_in_the_chain(store):
 def test_disabled_and_other_projects_handlers_do_not_run(store):
     a_handler(store, enabled=False)
     with store.connect() as conn:
-        other = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('other-x','Other') RETURNING id").fetchone()['id']
+        other = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('other-x','Other') RETURNING id").fetchone()[
+            'id'
+        ]
     first = an_event(store, project=other)
     event_processor.run_once(store)
     assert (event(store, first['id'])['status'], runs(store, first['id'])) == ('processed', [])
@@ -85,7 +131,7 @@ def test_one_failing_handler_fails_the_event_but_the_others_run(store):
     assert (broken['status'], fine['status']) == ('failed', 'succeeded')
     assert broken['message'].startswith('Template error:') and broken['emitted_event_id'] is None
     assert event(store, first['id'])['status'] == 'failed'
-    assert event_processor.run_once(store) is True   # B's child
+    assert event_processor.run_once(store) is True  # B's child
     assert event_processor.run_once(store) is False  # the failed event is not retried
 
 
@@ -94,9 +140,17 @@ def test_a_self_matching_handler_stops_at_depth_five(store):
     first = an_event(store)
     assert event_processor.tick(store) == 6  # depths 0..5; the one at depth 5 cannot emit
     with store.connect() as conn:
-        chain = conn.execute('SELECT id,depth,status FROM ka.events WHERE root_id=%s ORDER BY depth', (first['id'],)).fetchall()
-    assert [(row['depth'], row['status']) for row in chain] == [(0, 'processed'), (1, 'processed'), (2, 'processed'),
-                                                                 (3, 'processed'), (4, 'processed'), (5, 'failed')]
+        chain = conn.execute(
+            'SELECT id,depth,status FROM ka.events WHERE root_id=%s ORDER BY depth', (first['id'],)
+        ).fetchall()
+    assert [(row['depth'], row['status']) for row in chain] == [
+        (0, 'processed'),
+        (1, 'processed'),
+        (2, 'processed'),
+        (3, 'processed'),
+        (4, 'processed'),
+        (5, 'failed'),
+    ]
     [last_run] = runs(store, chain[-1]['id'])
     assert last_run['message'] == event_processor.TOO_DEEP
     assert event_processor.tick(store) == 0
@@ -134,7 +188,11 @@ def test_a_handler_whose_matching_raises_fails_its_run_but_not_the_queue(store):
     for each in events:
         assert event(store, each['id'])['status'] == 'failed'
         bad_run, good_run = runs(store, each['id'])
-        assert (bad_run['handler_id'], bad_run['status'], bad_run['message']) == (bad['id'], 'failed', event_processor.UNEXPECTED)
+        assert (bad_run['handler_id'], bad_run['status'], bad_run['message']) == (
+            bad['id'],
+            'failed',
+            event_processor.UNEXPECTED,
+        )
         assert (good_run['handler_id'], good_run['status']) == (good['id'], 'succeeded')
 
 
@@ -142,8 +200,11 @@ def test_a_database_error_in_an_action_fails_only_that_run(store, monkeypatch):
     def broken(conn, _store, _handler, _event):
         conn.execute('SELECT 1/0')
 
-    monkeypatch.setitem(event_processor.ACTIONS, 'emit', lambda conn, s, h, e: (
-        broken(conn, s, h, e) if h['name'] == 'A broken' else event_processor.emit(conn, s, h, e)))
+    monkeypatch.setitem(
+        event_processor.ACTIONS,
+        'emit',
+        lambda conn, s, h, e: broken(conn, s, h, e) if h['name'] == 'A broken' else event_processor.emit(conn, s, h, e),
+    )
     a_handler(store, name='A broken')
     a_handler(store, name='B fine')
     first = an_event(store)

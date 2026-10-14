@@ -1,5 +1,6 @@
 """The tuning review (Suggest improvements) of a Test or event session. Starting a run (sessions.start.start_run),
 listing, detail, messages, Stop, Close, the event history and stream are the session API in sessions/api.py."""
+
 import asyncio
 import copy
 import json
@@ -66,8 +67,18 @@ def conversation(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     turns: dict[int, dict[str, Any]] = {}
     for row in rows:
         number = int(row['run_key'].rsplit(':', 1)[1])
-        turn = turns.setdefault(number, {'turn': number, 'input': '', 'comments': [], 'tools': [], 'answer': '',
-                                         'error': '', 'status': 'unfinished'})
+        turn = turns.setdefault(
+            number,
+            {
+                'turn': number,
+                'input': '',
+                'comments': [],
+                'tools': [],
+                'answer': '',
+                'error': '',
+                'status': 'unfinished',
+            },
+        )
         payload, kind = row['payload'], row['kind']
         if kind == 'input':
             if payload.get('comment'):
@@ -90,14 +101,17 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
     """Suggest improvements: a separate reviewer (the session's model, every capability off) reads the pinned
     configuration, the conversation and the feedback. Nothing is applied; Review and apply does that."""
     async with await psycopg.AsyncConnection.connect(db.conninfo, autocommit=True, row_factory=dict_row) as lock:
-        locked = await (await lock.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,27003)) AS locked',
-                                           (str(session_id),))).fetchone()
+        locked = await (
+            await lock.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,27003)) AS locked', (str(session_id),))
+        ).fetchone()
         if not locked['locked']:  # one review per session at a time
             raise HTTPException(409, REVIEW_BUSY)
         with db.connect() as conn:
-            session = conn.execute('''SELECT purpose,status,turns,agent_config FROM ka.agent_sessions
-                WHERE id=%s AND project_id=%s''',
-                (session_id, project)).fetchone()
+            session = conn.execute(
+                """SELECT purpose,status,turns,agent_config FROM ka.agent_sessions
+                WHERE id=%s AND project_id=%s""",
+                (session_id, project),
+            ).fetchone()
             if session is None:
                 raise HTTPException(404, SESSION_NOT_FOUND)
             if session['purpose'] not in CONVERSATIONS:
@@ -108,34 +122,53 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
                 raise HTTPException(409, NO_TURNS)
             if value.turn is not None and value.turn > session['turns']:
                 raise HTTPException(404, NO_RESPONSE)
-            rows = conn.execute('SELECT run_key,kind,payload FROM ka.agent_run_events WHERE run_key=ANY(%s) ORDER BY id',
-                ([run_key(session_id, number) for number in range(1, session['turns'] + 1)],)).fetchall()
+            rows = conn.execute(
+                'SELECT run_key,kind,payload FROM ka.agent_run_events WHERE run_key=ANY(%s) ORDER BY id',
+                ([run_key(session_id, number) for number in range(1, session['turns'] + 1)],),
+            ).fetchall()
         pinned = session['agent_config']
         reviewer = copy.deepcopy(pinned)
-        reviewer.update(id='agent-tuning', name='Agent tuning reviewer', description='Review a saved conversation.',
-                        enabled=True, system_prompt={'content': TUNING_PROMPT}, instructions='')
+        reviewer.update(
+            id='agent-tuning',
+            name='Agent tuning reviewer',
+            description='Review a saved conversation.',
+            enabled=True,
+            system_prompt={'content': TUNING_PROMPT},
+            instructions='',
+        )
         reviewer.pop('record', None)
         for capability in ('code', 'documents', 'ssh', 'skills', 'mcp', 'services'):
             reviewer[capability]['enabled'] = False
         credentials = await asyncio.to_thread(load_credentials, db, reviewer)
-        context = {'agent_config': pinned, 'conversation': conversation(rows), 'comment': value.comment,
-                   'turn': value.turn}
+        context = {
+            'agent_config': pinned,
+            'conversation': conversation(rows),
+            'comment': value.comment,
+            'turn': value.turn,
+        }
         context = json.loads(redact(json.dumps(jsonable_encoder(context)), credentials.values()))
         try:
             review_task = {**context, 'output_schema': TuningSuggestion.model_json_schema()}
             async with asyncio.timeout(REVIEW_SECONDS):
                 for attempt in range(2):
                     try:
-                        result = await agent(reviewer, json.dumps(review_task), credentials=credentials,
-                                             timeout_seconds=REVIEW_SECONDS, turn_timeout_seconds=REVIEW_SECONDS,
-                                             output_type=TuningSuggestion)
+                        result = await agent(
+                            reviewer,
+                            json.dumps(review_task),
+                            credentials=credentials,
+                            timeout_seconds=REVIEW_SECONDS,
+                            turn_timeout_seconds=REVIEW_SECONDS,
+                            output_type=TuningSuggestion,
+                        )
                         proposal = result.final_output
                         break
                     except ModelBehaviorError:
                         if attempt == 1:
                             raise
-                        review_task['correction'] = ('Return one JSON object matching the supplied schema exactly, '
-                                                     'with no wrapper or double encoding.')
+                        review_task['correction'] = (
+                            'Return one JSON object matching the supplied schema exactly, '
+                            'with no wrapper or double encoding.'
+                        )
             context['changes'] = proposal.changes.model_dump(mode='json')
         except (json.JSONDecodeError, ValidationError, ModelBehaviorError):
             raise HTTPException(502, 'The model returned invalid instruction changes. Try the review again.') from None
@@ -150,11 +183,20 @@ async def review_session(db, project: UUID, session_id: UUID, value: ReviewInput
         finally:
             credentials.clear()
         with db.connect() as conn:
-            row = conn.execute('''INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
+            row = conn.execute(
+                """INSERT INTO ka.agent_session_reviews(session_id,actor_id,comment,context,suggestion,
                 response_turn) VALUES (%s,%s,%s,%s,%s,%s)
-                RETURNING id,comment,suggestion,response_turn,created_at,context->'changes' AS changes''',
-                (session_id, db.actor(conn, *actor), context['comment'], Jsonb(context), proposal.suggestion,
-                 value.turn)).fetchone()
-            conn.execute("UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s AND status<>'closed'",
-                         (session_id,))
+                RETURNING id,comment,suggestion,response_turn,created_at,context->'changes' AS changes""",
+                (
+                    session_id,
+                    db.actor(conn, *actor),
+                    context['comment'],
+                    Jsonb(context),
+                    proposal.suggestion,
+                    value.turn,
+                ),
+            ).fetchone()
+            conn.execute(
+                "UPDATE ka.agent_sessions SET last_activity_at=now() WHERE id=%s AND status<>'closed'", (session_id,)
+            )
             return row

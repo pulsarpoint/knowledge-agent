@@ -1,4 +1,5 @@
 """knowledge_admin.db: the 503 for missing storage, a connection with its project, the audit row."""
+
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -28,7 +29,9 @@ def test_workspace_yields_the_connection_and_the_application_project(store):
 def test_workspace_rolls_back_when_the_block_fails(store):
     with pytest.raises(RuntimeError):
         with workspace(store, 'shop') as (conn, project):
-            conn.execute("INSERT INTO ka.audit_events(project_id,action,resource_type) VALUES (%s,'x.test','x')", (project,))
+            conn.execute(
+                "INSERT INTO ka.audit_events(project_id,action,resource_type) VALUES (%s,'x.test','x')", (project,)
+            )
             raise RuntimeError
     with store.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='x.test'").fetchone()['n'] == 0
@@ -41,11 +44,23 @@ def test_audit_writes_the_row_with_json_safe_details(store):
         audit(conn, project, actor, 'thing.saved', 'thing', resource, {'id': resource, 'at': when, 'n': 1})
         audit(conn, project, actor, 'thing.listed', 'thing', None, {})
     with store.connect() as conn:
-        rows = conn.execute('''SELECT project_id,actor_id,action,resource_type,resource_id,details FROM ka.audit_events
-            WHERE action LIKE 'thing.%%' ORDER BY id''').fetchall()
+        rows = conn.execute("""SELECT project_id,actor_id,action,resource_type,resource_id,details FROM ka.audit_events
+            WHERE action LIKE 'thing.%%' ORDER BY id""").fetchall()
     assert rows == [
-        {'project_id': project, 'actor_id': actor, 'action': 'thing.saved', 'resource_type': 'thing', 'resource_id': resource,
-         'details': {'id': str(resource), 'at': '2026-01-02T00:00:00+00:00', 'n': 1}},
-        {'project_id': project, 'actor_id': actor, 'action': 'thing.listed', 'resource_type': 'thing', 'resource_id': None,
-         'details': {}},
+        {
+            'project_id': project,
+            'actor_id': actor,
+            'action': 'thing.saved',
+            'resource_type': 'thing',
+            'resource_id': resource,
+            'details': {'id': str(resource), 'at': '2026-01-02T00:00:00+00:00', 'n': 1},
+        },
+        {
+            'project_id': project,
+            'actor_id': actor,
+            'action': 'thing.listed',
+            'resource_type': 'thing',
+            'resource_id': None,
+            'details': {},
+        },
     ]

@@ -1,4 +1,5 @@
 """Search and read the RAG knowledge base within the agent's document collections, recording citable excerpts."""
+
 import os
 from typing import Any
 
@@ -81,7 +82,7 @@ async def search_documents(context: RunContext, query: str, collection: str | No
     for hit in hits:
         text = redact(hit['text'], secrets)
         number = _register(state, hit['collection'], hit['path'], text)
-        blocks.append(f"[{number}] {hit['collection']}/{hit['path']}\n{text}")
+        blocks.append(f'[{number}] {hit["collection"]}/{hit["path"]}\n{text}')
     return '\n\n'.join(blocks)
 
 
@@ -98,7 +99,9 @@ async def read_document(context: RunContext, collection: str, path: str) -> str:
     try:
         async with _client() as client:
             project = await _project(client)
-            response = await client.get(f'/backoffice/projects/{project}/file', params={'collection': collection, 'path': path})
+            response = await client.get(
+                f'/backoffice/projects/{project}/file', params={'collection': collection, 'path': path}
+            )
             if response.status_code == 404:
                 return 'Document not found.'
             response.raise_for_status()

@@ -1,4 +1,5 @@
 """The embedding migration preserves encrypted keys and existing vector signatures."""
+
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -25,12 +26,27 @@ def test_migrate_saved_embedding_model(workspace_postgres, tmp_path, configured,
             for path in sorted(migrations.glob('*.up.sql')):
                 if int(path.name.split('_')[0]) < 37:
                     conn.execute(path.read_text(), prepare=False)
-            project = conn.execute("INSERT INTO ka.projects(slug,name) VALUES ('migration','Migration') RETURNING id").fetchone()['id']
-            settings = {'chunk_size': 1000, 'embedding_enabled': configured, 'embedding_base_url': 'https://model.test/v1',
-                        'embedding_model': 'existing-embedding-model' if configured else '', 'embedding_dimensions': 3, 'embedding_version': '3'}
+            project = conn.execute(
+                "INSERT INTO ka.projects(slug,name) VALUES ('migration','Migration') RETURNING id"
+            ).fetchone()['id']
+            settings = {
+                'chunk_size': 1000,
+                'embedding_enabled': configured,
+                'embedding_base_url': 'https://model.test/v1',
+                'embedding_model': 'existing-embedding-model' if configured else '',
+                'embedding_dimensions': 3,
+                'embedding_version': '3',
+            }
             nonce = os.urandom(12)
-            secret = nonce + workspace.cipher.encrypt(nonce, b'migration-key', f'{project}:embedding'.encode()) if key_saved else None
-            conn.execute('INSERT INTO ka.rag_workspaces(project_id,settings,embedding_secret) VALUES (%s,%s,%s)', (project, Jsonb(settings), secret))
+            secret = (
+                nonce + workspace.cipher.encrypt(nonce, b'migration-key', f'{project}:embedding'.encode())
+                if key_saved
+                else None
+            )
+            conn.execute(
+                'INSERT INTO ka.rag_workspaces(project_id,settings,embedding_secret) VALUES (%s,%s,%s)',
+                (project, Jsonb(settings), secret),
+            )
             conn.execute((migrations / '0037_embedding_models.up.sql').read_text(), prepare=False)
             row = workspace.settings(conn, project)
             assert row['settings'] == {'chunk_size': 1000, 'embedding_enabled': configured}
@@ -40,11 +56,19 @@ def test_migrate_saved_embedding_model(workspace_postgres, tmp_path, configured,
                 assert model['api_key_ciphertext'] == secret
                 assert model['enabled'] is configured
                 from knowledge_llm import decode_model
+
                 decoded = decode_model(model, workspace.cipher)
                 assert decoded.api_key == ('migration-key' if key_saved else None)
                 if configured:
-                    expected = digest({'url': settings['embedding_base_url'], 'model': settings['embedding_model'],
-                                       'version': settings['embedding_version'], 'dimensions': settings['embedding_dimensions'], 'input_format': 'text-v1'})
+                    expected = digest(
+                        {
+                            'url': settings['embedding_base_url'],
+                            'model': settings['embedding_model'],
+                            'version': settings['embedding_version'],
+                            'dimensions': settings['embedding_dimensions'],
+                            'input_format': 'text-v1',
+                        }
+                    )
                     assert embedding_profile(decoded) == expected
             else:
                 assert row['embedding_model_id'] is None

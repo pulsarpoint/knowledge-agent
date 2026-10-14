@@ -1,4 +1,5 @@
 """The agent's system prompt, read once at the start of each request."""
+
 from pathlib import Path
 
 import psycopg

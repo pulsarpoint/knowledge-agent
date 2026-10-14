@@ -1,19 +1,32 @@
 """Accepting and rejecting discovery proposals."""
+
 import asyncio
 
 import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.servers.discovery import (ACCEPT_SERVICE_FIRST, DECIDED, DOCUMENT_ADDED, SERVICE_ADDED, SERVICE_CHANGED,
-                                       SERVICE_GONE, STALE)
+from knowledge_admin.servers.discovery import (
+    ACCEPT_SERVICE_FIRST,
+    DECIDED,
+    DOCUMENT_ADDED,
+    SERVICE_ADDED,
+    SERVICE_CHANGED,
+    SERVICE_GONE,
+    STALE,
+)
 from knowledge_admin.servers.discovery import DOCUMENT_CHANGED
 from knowledge_admin.documents.api import DocumentInput, save_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
 
-REDIS = {'name': 'redis', 'service_role': 'cache', 'description': 'Session cache', 'owner': 'web team',
-         'deployment': {'runtime': 'systemd', 'runtime_name': 'redis-server', 'port': 6379}}
+REDIS = {
+    'name': 'redis',
+    'service_role': 'cache',
+    'description': 'Session cache',
+    'owner': 'web team',
+    'deployment': {'runtime': 'systemd', 'runtime_name': 'redis-server', 'port': 6379},
+}
 
 
 @pytest.fixture
@@ -35,12 +48,18 @@ def listed(world, sid):
 
 
 def decide(world, proposal, action, **body):
-    return world.client.post(f"/api/discovery/proposals/{proposal['id']}/{action}", headers=HEADERS,
-                             json={'revision': proposal['revision'], **body})
+    return world.client.post(
+        f'/api/discovery/proposals/{proposal["id"]}/{action}',
+        headers=HEADERS,
+        json={'revision': proposal['revision'], **body},
+    )
 
 
 def service(world, name):
-    return next((row for row in world.client.get('/api/services', headers=HEADERS).json()['services'] if row['name'] == name), None)
+    return next(
+        (row for row in world.client.get('/api/services', headers=HEADERS).json()['services'] if row['name'] == name),
+        None,
+    )
 
 
 def test_accepting_a_new_service_creates_it_with_its_deployment_and_connections(run):
@@ -63,8 +82,15 @@ def test_accepting_a_new_service_creates_it_with_its_deployment_and_connections(
 
 def test_an_update_shows_its_changes_and_applies_only_the_kept_fields(run):
     world, sid, config = run
-    propose(config, 'propose_service', name='nginx', description='Reverse proxy and TLS', owner='platform',
-            service_type='builtin', deployment={'runtime_name': 'nginx', 'deployed_version': '1.24.0'})
+    propose(
+        config,
+        'propose_service',
+        name='nginx',
+        description='Reverse proxy and TLS',
+        owner='platform',
+        service_type='builtin',
+        deployment={'runtime_name': 'nginx', 'deployed_version': '1.24.0'},
+    )
     [proposal] = listed(world, sid)
     assert proposal['current']['description'] == 'Front proxy for the shop'
     assert proposal['changes'] == ['service_type', 'description', 'owner']
@@ -72,9 +98,15 @@ def test_an_update_shows_its_changes_and_applies_only_the_kept_fields(run):
     accepted = decide(world, proposal, 'accept', fields=['description'])
     assert accepted.status_code == 200, accepted.text
     nginx = service(world, 'nginx')
-    assert nginx['description'] == 'Reverse proxy and TLS' and nginx['owner'] == 'web team' and nginx['service_type'] == 'unclassified'
+    assert (
+        nginx['description'] == 'Reverse proxy and TLS'
+        and nginx['owner'] == 'web team'
+        and nginx['service_type'] == 'unclassified'
+    )
     [deployment] = nginx['deployments']
-    assert deployment['deployed_version'] == '1.24.0' and deployment['port'] == 80 and deployment['runtime'] == 'systemd'
+    assert (
+        deployment['deployed_version'] == '1.24.0' and deployment['port'] == 80 and deployment['runtime'] == 'systemd'
+    )
     assert [item['name'] for item in nginx['repositories']] == ['Shop']
 
 
@@ -83,8 +115,14 @@ def test_unticking_every_field_still_updates_the_deployment_and_adds_connections
     with world.store.connect() as conn:
         conn.execute("INSERT INTO ka.services(project_id,name) VALUES (%s,'postgres')", (world.project,))
     # nginx's only deployment on web-1 in Production is the one this proposal updates, even with another runtime name
-    propose(config, 'propose_service', name='nginx', description='Changed', depends_on=['postgres'],
-            deployment={'runtime_name': 'nginx-canary', 'port': 8080})
+    propose(
+        config,
+        'propose_service',
+        name='nginx',
+        description='Changed',
+        depends_on=['postgres'],
+        deployment={'runtime_name': 'nginx-canary', 'port': 8080},
+    )
     [proposal] = listed(world, sid)
     assert decide(world, proposal, 'accept', fields=[]).status_code == 200
     nginx = service(world, 'nginx')
@@ -116,7 +154,9 @@ def test_a_new_service_another_run_added_meanwhile_becomes_an_update(run):
     [proposal] = listed(world, sid)
     assert proposal['status'] == 'pending' and proposal['service_id'] == service(world, 'redis')['id']
     assert decide(world, proposal, 'accept').status_code == 200
-    assert [row['name'] for row in world.client.get('/api/services', headers=HEADERS).json()['services']].count('redis') == 1
+    assert [row['name'] for row in world.client.get('/api/services', headers=HEADERS).json()['services']].count(
+        'redis'
+    ) == 1
 
 
 def test_documents_are_created_attached_and_versioned(run):
@@ -127,17 +167,24 @@ def test_documents_are_created_attached_and_versioned(run):
     accepted = decide(world, new, 'accept')
     assert accepted.status_code == 200, accepted.text
     document_id = accepted.json()['result_id']
-    attached = world.client.get('/api/inventory/documents', headers=HEADERS,
-                                params={'entry_kind': 'server', 'entry_id': world.server['id']}).json()['documents']
+    attached = world.client.get(
+        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': world.server['id']}
+    ).json()['documents']
     assert {item['title'] for item in attached} == {'web-1 overview', 'Disk layout'}
     with world.store.connect() as conn:
-        row = conn.execute('''SELECT d.folder,d.slug,v.origin,v.markdown FROM ka.documents d JOIN ka.document_versions v
-            ON v.id=d.current_version_id WHERE d.id=%s''', (document_id,)).fetchone()
+        row = conn.execute(
+            """SELECT d.folder,d.slug,v.origin,v.markdown FROM ka.documents d JOIN ka.document_versions v
+            ON v.id=d.current_version_id WHERE d.id=%s""",
+            (document_id,),
+        ).fetchone()
     assert (row['folder'], row['slug'], row['origin']) == ('servers/web-1', 'web-1-disk-layout', 'generated')
     assert decide(world, version, 'accept').status_code == 200
     with world.store.connect() as conn:
-        latest = conn.execute('''SELECT d.revision,v.markdown FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
-            WHERE d.id=%s''', (version['document_id'],)).fetchone()
+        latest = conn.execute(
+            """SELECT d.revision,v.markdown FROM ka.documents d JOIN ka.document_versions v ON v.id=d.current_version_id
+            WHERE d.id=%s""",
+            (version['document_id'],),
+        ).fetchone()
     assert latest['revision'] == 2 and latest['markdown'] == '# web-1, updated'
 
 
@@ -145,15 +192,20 @@ def test_a_title_whose_slug_is_taken_gets_a_free_slug(run):
     world, sid, config = run
     for markdown in ('# one', '# two'):
         with world.store.connect() as conn:  # detach the first, so the second is a new document, not a new version
-            conn.execute("DELETE FROM ka.inventory_documents WHERE server_id=%s AND document_id IN (SELECT id FROM ka.document_details WHERE title='Disk layout')",
-                         (world.server['id'],))
+            conn.execute(
+                "DELETE FROM ka.inventory_documents WHERE server_id=%s AND document_id IN (SELECT id FROM ka.document_details WHERE title='Disk layout')",
+                (world.server['id'],),
+            )
         other = start(world).json()['id']
         propose(config_of(world, other), 'propose_document', title='Disk layout', markdown=markdown)
         [proposal] = listed(world, other)
         assert proposal['document_id'] is None
         assert decide(world, proposal, 'accept').status_code == 200
     with world.store.connect() as conn:
-        slugs = [row['slug'] for row in conn.execute("SELECT slug FROM ka.documents WHERE folder='servers/web-1' ORDER BY slug")]
+        slugs = [
+            row['slug']
+            for row in conn.execute("SELECT slug FROM ka.documents WHERE folder='servers/web-1' ORDER BY slug")
+        ]
     assert slugs == ['web-1-disk-layout', 'web-1-disk-layout-2']
 
 
@@ -165,7 +217,9 @@ def test_a_document_title_another_run_attached_meanwhile_becomes_a_new_version(r
     assert decide(world, listed(world, other)[0], 'accept').status_code == 200
     [proposal] = listed(world, sid)
     refused = decide(world, proposal, 'accept')
-    assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_ADDED.format(title='Disk layout')
+    assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_ADDED.format(
+        title='Disk layout'
+    )
     [proposal] = listed(world, sid)
     assert proposal['document_id'] is not None and decide(world, proposal, 'accept').status_code == 200
 
@@ -190,8 +244,9 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
     assert decide(world, service_proposal, 'accept').status_code == 200
     assert decide(world, listed(world, sid)[1], 'accept').status_code == 200
     redis = service(world, 'redis')
-    attached = world.client.get('/api/inventory/documents', headers=HEADERS,
-                                params={'entry_kind': 'service', 'entry_id': redis['id']}).json()['documents']
+    attached = world.client.get(
+        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service', 'entry_id': redis['id']}
+    ).json()['documents']
     assert [item['title'] for item in attached] == ['Redis']
 
 
@@ -202,7 +257,10 @@ def test_a_stale_revision_and_unknown_ids_are_refused(run):
     [proposal] = listed(world, sid)
     stale = decide(world, {**proposal, 'revision': 1}, 'reject')
     assert stale.status_code == 409 and stale.json()['error']['message'] == STALE
-    assert world.client.get('/api/discovery/00000000-0000-0000-0000-000000000000/proposals', headers=HEADERS).status_code == 404
+    assert (
+        world.client.get('/api/discovery/00000000-0000-0000-0000-000000000000/proposals', headers=HEADERS).status_code
+        == 404
+    )
     assert decide(world, {'id': '00000000-0000-0000-0000-000000000000', 'revision': 1}, 'reject').status_code == 404
 
 
@@ -227,7 +285,9 @@ def test_a_document_about_a_service_deleted_since_is_refused(run):
     service_proposal, document = listed(world, sid)
     assert decide(world, service_proposal, 'accept').status_code == 200
     with world.store.connect() as conn:
-        conn.execute("DELETE FROM ka.service_deployments WHERE service_id IN (SELECT id FROM ka.services WHERE name='redis')")
+        conn.execute(
+            "DELETE FROM ka.service_deployments WHERE service_id IN (SELECT id FROM ka.services WHERE name='redis')"
+        )
         conn.execute("DELETE FROM ka.services WHERE name='redis'")
     refused = decide(world, listed(world, sid)[1], 'accept')
     assert refused.status_code == 400 and refused.json()['error']['message'] == SERVICE_GONE.format(name='redis')
@@ -243,8 +303,13 @@ def test_an_update_ignores_archived_code_projects(run):
     assert accepted.status_code == 200, accepted.text
     assert service(world, 'nginx')['description'] == 'Changed'
     with world.store.connect() as conn:  # the link to the archived code project stays
-        assert conn.execute("SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s AND to_code_project_id=%s",
-                            (world.nginx, world.shop)).fetchone() is not None
+        assert (
+            conn.execute(
+                "SELECT 1 FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s AND to_code_project_id=%s",
+                (world.nginx, world.shop),
+            ).fetchone()
+            is not None
+        )
 
 
 def test_a_blocked_export_folder_moves_new_documents_to_another_folder(run):
@@ -256,7 +321,9 @@ def test_a_blocked_export_folder_moves_new_documents_to_another_folder(run):
     accepted = decide(world, proposal, 'accept')
     assert accepted.status_code == 200, accepted.text
     with world.store.connect() as conn:
-        row = conn.execute('SELECT folder,slug FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)).fetchone()
+        row = conn.execute(
+            'SELECT folder,slug FROM ka.documents WHERE id=%s', (accepted.json()['result_id'],)
+        ).fetchone()
     assert row['folder'] == 'servers/web-1-2' and row['slug'] == 'web-1-disk-layout'
 
 
@@ -279,8 +346,15 @@ def test_a_new_version_of_a_document_changed_since_the_proposal_is_refused_once(
     [proposal] = listed(world, sid)
     assert proposal['payload']['matched_document_revision'] == 1
     with world.store.connect() as conn:
-        save_document(conn, world.project, None, DocumentInput(slug='web-1-overview', title='web-1 overview', description='x',
-                      markdown='# theirs', revision=1), proposal['document_id'])
+        save_document(
+            conn,
+            world.project,
+            None,
+            DocumentInput(
+                slug='web-1-overview', title='web-1 overview', description='x', markdown='# theirs', revision=1
+            ),
+            proposal['document_id'],
+        )
     refused = decide(world, proposal, 'accept')
     assert refused.status_code == 409 and refused.json()['error']['message'] == DOCUMENT_CHANGED
     [proposal] = listed(world, sid)

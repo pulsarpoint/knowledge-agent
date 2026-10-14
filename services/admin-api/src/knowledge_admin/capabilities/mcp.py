@@ -1,4 +1,5 @@
 """Which MCP servers an agent connects to and how it authenticates; the connection itself is built by the runner."""
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,5 +20,5 @@ def auth_headers(server: dict[str, Any], credentials: Mapping[str, str]) -> dict
     if reference is None:
         return {}
     if not credentials.get(reference['id']):
-        raise ValueError(f"The MCP token for {server['name']} was not supplied.")
+        raise ValueError(f'The MCP token for {server["name"]} was not supplied.')
     return {'Authorization': 'Bearer ' + credentials[reference['id']]}

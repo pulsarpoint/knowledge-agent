@@ -4,6 +4,7 @@ POST /api/sessions) through the native runtime (knowledge_admin.agents.runner.ag
 Turns have no time or model-call limit: they end with the answer, Stop, Close or a lost lease.
 Messages sent while a turn runs reach its next model call. Credentials are decrypted here, per turn, and redacted from
 events, the draft, status messages and history."""
+
 import asyncio
 import base64
 import json
@@ -25,9 +26,17 @@ from knowledge_admin.agents.runner import agent, load_credentials
 from knowledge_admin.knowledge_agents import session_worker as shared
 from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT
 from knowledge_admin.knowledge_agents.history import HistorySession
-from knowledge_admin.knowledge_agents.session_worker import (END_STATUS, IDLE_RELEASE_SECONDS, MAX_PREVIEW_CHARS,
-                                                             MAX_TOOL_OUTPUT, PREVIEW_LINES, STOPPED, capped, clean_text,
-                                                             run_key)
+from knowledge_admin.knowledge_agents.session_worker import (
+    END_STATUS,
+    IDLE_RELEASE_SECONDS,
+    MAX_PREVIEW_CHARS,
+    MAX_TOOL_OUTPUT,
+    PREVIEW_LINES,
+    STOPPED,
+    capped,
+    clean_text,
+    run_key,
+)
 from knowledge_admin.repositories import RepositoryStore
 from knowledge_admin.sessions.run_record import RunRecorder
 
@@ -46,24 +55,25 @@ def summary(name: str, arguments: Any) -> str:
 
     def value(key: str) -> str:
         return str(arguments.get(key) or '')
+
     if name in ('read_file', 'list_files'):
         return value('path')
     if name == 'search_files':
-        return f"{value('query')} in {value('path')}"
+        return f'{value("query")} in {value("path")}'
     if name == 'code_search':
-        return f"{value('name')} in {value('path')}"
+        return f'{value("name")} in {value("path")}'
     if name == 'ast_grep':
-        return f"{value('pattern') or value('rule')} in {value('path')}"
+        return f'{value("pattern") or value("rule")} in {value("path")}'
     if name == 'shell_run':
         return value('command')
     if name == 'ssh_run':
-        return f"{value('server_id')}: {value('command')}"
+        return f'{value("server_id")}: {value("command")}'
     if name == 'search_documents':
         return value('query')
     if name == 'read_document':
-        return f"{value('collection')}/{value('path')}"
+        return f'{value("collection")}/{value("path")}'
     if name == 'code_graph':
-        return f"{value('action')} {value('query') or value('node_id')}".strip()
+        return f'{value("action")} {value("query") or value("node_id")}'.strip()
     if name == 'run_subagent':
         return value('task')
     return ''
@@ -84,13 +94,19 @@ class SessionEvents(RunHooks):
     turn's calls. The recorder redacts every event with `secrets`; tool output is also cleaned before it is capped, so
     no partial key survives the cut."""
 
-    def __init__(self, recorder, *, secrets: list[str], first: bool,
-                 record_usage: Callable[[dict[str, Any]], None] | None = None):
+    def __init__(
+        self, recorder, *, secrets: list[str], first: bool, record_usage: Callable[[dict[str, Any]], None] | None = None
+    ):
         self.recorder, self.secrets, self.first, self.record_usage = recorder, secrets, first, record_usage
         self.texts: list[str] = []
         self.closed = False  # the turn ended: a turn that outlived Stop records nothing more and starts no tool call
-        self.usage = {'input_tokens': 0, 'output_tokens': 0, 'cached_tokens': 0, 'reasoning_tokens': 0,
-                      'total_tokens': 0}
+        self.usage = {
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'cached_tokens': 0,
+            'reasoning_tokens': 0,
+            'total_tokens': 0,
+        }
 
     async def _flush(self) -> None:
         await asyncio.to_thread(self.recorder.flush)
@@ -124,15 +140,25 @@ class SessionEvents(RunHooks):
                     self.add('message', {'text': text})
             elif kind == 'function_call':
                 arguments = _arguments(item.arguments)
-                self.add('tool_call', {'name': item.name, 'call_id': item.call_id, 'arguments': arguments,
-                                       'summary': summary(item.name, arguments)})
+                self.add(
+                    'tool_call',
+                    {
+                        'name': item.name,
+                        'call_id': item.call_id,
+                        'arguments': arguments,
+                        'summary': summary(item.name, arguments),
+                    },
+                )
         usage = response.usage
         details = getattr(usage, 'input_tokens_details', None)
         output_details = getattr(usage, 'output_tokens_details', None)
-        call = {'input_tokens': int(usage.input_tokens or 0), 'output_tokens': int(usage.output_tokens or 0),
-                'cached_tokens': int(getattr(details, 'cached_tokens', 0) or 0),
-                'reasoning_tokens': int(getattr(output_details, 'reasoning_tokens', 0) or 0),
-                'total_tokens': int(usage.total_tokens or 0)}
+        call = {
+            'input_tokens': int(usage.input_tokens or 0),
+            'output_tokens': int(usage.output_tokens or 0),
+            'cached_tokens': int(getattr(details, 'cached_tokens', 0) or 0),
+            'reasoning_tokens': int(getattr(output_details, 'reasoning_tokens', 0) or 0),
+            'total_tokens': int(usage.total_tokens or 0),
+        }
         for key, value in call.items():
             self.usage[key] += value
         self.add('usage', call)
@@ -151,11 +177,16 @@ class SessionEvents(RunHooks):
         if self.closed:
             return
         output = clean_text(str(result), self.secrets)
-        self.add('tool_result', {
-            'name': tool.name, 'call_id': getattr(context, 'tool_call_id', None) or '',
-            'output': capped(output, MAX_TOOL_OUTPUT),
-            'preview': capped('\n'.join(output.splitlines()[:PREVIEW_LINES]), MAX_PREVIEW_CHARS),
-            'is_error': tool_failed(output)})
+        self.add(
+            'tool_result',
+            {
+                'name': tool.name,
+                'call_id': getattr(context, 'tool_call_id', None) or '',
+                'output': capped(output, MAX_TOOL_OUTPUT),
+                'preview': capped('\n'.join(output.splitlines()[:PREVIEW_LINES]), MAX_PREVIEW_CHARS),
+                'is_error': tool_failed(output),
+            },
+        )
         await self._flush()
 
     def draft(self, final_output: Any) -> str:
@@ -197,8 +228,9 @@ async def _cancel(task: asyncio.Task, session_id) -> None:
     if task.done():
         _retrieve(task)
         return
-    logger.warning('Agent session %s turn did not end within %ss of Stop; it is left to end', session_id,
-                   STOP_GRACE_SECONDS)
+    logger.warning(
+        'Agent session %s turn did not end within %ss of Stop; it is left to end', session_id, STOP_GRACE_SECONDS
+    )
     _leave(task)
 
 
@@ -268,8 +300,17 @@ class NativeRunner(shared.SessionRunner):
     history, runs the native runtime as a task (cancelled on Stop, Close or a lost lease, wherever it is), then records
     the outcome with the history commit in one transaction. Credentials are cleared after every turn."""
 
-    def __init__(self, store: RepositoryStore, session: dict, run_agent=agent, *, run_subagent=None, poll: float = 1.0,
-                 idle_release: float = IDLE_RELEASE_SECONDS, slot: int = 1):
+    def __init__(
+        self,
+        store: RepositoryStore,
+        session: dict,
+        run_agent=agent,
+        *,
+        run_subagent=None,
+        poll: float = 1.0,
+        idle_release: float = IDLE_RELEASE_SECONDS,
+        slot: int = 1,
+    ):
         super().__init__(store, session, poll=poll, idle_release=idle_release, slot=slot)
         self.run_agent = run_agent
         self.run_subagent = run_subagent or run_agent  # how subagents run (tests pass a stand-in)
@@ -279,8 +320,9 @@ class NativeRunner(shared.SessionRunner):
         """The pinned config, its credentials (decrypted now, for this turn) and the saved history. load_credentials
         refuses a disabled agent, model, SSH server or MCP server."""
         with self.store.connect() as conn:
-            config = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s',
-                                  (self.id,)).fetchone()['agent_config']
+            config = conn.execute('SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (self.id,)).fetchone()[
+                'agent_config'
+            ]
             history = HistorySession.load(conn, self.id)
         config.pop('record', None)  # the turn's events are recorded here, not by agent()
         config['session_id'] = str(self.id)  # for the document tools; never pinned
@@ -293,28 +335,42 @@ class NativeRunner(shared.SessionRunner):
         event ids skips none."""
         with recorder._lock, self.store.connect() as conn:
             recorder.flush_in(conn)
-            conn.execute('''UPDATE ka.agent_sessions SET input_tokens=input_tokens+%(input)s,
+            conn.execute(
+                """UPDATE ka.agent_sessions SET input_tokens=input_tokens+%(input)s,
                 output_tokens=output_tokens+%(output)s, cached_tokens=cached_tokens+%(cached)s,
                 reasoning_tokens=reasoning_tokens+%(reasoning)s, model_calls=model_calls+1,
-                last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s''',
-                {'input': usage['input_tokens'], 'output': usage['output_tokens'], 'cached': usage['cached_tokens'],
-                 'reasoning': usage['reasoning_tokens'], 'id': self.id,
-                 'worker': self.worker_id})
+                last_activity_at=now() WHERE id=%(id)s AND worker_id=%(worker)s""",
+                {
+                    'input': usage['input_tokens'],
+                    'output': usage['output_tokens'],
+                    'cached': usage['cached_tokens'],
+                    'reasoning': usage['reasoning_tokens'],
+                    'id': self.id,
+                    'worker': self.worker_id,
+                },
+            )
 
     async def run_turn(self, number: int, text: str) -> None:
         # This turn's own list: a turn that outlived Stop keeps redacting with it after the worker forgets it.
         secrets: list[str] = []
         self.secrets = secrets
         self.stop_deadline = None
-        recorder = RunRecorder(run_key=run_key(self.id, number), project_id=str(self.session['project_id']),
-                               agent_id=self.session['agent_id'] or AD_HOC_AGENT, actor_id=str(self.session['actor_id']), secrets=secrets)
+        recorder = RunRecorder(
+            run_key=run_key(self.id, number),
+            project_id=str(self.session['project_id']),
+            agent_id=self.session['agent_id'] or AD_HOC_AGENT,
+            actor_id=str(self.session['actor_id']),
+            secrets=secrets,
+        )
         kind = {'test': 'test_session', 'event': 'event_session'}.get(self.session.get('purpose'), 'native_session')
-        recorder.add('start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'],
-                               'turn': number})
+        recorder.add(
+            'start', {'kind': kind, 'title': self.session['title'], 'agent': self.session['agent_name'], 'turn': number}
+        )
         recorder.add('input', {'task': text})
         await asyncio.to_thread(recorder.flush)
-        events = SessionEvents(recorder, secrets=secrets, first=number == 1,
-                               record_usage=lambda usage: self.add_usage(recorder, usage))
+        events = SessionEvents(
+            recorder, secrets=secrets, first=number == 1, record_usage=lambda usage: self.add_usage(recorder, usage)
+        )
         credentials: dict[str, str] = {}
         history: HistorySession | None = None
         comments: Comments | None = None
@@ -325,12 +381,19 @@ class NativeRunner(shared.SessionRunner):
                 # Imported here: the subagent runtime builds on this module's SessionEvents.
                 from knowledge_admin.knowledge_agents import experts
                 from knowledge_admin.knowledge_agents.subagents import Subagents
+
                 project_id = str(self.session['project_id'])
 
                 def load_expert(entry: dict, given: dict | None) -> tuple[dict, dict[str, str]]:
                     return experts.load(self.store, project_id, entry, given)
-                subagents = Subagents(events, secrets=secrets, record_usage=events.record_usage,
-                                      run_agent=self.run_subagent, load_expert=load_expert)
+
+                subagents = Subagents(
+                    events,
+                    secrets=secrets,
+                    record_usage=events.record_usage,
+                    run_agent=self.run_subagent,
+                    load_expert=load_expert,
+                )
                 config, credentials, history = await asyncio.to_thread(self.load)
                 secrets[:] = list(dict.fromkeys(value for value in credentials.values() if value))
                 comments = Comments(self, number, recorder, history)
@@ -356,8 +419,9 @@ class NativeRunner(shared.SessionRunner):
                 try:
                     sources = grounding_of(result, answer)
                 except Exception as exc:  # the turn still ends with its answer; only the cited sources are lost
-                    logger.warning('Agent session %s turn %s grounding failed (%s)', self.id, number,
-                                   type(exc).__name__)
+                    logger.warning(
+                        'Agent session %s turn %s grounding failed (%s)', self.id, number, type(exc).__name__
+                    )
             if sources is not None:
                 end['grounding'] = sources  # the recorder redacts it with the turn's secrets
             recorder.add('end', end)
@@ -370,8 +434,7 @@ class NativeRunner(shared.SessionRunner):
             # during the turn is committed (harmless: a closed session takes no more turns).
             commit = None if history is None else (lambda conn: history.commit(conn, secrets))
             # usage=None: every model call already added its tokens (add_usage)
-            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit,
-                                    answer=answer)
+            await asyncio.to_thread(self.finish_turn, number, status, message, usage=None, commit=commit, answer=answer)
         finally:
             if history is not None:
                 history.drop()
@@ -380,14 +443,33 @@ class NativeRunner(shared.SessionRunner):
             credentials.clear()
             self.secrets = []  # the worker forgets them; the turn's own list stays with what may still use it
 
-    async def drive(self, config: dict, text: str, credentials: dict[str, str], history: HistorySession,
-                    events: SessionEvents, comments: Comments, subagents: Any) -> tuple[str, Any]:
+    async def drive(
+        self,
+        config: dict,
+        text: str,
+        credentials: dict[str, str],
+        history: HistorySession,
+        events: SessionEvents,
+        comments: Comments,
+        subagents: Any,
+    ) -> tuple[str, Any]:
         """Run the turn without time or model-call limits: ('waiting', the run result) or ('stopped', None). Stop, Close or
         a lost lease cancels it wherever it is (connecting, in a model request, in a tool call); a runner that is itself
         cancelled (the worker stops) cancels it too."""
-        turn = asyncio.create_task(self.run_agent(
-            config, text, credentials=credentials, session=history, hooks=events, max_turns=None,
-            turn_timeout_seconds=None, call_model_input_filter=comments, stream=False, subagents=subagents))
+        turn = asyncio.create_task(
+            self.run_agent(
+                config,
+                text,
+                credentials=credentials,
+                session=history,
+                hooks=events,
+                max_turns=None,
+                turn_timeout_seconds=None,
+                call_model_input_filter=comments,
+                stream=False,
+                subagents=subagents,
+            )
+        )
         cancelled = False  # set once _cancel has returned: the turn ended, or it is tracked until it ends
         try:
             while not turn.done():
@@ -407,8 +489,16 @@ class NativeRunner(shared.SessionRunner):
                     _leave(turn)
 
 
-async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Event, worker_id: str | None = None,
-                limit: int | None = None, poll: float = 1.0, idle_release: float = IDLE_RELEASE_SECONDS) -> None:
+async def serve(
+    store: RepositoryStore,
+    run_agent=agent,
+    *,
+    stopped: asyncio.Event,
+    worker_id: str | None = None,
+    limit: int | None = None,
+    poll: float = 1.0,
+    idle_release: float = IDLE_RELEASE_SECONDS,
+) -> None:
     """Run native sessions (session_worker.serve); AGENT_SESSION_MAX_SESSIONS of them at once (default 4). Event runs
     release their slot when a turn ends with nothing queued; other runs after `idle_release` seconds idle."""
     worker_id = worker_id or f'{socket.gethostname()}:{os.getpid()}'
@@ -420,7 +510,9 @@ async def serve(store: RepositoryStore, run_agent=agent, *, stopped: asyncio.Eve
         release = 0.0 if session.get('purpose') == 'event' else idle_release
         return NativeRunner(store, session, run_agent, poll=poll, idle_release=release, slot=slot)
 
-    await shared.serve(store, start, label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll)
+    await shared.serve(
+        store, start, label='Agent session', stopped=stopped, worker_id=worker_id, limit=limit, poll=poll
+    )
 
 
 RESTART_SECONDS = 5
@@ -443,9 +535,12 @@ def main() -> None:
     """agent-session-worker: PostgreSQL from the PG* environment, run records like admin-api, and Agents SDK tracing to
     Phoenix (DOCS_WIKI_PHOENIX_ENDPOINT) as for native runs in admin-api."""
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s %(message)s')
-    store = RepositoryStore('', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL'])
+    store = RepositoryStore(
+        '', base64.urlsafe_b64decode(os.environ['CREDENTIAL_ENCRYPTION_KEY']), os.environ['AUTH_ISSUER_URL']
+    )
     run_record.configure(store, None)
     from knowledge_admin.capabilities import inventory
+
     inventory.configure(store)
     agent_tracing.setup()
 

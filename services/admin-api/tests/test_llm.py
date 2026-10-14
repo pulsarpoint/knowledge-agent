@@ -1,4 +1,5 @@
 """Model credentials, assignments, and probes against isolated PostgreSQL."""
+
 import asyncio
 import base64
 import json
@@ -11,8 +12,22 @@ from knowledge_admin.llm import api as llm_api
 from test_api import _client
 
 HEADERS = {'X-Forwarded-Groups': 'docs-admins', 'X-Forwarded-User': 'admin', 'X-Forwarded-Email': 'admin@example.test'}
-OPENAI = {'name': 'Search', 'provider': 'openai', 'model': 'test-model', 'api_format': 'responses', 'base_url': 'https://model.test/v1', 'api_key': 'secret-test-key'}
-BEDROCK = {'name': 'Bedrock', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-test-v1:0', 'api_format': 'native', 'aws_region': 'eu-central-1', 'api_key': 'bedrock-test-key'}
+OPENAI = {
+    'name': 'Search',
+    'provider': 'openai',
+    'model': 'test-model',
+    'api_format': 'responses',
+    'base_url': 'https://model.test/v1',
+    'api_key': 'secret-test-key',
+}
+BEDROCK = {
+    'name': 'Bedrock',
+    'provider': 'bedrock',
+    'model': 'eu.anthropic.claude-test-v1:0',
+    'api_format': 'native',
+    'aws_region': 'eu-central-1',
+    'api_key': 'bedrock-test-key',
+}
 
 
 def create(client, value=OPENAI):
@@ -26,8 +41,13 @@ def use_database(monkeypatch, store):
     monkeypatch.setenv('LLM_SETTINGS_SOURCE', 'database')
     # Preserve the production connection/decryption/query path with an isolated DB.
     import knowledge_llm
+
     real_connect = knowledge_llm.psycopg.connect
-    monkeypatch.setattr(knowledge_llm.psycopg, 'connect', lambda conninfo='', **kwargs: real_connect(conninfo or store.conninfo, **kwargs))
+    monkeypatch.setattr(
+        knowledge_llm.psycopg,
+        'connect',
+        lambda conninfo='', **kwargs: real_connect(conninfo or store.conninfo, **kwargs),
+    )
 
 
 def test_encrypted_credentials_preserved_rotated_and_bound_to_model(store, tmp_path):
@@ -68,7 +88,12 @@ def test_assignments_live_changes_disable_and_no_env_fallback(store, tmp_path, m
     use_database(monkeypatch, store)
     assert assigned_model('code').api_key == BEDROCK['api_key']
     assert assigned_model('search').model == 'test-model'
-    assert client.put('/api/llm/models/' + openai['id'], headers=HEADERS, json={**OPENAI, 'revision': 1, 'model': 'updated-model'}).status_code == 200
+    assert (
+        client.put(
+            '/api/llm/models/' + openai['id'], headers=HEADERS, json={**OPENAI, 'revision': 1, 'model': 'updated-model'}
+        ).status_code
+        == 200
+    )
     assert assigned_model('search').model == 'updated-model'
     client.put('/api/llm/models/' + openai['id'], headers=HEADERS, json={**OPENAI, 'revision': 2, 'enabled': False})
     monkeypatch.setenv('DOCS_WIKI_CHAT_MODEL', 'must-not-fallback')
@@ -86,31 +111,57 @@ def test_individual_agent_assignment_preserves_other_agents_and_rejects_stale_wr
     path = '/api/llm/assignments'
     initial = {f'{role}_model_id': bedrock['id'] for role in ('search', 'code', 'operations')}
     assert client.put(path, headers=HEADERS, json={**initial, 'revision': 1}).status_code == 200
-    assert client.put('/api/llm/models/' + bedrock['id'], headers=HEADERS, json={**BEDROCK, 'revision': 1, 'enabled': False}).status_code == 200
+    assert (
+        client.put(
+            '/api/llm/models/' + bedrock['id'], headers=HEADERS, json={**BEDROCK, 'revision': 1, 'enabled': False}
+        ).status_code
+        == 200
+    )
 
     change = {'search_model_id': openai['id'], 'revision': 2}
     assert client.put(path, json=change).status_code == 403
     response = client.put(path, headers=HEADERS, json=change)
     assert response.status_code == 200
     assert response.json().items() >= {**initial, 'search_model_id': openai['id'], 'revision': 3}.items()
-    assert client.put(path, headers=HEADERS, json={'operations_model_id': openai['id'], 'revision': 2}).status_code == 409
+    assert (
+        client.put(path, headers=HEADERS, json={'operations_model_id': openai['id'], 'revision': 2}).status_code == 409
+    )
     response = client.put(path, headers=HEADERS, json={'code_model_id': None, 'revision': 3})
     assert response.status_code == 200
-    assert response.json().items() >= {'search_model_id': openai['id'], 'code_model_id': None, 'operations_model_id': bedrock['id'], 'revision': 4}.items()
+    assert (
+        response.json().items()
+        >= {
+            'search_model_id': openai['id'],
+            'code_model_id': None,
+            'operations_model_id': bedrock['id'],
+            'revision': 4,
+        }.items()
+    )
     assert client.put(path, headers=HEADERS, json={'revision': 4}).status_code == 400
     assert client.put(path, headers=HEADERS, json={'code_model_id': bedrock['id'], 'revision': 4}).status_code == 400
     chat = create(client, {**OPENAI, 'name': 'Chat only', 'api_format': 'chat_completions'})
     assert client.put(path, headers=HEADERS, json={'operations_model_id': chat['id'], 'revision': 4}).status_code == 400
     with store.connect() as conn:
-        details = conn.execute("SELECT details FROM ka.audit_events WHERE action='llm.assignments.updated' AND details->>'revision'='2'").fetchone()['details']
+        details = conn.execute(
+            "SELECT details FROM ka.audit_events WHERE action='llm.assignments.updated' AND details->>'revision'='2'"
+        ).fetchone()['details']
     assert details == change
 
 
-@pytest.mark.parametrize('patch', [
-    {'base_url': 'https://user:password@model.test/v1'}, {'base_url': 'https://model.test/v1?api_key=secret'},
-    {'base_url': 'file:///tmp/test'}, {'provider': 'bedrock'}, {'api_format': 'native'},
-    {'api_key': 'bad key'}, {'enabled': 'false'}, {'name': '\x00'}, {'revision': 0},
-])
+@pytest.mark.parametrize(
+    'patch',
+    [
+        {'base_url': 'https://user:password@model.test/v1'},
+        {'base_url': 'https://model.test/v1?api_key=secret'},
+        {'base_url': 'file:///tmp/test'},
+        {'provider': 'bedrock'},
+        {'api_format': 'native'},
+        {'api_key': 'bad key'},
+        {'enabled': 'false'},
+        {'name': '\x00'},
+        {'revision': 0},
+    ],
+)
 def test_invalid_settings_rejected(store, tmp_path, patch):
     client = _client(tmp_path, repository_store=store)
     assert client.post('/api/llm/models', headers=HEADERS, json={**OPENAI, **patch}).status_code == 400
@@ -120,8 +171,10 @@ def test_invalid_settings_rejected(store, tmp_path, patch):
 def test_admin_only_and_probe_does_not_expose_provider_errors(store, tmp_path, monkeypatch):
     client = _client(tmp_path, repository_store=store)
     calls = []
+
     async def probe(model):
         calls.append(model)
+
     monkeypatch.setattr(llm_api, 'probe_model', probe)
     row = create(client, BEDROCK)
     path = '/api/llm/models/' + row['id'] + '/test'
@@ -131,8 +184,10 @@ def test_admin_only_and_probe_does_not_expose_provider_errors(store, tmp_path, m
     response = client.post(path, headers=HEADERS, json={'revision': 1})
     assert response.json()['ok'] and calls[0].api_key == BEDROCK['api_key']
     assert client.post(path, headers=HEADERS, json={'revision': 2}).status_code == 409
+
     async def fail(model):
         raise RuntimeError('provider echoed ' + model.api_key)
+
     monkeypatch.setattr(llm_api, 'probe_model', fail)
     response = client.post(path, headers=HEADERS, json={'revision': 1})
     assert not response.json()['ok'] and BEDROCK['api_key'] not in response.text
@@ -142,9 +197,12 @@ def test_native_provider_probe_uses_saved_bedrock_region_and_bearer(store, tmp_p
     client = _client(tmp_path, repository_store=store)
     row = create(client, BEDROCK)
     import litellm
+
     calls = []
+
     async def completion(**kwargs):
         calls.append(kwargs)
+
     monkeypatch.setattr(litellm, 'acompletion', completion)
     response = client.post('/api/llm/models/' + row['id'] + '/test', headers=HEADERS, json={'revision': 1})
     assert response.json()['ok']

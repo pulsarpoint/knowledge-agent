@@ -5,6 +5,7 @@ to add_items(), which only buffers them. The worker commits the buffer, without 
 credentials, in the transaction that records a successful turn (SessionRunner.finish_turn), and drops it otherwise, so
 a failed, stopped or timed-out turn never leaves partial items. SessionSettings(limit) is not used: every turn sees the
 whole conversation, including the first message that says what to document."""
+
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder

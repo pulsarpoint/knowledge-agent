@@ -1,4 +1,5 @@
 """Admins can list agent runs and read one run's full record."""
+
 from psycopg.types.json import Jsonb
 
 from test_api import _client
@@ -9,14 +10,30 @@ def seed(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         alice = store.actor(conn, 'alice', 'alice@example.test')
+
         def add(run_key, seq, kind, payload, agent='search'):
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (project, run_key, seq, kind, agent, alice, Jsonb(payload)))
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (project, run_key, seq, kind, agent, alice, Jsonb(payload)),
+            )
+
         add('run:1', 1, 'start', {'kind': 'test', 'title': 'How many retries?', 'agent': 'Search agent'})
-        add('run:1', 2, 'tool_call', {'agent': 'Search agent', 'name': 'search_documents', 'arguments': '{"query":"retries"}'})
+        add(
+            'run:1',
+            2,
+            'tool_call',
+            {'agent': 'Search agent', 'name': 'search_documents', 'arguments': '{"query":"retries"}'},
+        )
         add('run:1', 3, 'usage', {'agent': 'Search agent', 'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15})
         add('run:1', 4, 'end', {'status': 'completed'})
-        add('cc:s1:1', 1, 'start', {'kind': 'claude_code', 'title': 'Payments API reference', 'agent': 'Technical writer'}, agent='technical-writer')
+        add(
+            'cc:s1:1',
+            1,
+            'start',
+            {'kind': 'claude_code', 'title': 'Payments API reference', 'agent': 'Technical writer'},
+            agent='technical-writer',
+        )
         add('cc:s1:1', 2, 'error', {'type': 'TimeoutError', 'message': 'late'}, agent='technical-writer')
         add('cc:s1:1', 3, 'end', {'status': 'failed'}, agent='technical-writer')
 
@@ -27,12 +44,22 @@ def test_list_runs_with_filters(store, tmp_path):
     runs = client.get('/api/agent-runs', headers=HEADERS).json()['runs']
     assert [r['run_key'] for r in runs] == ['cc:s1:1', 'run:1']
     first = runs[1]
-    assert first | {'started_at': None} == {'run_key': 'run:1', 'agent_id': 'search', 'agent': 'Search agent',
-        'kind': 'test', 'title': 'How many retries?', 'user': 'alice@example.test', 'status': 'completed',
-        'total_tokens': 15, 'started_at': None,
-        'tool_counts': [{'name': 'search_documents', 'calls': 1}]}
+    assert first | {'started_at': None} == {
+        'run_key': 'run:1',
+        'agent_id': 'search',
+        'agent': 'Search agent',
+        'kind': 'test',
+        'title': 'How many retries?',
+        'user': 'alice@example.test',
+        'status': 'completed',
+        'total_tokens': 15,
+        'started_at': None,
+        'tool_counts': [{'name': 'search_documents', 'calls': 1}],
+    }
     assert runs[0]['status'] == 'failed'
-    only = lambda **params: [r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']]
+    only = lambda **params: [
+        r['run_key'] for r in client.get('/api/agent-runs', headers=HEADERS, params=params).json()['runs']
+    ]
     assert only(kind='test') == ['run:1']
     assert only(agent_id='technical-writer') == ['cc:s1:1']
     assert only(user='alice@example.test') == ['cc:s1:1', 'run:1']
@@ -61,9 +88,14 @@ def seed_expert_calls(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         alice = store.actor(conn, 'alice', 'alice@example.test')
+
         def add(seq, kind, payload, agent='lead', run_key='cc:s2:1'):
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (project, run_key, seq, kind, agent, alice, Jsonb(payload)))
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (project, run_key, seq, kind, agent, alice, Jsonb(payload)),
+            )
+
         expert = {'id': 'payments', 'name': 'Payments'}
         add(1, 'start', {'kind': 'claude_code', 'title': 'Plan the release', 'agent': 'Lead'})
         add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'e1'})
@@ -85,20 +117,30 @@ def seed_ended_and_renamed_calls(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         alice = store.actor(conn, 'alice', 'alice@example.test')
+
         def add(seq, kind, payload, agent='lead', run_key='cc:s2:1'):
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)''', (project, run_key, seq, kind, agent, alice, Jsonb(payload)))
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,actor_id,payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (project, run_key, seq, kind, agent, alice, Jsonb(payload)),
+            )
+
         expert = {'id': 'payments', 'name': 'Payments'}
         # a second run that ended (Stop) before its expert call answered
         add(1, 'start', {'kind': 'claude_code', 'title': 'Stopped', 'agent': 'Lead'}, run_key='cc:s2:2')
         add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'e4'}, run_key='cc:s2:2')
-        add(3, 'input', {'task': 'Cut short', 'expert': expert, 'parent_call_id': 'e4'}, agent='payments', run_key='cc:s2:2')
+        add(
+            3,
+            'input',
+            {'task': 'Cut short', 'expert': expert, 'parent_call_id': 'e4'},
+            agent='payments',
+            run_key='cc:s2:2',
+        )
         add(4, 'end', {'status': 'stopped'}, run_key='cc:s2:2')
         # a result naming another expert is not this expert's failure
         add(13, 'tool_call', {'name': 'ask_payments', 'call_id': 'e5'})
         add(14, 'input', {'task': 'Name differs', 'expert': expert, 'parent_call_id': 'e5'}, agent='payments')
         add(15, 'tool_result', {'call_id': 'e5', 'preview': 'Expert Billing failed: not mine'})
-
 
 
 def test_expert_calls_are_listed_for_the_expert(store, tmp_path):
@@ -110,10 +152,21 @@ def test_expert_calls_are_listed_for_the_expert(store, tmp_path):
     rows = listing['runs']
     assert [r['call_id'] for r in rows] == ['e5', 'e4', 'e3', 'e2', 'e1'] and listing['next'] is None
     done = rows[4]
-    assert done | {'started_at': None, 'id': None} == {'run_key': 'cc:s2:1', 'agent_id': 'payments', 'agent': 'Payments',
-        'kind': 'expert_call', 'title': 'Map payments', 'user': 'alice@example.test', 'status': 'completed',
-        'total_tokens': 120, 'started_at': None, 'tool_counts': [{'name': 'read_file', 'calls': 1}],
-        'call_id': 'e1', 'caller': 'Lead', 'id': None}
+    assert done | {'started_at': None, 'id': None} == {
+        'run_key': 'cc:s2:1',
+        'agent_id': 'payments',
+        'agent': 'Payments',
+        'kind': 'expert_call',
+        'title': 'Map payments',
+        'user': 'alice@example.test',
+        'status': 'completed',
+        'total_tokens': 120,
+        'started_at': None,
+        'tool_counts': [{'name': 'read_file', 'calls': 1}],
+        'call_id': 'e1',
+        'caller': 'Lead',
+        'id': None,
+    }
     assert rows[3]['status'] == 'failed' and rows[3]['title'] == 'x' * 200
     assert rows[2]['status'] == 'working'  # the run has not ended
     assert rows[2]['total_tokens'] == 0 and rows[2]['tool_counts'] == []
@@ -127,9 +180,14 @@ def test_expert_calls_page_with_the_expert_runs(store, tmp_path):
     seed_expert_calls(store)
     with store.connect() as conn:
         project = store.project(conn, 'shop')
-        conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-            VALUES (%s,'run:own',1,'start','payments',%s)''', (project, Jsonb({'kind': 'test', 'title': 'Own run', 'agent': 'Payments'})))
-    get = lambda **params: client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'} | params).json()
+        conn.execute(
+            """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+            VALUES (%s,'run:own',1,'start','payments',%s)""",
+            (project, Jsonb({'kind': 'test', 'title': 'Own run', 'agent': 'Payments'})),
+        )
+    get = lambda **params: client.get(
+        '/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'} | params
+    ).json()
     everything = get()
     assert [r.get('call_id', r['run_key']) for r in everything['runs']] == ['run:own', 'e3', 'e2', 'e1']
     first = get(limit=3)
@@ -165,9 +223,14 @@ def seed_expert_with_subagent(store):
     is a different expert call with its own subagent that must stay out of x1."""
     with store.connect() as conn:
         project = store.project(conn, 'shop')
+
         def add(seq, kind, payload, agent='payments'):
-            conn.execute('''INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
-                VALUES (%s,'cc:s3:1',%s,%s,%s,%s)''', (project, seq, kind, agent, Jsonb(payload)))
+            conn.execute(
+                """INSERT INTO ka.agent_run_events(project_id,run_key,seq,kind,agent_id,payload)
+                VALUES (%s,'cc:s3:1',%s,%s,%s,%s)""",
+                (project, seq, kind, agent, Jsonb(payload)),
+            )
+
         expert = {'id': 'payments', 'name': 'Payments'}
         add(1, 'start', {'kind': 'claude_code', 'title': 'Plan', 'agent': 'Lead'}, agent='lead')
         add(2, 'tool_call', {'name': 'ask_payments', 'call_id': 'x1'}, agent='lead')
@@ -188,7 +251,10 @@ def seed_expert_with_subagent(store):
 def test_expert_call_includes_the_experts_subagents(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     seed_expert_with_subagent(store)
-    rows = {r['call_id']: r for r in client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()['runs']}
+    rows = {
+        r['call_id']: r
+        for r in client.get('/api/agent-runs', headers=HEADERS, params={'agent_id': 'payments'}).json()['runs']
+    }
     assert set(rows) == {'x1', 'x2'}
     assert rows['x1']['total_tokens'] == 130
     assert rows['x1']['tool_counts'] == [{'name': 'read_file', 'calls': 1}, {'name': 'run_subagent', 'calls': 1}]

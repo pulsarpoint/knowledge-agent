@@ -1,6 +1,7 @@
 """run_subagent at run time: the Subagents of one native turn (parallel limit, 16 per turn, closed turns, failures,
 credentials, events in the parent's turn record with parent_call_id), the adapter's call id, and the worker running
 subagents in a session (one record, session totals, Stop)."""
+
 import asyncio
 import dataclasses
 import gc
@@ -42,15 +43,27 @@ def host(turns: dict, *, limit: int = 4, usage: list | None = None):
     recorder = Recorder()
     lead = SessionEvents(recorder, secrets=list(CREDENTIALS.values()), first=False)
     fake = FakeSubagent(turns)
-    subagents = Subagents(lead, secrets=list(CREDENTIALS.values()), run_agent=fake, limit=limit,
-                          record_usage=usage.append if usage is not None else None)
+    subagents = Subagents(
+        lead,
+        secrets=list(CREDENTIALS.values()),
+        run_agent=fake,
+        limit=limit,
+        record_usage=usage.append if usage is not None else None,
+    )
     return subagents, fake, recorder, lead
 
 
 async def start(subagents, call_id, task, tools=('read_file',), resources=None):
     """The run_subagent tool as the adapter runs it for one call."""
-    context = {'config': parent(), 'credentials': dict(CREDENTIALS), 'workspace': SCRATCH, 'shell_enabled': True,
-               'tools': OFFERED, 'mcp_tools': MCP, 'subagents': subagents}
+    context = {
+        'config': parent(),
+        'credentials': dict(CREDENTIALS),
+        'workspace': SCRATCH,
+        'shell_enabled': True,
+        'tools': OFFERED,
+        'mcp_tools': MCP,
+        'subagents': subagents,
+    }
     token = TOOL_CALL_ID.set(call_id)
     try:
         return await run_subagent(context, task, list(tools), resources)
@@ -60,24 +73,47 @@ async def start(subagents, call_id, task, tools=('read_file',), resources=None):
 
 def test_a_subagent_runs_its_task_with_its_configuration_and_is_recorded_in_the_turn():
     usage: list[dict] = []
-    subagents, fake, recorder, _ = host({'Map the worker': {'steps': [
-        llm(call('r1', 'read_file', {'path': '/code/worker/main.py'}), input_tokens=40, output_tokens=5),
-        tool('r1', 'read_file', 'def main(): ...'),
-        llm(message(f'The worker starts in main.py ({SECRET}).'), input_tokens=60, output_tokens=12)],
-        'answer': f'The worker starts in main.py ({SECRET}).'}}, usage=usage)
-    answer = asyncio.run(start(subagents, 's1', 'Map the worker',
-                               resources={**NO_RESOURCES, 'code_project_ids': ['worker']}))
+    subagents, fake, recorder, _ = host(
+        {
+            'Map the worker': {
+                'steps': [
+                    llm(call('r1', 'read_file', {'path': '/code/worker/main.py'}), input_tokens=40, output_tokens=5),
+                    tool('r1', 'read_file', 'def main(): ...'),
+                    llm(message(f'The worker starts in main.py ({SECRET}).'), input_tokens=60, output_tokens=12),
+                ],
+                'answer': f'The worker starts in main.py ({SECRET}).',
+            }
+        },
+        usage=usage,
+    )
+    answer = asyncio.run(
+        start(subagents, 's1', 'Map the worker', resources={**NO_RESOURCES, 'code_project_ids': ['worker']})
+    )
     assert answer == 'The worker starts in main.py ([redacted]).'
     [run] = fake.calls
     assert run['config']['system_prompt'] == {'content': PROMPT}
     assert [p['id'] for p in run['config']['code']['projects']] == ['worker']
     assert run['credentials'] == {'model-key': SECRET}  # only what its configuration references
-    assert (run['workspace'], run['max_turns'], run['turn_timeout_seconds'], run['stream']) == (SCRATCH, None, None, False)
+    assert (run['workspace'], run['max_turns'], run['turn_timeout_seconds'], run['stream']) == (
+        SCRATCH,
+        None,
+        None,
+        False,
+    )
     assert run['filter'] == subagents.model_filter
-    assert [kind for kind, _ in recorder.events] == ['input', 'instructions', 'tool_call', 'usage', 'tool_result',
-                                                     'message', 'usage']
-    assert recorder.events[0] == ('input', {'task': 'Map the worker', 'subagent': {'task': 'Map the worker'},
-                                            'parent_call_id': 's1'})
+    assert [kind for kind, _ in recorder.events] == [
+        'input',
+        'instructions',
+        'tool_call',
+        'usage',
+        'tool_result',
+        'message',
+        'usage',
+    ]
+    assert recorder.events[0] == (
+        'input',
+        {'task': 'Map the worker', 'subagent': {'task': 'Map the worker'}, 'parent_call_id': 's1'},
+    )
     assert recorder.events[1][1]['text'] == PROMPT
     assert all(payload['parent_call_id'] == 's1' for _, payload in recorder.events)
     assert [each['input_tokens'] for each in usage] == [40, 60]  # every model call reaches the session's totals
@@ -92,7 +128,9 @@ def test_at_most_the_limit_run_at_once_and_later_ones_wait():
         async def work(turn):
             running.append(task)
             await gates[task].wait()
+
         return {'steps': [work], 'answer': task}
+
     subagents, _, _, _ = host({task: script(task) for task in gates}, limit=4)
 
     async def scenario():
@@ -118,8 +156,9 @@ def test_a_turn_starts_at_most_16_subagents_and_refused_calls_do_not_count():
         with pytest.raises(ValueError) as refused:
             await start(subagents, 'bad', 'Task 0', tools=('ast_grep',))
         assert str(refused.value) == NOT_OFFERED.format(name='ast_grep')
-        return await asyncio.gather(*(start(subagents, f'c{n}', f'Task {n}') for n in range(17)),
-                                    return_exceptions=True)
+        return await asyncio.gather(
+            *(start(subagents, f'c{n}', f'Task {n}') for n in range(17)), return_exceptions=True
+        )
 
     results = asyncio.run(scenario())
     assert len(fake.calls) == 16 and subagents.started == 16
@@ -128,15 +167,20 @@ def test_a_turn_starts_at_most_16_subagents_and_refused_calls_do_not_count():
 
 
 def test_a_failed_subagent_returns_a_redacted_failure_and_is_recorded():
-    subagents, _, recorder, _ = host({'Check prod': {'steps': [], 'error': ValueError(f'SSH key {SECRET} refused')},
-                                      'Crash': {'steps': [], 'error': RuntimeError(SECRET)}})
+    subagents, _, recorder, _ = host(
+        {
+            'Check prod': {'steps': [], 'error': ValueError(f'SSH key {SECRET} refused')},
+            'Crash': {'steps': [], 'error': RuntimeError(SECRET)},
+        }
+    )
 
     async def scenario():
         return [await start(subagents, 's1', 'Check prod'), await start(subagents, 's2', 'Crash')]
 
     assert asyncio.run(scenario()) == [
         FAILED.format(message='SSH key [redacted] refused'),
-        FAILED.format(message='Agent execution failed (RuntimeError). Check the model connection and agent resources.')]
+        FAILED.format(message='Agent execution failed (RuntimeError). Check the model connection and agent resources.'),
+    ]
     errors = [payload for kind, payload in recorder.events if kind == 'error']
     assert [error['parent_call_id'] for error in errors] == ['s1', 's2'] and SECRET not in json.dumps(errors)
     assert tool_failed(FAILED.format(message='boom')) and not tool_failed('Subagent found the bug.')
@@ -148,6 +192,7 @@ def test_a_closed_turn_starts_no_subagent_model_call_tool_call_or_subagent():
 
         async def stop(turn, lead=lead):
             lead.closed = True  # Stop, Close or the end of the turn while the subagent works
+
         fake.turns[task] = {'steps': [stop, late], 'answer': 'late'}
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(start(subagents, 's1', task))
@@ -163,10 +208,15 @@ def test_the_adapter_publishes_the_call_id_to_the_tool():
     async def remember(context, arguments):
         seen.append(TOOL_CALL_ID.get())
         return 'ok'
+
     read = function_tool(dataclasses.replace(CATALOG['read_file'], run=remember), CATALOG['read_file'].usage)
     payload = json.dumps({'path': '/a.txt'})
-    wrapped = ToolContext(context={'tools': frozenset({'read_file'}), 'credentials': {}}, tool_name='read_file',
-                          tool_call_id='call-7', tool_arguments=payload)
+    wrapped = ToolContext(
+        context={'tools': frozenset({'read_file'}), 'credentials': {}},
+        tool_name='read_file',
+        tool_call_id='call-7',
+        tool_arguments=payload,
+    )
     assert asyncio.run(read.on_invoke_tool(wrapped, payload)) == 'ok'
     assert seen == ['call-7'] and TOOL_CALL_ID.get() is None
 
@@ -179,9 +229,19 @@ def test_a_run_can_share_a_scratch_workspace_and_carries_the_turns_subagents(con
     class Capture(RunHooks):
         async def on_agent_start(self, context, agent):
             seen.update(workspace=context.context['workspace'], subagents=context.context['subagents'])
+
     marker = object()
-    asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}, hooks=Capture(),
-                      workspace=scratch, subagents=marker, stream=False))
+    asyncio.run(
+        agent(
+            config,
+            'Describe the tools.',
+            credentials={'model-key': 'fixture-api-secret'},
+            hooks=Capture(),
+            workspace=scratch,
+            subagents=marker,
+            stream=False,
+        )
+    )
     assert seen == {'workspace': scratch.resolve(), 'subagents': marker}
     assert scratch.is_dir()  # the parent's workspace outlives the subagent's run
 
@@ -190,24 +250,50 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
     sessions, sid = native
     store = sessions.store
     results: list[str] = []
-    subagent = FakeSubagent({
-        'Read the worker': {'steps': [llm(call('r1', 'read_file', {'path': 'w.py'}), input_tokens=30, output_tokens=3),
-                                      tool('r1', 'read_file', f'token {KEY}'),
-                                      llm(message('Worker reads w.py.'), input_tokens=20, output_tokens=4)],
-                            'answer': 'Worker reads w.py.'},
-        'Read the app': {'steps': [llm(message('App reads a.py.'), input_tokens=10, output_tokens=2)],
-                         'answer': 'App reads a.py.'}})
-    fake = FakeAgent([{'offered': ['read_file', 'run_subagent'], 'steps': [
-        llm(call('s1', 'run_subagent', {'task': 'Read the worker', 'tools': ['read_file'], 'resources': None}),
-            call('s2', 'run_subagent', {'task': 'Read the app', 'tools': ['read_file'], 'resources': None}),
-            input_tokens=100, output_tokens=10),
-        together(delegate('s1', 'Read the worker', ['read_file'], results=results),
-                 delegate('s2', 'Read the app', ['read_file'], results=results)),
-        llm(message('Both read.'), input_tokens=50, output_tokens=5)], 'answer': 'Both read.'}])
+    subagent = FakeSubagent(
+        {
+            'Read the worker': {
+                'steps': [
+                    llm(call('r1', 'read_file', {'path': 'w.py'}), input_tokens=30, output_tokens=3),
+                    tool('r1', 'read_file', f'token {KEY}'),
+                    llm(message('Worker reads w.py.'), input_tokens=20, output_tokens=4),
+                ],
+                'answer': 'Worker reads w.py.',
+            },
+            'Read the app': {
+                'steps': [llm(message('App reads a.py.'), input_tokens=10, output_tokens=2)],
+                'answer': 'App reads a.py.',
+            },
+        }
+    )
+    fake = FakeAgent(
+        [
+            {
+                'offered': ['read_file', 'run_subagent'],
+                'steps': [
+                    llm(
+                        call(
+                            's1', 'run_subagent', {'task': 'Read the worker', 'tools': ['read_file'], 'resources': None}
+                        ),
+                        call('s2', 'run_subagent', {'task': 'Read the app', 'tools': ['read_file'], 'resources': None}),
+                        input_tokens=100,
+                        output_tokens=10,
+                    ),
+                    together(
+                        delegate('s1', 'Read the worker', ['read_file'], results=results),
+                        delegate('s2', 'Read the app', ['read_file'], results=results),
+                    ),
+                    llm(message('Both read.'), input_tokens=50, output_tokens=5),
+                ],
+                'answer': 'Both read.',
+            }
+        ]
+    )
 
     async def scenario():
-        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
-                                                                  poll=0.02).run())
+        runner = asyncio.create_task(
+            native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent, poll=0.02).run()
+        )
         await wait_for(store, sid, lambda s: s['status'] == 'waiting' and s['turns'] == 1)
         await post(sessions, f'/api/sessions/{sid}/close')
         await asyncio.wait_for(runner, 5)
@@ -218,11 +304,14 @@ def test_a_session_turn_records_its_subagents_in_one_record_and_counts_their_usa
     recorded = [e for e in run_events(store, sid) if e['run_key'] == f'cc:{sid}:1']
     assert [e['seq'] for e in recorded] == list(range(1, len(recorded) + 1))  # one record, every event once, in order
     by_call = {cid: [e['kind'] for e in recorded if e['payload'].get('parent_call_id') == cid] for cid in ('s1', 's2')}
-    assert by_call == {'s1': ['input', 'instructions', 'tool_call', 'usage', 'tool_result', 'message', 'usage'],
-                       's2': ['input', 'instructions', 'message', 'usage']}
+    assert by_call == {
+        's1': ['input', 'instructions', 'tool_call', 'usage', 'tool_result', 'message', 'usage'],
+        's2': ['input', 'instructions', 'message', 'usage'],
+    }
     assert [e['kind'] for e in recorded if 'parent_call_id' not in e['payload']][-1] == 'end'
-    assert [e['payload']['summary'] for e in recorded
-            if e['kind'] == 'tool_call' and e['payload']['name'] == 'run_subagent'] == ['Read the worker', 'Read the app']
+    assert [
+        e['payload']['summary'] for e in recorded if e['kind'] == 'tool_call' and e['payload']['name'] == 'run_subagent'
+    ] == ['Read the worker', 'Read the app']
     assert KEY not in json.dumps(recorded, default=str)
     row = session_row(store, sid)
     assert (row['input_tokens'], row['output_tokens'], row['model_calls']) == (210, 24, 5)  # subagents included
@@ -235,13 +324,27 @@ def test_stop_cancels_a_running_subagent_and_leaves_nothing_running(native):
     store, url = sessions.store, f'/api/sessions/{sid}'
     started, cancelled = asyncio.Event(), []
     subagent = FakeSubagent({'Watch the queue': {'steps': [hang('tool', started, cancelled)], 'answer': 'never'}})
-    fake = FakeAgent([{'offered': ['read_file'], 'steps': [
-        llm(call('s1', 'run_subagent', {'task': 'Watch the queue', 'tools': ['read_file'], 'resources': None})),
-        delegate('s1', 'Watch the queue', ['read_file'])], 'answer': 'never'}])
+    fake = FakeAgent(
+        [
+            {
+                'offered': ['read_file'],
+                'steps': [
+                    llm(
+                        call(
+                            's1', 'run_subagent', {'task': 'Watch the queue', 'tools': ['read_file'], 'resources': None}
+                        )
+                    ),
+                    delegate('s1', 'Watch the queue', ['read_file']),
+                ],
+                'answer': 'never',
+            }
+        ]
+    )
 
     async def scenario():
-        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
-                                                                  poll=0.02).run())
+        runner = asyncio.create_task(
+            native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent, poll=0.02).run()
+        )
         await asyncio.wait_for(started.wait(), 5)
         assert (await post(sessions, url + '/stop')).status_code == 202
         await wait_for(store, sid, lambda s: s['status'] == 'stopped')
@@ -281,6 +384,7 @@ def test_closing_the_turns_subagents_cancels_them_and_clears_their_credentials(m
             except asyncio.CancelledError:
                 cancelled.append(task)
                 raise
+
         lead = SessionEvents(Recorder(), secrets=list(CREDENTIALS.values()), first=False)
         subagents = Subagents(lead, secrets=list(CREDENTIALS.values()), run_agent=run_agent, record_usage=None)
         calls = [asyncio.create_task(start(subagents, f'c{n}', task)) for n, task in enumerate(('Hang', 'Stubborn'))]
@@ -330,8 +434,9 @@ def test_a_model_calls_events_and_tokens_commit_while_no_other_flush_can_run(mon
 
     recorder.add('usage', {'input_tokens': 1})
     runner = SimpleNamespace(store=SimpleNamespace(connect=Connection), id='x', worker_id='w')
-    native_sessions.NativeRunner.add_usage(runner, recorder, {'input_tokens': 1, 'output_tokens': 1, 'cached_tokens': 0,
-                                                              'reasoning_tokens': 0})
+    native_sessions.NativeRunner.add_usage(
+        runner, recorder, {'input_tokens': 1, 'output_tokens': 1, 'cached_tokens': 0, 'reasoning_tokens': 0}
+    )
     assert blocked == [True] and recorder.flushed == 1
 
 
@@ -359,6 +464,7 @@ def test_an_abandoned_subagent_that_fails_later_logs_no_traceback(monkeypatch, c
                     pass
             ended.set()
             raise RuntimeError(f'connection with {SECRET} lost')
+
         lead = SessionEvents(Recorder(), secrets=list(CREDENTIALS.values()), first=False)
         subagents = Subagents(lead, secrets=list(CREDENTIALS.values()), run_agent=run_agent, record_usage=None)
         call = asyncio.create_task(start(subagents, 's1', 'Stubborn'))
@@ -386,8 +492,10 @@ def test_a_call_waiting_for_a_slot_starts_nothing_once_the_turn_ends():
 
     async def wait(turn):
         await gate.wait()
-    subagents, fake, _, lead = host({'First': {'steps': [wait], 'answer': 'first'},
-                                     'Second': {'steps': [], 'answer': 'second'}}, limit=1)
+
+    subagents, fake, _, lead = host(
+        {'First': {'steps': [wait], 'answer': 'first'}, 'Second': {'steps': [], 'answer': 'second'}}, limit=1
+    )
 
     async def scenario():
         first = asyncio.create_task(start(subagents, 'c1', 'First'))
@@ -413,9 +521,11 @@ def test_run_subagent_is_offered_only_to_a_run_with_the_turns_subagents(config, 
 
     def offered(**extra) -> list[str]:
         requests.clear()
-        asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}, stream=False,
-                          **extra))
+        asyncio.run(
+            agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}, stream=False, **extra)
+        )
         return [tool.get('name') for tool in requests[0]['body'].get('tools', [])]
+
     assert 'run_subagent' not in offered()
     assert 'Start a helper' not in json.dumps(requests[0]['body'])  # nor described anywhere
     assert 'run_subagent' in offered(subagents=object())
@@ -433,8 +543,10 @@ def test_a_subagent_ignoring_cancellation_starts_no_tool_call_while_close_waits_
             await asyncio.Future()
         except asyncio.CancelledError:
             seen.append(dict(subagents.issued[0]))  # what it still holds once cancelled
-    subagents, fake, recorder, lead = host({'Stubborn': {'steps': [swallow, tool('r1', 'read_file', 'late')],
-                                                         'answer': 'late'}})
+
+    subagents, fake, recorder, lead = host(
+        {'Stubborn': {'steps': [swallow, tool('r1', 'read_file', 'late')], 'answer': 'late'}}
+    )
 
     async def scenario():
         call = asyncio.create_task(start(subagents, 's1', 'Stubborn'))
@@ -470,14 +582,25 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
                 ignored.append('lead')
                 call.cancel()  # Stop cancels the tool call; the subagent ignores it
         await asyncio.gather(call, return_exceptions=True)
-    fake = FakeAgent([{'offered': ['read_file'], 'steps': [
-        llm(call('s1', 'run_subagent', {'task': 'Stubborn', 'tools': ['read_file'], 'resources': None})), lead],
-        'answer': 'late'}])
+
+    fake = FakeAgent(
+        [
+            {
+                'offered': ['read_file'],
+                'steps': [
+                    llm(call('s1', 'run_subagent', {'task': 'Stubborn', 'tools': ['read_file'], 'resources': None})),
+                    lead,
+                ],
+                'answer': 'late',
+            }
+        ]
+    )
 
     async def scenario():
         loop = asyncio.get_running_loop()
-        runner = asyncio.create_task(native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent,
-                                                                  poll=0.02).run())
+        runner = asyncio.create_task(
+            native_sessions.NativeRunner(store, claimed(store), fake, run_subagent=subagent, poll=0.02).run()
+        )
         await asyncio.wait_for(asyncio.gather(lead_started.wait(), sub_started.wait()), 5)
         stopping = loop.time()
         assert (await post(sessions, url + '/stop')).status_code == 202

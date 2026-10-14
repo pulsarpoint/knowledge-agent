@@ -75,18 +75,48 @@ def test_upgrade_backfills_existing_workspace_and_preserves_same_name_prompt(sto
 
     with store.connect() as conn:
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.up.sql').read_text(), prepare=False)
-        fixture = conn.execute('''SELECT p.*,v.version FROM ka.documentation_prompts p
+        fixture = conn.execute(
+            """SELECT p.*,v.version FROM ka.documentation_prompts p
             JOIN ka.documentation_prompt_versions v ON v.id=p.active_version_id
-            WHERE p.project_id=%s AND NOT (p.tags && ARRAY['server-discovery','document-revision','new-document'])''', (existing_project,)).fetchone()
+            WHERE p.project_id=%s AND NOT (p.tags && ARRAY['server-discovery','document-revision','new-document'])""",
+            (existing_project,),
+        ).fetchone()
         assert fixture['name'] == NAME and fixture['version'] == 1
         conn.execute('SELECT ka.seed_app_docs_prompt(%s)', (existing_project,))
-        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT (tags && ARRAY['server-discovery','document-revision','new-document'])").fetchone()['n'] == 2
-        assert conn.execute("SELECT count(*) AS n FROM ka.audit_events WHERE action='documentation_prompt.seeded'").fetchone()['n'] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE NOT (tags && ARRAY['server-discovery','document-revision','new-document'])"
+            ).fetchone()['n']
+            == 2
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) AS n FROM ka.audit_events WHERE action='documentation_prompt.seeded'"
+            ).fetchone()['n']
+            == 1
+        )
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.down.sql').read_text(), prepare=False)
-        assert conn.execute("SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document'])", (existing_project,)).fetchone()['n'] == 0
-        assert conn.execute('SELECT count(*) AS n FROM ka.documentation_prompt_versions WHERE prompt_id=%s', (fixture['id'],)).fetchone()['n'] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) AS n FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document'])",
+                (existing_project,),
+            ).fetchone()['n']
+            == 0
+        )
+        assert (
+            conn.execute(
+                'SELECT count(*) AS n FROM ka.documentation_prompt_versions WHERE prompt_id=%s', (fixture['id'],)
+            ).fetchone()['n']
+            == 0
+        )
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.up.sql').read_text(), prepare=False)
-        assert conn.execute("SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document'])", (existing_project,)).fetchone()['id'] == fixture['id']
+        assert (
+            conn.execute(
+                "SELECT id FROM ka.documentation_prompts WHERE project_id=%s AND NOT (tags && ARRAY['server-discovery','document-revision','new-document'])",
+                (existing_project,),
+            ).fetchone()['id']
+            == fixture['id']
+        )
     assert client.get(endpoint, headers=HEADERS).json() == before
 
 
@@ -99,5 +129,10 @@ def test_deleted_fixture_is_not_recreated_by_normal_requests(store, tmp_path):
     assert all(p['id'] != fixture['id'] for p in client.get(ENDPOINT, headers=HEADERS).json()['prompts'])
     assert client.get(endpoint, headers=HEADERS).status_code == 404
     with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.documentation_prompt_versions WHERE prompt_id=%s', (UUID(fixture['id']),)).fetchone()['n'] == 0
+        assert (
+            conn.execute(
+                'SELECT count(*) AS n FROM ka.documentation_prompt_versions WHERE prompt_id=%s', (UUID(fixture['id']),)
+            ).fetchone()['n']
+            == 0
+        )
         conn.execute((MIGRATIONS / '0041_app_docs_prompt.down.sql').read_text(), prepare=False)

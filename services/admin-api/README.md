@@ -61,7 +61,7 @@ and real Git checkouts against a local fixture. Existing development data is not
 ```python
 from knowledge_admin.agents.runner import get_agent_config
 
-config = get_agent_config("operations")  # Saved ID; custom agents use their UUID text ID.
+config = get_agent_config('operations')  # Saved ID; custom agents use their UUID text ID.
 # PostgreSQL connection settings come from PG* variables.
 # An explicit connection string can be supplied with conninfo=... .
 ```
@@ -151,8 +151,8 @@ it never queries PostgreSQL.
 ```python
 from knowledge_admin.agents.runner import agent, get_agent_config
 
-config = get_agent_config("code")
-result = await agent(config, "Explain how this project starts.", credentials=decrypted_credentials)
+config = get_agent_config('code')
+result = await agent(config, 'Explain how this project starts.', credentials=decrypted_credentials)
 print(result.final_output)
 ```
 

@@ -1,4 +1,5 @@
 """Helpers shared by the session-worker tests: post to the API, read a session row and its run events, wait for a state."""
+
 import asyncio
 import time
 
@@ -21,11 +22,14 @@ async def wait_for(store, session_id, predicate, timeout: float = 5.0) -> dict:
         if predicate(row):
             return row
         if time.monotonic() > deadline:
-            raise AssertionError(f"Session state not reached: {row['status']}, turn {row['turns']}")
+            raise AssertionError(f'Session state not reached: {row["status"]}, turn {row["turns"]}')
         await asyncio.sleep(0.02)
 
 
 def events(store, session_id) -> list[dict]:
     with store.connect() as conn:
-        return conn.execute('''SELECT run_key,seq,kind,payload FROM ka.agent_run_events WHERE starts_with(run_key,%s)
-            ORDER BY id''', (f'cc:{session_id}:',)).fetchall()
+        return conn.execute(
+            """SELECT run_key,seq,kind,payload FROM ka.agent_run_events WHERE starts_with(run_key,%s)
+            ORDER BY id""",
+            (f'cc:{session_id}:',),
+        ).fetchall()

@@ -1,5 +1,6 @@
 """Catalog tools as the model gets them (tools/sdk.py), for tests that call one tool directly. The run context
 offers every catalog tool unless the test sets context['tools'] itself."""
+
 import dataclasses
 
 from agents import FunctionTool
@@ -17,6 +18,7 @@ def tools(*names: str) -> list[FunctionTool]:
         async def invoke(ctx, raw, _invoke=sdk_tool.on_invoke_tool):
             ctx.context.setdefault('tools', frozenset(CATALOG))
             return await _invoke(ctx, raw)
+
         built.append(dataclasses.replace(sdk_tool, on_invoke_tool=invoke))
     return built
 
