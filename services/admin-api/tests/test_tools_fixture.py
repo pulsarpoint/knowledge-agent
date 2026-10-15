@@ -5,7 +5,6 @@ from pathlib import Path
 
 import psycopg
 import pytest
-
 from knowledge_admin.tools.fixture import FIXTURE, load_fixture, sync_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
