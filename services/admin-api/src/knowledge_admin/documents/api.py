@@ -1,6 +1,7 @@
 """Managed Markdown documents: read, export and delete live documents, read a brand-new draft as the document it will
-become, and save a document's resource links. People never write live content here: every save is a draft
-(documents/drafts.py), and Publish / Promote make it live. The lifecycle itself is in documents/store.py."""
+become, save a document's resource links and mark it as its resource's inventory document. People never write live
+content here: every save is a draft (documents/drafts.py), and Publish / Promote make it live. The lifecycle itself is
+in documents/store.py."""
 
 from functools import partial
 import io
@@ -58,6 +59,14 @@ Markdown = Annotated[
 ResourceIds = Annotated[list[UUID], Field(max_length=100), AfterValidator(lambda values: list(dict.fromkeys(values)))]
 # The id-list field of each kind of resource a document links (LinksInput, drafts' resource_ids, document_details).
 DOCUMENT_RESOURCE_FIELDS = tuple(LINK_COLUMNS)
+
+
+class InventoryInput(BaseModel):
+    """Mark (true) or unmark a document as its resource's inventory document, at the revision the page loaded."""
+
+    model_config = ConfigDict(extra='forbid')
+    inventory: bool = Field(strict=True)
+    revision: int = Field(ge=1, strict=True)
 
 
 class LinksInput(BaseModel):
@@ -316,6 +325,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         deployment_id: UUID | None = None,
         environment_id: UUID | None = None,
         has_drafts: bool = False,
+        inventory: bool = False,
         offset: int = Query(default=0, ge=0),
     ) -> dict:
         db = database()
@@ -326,7 +336,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 AND (%s::uuid IS NULL OR %s=ANY(server_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(deployment_ids))
                 AND (%s::uuid IS NULL OR %s=ANY(environment_ids))
-                AND (NOT %s OR draft_count > 0)"""
+                AND (NOT %s OR draft_count > 0)
+                AND (NOT %s OR inventory)"""
             params = (
                 project,
                 q.strip(),
@@ -341,6 +352,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 environment_id,
                 environment_id,
                 has_drafts,
+                inventory,
             )
             rows = conn.execute(
                 f"""SELECT d.* FROM ka.document_details d WHERE {where}
@@ -371,7 +383,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         """A brand-new draft read as the document it becomes when published (same id): no versions, no drafts."""
         row = conn.execute(
             """SELECT x.id,x.slug,x.folder,x.title,x.description,x.purpose,x.audience,x.tags,x.markdown,x.revision,
-            true AS is_draft,false AS published,
+            true AS is_draft,false AS published,x.inventory,
             CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,
             x.code_project_ids,x.service_ids,x.server_ids,x.deployment_ids,x.environment_ids,x.created_at,x.updated_at
             FROM ka.document_drafts_view x WHERE x.id=%s AND x.project_id=%s AND x.document_id IS NULL""",
@@ -495,6 +507,33 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 'revision': revision,
                 'resource_links': documents.resource_links(conn, document_id),
             }
+
+    @router.put('/documents/{document_id}/inventory')
+    def save_inventory(document_id: UUID, value: InventoryInput, request: Request) -> dict:
+        """Mark a live document or a brand-new draft as the inventory document of the one server, service or
+        environment it is built for (409 when it is not, or that resource has one), or unmark it; its links stay."""
+        db = database()
+        with workspace(db, app_name) as (conn, project):
+            actor = db.actor(conn, *request_actor(request))
+            row = conn.execute(
+                """SELECT revision,is_draft,inventory FROM ka.documents WHERE id=%s AND project_id=%s
+                AND draft_of IS NULL FOR UPDATE""",
+                (document_id, project),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+            if row['revision'] != value.revision:
+                raise HTTPException(409, documents.DRAFT_CHANGED if row['is_draft'] else documents.DOCUMENT_CHANGED)
+            if value.inventory:
+                documents.claim_inventory(conn, document_id)
+            revision = conn.execute(
+                'UPDATE ka.documents SET inventory=%s,updated_by=%s,revision=revision+1 WHERE id=%s RETURNING revision',
+                (value.inventory, actor, document_id),
+            ).fetchone()['revision']
+            if row['inventory'] != value.inventory:
+                action = 'document.inventory.marked' if value.inventory else 'document.inventory.unmarked'
+                audit(conn, project, actor, action, 'document', document_id, {})
+            return {'id': document_id, 'revision': revision, 'inventory': value.inventory}
 
     @router.delete('/documents/{document_id}')
     def delete_document(

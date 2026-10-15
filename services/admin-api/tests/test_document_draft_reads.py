@@ -9,7 +9,7 @@ from drafts_world import API, audit, docs, make_document, new_draft, promote, sa
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.documents.drafts import LINK_NOT_FOUND, LINK_SELF, LINK_TWICE
 from knowledge_admin.tools.catalog import CATALOG
-from live_documents import write_live_document
+from live_documents import link_document, write_live_document
 from test_repositories import HEADERS
 
 
@@ -75,10 +75,7 @@ def test_drafts_are_never_documents(docs, monkeypatch):
             VALUES (%s,'web-1','10.0.0.7','ops',false) RETURNING id""",
             (docs.project,),
         ).fetchone()['id']
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',
-            (docs.project, server, docs.runbook),
-        )
+        link_document(conn, docs.project, docs.runbook, 'server_id', server)
     spec = CATALOG['get_document']
     config = {'project_id': str(docs.project), 'ssh': {'enabled': True, 'servers': [{'id': str(server)}]}}
     text = asyncio.run(spec.run({'config': config}, spec.arguments.model_validate({'document_id': docs.runbook})))

@@ -18,6 +18,7 @@ def run(conn, name):
 @pytest.fixture(autouse=True)
 def before_0104(store):
     with store.connect() as conn:
+        run(conn, '0107_inventory_document.down.sql')  # its flag lives on 0104's tables
         run(conn, DOCUMENT_MODEL[0])
         conn.commit()
 

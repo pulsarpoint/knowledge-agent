@@ -13,10 +13,13 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 DOCUMENT_MODEL = ('0104_document_model.down.sql', '0104_document_model.up.sql')
 # 0106 turns discovery runs into resource runs: rolled back first, so older migrations see discovery runs.
 RESOURCE_RUNS = ('0106_resource_runs.down.sql', '0106_resource_runs.up.sql')
+# 0107 adds documents.inventory over 0104's tables: rolled back before 0106.
+INVENTORY_DOCUMENT = ('0107_inventory_document.down.sql', '0107_inventory_document.up.sql')
 
 
 def roll_back_0104(store) -> None:
     with store.connect() as conn:
+        conn.execute((MIGRATIONS / INVENTORY_DOCUMENT[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / RESOURCE_RUNS[0]).read_text(), prepare=False)
         conn.execute((MIGRATIONS / DOCUMENT_MODEL[0]).read_text(), prepare=False)
         conn.commit()

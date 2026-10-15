@@ -360,8 +360,8 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 ('service_id', service_id) if service_id else (RESOURCE_COLUMNS[resource['type']], resource['id'])
             )
             clash = conn.execute(
-                f"""SELECT d.id,d.revision FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1""",
+                f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1""",
                 (entry, payload['title']),
             ).fetchone()
             if clash is not None:

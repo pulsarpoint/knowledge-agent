@@ -363,3 +363,18 @@ revision); otherwise it deletes the assistant prompts and their trigger. A promp
 `started_from_server` (backfilled runs lose their `started_from`), and their tags are dropped. The Server discovery
 prompt's `get_resource` version is removed when it is still active and untouched, and new workspaces get 0102's text
 again. The old inventory tools' rows are not restored, so those tools are off for every agent.
+
+## 0107_inventory_document
+
+One inventory document per server, service or environment. `ka.documents` gains `inventory` (boolean, default false;
+never set on a draft of a live document). A constraint trigger on `documents` and `document_resources`, checked at
+commit, refuses a flagged document without exactly one active `built_for` link to a server, service or environment
+(`An inventory document must be built for one server, service or environment.`) and a second flagged document (live
+or brand-new draft) built for the same resource (`<Type> <name> already has an inventory document.`); the check takes
+an advisory lock per resource, so two transactions cannot both add one. `document_details`, `live_documents` and
+`document_drafts_view` gain `inventory` (a draft of a live document reports its document's). `inventory_documents` and
+its trigger are dropped without carrying attachments over (they were test data); an entry's documents are read from
+`document_resources`.
+
+The down migration drops the flag (inventory documents become ordinary documents; their links stay), restores the
+views and recreates `inventory_documents` empty, as 0095 defines it with 0104's live-document trigger.

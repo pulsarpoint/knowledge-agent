@@ -246,11 +246,13 @@ def draft_row(store, draft_id) -> dict | None:
 
 
 def attachments(store, document_id) -> list[tuple]:
+    """The resources a live document is linked to (shown on their pages); none for a draft."""
     with store.connect() as conn:
         return [
             (row['server_id'], row['service_id'])
             for row in conn.execute(
-                'SELECT server_id,service_id FROM ka.inventory_documents WHERE document_id=%s',
+                """SELECT r.server_id,r.service_id FROM ka.document_resources r JOIN ka.live_documents d ON d.id=r.document_id
+                WHERE r.document_id=%s AND r.removed_at IS NULL ORDER BY r.created_at,r.id""",
                 (UUID(str(document_id)),),
             )
         ]
@@ -317,9 +319,8 @@ def test_publishing_a_discovery_draft_attaches_it_once(run):
     published = publish(world, first['draft_id'])
     assert published.status_code == 200, published.text
     assert attachments(world.store, first['draft_id']) == [(UUID(world.server['id']), None)]
-    attached = world.client.get(
-        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': world.server['id']}
-    ).json()['documents']
+    found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
+    attached = [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
     assert sorted(item['title'] for item in attached) == ['Disk layout', 'web-1 overview']
     first, about = listed(world, sid)
     assert (first['draft_id'], first['draft_published'], about['draft_published']) == (

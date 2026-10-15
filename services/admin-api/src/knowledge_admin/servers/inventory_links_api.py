@@ -1,5 +1,6 @@
 """Inventory → connections between entries (services, servers, environments, code projects) in ka.inventory_links, and
-documents attached to entries in ka.inventory_documents. The System map draws and edits both; the Services page edits a
+an entry's documents: its inventory document and the other documents linked to it (ka.document_resources; Link a
+document adds a linked link, remove removes it). The System map draws and edits both; the Services page edits a
 service's depends_on and built_from links through its own form too, so writes to those bump the services' revision."""
 
 from functools import partial
@@ -13,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from knowledge_admin.access import request_actor
 from knowledge_admin.db import audit as write_audit, storage, workspace
+from knowledge_admin.documents import store as documents
+from knowledge_admin.documents.store import ENTRY_COLUMNS, Provenance
 from knowledge_admin.events.templates import has_nul
 from knowledge_admin.repositories import RepositoryStore
 
@@ -52,16 +55,14 @@ class Entry(BaseModel):
     id: UUID
 
 
-NO_DOCUMENT = 'Document not found.'
-NO_ATTACHMENT = 'Attachment not found.'
-ATTACHED = 'This document is already attached.'
-ATTACHMENT = """SELECT a.id,a.entry_kind,a.entry_id,a.document_id,d.slug,d.title,a.created_at
-    FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id"""
+ALREADY_LINKED = 'This document is already linked.'
+NOT_LINKED = 'This document is not linked.'
+# Entry kind → the document link field of its resources (documents.store.LINK_COLUMNS).
+LINK_FIELDS = {kind: f'{column[:-3]}_ids' for kind, column in ENTRY_COLUMNS.items()}
 
 
-class AttachmentDraft(BaseModel):
+class DocumentChoice(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    entry: Entry
     document_id: UUID
 
 
@@ -256,71 +257,69 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             )
         return Response(status_code=204)
 
-    @router.get('/inventory/documents')
-    def attachments(entry_kind: EntryKind, entry_id: UUID) -> dict:
-        db = database()
-        with workspace(db, app) as (conn, project):
-            rows = conn.execute(
-                ATTACHMENT + ' WHERE a.project_id=%s AND a.entry_id=%s ORDER BY lower(d.title),a.id',
-                (project, entry_id),
-            ).fetchall()
-        return {'documents': rows}
+    def entry_documents(conn, project: UUID, entry: Entry) -> dict:
+        return documents.resource_documents(conn, project, entry.kind, entry.id)
 
-    @router.post('/inventory/documents', status_code=201)
-    def attach(value: AttachmentDraft, request: Request) -> dict:
-        db = database()
-        with workspace(db, app) as (conn, project):
-            lock_inventory(conn, project)
-            find_entry(conn, project, value.entry)
-            if (
-                conn.execute(
-                    'SELECT 1 FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR SHARE',
-                    (value.document_id, project),
-                ).fetchone()
-                is None
-            ):
-                raise HTTPException(404, NO_DOCUMENT)
-            try:
-                with conn.transaction():
-                    attachment = conn.execute(
-                        f"""INSERT INTO ka.inventory_documents(project_id,{value.entry.kind}_id,document_id)
-                        VALUES (%s,%s,%s) RETURNING id""",
-                        (project, value.entry.id, value.document_id),
-                    ).fetchone()['id']
-            except psycopg.errors.UniqueViolation:
-                raise HTTPException(409, ATTACHED) from None
-            audit(
-                conn,
-                project,
-                request,
-                'inventory.document.attached',
-                value.entry.kind,
-                value.entry.id,
-                {'document_id': str(value.document_id)},
-            )
-            return {'attachment': conn.execute(ATTACHMENT + ' WHERE a.id=%s', (attachment,)).fetchone()}
+    def change_link(conn, project: UUID, request: Request, entry: Entry, document_id: UUID, *, linked: bool) -> None:
+        """Add (linked) or remove the entry's link of a live document, as the document's Linked resources save does:
+        the document's revision bumps; removing a built-for link is a 409 (store.save_links)."""
+        actor = database().actor(conn, *request_actor(request))
+        row = conn.execute(
+            'SELECT id FROM ka.documents WHERE id=%s AND project_id=%s AND NOT is_draft FOR UPDATE',
+            (document_id, project),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, documents.DOCUMENT_NOT_FOUND)
+        field = LINK_FIELDS[entry.kind]
+        current = conn.execute(
+            f"""SELECT {ENTRY_COLUMNS[entry.kind]} AS id FROM ka.document_resources
+            WHERE document_id=%s AND removed_at IS NULL AND {ENTRY_COLUMNS[entry.kind]} IS NOT NULL""",
+            (document_id,),
+        ).fetchall()
+        ids = [item['id'] for item in current]
+        if linked and entry.id in ids:
+            raise HTTPException(409, ALREADY_LINKED)
+        if not linked and entry.id not in ids:
+            raise HTTPException(404, NOT_LINKED)
+        wanted = [*ids, entry.id] if linked else [item for item in ids if item != entry.id]
+        saved = documents.save_links(conn, project, document_id, {field: wanted}, Provenance('person', actor))
+        conn.execute('UPDATE ka.documents SET updated_by=%s,revision=revision+1 WHERE id=%s', (actor, document_id))
+        write_audit(
+            conn,
+            project,
+            actor,
+            'document.links.updated',
+            'document',
+            document_id,
+            {'links_added': saved['added'], 'links_removed': saved['removed']},
+        )
 
-    @router.delete('/inventory/documents/{attachment_id}', status_code=204)
-    def detach(attachment_id: UUID, request: Request) -> Response:
+    @router.get('/inventory/{entry_kind}/{entry_id}/documents')
+    def resource_documents(entry_kind: EntryKind, entry_id: UUID) -> dict:
+        """The entry's inventory document ({id, title, markdown, version} or null; servers, services and environments)
+        and its other linked live documents ({id, title, connection})."""
+        entry = Entry(kind=entry_kind, id=entry_id)
         db = database()
         with workspace(db, app) as (conn, project):
-            lock_inventory(conn, project)
-            removed = conn.execute(
-                """DELETE FROM ka.inventory_documents WHERE id=%s AND project_id=%s
-                RETURNING entry_kind,entry_id,document_id""",
-                (attachment_id, project),
-            ).fetchone()
-            if removed is None:
-                raise HTTPException(404, NO_ATTACHMENT)
-            audit(
-                conn,
-                project,
-                request,
-                'inventory.document.detached',
-                removed['entry_kind'],
-                removed['entry_id'],
-                {'document_id': str(removed['document_id'])},
-            )
-        return Response(status_code=204)
+            find_entry(conn, project, entry)
+            return entry_documents(conn, project, entry)
+
+    @router.post('/inventory/{entry_kind}/{entry_id}/documents', status_code=201)
+    def link_document(entry_kind: EntryKind, entry_id: UUID, value: DocumentChoice, request: Request) -> dict:
+        entry = Entry(kind=entry_kind, id=entry_id)
+        db = database()
+        with workspace(db, app) as (conn, project):
+            find_entry(conn, project, entry)
+            change_link(conn, project, request, entry, value.document_id, linked=True)
+            return entry_documents(conn, project, entry)
+
+    @router.delete('/inventory/{entry_kind}/{entry_id}/documents/{document_id}')
+    def unlink_document(entry_kind: EntryKind, entry_id: UUID, document_id: UUID, request: Request) -> dict:
+        entry = Entry(kind=entry_kind, id=entry_id)
+        db = database()
+        with workspace(db, app) as (conn, project):
+            find_entry(conn, project, entry)
+            change_link(conn, project, request, entry, document_id, linked=False)
+            return entry_documents(conn, project, entry)
 
     return router

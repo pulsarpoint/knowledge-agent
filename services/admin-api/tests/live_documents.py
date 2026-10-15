@@ -119,3 +119,15 @@ def rewrite_live_document(store, document_id, markdown: str) -> dict:
         saved = replace_live_document(conn, document_id, markdown, admin(store, conn))
     _export(store, saved['id'])
     return {**saved, 'id': str(saved['id'])}
+
+
+def link_document(conn, project: UUID, document_id, column: str, resource_id, connection: str = 'linked') -> None:
+    """Link a document to a resource (`column`: server_id, service_id, environment_id, code_project_id or
+    deployment_id) in the caller's transaction, as a person does; an active link stays as it is."""
+    if column not in LINK_COLUMNS.values():
+        raise ValueError(column)
+    conn.execute(
+        f"""INSERT INTO ka.document_resources(project_id,document_id,{column},connection,added_how)
+        VALUES (%s,%s,%s,%s,'person') ON CONFLICT DO NOTHING""",
+        (project, UUID(str(document_id)), UUID(str(resource_id)), connection),
+    )

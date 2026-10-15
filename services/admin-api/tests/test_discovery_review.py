@@ -181,9 +181,8 @@ def test_documents_become_drafts_attached_when_published_and_promoted_as_new_ver
     document_id = accepted.json()['result_id']
 
     def attached():
-        return world.client.get(
-            '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'server', 'entry_id': world.server['id']}
-        ).json()['documents']
+        found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
+        return [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
 
     assert {item['title'] for item in attached()} == {'web-1 overview'}  # a draft is not attached
     with world.store.connect() as conn:
@@ -223,7 +222,7 @@ def test_a_title_whose_slug_is_taken_gets_a_free_slug(run):
     for markdown in ('# one', '# two'):
         with world.store.connect() as conn:  # detach the first, so the second is a new document, not a new version
             conn.execute(
-                "DELETE FROM ka.inventory_documents WHERE server_id=%s AND document_id IN (SELECT id FROM ka.document_details WHERE title='Disk layout')",
+                "DELETE FROM ka.document_resources WHERE server_id=%s AND document_id IN (SELECT id FROM ka.document_details WHERE title='Disk layout')",
                 (world.server['id'],),
             )
         other = start(world).json()['id']
@@ -274,9 +273,8 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
     assert decide(world, service_proposal, 'accept').status_code == 200
     publish(world, decide(world, listed(world, sid)[1], 'accept'))
     redis = service(world, 'redis')
-    attached = world.client.get(
-        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': 'service', 'entry_id': redis['id']}
-    ).json()['documents']
+    found = world.client.get(f'/api/inventory/service/{redis["id"]}/documents', headers=HEADERS).json()
+    attached = [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
     assert [item['title'] for item in attached] == ['Redis']
     with world.store.connect() as conn:
         links = conn.execute(

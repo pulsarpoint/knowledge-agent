@@ -34,11 +34,13 @@ def across(world, tag: str, status: str | None = None) -> list[dict]:
 
 
 def attached(world, kind: str, entry_id) -> set[str]:
-    response = world.client.get(
-        '/api/inventory/documents', headers=HEADERS, params={'entry_kind': kind, 'entry_id': str(entry_id)}
-    )
+    response = world.client.get(f'/api/inventory/{kind}/{entry_id}/documents', headers=HEADERS)
     assert response.status_code == 200, response.text
-    return {item['title'] for item in response.json()['documents']}
+    found = response.json()
+    return {
+        item['title']
+        for item in [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
+    }
 
 
 def test_the_proposals_of_a_servers_runs_are_grouped_by_run_newest_first_and_filtered_by_status(world):

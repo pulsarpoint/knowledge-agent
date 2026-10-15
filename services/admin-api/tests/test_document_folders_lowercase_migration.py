@@ -12,6 +12,7 @@ UP, DOWN = '0069_document_folders_lowercase.up.sql', '0069_document_folders_lowe
 def before_0104(store):
     """These tests use the 0103 document tables: 0104 is rolled back first (see test_document_folders_migration)."""
     with store.connect() as conn:
+        run(conn, '0107_inventory_document.down.sql')  # its flag lives on 0104's tables
         run(conn, DOCUMENT_MODEL[0])
         conn.commit()
 

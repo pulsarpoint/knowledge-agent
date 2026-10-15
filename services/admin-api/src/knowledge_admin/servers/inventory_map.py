@@ -1,6 +1,7 @@
 """Environments → System map, computed from the inventory on every request — nothing about the map is stored. Two views:
 infrastructure (environment › server › service, from memberships and deployments) and services (services and code
-projects, flat). Links (ka.inventory_links) are drawn between the nodes that show their entries. A view shows one node's
+projects, flat). Links (ka.inventory_links) are drawn between the nodes that show their entries; each node lists the
+live documents linked to its entry (ka.document_resources). A view shows one node's
 inside down to a depth, folds deeper nodes into the visible node that contains them, and rolls every link up to the
 nodes shown (graph in graph)."""
 
@@ -34,7 +35,7 @@ class Inventory:
     environment_services: set[tuple[UUID, UUID]] = field(default_factory=set)  # (environment, service)
     deployments: set[tuple[UUID, UUID, UUID | None]] = field(default_factory=set)  # (service, server, environment)
     links: list[dict] = field(default_factory=list)  # id, kind, from: Key, to: Key
-    documents: dict[Key, list[dict]] = field(default_factory=dict)
+    documents: dict[Key, list[dict]] = field(default_factory=dict)  # live documents linked to the entry
 
 
 ENTRY_ROWS = {
@@ -53,8 +54,10 @@ def load(conn, project: UUID) -> Inventory:
     }
     documents: dict[Key, list[dict]] = {}
     for row in conn.execute(
-        """SELECT a.entry_kind,a.entry_id,d.id,d.slug,d.title FROM ka.inventory_documents a
-            JOIN ka.document_details d ON d.id=a.document_id WHERE a.project_id=%s ORDER BY lower(d.title),d.id""",
+        """SELECT r.resource_type AS entry_kind,COALESCE(r.server_id,r.service_id,r.environment_id,r.code_project_id)
+            AS entry_id,d.id,d.slug,d.title FROM ka.document_resources r JOIN ka.documents d ON d.id=r.document_id
+            WHERE d.project_id=%s AND NOT d.is_draft AND r.removed_at IS NULL AND r.deployment_id IS NULL
+            ORDER BY lower(d.title),d.id""",
         (project,),
     ):
         documents.setdefault((row['entry_kind'], row['entry_id']), []).append(

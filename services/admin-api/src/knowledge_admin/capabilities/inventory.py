@@ -56,8 +56,8 @@ SERVICE = """SELECT id,name,service_type,service_role,description,owner,operatio
 ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
     WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
-ATTACHED = """SELECT d.id,d.title FROM ka.inventory_documents a JOIN ka.document_details d ON d.id=a.document_id
-    WHERE a.{column}=%s ORDER BY lower(d.title),d.id LIMIT {{limit}}"""
+ATTACHED = """SELECT d.id,d.title FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
+    WHERE a.{column}=%s AND a.removed_at IS NULL ORDER BY lower(d.title),d.id LIMIT {{limit}}"""
 # Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS.
 SERVER_LINKS = (
     """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environment_servers es

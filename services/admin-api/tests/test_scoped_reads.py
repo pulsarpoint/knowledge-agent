@@ -10,7 +10,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities import inventory
-from live_documents import live_document
+from live_documents import link_document, live_document
 from knowledge_admin.tools.catalog import CATALOG
 from test_sessions_saved_agent import agent, start  # noqa: F401  (fixture)
 from test_generations import sessions  # noqa: F401  (fixture)
@@ -61,10 +61,7 @@ def add_db(store, project, *, server=None):
         saved = live_document(
             conn, project, 'db-1-overview', 'db-1 overview', '# db-1 overview\n\nBody.', description='About db-1'
         )
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',
-            (project, server, saved['id']),
-        )
+        link_document(conn, project, saved['id'], 'server_id', server)
     return SimpleNamespace(server=str(server), service=str(service), document=str(saved['id']))
 
 
@@ -115,11 +112,8 @@ def test_a_document_attached_to_a_given_service_or_code_project_is_readable(scop
     runbook = get(config, 'service', world.nginx)['documents'][0]['id']
     assert call(config, 'get_document', document_id=runbook)['title'] == 'nginx runbook'
     with world.store.connect() as conn:
-        conn.execute('DELETE FROM ka.inventory_documents WHERE document_id=%s', (runbook,))
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,code_project_id,document_id) VALUES (%s,%s,%s)',
-            (world.project, world.shop, runbook),
-        )
+        conn.execute('DELETE FROM ka.document_resources WHERE document_id=%s', (runbook,))
+        link_document(conn, world.project, runbook, 'code_project_id', world.shop)
     assert call(config, 'get_document', document_id=runbook) == NO_DOCUMENT
     given = {**config, 'code': {'enabled': True, 'projects': [{'id': str(world.shop)}]}}
     assert call(given, 'get_document', document_id=runbook)['title'] == 'nginx runbook'
@@ -145,10 +139,7 @@ def test_a_saved_agents_pinned_config_reads_only_its_servers(agent, ask, monkeyp
     monkeypatch.setattr(inventory, '_store', s.store)
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',
-            (project, ask.web['id'], ask.document['id']),
-        )
+        link_document(conn, project, ask.document['id'], 'server_id', ask.web['id'])
     db = add_db(s.store, project)
     response = start(
         agent.client, '/preview', agent_id=agent.id, tools=['read_file'], resources={'server_ids': [agent.web]}
@@ -165,10 +156,7 @@ def test_an_ad_hoc_runs_preview_config_reads_only_its_selection(ask, monkeypatch
     monkeypatch.setattr(inventory, '_store', s.store)
     with s.store.connect() as conn:
         project = s.store.project(conn, 'shop')
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,server_id,document_id) VALUES (%s,%s,%s)',
-            (project, ask.web['id'], ask.document['id']),
-        )
+        link_document(conn, project, ask.document['id'], 'server_id', ask.web['id'])
     db = add_db(s.store, project)
     body = {
         **ask.body,

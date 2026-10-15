@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.agents.runner import get_prompt, instructions_and_tools, load_credentials, ssh_servers
 from knowledge_admin.capabilities import document_tools, inventory, ssh
-from live_documents import live_document
+from live_documents import link_document, live_document
 from knowledge_admin.sessions.start import choosable
 from knowledge_admin.tools.catalog import CATALOG, RUN_ONLY_NEEDS, catalog_listing, effective_tools
 from knowledge_admin.tools.sdk import function_tool
@@ -179,10 +179,7 @@ def test_get_document_reads_the_documents_get_resource_lists_and_caps_them(world
 def test_an_environments_documents_are_listed_and_readable_when_it_was_given(world):
     with world.store.connect() as conn:
         saved = live_document(conn, world.project, 'production', 'Production notes', '# Production notes\n\nBody.')
-        conn.execute(
-            'INSERT INTO ka.inventory_documents(project_id,environment_id,document_id) VALUES (%s,%s,%s)',
-            (world.project, world.environment, saved['id']),
-        )
+        link_document(conn, world.project, saved['id'], 'environment_id', world.environment)
     config = given(world)
     [document] = get(config, 'environment', world.environment)['documents']
     assert document == {'id': str(saved['id']), 'title': 'Production notes'}

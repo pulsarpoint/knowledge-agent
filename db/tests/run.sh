@@ -240,7 +240,7 @@ manual=$(docker exec "$test_container" psql -X -U postgres -Atc \
 [ "$manual" = t ] || { echo 'FAIL: 0091 events.source does not allow manual' >&2; exit 1; }
 printf '%s\n' 'PASS: events can be made by hand (source manual).'
 links=$(docker exec "$test_container" psql -X -U postgres -Atc \
-    "SELECT to_regclass('ka.inventory_links') IS NOT NULL AND to_regclass('ka.inventory_documents') IS NOT NULL
+    "SELECT to_regclass('ka.inventory_links') IS NOT NULL
         AND to_regclass('ka.kg_nodes') IS NULL AND to_regclass('ka.service_dependencies') IS NULL")
 [ "$links" = t ] || { echo 'FAIL: 0095 inventory links missing or the stored graph still there' >&2; exit 1; }
 printf '%s\n' 'PASS: inventory links replace the stored system graph.'

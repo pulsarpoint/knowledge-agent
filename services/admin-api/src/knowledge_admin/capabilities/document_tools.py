@@ -60,7 +60,8 @@ LIVE = """SELECT version,title,description,purpose,audience,tags,markdown FROM k
 # The run's working draft of a live document: its newest draft of it that no person edited.
 WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
     WHERE is_draft AND session_id=%s AND draft_of=%s AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1"""
-ATTACHED = 'SELECT server_id,service_id,environment_id,code_project_id FROM ka.inventory_documents WHERE document_id=%s'
+ATTACHED = """SELECT server_id,service_id,environment_id,code_project_id FROM ka.document_resources
+    WHERE document_id=%s AND removed_at IS NULL"""
 # The run's working draft of its new document: the brand-new draft with the entry's folder and slug, or its draft of
 # the live document that folder and slug now name.
 NEW_WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents

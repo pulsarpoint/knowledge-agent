@@ -41,6 +41,18 @@ STALE_MESSAGE = (
     "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
 )
 NEW_DOCUMENT_REVISION = 'New documents cannot reuse a revision'
+# An inventory document (documents.inventory): the one document of a server, service or environment, built for it.
+# The database checks the same at commit (0107); these checks give the 409 first.
+INVENTORY_TAKEN = '{type} {name} already has an inventory document.'
+INVENTORY_BUILT_FOR = 'An inventory document must be built for one server, service or environment.'
+INVENTORY_TYPES = {'server': 'Server', 'service': 'Service', 'environment': 'Environment'}
+# Inventory entry kind → document_resources column (an entry's documents; deployments are not entries).
+ENTRY_COLUMNS = {
+    'server': 'server_id',
+    'service': 'service_id',
+    'environment': 'environment_id',
+    'code_project': 'code_project_id',
+}
 
 # The snapshot key of each link field (documents/api.py builds on these; this module never imports api).
 SNAPSHOT_KEYS = {
@@ -354,11 +366,14 @@ def create_draft(
     folder: str | None = None,
     links: dict[str, list[UUID]] | None = None,
     base_version: int | None = None,
+    inventory: bool = False,
 ) -> UUID:
     """Insert a draft: of the live document `document_id` (or the live document `folder` + `slug` name), from its
     live version (or `base_version`, the version the person loaded: no later than the live one, so the draft is stale
     when the document moved on), with its parent source; else a brand-new document with `slug`, `folder` and `links`
-    as built-for. A run's draft (prov.session_id) becomes the session's last_draft_id."""
+    as built-for, the inventory document of the resource it is built for when `inventory` (409 as claim_inventory). A
+    draft of a live document has its document's flag, never its own (`inventory` is ignored). A run's draft
+    (prov.session_id) becomes the session's last_draft_id."""
     if document_id is None:
         named = conn.execute(
             """SELECT id FROM ka.documents WHERE project_id=%s AND NOT is_draft
@@ -379,15 +394,16 @@ def create_draft(
             raise HTTPException(400, BASE_AHEAD.format(live=live['version']))
         base, slug, folder = live['version'] if base_version is None else base_version, None, None
     draft_id = conn.execute(
-        """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,draft_of,base_version,title,description,
-        purpose,audience,tags,markdown,content_hash,origin,session_id,created_by,updated_by)
-        VALUES (%s,%s,%s,1,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,draft_of,base_version,inventory,title,
+        description,purpose,audience,tags,markdown,content_hash,origin,session_id,created_by,updated_by)
+        VALUES (%s,%s,%s,1,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (
             project,
             slug,
             folder,
             document_id,
             base,
+            inventory and document_id is None,
             *(content[key] for key in CONTENT),
             content_hash(content['markdown']),
             origin,
@@ -402,8 +418,11 @@ def create_draft(
             source_version) VALUES (%s,%s,'parent',%s,%s,%s)""",
             (project, draft_id, document_id, live['title'], base),
         )
-    elif links:
-        save_links(conn, project, draft_id, links, prov, connection='built_for')
+    else:
+        if links:
+            save_links(conn, project, draft_id, links, prov, connection='built_for')
+        if inventory:
+            claim_inventory(conn, draft_id)
     if prov.session_id is not None:
         conn.execute('UPDATE ka.agent_sessions SET last_draft_id=%s WHERE id=%s', (draft_id, prov.session_id))
     audit(
@@ -442,34 +461,14 @@ def update_draft(conn, draft_id: UUID, actor: UUID | None, content: dict, *, rev
     return row['revision'] + 1
 
 
-def _attach_discovered(conn, document_id: UUID) -> None:
-    """A brand-new draft made by accepting proposals was just published: attach the document to each such proposal's
-    inventory entry (its service — the recorded one or the one its service proposal created — while that still
-    exists, else the server or environment its run started from), once per entry however many proposals name the
-    draft. A service run's proposals record its service; nothing is attached for an entry deleted meanwhile."""
-    conn.execute(
-        """INSERT INTO ka.inventory_documents(project_id,service_id,server_id,environment_id,document_id)
-        SELECT DISTINCT p.project_id,s.id,CASE WHEN s.id IS NULL THEN p.server_id END,
-            CASE WHEN s.id IS NULL AND p.server_id IS NULL THEN e.id END,%s
-        FROM ka.discovery_proposals p LEFT JOIN ka.discovery_proposals parent ON parent.id=p.service_proposal_id
-        LEFT JOIN ka.services s ON s.id=COALESCE(p.service_id,parent.result_id)
-        LEFT JOIN ka.agent_sessions r ON r.id=p.session_id
-        LEFT JOIN ka.environments e ON r.agent_config->'started_from'->>'type'='environment'
-            AND e.id::text=r.agent_config->'started_from'->>'id'
-        WHERE p.draft_id=%s AND p.kind='document' AND p.status='accepted'
-            AND (s.id IS NOT NULL OR p.server_id IS NOT NULL OR e.id IS NOT NULL)
-        ON CONFLICT DO NOTHING""",
-        (document_id, document_id),
-    )
-
-
 def promote_draft(
     conn, project: UUID, actor: UUID | None, draft_id: UUID, *, revision: int, confirm_stale: bool
 ) -> dict:
     """Make a draft live. A draft of a live document: the live content is archived, the draft's content replaces it
     in place (same id, version + 1) and every draft of the document is deleted. A brand-new draft becomes the live
-    document (version 1), attached to the inventory entry of the discovery proposals that made it. A stale draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision',
-    'deleted_drafts', 'new'}; the caller exports after commit."""
+    document (version 1). Either way the inventory flag stays (the live row's, or the brand-new draft's own). A stale
+    draft needs `confirm_stale`. Returns {'document_id', 'version', 'revision', 'deleted_drafts', 'new'}; the caller
+    exports after commit."""
     # The live row before the draft: two promotes of drafts of one document queue on the live row, and the second
     # then finds its draft deleted (404) instead of deadlocking on the drafts the first deletes. FOR NO KEY UPDATE
     # (the live row's key never changes) lets a run's turn-end source refresh hold KEY SHARE on it through a
@@ -492,7 +491,6 @@ def promote_draft(
             version_created_at=now(),version_created_by=%s,updated_by=%s,revision=revision+1 WHERE id=%s""",
             (Jsonb(snapshot), actor, actor, draft_id),
         )
-        _attach_discovered(conn, draft_id)
         result = {
             'document_id': draft_id,
             'version': 1,
@@ -619,6 +617,64 @@ def version(conn, document_id: UUID, number: int) -> dict | None:
         WHERE document_id=%s AND version=%s""",
         (document_id, number, document_id, number),
     ).fetchone()
+
+
+def inventory_resource(conn, document_id: UUID) -> tuple[str, UUID] | None:
+    """(type, id) of the one server, service or environment the document is built for, or None when it is built for
+    none, for several, or for another kind of resource."""
+    rows = conn.execute(
+        """SELECT resource_type,COALESCE(server_id,service_id,environment_id) AS id FROM ka.document_resources
+        WHERE document_id=%s AND connection='built_for' AND removed_at IS NULL""",
+        (document_id,),
+    ).fetchall()
+    if len(rows) != 1 or rows[0]['resource_type'] not in INVENTORY_TYPES:
+        return None
+    return rows[0]['resource_type'], rows[0]['id']
+
+
+def claim_inventory(conn, document_id: UUID) -> None:
+    """Before flagging `document_id` (a live document or a brand-new draft) as its resource's inventory document: 409
+    unless it is built for exactly one server, service or environment that has no other inventory document (live or
+    brand-new draft). Takes the resource's lock, the one the database's commit-time check takes: a concurrent claim
+    waits for this transaction and then sees its document."""
+    resource = inventory_resource(conn, document_id)
+    if resource is None:
+        raise HTTPException(409, INVENTORY_BUILT_FOR)
+    kind, resource_id = resource
+    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'inventory-document:{resource_id}',))
+    column = ENTRY_COLUMNS[kind]
+    taken = conn.execute(
+        f"""SELECT 1 FROM ka.documents d JOIN ka.document_resources r ON r.document_id=d.id
+        WHERE d.inventory AND d.draft_of IS NULL AND d.id<>%s AND r.{column}=%s AND r.connection='built_for'
+        AND r.removed_at IS NULL""",
+        (document_id, resource_id),
+    ).fetchone()
+    if taken is not None:
+        name = conn.execute(f'SELECT name FROM ka.{kind}s WHERE id=%s', (resource_id,)).fetchone()['name']
+        raise HTTPException(409, INVENTORY_TAKEN.format(type=INVENTORY_TYPES[kind], name=name))
+
+
+def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
+    """The documents of an inventory entry from their links: its inventory document (live, flagged, built for it:
+    {id, title, markdown, version} or None) and every other live document with an active link to it ({id, title,
+    connection}), by title."""
+    column = ENTRY_COLUMNS[kind]
+    inventory = None
+    if kind in INVENTORY_TYPES:
+        inventory = conn.execute(
+            f"""SELECT d.id,d.title,d.markdown,d.version FROM ka.documents d
+            JOIN ka.document_resources r ON r.document_id=d.id
+            WHERE d.project_id=%s AND NOT d.is_draft AND d.inventory AND r.{column}=%s AND r.connection='built_for'
+            AND r.removed_at IS NULL""",
+            (project, resource_id),
+        ).fetchone()
+    documents = conn.execute(
+        f"""SELECT d.id,d.title,r.connection FROM ka.documents d JOIN ka.document_resources r ON r.document_id=d.id
+        WHERE d.project_id=%s AND NOT d.is_draft AND r.{column}=%s AND r.removed_at IS NULL AND d.id IS DISTINCT FROM %s
+        ORDER BY lower(d.title),d.id""",
+        (project, resource_id, inventory['id'] if inventory else None),
+    ).fetchall()
+    return {'inventory_document': inventory, 'documents': documents}
 
 
 def resource_links(conn, document_id: UUID) -> list[dict]:

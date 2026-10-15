@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from knowledge_admin.capabilities import inventory
-from live_documents import live_document
+from live_documents import link_document, live_document
 from test_api import _client
 from test_repositories import HEADERS
 
@@ -77,10 +77,7 @@ def world(store, tmp_path, monkeypatch):
             saved = live_document(
                 conn, project, title.replace(' ', '-'), title, f'# {title}\n\nBody.', description=f'About {title}'
             )
-            conn.execute(
-                f'INSERT INTO ka.inventory_documents(project_id,{column},document_id) VALUES (%s,%s,%s)',
-                (project, entry, saved['id']),
-            )
+            link_document(conn, project, saved['id'], column, entry)
     return SimpleNamespace(
         client=client,
         store=store,

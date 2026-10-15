@@ -49,9 +49,8 @@ Content goes live only by **Publish** (a brand-new draft) or **Promote** (a draf
 a draft's own saves: version history starts when it is published. **Discovery** follows the same rule: accepting a
 proposal for a new document creates a brand-new draft (`origin = 'generated'`, the run's `session_id`, built for its
 service, else its server) and accepting one that updates a document creates a draft of it (`base_version` = its live
-version); the proposal records it in `discovery_proposals.draft_id` (and `result_id`). Publishing a brand-new draft
-that accepted proposals made attaches the document to their inventory entry (`inventory_documents`, once per entry,
-in the promote's transaction); a discarded draft attaches nothing. A document can have any
+version); the proposal records it in `discovery_proposals.draft_id` (and `result_id`). Its built-for link is what shows it
+on its resource once published. A document can have any
 number of drafts; they are listed by `created_at`, newest first. **Promoting** draft D of live document L (one
 transaction locking L) archives L's content, updates L in place with D's content (`version + 1`, `from_draft`, the
 same ID) and **deletes every draft of L**, D included; when D's `base_version` is older than L's `version`, promote
@@ -61,6 +60,21 @@ document never existed). Deleting a live document deletes its drafts, archive ro
 `revision`) return 409 without losing anything. Promote audits `document.draft.promoted` for D,
 `document.draft.replaced` for each other draft it deleted, and `document.updated` (`document.created` for a brand-new
 draft) for the document.
+
+**Inventory documents.** A server, a service or an environment has at most one inventory document: a document with
+`inventory` set, built for exactly that one resource (migration 0107). It is edited like every other document (drafts,
+Promote / Publish, versions, links); Promote and Publish keep the flag, and a draft of a live document reports its
+document's flag (`inventory` on documents, drafts and the Documents list; `GET /documents?inventory=true` lists only
+inventory documents). A person creates one with `inventory: true` on `POST /drafts` (a brand-new draft built for the
+resource), or marks a document whose only built-for link is that resource with `PUT /documents/{id}/inventory
+{inventory, revision}` (a live document or a brand-new draft; `inventory: false` unmarks it, the link stays). Both
+answer 409 `An inventory document must be built for one server, service or environment.` or `<Type> <name> already has
+an inventory document.`; the database checks the same at commit, and a lock per resource makes a concurrent second
+claim wait and fail. The documents of an inventory entry come from links: `GET /api/inventory/{kind}/{id}/documents`
+(kind `server`, `service`, `environment` or `code_project`) answers `{inventory_document: {id, title, markdown,
+version} | null, documents: [{id, title, connection}]}` (live documents only, the inventory one not repeated); `POST`
+there with `{document_id}` adds a `linked` link (Link a document) and `DELETE .../documents/{document_id}` removes it
+(a built-for link stays: 409). The System map lists the live documents linked to each entry.
 
 Historical versions retain inventory names and IDs in `source_snapshot` even when inventory is subsequently renamed or
 removed. These are save-time inventory descriptions, not evidence that a live server was inspected. Removing an
