@@ -11,10 +11,10 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.code_projects.paths import code_root, rebase_code_path
 from knowledge_admin.code_projects.processing import CodeProcessingError, index_directory, source_inventory
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 

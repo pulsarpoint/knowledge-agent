@@ -6,12 +6,11 @@ import json
 import httpx
 import pytest
 from agents.tool_context import ToolContext
-
-from knowledge_admin.sessions import grounding
+from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
+from knowledge_admin.sessions import grounding
 from knowledge_admin.tools.catalog import effective_tools
-from implied_tools import implied_tools
 from tool_helpers import tools
 
 read_document, report_not_covered, search_documents = tools('read_document', 'report_not_covered', 'search_documents')

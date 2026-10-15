@@ -4,14 +4,13 @@ import os
 from typing import Annotated, Any
 
 import httpx
-
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
-from knowledge_admin.rag.collections import document_collections
-from knowledge_admin.sessions.grounding import empty_state
-from knowledge_admin.knowledge_agents.config import per_run
 from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin.knowledge_agents.config import per_run
+from knowledge_admin.rag.collections import document_collections
+from knowledge_admin.sessions.activity import redact
+from knowledge_admin.sessions.grounding import empty_state
 from knowledge_admin.tools.registry import tool
 
 RAG_TRANSPORT: httpx.AsyncBaseTransport | None = None

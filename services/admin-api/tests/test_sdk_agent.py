@@ -9,12 +9,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pytest
 import asyncssh
-
-from knowledge_admin.agents.runner import agent
+import pytest
 from agents import Runner
 from implied_tools import implied_tools
+from knowledge_admin.agents.runner import agent
 from test_ssh import ssh_server
 
 
@@ -236,8 +235,8 @@ def config(responses_api, tmp_path):
 @pytest.mark.parametrize('stream', [False, True])
 @pytest.mark.parametrize('invalid_document', [False, True])
 def test_usage_is_reported_before_output_validation(config, stream, invalid_document):
-    from pydantic import BaseModel
     from agents import ModelBehaviorError
+    from pydantic import BaseModel
 
     class Document(BaseModel):
         markdown: str

@@ -1,11 +1,10 @@
 """The catalog is the fixture's attributes joined with the registered functions; disagreements fail at import."""
 
 import pytest
-from pydantic import BaseModel
-
 from knowledge_admin.tools.catalog import CATALOG, load_catalog
 from knowledge_admin.tools.fixture import load_fixture
 from knowledge_admin.tools.registry import REGISTRY, Tool
+from pydantic import BaseModel
 
 
 async def _run(context, value):

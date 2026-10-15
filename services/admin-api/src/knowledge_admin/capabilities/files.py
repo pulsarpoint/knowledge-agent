@@ -5,13 +5,13 @@ import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-
 from typing import Annotated
+
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
-from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin.rag.collections import document_collections
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 logger = logging.getLogger(__name__)

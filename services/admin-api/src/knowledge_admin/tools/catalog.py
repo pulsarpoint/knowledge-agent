@@ -10,8 +10,17 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 # Imported for their @tool registrations.
-from knowledge_admin.capabilities import ast_grep, code_graph, code_search, documents, files, inventory, ssh  # noqa: F401
-from knowledge_admin.capabilities import discovery, document_tools  # noqa: F401
+from knowledge_admin.capabilities import (  # noqa: F401
+    ast_grep,
+    code_graph,
+    code_search,
+    discovery,
+    document_tools,
+    documents,
+    files,
+    inventory,
+    ssh,
+)
 from knowledge_admin.capabilities.context import ACCESS, RunContext
 from knowledge_admin.capabilities.shell import client as shell  # noqa: F401
 from knowledge_admin.tools.fixture import load_fixture

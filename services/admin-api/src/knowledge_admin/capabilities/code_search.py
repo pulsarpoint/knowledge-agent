@@ -8,10 +8,10 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
-from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.ast_grep import scan_source
+from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.files import _path
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 

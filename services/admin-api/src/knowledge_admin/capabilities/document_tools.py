@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
 from knowledge_admin.capabilities.inventory import connect, project_of
+from knowledge_admin.documents.api import Description, Markdown, Title
 from knowledge_admin.documents.drafts import (
     NAME_IN_USE,
     NEW_DEFAULTS,
@@ -28,7 +29,6 @@ from knowledge_admin.documents.drafts import (
     live_content,
     record_run_sources,
 )
-from knowledge_admin.documents.api import Description, Markdown, Title
 from knowledge_admin.documents.store import CONTENT, Provenance, create_draft, draft_outcome, update_draft
 from knowledge_admin.tools import texts
 from knowledge_admin.tools.registry import tool

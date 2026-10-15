@@ -28,7 +28,7 @@ def snapshot() -> list[dict]:
 
 def test_tools_match_the_golden_snapshot():
     text = json.dumps(snapshot(), indent=2, ensure_ascii=False, sort_keys=True) + '\n'
-    if os.environ.get('WRITE_GOLDEN'):
+    if os.environ.get('WRITE_GOLDEN') == '1':
         GOLDEN.parent.mkdir(exist_ok=True)
         GOLDEN.write_text(text)
     assert GOLDEN.read_text() == text

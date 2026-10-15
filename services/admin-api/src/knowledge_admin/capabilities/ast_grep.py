@@ -4,13 +4,13 @@ import asyncio
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-
 from typing import Annotated
+
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.files import _path
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 

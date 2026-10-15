@@ -2,15 +2,14 @@
 
 import json
 import os
+from typing import Annotated
 
 import httpx
-
-from typing import Annotated
 from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.files import _roots
+from knowledge_admin.sessions.activity import redact
 from knowledge_admin.tools.registry import tool
 
 
