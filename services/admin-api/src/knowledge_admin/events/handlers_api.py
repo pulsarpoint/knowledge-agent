@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_admin.events import matching as event_matching, templates as event_templates
 from knowledge_admin.access import request_actor
-from knowledge_admin.db import audit as write_audit, storage, workspace
+from knowledge_admin.db import audit as write_audit
+from knowledge_admin.db import storage, workspace
+from knowledge_admin.events import matching as event_matching
+from knowledge_admin.events import templates as event_templates
 from knowledge_admin.repositories import RepositoryStore
 
 NOT_FOUND = 'Handler not found.'
@@ -20,8 +22,9 @@ STALE = 'This handler was changed by someone else. Reload and try again.'
 DUPLICATE = 'A handler with this name already exists.'
 NO_EVENT = 'Event not found.'
 NO_AGENT = 'Agent not found.'
+NOT_AGENT_JIRA = 'Only Send to agent handlers can post to Jira.'
 PER_RUN = 'This agent gets its resources per run; handlers can only send to agents with fixed resources.'
-SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_id,a.name AS agent_name,h.prompt,
+SELECT = """SELECT h.id,h.name,h.enabled,h.type_pattern,h.conditions,h.action,h.emit,h.agent_id,a.name AS agent_name,h.prompt,h.reply_to_jira,
     h.revision,h.created_at,h.updated_at,(SELECT jsonb_build_object('status',r.status,'created_at',r.created_at)
         FROM ka.event_handler_runs r WHERE r.handler_id=h.id ORDER BY r.id DESC LIMIT 1) AS last_run
     FROM ka.event_handlers h LEFT JOIN ka.agents a ON a.id=h.agent_id"""
@@ -52,6 +55,7 @@ class HandlerDraft(BaseModel):
     emit: EmitTemplates | None = None
     agent_id: str | None = Field(default=None, max_length=200)
     prompt: str | None = Field(default=None, max_length=20000)
+    reply_to_jira: bool = False
 
 
 class HandlerInput(HandlerDraft):
@@ -97,6 +101,8 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
     name = draft.name.strip()
     if named and not name:
         raise bad('Enter a name.')
+    if draft.reply_to_jira and draft.action != 'agent':
+        raise bad(NOT_AGENT_JIRA)
     try:
         event_matching.check_pattern(draft.type_pattern.strip())
         conditions = event_matching.check_conditions([condition.model_dump() for condition in draft.conditions])
@@ -111,6 +117,7 @@ def stored(conn, draft: HandlerDraft, *, named: bool = True) -> dict:
         'emit': None,
         'agent_id': None,
         'prompt': None,
+        'reply_to_jira': draft.reply_to_jira,
     }
     try:
         if draft.action == 'emit':
@@ -201,7 +208,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     handler_id = conn.execute(
                         """INSERT INTO ka.event_handlers(project_id,name,enabled,type_pattern,conditions,
-                        action,emit,agent_id,prompt,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        action,emit,agent_id,prompt,reply_to_jira,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (
                             project,
                             values['name'],
@@ -212,6 +219,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             Jsonb(values['emit']) if values['emit'] else None,
                             values['agent_id'],
                             values['prompt'],
+                            values['reply_to_jira'],
                             actor,
                         ),
                     ).fetchone()['id']
@@ -223,7 +231,11 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 request,
                 'event_handler.created',
                 handler_id,
-                {'name': values['name'], 'action': values['action']},
+                {
+                    'name': values['name'],
+                    'action': values['action'],
+                    'reply_to_jira': values['reply_to_jira'],
+                },
             )
             return {'handler': one(conn, project, handler_id)}
 
@@ -250,7 +262,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 with conn.transaction():
                     conn.execute(
                         """UPDATE ka.event_handlers SET name=%s,enabled=%s,type_pattern=%s,conditions=%s,action=%s,
-                        emit=%s,agent_id=%s,prompt=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
+                        emit=%s,agent_id=%s,prompt=%s,reply_to_jira=%s,revision=revision+1,updated_at=now() WHERE id=%s""",
                         (
                             values['name'],
                             values['enabled'],
@@ -260,6 +272,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                             Jsonb(values['emit']) if values['emit'] else None,
                             values['agent_id'],
                             values['prompt'],
+                            values['reply_to_jira'],
                             handler_id,
                         ),
                     )
@@ -271,7 +284,12 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
                 request,
                 'event_handler.updated',
                 handler_id,
-                {'name': values['name'], 'action': values['action'], 'enabled': values['enabled']},
+                {
+                    'name': values['name'],
+                    'action': values['action'],
+                    'enabled': values['enabled'],
+                    'reply_to_jira': values['reply_to_jira'],
+                },
             )
             return {'handler': one(conn, project, handler_id)}
 

@@ -2,7 +2,6 @@
 
 import pytest
 from psycopg.types.json import Jsonb
-
 from test_api import _client
 from test_events_api import seed
 from test_repositories import HEADERS
@@ -223,3 +222,34 @@ def test_a_handler_whose_agent_is_gone_can_still_be_turned_off_and_edited(tester
         )
         == 'Agent not found.'
     )
+
+
+def test_reply_to_jira_is_saved_for_send_to_agent_and_refused_for_emit(tester):
+    client = tester.client
+    draft = {
+        **EMIT,
+        'name': 'Answer on Jira',
+        'action': 'agent',
+        'emit': None,
+        'agent_id': tester.agent,
+        'prompt': 'Triage {{ event.subject }}',
+        'reply_to_jira': True,
+    }
+    response = client.post('/api/event-handlers', headers=HEADERS, json=draft)
+    assert response.status_code == 201, response.text
+    handler = response.json()['handler']
+    assert handler['reply_to_jira'] is True
+    saved = client.put(
+        f'/api/event-handlers/{handler["id"]}', headers=HEADERS, json={**draft, 'reply_to_jira': False, 'revision': 1}
+    ).json()['handler']
+    assert saved['reply_to_jira'] is False
+    assert (
+        error(
+            client.post('/api/event-handlers', headers=HEADERS, json={**EMIT, 'name': 'X', 'reply_to_jira': True}), 400
+        )
+        == 'Only Send to agent handlers can post to Jira.'
+    )
+
+
+def test_reply_to_jira_defaults_to_off(client):
+    assert create(client)['reply_to_jira'] is False
