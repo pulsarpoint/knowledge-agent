@@ -137,6 +137,56 @@ class JiraClient:
                 502, 'Jira returned an invalid response. Check that the URL points to its REST API'
             ) from None
 
+    def post(self, path: str, payload: dict) -> dict:
+        """One bounded POST (the first Jira write: posting comments). Errors carry no response body."""
+        if time.monotonic() >= self.deadline:
+            raise HTTPException(504, 'Jira request timed out')
+        try:
+            with self.client.stream('POST', path, json=payload) as response:
+                if response.status_code in {401, 403}:
+                    raise HTTPException(
+                        403, "Jira rejected the comment. Check the token user's Add Comments permission"
+                    )
+                if response.status_code == 404:
+                    raise HTTPException(404, 'Jira issue not found, or the token user cannot see it')
+                if response.status_code == 400:
+                    raise HTTPException(400, 'Jira refused the comment')
+                if response.status_code == 429:
+                    raise HTTPException(503, 'Jira is rate limiting requests. Try again later')
+                if response.is_redirect:
+                    raise HTTPException(502, 'Jira redirected the request. Use its final base URL')
+                if response.status_code not in {200, 201}:
+                    raise HTTPException(502, 'Jira could not complete the request')
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) > 4 * 1024 * 1024:
+                        raise HTTPException(502, 'Jira response is too large')
+                result = json.loads(body)
+                if not isinstance(result, dict):
+                    raise ValueError('Expected an object')
+                return result
+        except httpx.TimeoutException:
+            raise HTTPException(504, 'Jira request timed out') from None
+        except httpx.HTTPError:
+            raise HTTPException(
+                502, 'Could not reach Jira. Check the URL, network access, and TLS certificate'
+            ) from None
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(502, 'Jira returned an invalid response') from None
+
+    def add_comment(self, issue_id: str, body: str) -> dict:
+        """Post `body` as a comment on the issue; returns the comment's id and creation time."""
+        result = self.post(f'issue/{issue_id}/comment', {'body': body})
+        try:
+            created = datetime.fromisoformat(result['created'])
+            comment_id = str(result['id'])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(502, 'Jira returned an invalid response') from None
+        if created.tzinfo is None or not comment_id:
+            raise HTTPException(502, 'Jira returned an invalid response')
+        return {'id': comment_id, 'created': created}
+
     def current_user(self, username: str) -> dict:
         user = self.get('myself')
         name = user.get('name')
