@@ -362,7 +362,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 'SELECT tags FROM ka.documents WHERE id=%s AND NOT is_draft FOR SHARE', (updates,)
             ).fetchone()
         )
-        if matched is not None and lifecycle.INVENTORY_TAG in matched['tags']:
+        if matched is not None and lifecycle.has_inventory_tag(matched['tags']):
             updates = None
         if updates is None:
             # A document about a service needs only the service; the run's resource, when it still exists, picks the
@@ -375,7 +375,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             )
             clash = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT %s=ANY(d.tags) AND lower(d.title)=lower(%s)
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT {lifecycle.INVENTORY_TAGGED} AND lower(d.title)=lower(%s)
                 ORDER BY d.id LIMIT 1""",
                 (entry, lifecycle.INVENTORY_TAG, payload['title']),
             ).fetchone()

@@ -530,6 +530,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if resource_id is not None:
                 where.append(f'%s=ANY(x.{RESOURCE_FILTERS[name]})')
                 values.append(resource_id)
+        tag = (tag or '').strip() or None  # blank: no tag filter
         if tag is not None:
             where.append('EXISTS (SELECT 1 FROM unnest(x.tags) t WHERE lower(t)=lower(%s))')
             values.append(tag)

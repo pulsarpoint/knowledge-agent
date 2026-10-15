@@ -9,7 +9,7 @@ from pathlib import Path
 import psycopg
 import pytest
 from discovery_world import world  # noqa: F401  (fixture)
-from knowledge_admin.documents.store import Provenance, create_draft
+from knowledge_admin.documents.store import Provenance, create_draft, inventory_document
 from knowledge_admin.tools.catalog import CATALOG
 from live_documents import live_document, write_live_document
 from pydantic import ValidationError
@@ -432,3 +432,36 @@ def test_nothing_reads_operations_notes_or_the_inventory_flag():
             text = path.read_text(errors='ignore')
             found += [f'{path.relative_to(ROOT)}: {pattern}' for pattern in patterns if re.search(pattern, text)]
     assert found == []
+
+
+def test_the_inventory_tag_matches_in_any_case(discovery):
+    world, sid, config = discovery
+    with world.store.connect() as conn:
+        marked = live_document(
+            conn, world.project, 'hw', 'Hardware', '# Hw', server_ids=[world.server['id']], tags=['Inventory']
+        )
+        found = inventory_document(conn, world.project, 'server', world.server['id'], live_only=True)
+        assert found is not None and str(found['id']) == str(marked['id'])
+    propose(config, 'propose_document', title='Network', markdown='# Net', description='')
+    new = accept_only(world, sid)
+    with world.store.connect() as conn:
+        assert tags_of(conn, new) == []  # a document tagged Inventory already is the inventory document
+
+
+def test_the_tag_filter_is_trimmed_and_a_blank_one_filters_nothing(store, client):
+    ops = live(store, 'ops', 'Ops', tags=['inventory'])
+    live(store, 'none', 'None')
+    for url in (DOCUMENTS, DRAFTS):
+        key = 'documents' if url == DOCUMENTS else 'drafts'
+        client.post(
+            DRAFTS, headers=HEADERS, json={'slug': 'n', 'title': 'N', 'markdown': '# N\n', 'tags': ['inventory']}
+        )
+        plain = client.get(url, headers=HEADERS, params={'tag': 'inventory'}).json()[key]
+        padded = client.get(url, headers=HEADERS, params={'tag': ' inventory '}).json()[key]
+        blank = client.get(url, headers=HEADERS, params={'tag': ' '}).json()[key]
+        everything = client.get(url, headers=HEADERS).json()[key]
+        assert [r['id'] for r in padded] == [r['id'] for r in plain] and plain
+        assert [r['id'] for r in blank] == [r['id'] for r in everything]
+    assert ops in [
+        r['id'] for r in client.get(DOCUMENTS, headers=HEADERS, params={'tag': ' inventory '}).json()['documents']
+    ]

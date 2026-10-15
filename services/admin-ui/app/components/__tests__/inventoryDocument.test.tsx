@@ -312,6 +312,25 @@ describe("the Documents list", () => {
     expect(screen.getByLabelText("Tag")).toHaveValue("ops");
   });
 
+  test("the Tag filter is trimmed: a padded tag asks for the bare tag, a blank one asks for no tag", async () => {
+    const calls = api({
+      "GET /api/documentation/documents?": () => [200, { documents: [listed], total: 1 }],
+      "GET /api/documentation/documents?tag=inventory": () => [200, { documents: [listed], total: 1 }],
+      "GET /api/documentation/drafts?new=true": () => [200, { drafts: [] }],
+      "GET /api/documentation/resources": () => [200, resources],
+    });
+    show("/documents");
+    await screen.findByRole("link", { name: "web-1 overview" });
+    fireEvent.change(screen.getByLabelText("Tag"), { target: { value: "  " } });
+    await waitFor(() => expect(screen.getByLabelText("Tag")).toHaveValue("  "));
+    fireEvent.change(screen.getByLabelText("Tag"), { target: { value: " inventory " } });
+    await waitFor(() =>
+      expect(calls.some((c) => c.key === "GET /api/documentation/documents?tag=inventory")).toBe(true),
+    );
+    expect(calls.some((c) => /tag=(%20|\+)/.test(c.key))).toBe(false);
+    expect(calls.filter((c) => c.key.includes("tag=")).every((c) => c.key.endsWith("tag=inventory"))).toBe(true);
+  });
+
   test("the Drafts tab filters by tag too, and the tag carries over between the tabs", async () => {
     const calls = api({
       "GET /api/documentation/documents?tag=inventory": () => [200, { documents: [], total: 0 }],

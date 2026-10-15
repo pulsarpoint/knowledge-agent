@@ -33,11 +33,18 @@ import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 const FILTERS = kindsOf(["code_projects", "services", "servers", "environments"]);
 const COUNTED = kindsOf(["code_projects", "services", "servers"]);
 const draftsLabel = (count: number) => (count === 1 ? "1 draft" : `${count} drafts`);
+/** The parameters with the tag trimmed; a blank tag is no tag filter. */
+function trimmedTag(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  const tag = next.get("tag")?.trim();
+  tag ? next.set("tag", tag) : next.delete("tag");
+  return next;
+}
 /** The filters both tabs share: the resource filters' query parameters and the tag, passed to GET /drafts as they are. */
 function draftFilter(params: URLSearchParams): Record<string, string> {
   const filter: Record<string, string> = {};
   for (const key of [...FILTERS.map(({ field }) => field.slice(0, -1)), "tag"]) {
-    const value = params.get(key);
+    const value = key === "tag" ? params.get(key)?.trim() : params.get(key);
     if (value) filter[key] = value;
   }
   return filter;
@@ -68,7 +75,7 @@ export default function DocumentsView() {
     setError("");
     const listed = draftsView
       ? getDrafts(draftFilter(params), controller.signal).then((value) => () => setDrafts(value.drafts))
-      : Promise.all([getDocuments(params, controller.signal), getNewDrafts(controller.signal)]).then(
+      : Promise.all([getDocuments(trimmedTag(params), controller.signal), getNewDrafts(controller.signal)]).then(
           ([data, created]) =>
             () => {
               setRows(data.documents);

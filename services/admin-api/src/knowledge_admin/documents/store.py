@@ -45,6 +45,14 @@ NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. C
 # The inventory document of a server, service or environment: the document tagged INVENTORY_TAG built for it (the
 # most recently updated live one; else a brand-new draft so tagged). Nothing enforces one per resource (0109).
 INVENTORY_TAG = 'inventory'
+# SQL: the document `d` carries INVENTORY_TAG in any case (one %s parameter: INVENTORY_TAG).
+INVENTORY_TAGGED = 'lower(%s)=ANY(SELECT lower(t) FROM unnest(d.tags) t)'
+
+
+def has_inventory_tag(tags: list[str]) -> bool:
+    return any(t.lower() == INVENTORY_TAG for t in tags)
+
+
 INVENTORY_TYPES = {'server': 'Server', 'service': 'Service', 'environment': 'Environment'}
 # Inventory entry kind → document_resources column (an entry's documents; deployments are not entries).
 ENTRY_COLUMNS = {
@@ -378,7 +386,7 @@ def create_draft(
             AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
             (project, folder, slug),
         ).fetchone()
-        if named is not None and INVENTORY_TAG in content['tags']:
+        if named is not None and has_inventory_tag(content['tags']):
             raise HTTPException(409, NAME_IN_USE.format(slug=slug))
         if named is not None:
             document_id = named['id']
@@ -618,7 +626,7 @@ def version(conn, document_id: UUID, number: int) -> dict | None:
 # The inventory document of a resource (INVENTORY_TAG): {column} its document_resources column. Live documents first,
 # the most recently updated first; then brand-new drafts, newest first.
 INVENTORY_DOCUMENT = """SELECT d.id,d.title,d.markdown,d.version,d.is_draft,NOT d.is_draft AS published FROM ka.documents d
-    WHERE d.project_id=%s AND d.draft_of IS NULL AND %s=ANY(d.tags) AND (NOT %s OR NOT d.is_draft)
+    WHERE d.project_id=%s AND d.draft_of IS NULL AND {tagged} AND (NOT %s OR NOT d.is_draft)
     AND EXISTS (SELECT 1 FROM ka.document_resources r WHERE r.document_id=d.id AND r.{column}=%s
         AND r.connection='built_for' AND r.removed_at IS NULL)
     ORDER BY d.is_draft,d.updated_at DESC,d.id LIMIT 1"""
@@ -631,7 +639,8 @@ def inventory_document(conn, project: UUID, kind: str, resource_id: UUID, *, liv
     if kind not in INVENTORY_TYPES:
         return None
     return conn.execute(
-        INVENTORY_DOCUMENT.format(column=ENTRY_COLUMNS[kind]), (project, INVENTORY_TAG, live_only, resource_id)
+        INVENTORY_DOCUMENT.format(column=ENTRY_COLUMNS[kind], tagged=INVENTORY_TAGGED),
+        (project, INVENTORY_TAG, live_only, resource_id),
     ).fetchone()
 
 

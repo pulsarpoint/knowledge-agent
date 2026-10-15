@@ -319,6 +319,7 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     ) -> dict:
         """Live documents, most recently updated first, 50 a page; `tag`: those with that tag (one tag, exact,
         case-insensitive)."""
+        tag = (tag or '').strip() or None  # blank: no tag filter
         db = database()
         with workspace(db, app_name) as (conn, project):
             where = """project_id=%s AND (strpos(lower(title || ' ' || description || ' ' || slug),lower(%s))>0)

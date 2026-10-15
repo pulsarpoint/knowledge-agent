@@ -13,6 +13,7 @@ from pydantic import Field
 from knowledge_admin.capabilities.context import RunContext
 from knowledge_admin.capabilities.document_tools import Proposal
 from knowledge_admin.capabilities.inventory import connect
+from knowledge_admin.documents.store import INVENTORY_TAG, INVENTORY_TAGGED
 from knowledge_admin.tools.registry import tool
 
 NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
@@ -196,9 +197,9 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
             )
             found = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT 'inventory'=ANY(d.tags) AND lower(d.title)=lower(%s)
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT {INVENTORY_TAGGED} AND lower(d.title)=lower(%s)
                 ORDER BY d.id LIMIT 1""",
-                (entry, value['title']),
+                (entry, INVENTORY_TAG, value['title']),
             ).fetchone()
             document_id = found['id'] if found else None
         existing = conn.execute(
