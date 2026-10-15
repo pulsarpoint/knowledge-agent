@@ -180,10 +180,13 @@ class JiraClient:
         result = self.post(f'issue/{issue_id}/comment', {'body': body})
         try:
             created = datetime.fromisoformat(result['created'])
-            comment_id = str(result['id'])
         except (KeyError, TypeError, ValueError):
             raise HTTPException(502, 'Jira returned an invalid response') from None
-        if created.tzinfo is None or not comment_id:
+        raw_id = result.get('id')
+        if isinstance(raw_id, bool) or not isinstance(raw_id, str | int) or created.tzinfo is None:
+            raise HTTPException(502, 'Jira returned an invalid response')
+        comment_id = str(raw_id)
+        if not comment_id:
             raise HTTPException(502, 'Jira returned an invalid response')
         return {'id': comment_id, 'created': created}
 

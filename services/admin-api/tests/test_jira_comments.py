@@ -45,6 +45,10 @@ def test_add_comment_posts_the_body_and_returns_id_and_created():
         (httpx.Response(201, content=b'not json'), 502),
         (httpx.Response(201, json={'id': '1'}), 502),  # no created
         (httpx.Response(201, json={'created': '2026-10-15T10:00:01.000+0000'}), 502),  # no id
+        (httpx.Response(201, json={'id': None, 'created': '2026-10-15T10:00:01.000+0000'}), 502),
+        (httpx.Response(201, json={'id': True, 'created': '2026-10-15T10:00:01.000+0000'}), 502),
+        (httpx.Response(201, json={'id': {}, 'created': '2026-10-15T10:00:01.000+0000'}), 502),
+        (httpx.Response(201, json={'id': '', 'created': '2026-10-15T10:00:01.000+0000'}), 502),
     ],
 )
 def test_add_comment_failures(response, status):
