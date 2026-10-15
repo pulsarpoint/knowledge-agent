@@ -16,6 +16,11 @@ the resource (environment, service, server) is opened.**
 ## Model (migration 0107)
 
 - `ka.documents.inventory boolean NOT NULL DEFAULT false`.
+- **Its resource link is automatic and permanent.** An inventory document is always connected to its resource by a
+  `built_for` link — created with the document (New inventory document on the resource page, or a discovery proposal
+  for that resource) — and built-for links can never be removed (database check, 409 in the API, locked in Linked
+  resources). Unmarking the flag does not remove the link either. Mark as inventory document is offered only for a
+  document already built for exactly that one resource.
 - An inventory document is the inventory document **of the resource it is built for**: it must have exactly one
   active `built_for` link, to a server, a service or an environment (not a code project, not a deployment).
 - **One per resource:** among live documents and brand-new drafts, at most one inventory document is built for a given
