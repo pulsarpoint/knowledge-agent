@@ -79,9 +79,9 @@ def test_private_services_and_separate_persistent_state():
     compose = yaml.safe_load((DEPLOY / 'compose.yaml').read_text(encoding='utf-8'))
     for name in ('rag', 'litellm', 'migrate', 'admin-api', 'admin-web', 'keycloak-configure', 'repository-worker'):
         assert not compose['services'][name].get('ports')
-    for name in ('postgres', 'admin-oauth2-proxy', 'keycloak', 'phoenix'):
+    for name in ('postgres', 'admin-oauth2-proxy', 'keycloak', 'phoenix', 'jira-mock'):
         assert all(port.startswith('127.0.0.1:') for port in compose['services'][name]['ports'])
-    assert set(compose['volumes']) == {'postgres-data', 'keycloak-data', 'phoenix-data', 'agent-workspaces'}
+    assert set(compose['volumes']) == {'postgres-data', 'keycloak-data', 'phoenix-data', 'agent-workspaces', 'jira-mock-data'}
     assert all(not value or not value.get('external') for value in compose['volumes'].values())
 
 

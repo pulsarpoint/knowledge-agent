@@ -27,8 +27,10 @@ builds local images and starts `deploy/compose.yaml`. The Compose project name i
   `CODE_INDEX_FOLDER` binds; everything else sees `DATA_ROOT` read-only at `/work/data`.
   It claims PostgreSQL jobs, clones and periodically pulls Git source into named folders.
 - `jira-mock` is an optional local test profile. `make jira-mock-up` starts 75
-  synthetic tickets on an internal Docker network shared with `admin-api`, with
-  no host port or external connection. `make jira-mock-down` stops it. See the
+  synthetic tickets on an internal Docker network shared with `admin-api` and
+  `repository-worker`, plus a control page on `127.0.0.1:${JIRA_MOCK_PORT:-8184}` (loopback only)
+  to edit tickets and see the comments Knowledge Agent posts. Its state is kept in the
+  `jira-mock-data` volume. `make jira-mock-down` stops it. See the
   [Jira mock guide](../docs/jira.md) for test credentials and failure scenarios.
 - `agent-session-worker` runs native agents' **Test**, **Ask agent**, new-document and event-handler sessions with the native runtime. It is on `default`
   (RAG, PostgreSQL, MCP servers, model providers, SSH hosts) and `agent-shell` (`shell-worker`), sees `DATA_ROOT` read-only
@@ -177,7 +179,7 @@ or other user administration is available through the local Keycloak console.
 
 ## Configuration and troubleshooting
 
-Change ADMIN_PORT, KEYCLOAK_PORT, PHOENIX_PORT and POSTGRES_PORT in root `.env` if a
+Change ADMIN_PORT, KEYCLOAK_PORT, PHOENIX_PORT, POSTGRES_PORT and JIRA_MOCK_PORT in root `.env` if a
 port is occupied. Set public WEB_HOST consistently; for an already imported
 realm, `make up` applies the client redirect URIs to match these settings.
 

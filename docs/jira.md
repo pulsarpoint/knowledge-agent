@@ -56,12 +56,44 @@ Atlassian account is needed to run this fixture.
 make jira-mock-down
 ```
 
-The optional `jira-mock` Compose profile has no published host port, no external
-network connection, and no forwarding code. Only the admin API (manual fetch) and the
-repository worker (scheduled auto pull) share its internal `jira-test` network. Ordinary `make up` does not start the mock on a clean stack.
-The mock runs with a read-only filesystem as a non-root user. Native API tests use
+The optional `jira-mock` Compose profile has no forwarding code and makes no outgoing
+connections. Only the admin API (manual fetch) and the repository worker (scheduled auto pull) share its internal
+`jira-test` network. Its control page is published on `127.0.0.1` only (port `JIRA_MOCK_PORT`, default 8184, through
+its own `jira-mock-page` network). Ordinary `make up` does not start the mock on a clean stack.
+The mock runs with a read-only filesystem as a non-root user; its state (edits, new tickets, comments) is saved in
+the `jira-mock-data` volume and survives a restart or rebuild. Native API tests use
 an HTTP mock transport and a disposable PostgreSQL database, separate from the
 running application database.
+
+## Mock control page
+
+Open `http://127.0.0.1:8184/` (or your `JIRA_MOCK_PORT`). It has no login; only this machine can reach it.
+
+- **Agent comments**: every comment posted through the API (by Knowledge Agent), newest first, with its ticket, time,
+  id and full text. The same list as JSON: `GET /mock/comments`.
+- **Ticket page** (`/mock/DEMO-3`): fields and comments, the agent's highlighted. **Edit** the summary, description or
+  status, or **add a comment as a person** (author *Jira User*). Both move the ticket's updated time, and a search
+  `ORDER BY updated DESC` lists it first.
+- **New ticket**: the next pull records it as `jira.ticket.created`.
+- **Comment posting**: for the next 1-10 comment posts, *Fail with 500* (the worker retries after 1 and 5 minutes),
+  *Refuse with 403* (fails at once) or *Save the comment but answer 500* (the retry must find the comment on the ticket
+  instead of posting it again). It returns to normal afterwards.
+- **Reset**: back to the 75 original tickets (`POST /mock/reset`). `GET /mock/state` returns everything as JSON.
+
+Like Jira, a posted comment sets the ticket's updated time to the comment's creation time, so the loop guard below
+is exercised for real. The notification's **Posted to KEY** link points at `http://jira-mock:8080/...`, which a browser
+cannot open; see the comment on the control page.
+
+### Testing answers as comments
+
+1. `make jira-mock-up`, then save the mock connection in Jira Settings (above) and fetch tickets once.
+2. Create a Jira auto pull schedule (Administration → Schedules); its first run records `jira.ticket.created` for the
+   tickets it pulls, before any handler exists.
+3. Add a Send to agent handler for `jira.ticket.updated` with **Also post the answer as a comment on the Jira
+   ticket**.
+4. On the control page, edit DEMO-3 or add a comment as a person, then run the schedule (or wait for it).
+5. The agent's answer appears under **Agent comments** and on DEMO-3, and Administration → Notifications shows
+   **Posted to DEMO-3**. The next pull records no new event for DEMO-3: the only change is our own comment.
 
 ## Persistence and scope
 
@@ -90,7 +122,7 @@ operator messages; rate limiting requires a later retry.
 All panel routes require the admin gateway and the `docs-admins` group. Ticket
 access follows admin access. Exported content follows the existing RAG access
 policy; Jira issue and comment restrictions are not copied as RAG permissions.
-Jira issues are never created or modified. Scheduled background sync, attachment
+Jira issues are never created or modified (posting an agent's answer as a comment is the only write, below). Scheduled background sync, attachment
 downloads and Cloud authentication remain future work.
 
 | Admin API | Behavior |

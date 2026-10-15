@@ -993,7 +993,7 @@ folder) → **Refresh** it or let Auto-sync pick it up.
 
 | Variable | Meaning |
 | --- | --- |
-| `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438 | Loopback ports |
+| `ADMIN_PORT` 8183, `KEYCLOAK_PORT` 8181, `PHOENIX_PORT` 8182, `POSTGRES_PORT` 5438, `JIRA_MOCK_PORT` 8184 (Jira mock page) | Loopback ports |
 | `WEB_HOST` | Public host name used for login redirects |
 | `DATA_ROOT` | **Required.** Absolute host folder for the application's files (set by `make setup DATA_ROOT=...`) |
 | `CODE_FOLDER` | Folder inside `DATA_ROOT` for code projects and Git clones (default `code`) |

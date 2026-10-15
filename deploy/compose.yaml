@@ -149,7 +149,11 @@ services:
     profiles: [jira-mock]
     build: {context: ./jira-mock}
     restart: unless-stopped
-    networks: [jira-test]
+    # jira-test is internal (no published ports there); jira-mock-page carries only the loopback control page
+    # (edit tickets, see the comments Knowledge Agent posted).
+    networks: [jira-test, jira-mock-page]
+    ports: ["127.0.0.1:${JIRA_MOCK_PORT:-8184}:8080"]
+    volumes: [jira-mock-data:/data]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -374,9 +378,11 @@ networks:
     internal: true
   jira-test:
     internal: true
+  jira-mock-page:
 
 volumes:
   agent-workspaces:
+  jira-mock-data:
   postgres-data:
   keycloak-data:
   phoenix-data:
