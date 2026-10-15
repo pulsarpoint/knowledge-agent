@@ -482,3 +482,118 @@ def test_a_brand_new_draft_a_person_edited_is_theirs_until_they_decide(sessions,
         assert call(config, 'save_document', document_id=new_id, markdown='# Fresh') == 'Saved draft (1 lines).'
         [row] = drafts(s, session['id'])
         assert (row['document_id'], row['slug'], row['markdown']) == (None, 'payments-api-reference', '# Fresh')
+
+
+# The New inventory document page's Write with an agent: the run writes the resource's inventory document.
+
+TAKEN = 'Service Payments already has an inventory document.'
+
+
+def inventory_body(s, **change):
+    new = {**NEW, 'inventory': True, 'service_id': s.service}
+    resources = {
+        'code_project_ids': [s.repo],
+        'environment_ids': [s.environment],
+        'documents': [{'new': new, 'editable': True}],
+    }
+    return body(s, started_from={'new_document': new}, resources=resources, **change)
+
+
+def inventory_draft(s, slug: str):
+    return s.client.post(
+        '/api/documentation/drafts',
+        headers=HEADERS,
+        json={
+            'slug': slug,
+            'title': slug,
+            'markdown': '# Payments',
+            'resource_ids': {'service_ids': [s.service]},
+            'inventory': True,
+        },
+    )
+
+
+def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resource(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    chosen = session['config']['chosen_resources']
+    assert {key: value for key, value in chosen.items() if value} == {'service_ids': [s.service]}
+    assert s.service in session['run_resources']['service_ids']  # it still reads what the person gave it
+    assert s.repo in session['run_resources']['code_project_ids']
+    config = {**session['config'], 'session_id': session['id']}
+    new_id = session['config']['document_access'][0]['id']
+    assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
+    [draft] = draft_ids(s, session['id'])
+    assert resource_ids(s, draft) == {
+        'code_project_ids': [],
+        'environment_ids': [],
+        'service_ids': [s.service],
+        'server_ids': [],
+        'deployment_ids': [],
+    }
+    with s.store.connect() as conn:
+        assert conn.execute('SELECT inventory FROM ka.documents WHERE id=%s', (draft,)).fetchone()['inventory']
+    found = s.client.get(f'/api/inventory/service/{s.service}/documents', headers=HEADERS).json()
+    assert found['inventory_document']['id'] == str(draft)
+    assert call(config, 'save_document', document_id=new_id, markdown='# Payments\n\nMore.') == 'Saved draft (3 lines).'
+    assert draft_ids(s, session['id']) == [draft]
+
+
+def test_an_inventory_run_is_refused_when_its_resource_has_an_inventory_document(sessions):
+    s = sessions
+    assert inventory_draft(s, 'payments-overview').status_code == 201
+    response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
+    assert (response.status_code, response.json()['error']['message']) == (409, TAKEN)
+
+
+def test_an_inventory_runs_save_is_refused_when_its_resource_gained_one_meanwhile(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    config = {**session['config'], 'session_id': session['id']}
+    new_id = session['config']['document_access'][0]['id']
+    assert inventory_draft(s, 'payments-overview').status_code == 201
+    with pytest.raises(ValueError) as refused:
+        call(config, 'save_document', document_id=new_id, markdown='# Payments')
+    assert str(refused.value) == TAKEN
+    assert drafts(s, session['id']) == []
+
+
+@pytest.mark.parametrize(
+    'new,message',
+    [
+        ({'inventory': True}, 'An inventory document is written for one server, service or environment.'),
+        ({'service_id': str(uuid4())}, 'An inventory document is written for one server, service or environment.'),
+    ],
+)
+def test_bad_inventory_starts_are_refused(sessions, new, message):
+    document = {**NEW, **new}
+    change = {'started_from': {'new_document': document}, 'resources': {'documents': [{'new': document}]}}
+    response = sessions.client.post('/api/sessions', headers=HEADERS, json=body(sessions, **change))
+    assert response.status_code == 400 and message in response.json()['error']['message']
+
+
+def test_an_inventory_run_for_a_missing_resource_is_refused(sessions):
+    s = sessions
+    document = {**NEW, 'inventory': True, 'service_id': str(uuid4())}
+    change = {'started_from': {'new_document': document}, 'resources': {'documents': [{'new': document}]}}
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
+    assert (response.status_code, response.json()['error']['message']) == (404, 'Service not found.')
+
+
+def test_an_inventory_run_is_refused_when_a_live_document_has_its_name(sessions):
+    s = sessions
+    with s.store.connect() as conn:
+        project = s.store.project(conn, 'shop')
+        live_document(conn, project, 'payments-api-reference', 'Payments', '# Old', folder='payments-api-docs')
+        conn.commit()
+    response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
+    assert (response.status_code, response.json()['error']['message']) == (
+        409,
+        'A document or draft named payments-api-reference already exists in this folder. Choose another name.',
+    )

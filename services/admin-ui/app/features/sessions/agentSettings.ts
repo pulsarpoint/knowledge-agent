@@ -8,6 +8,7 @@ import {
   type AgentResources,
   type AgentTool,
   type ChatScope,
+  type NewDocument,
   type SessionDetail,
   type StartInput,
 } from "./api";
@@ -207,8 +208,13 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (scope.kind === "new-document") {
-    // the Title and Folder become the one document the run may write
-    const document = { folder: scope.folder.trim(), name: scope.title.trim() };
+    // the Title and Folder become the one document the run may write (the resource's inventory document, from New
+    // inventory document)
+    const document: NewDocument = {
+      folder: scope.folder.trim(),
+      name: scope.title.trim(),
+      ...(scope.inventory ? { inventory: true, [`${scope.inventory.type}_id`]: scope.inventory.id } : {}),
+    };
     return {
       started_from: { new_document: document },
       message: message.trim(),

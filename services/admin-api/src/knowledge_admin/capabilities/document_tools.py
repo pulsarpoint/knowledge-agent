@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
+from fastapi import HTTPException
 from psycopg import errors
 from pydantic import BaseModel, ValidationError
 
@@ -318,7 +319,8 @@ def _write(
 ) -> None:
     """Save `text` as the run's draft: update `current`, else create a draft of `document` from its live content (title
     and description from `text`, which started from it), else (no document) of the new document `new`
-    ({folder, slug}). Then recompute the draft's sources from the run's tool calls."""
+    ({folder, slug}; with `inventory`, the inventory document of the run's one chosen resource). Then recompute the
+    draft's sources from the run's tool calls."""
     project = session['project_id']
     prov = Provenance('agent_run', None, session['id'])
     if current is not None:
@@ -354,9 +356,12 @@ def _write(
                 slug=new['slug'],
                 folder=new['folder'],
                 links=available_resources(conn, project, _run_links(config)),
+                inventory=bool(new.get('inventory')),
             )
         except errors.UniqueViolation:  # another run's or a person's brand-new draft holds this folder and slug
             raise ValueError(NAME_IN_USE.format(slug=new['slug'])) from None
+        except HTTPException as exc:  # an inventory document's resource gained one meanwhile (claim_inventory)
+            raise ValueError(exc.detail) from None
     record_run_sources(conn, project, draft_id, document, session['id'], session['turns'])
 
 

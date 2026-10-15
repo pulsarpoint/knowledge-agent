@@ -131,14 +131,14 @@ function api(routes: Record<string, (body: any) => [number, unknown]>) {
   return calls;
 }
 const wide = { value: false };
-function show() {
+function show(url = "/documents/new") {
   const router = createMemoryRouter(
     [
       { path: "/documents/new", element: <DocumentEditorView /> },
       { path: "/documents/drafts/:draftId", element: <p>draft page</p> },
       { path: "/documents/:documentId", element: <p>document page</p> },
     ],
-    { initialEntries: ["/documents/new"] },
+    { initialEntries: [url] },
   );
   render(
     <WidePageContext.Provider
@@ -216,6 +216,30 @@ test("the first message starts the run with the title and folder as the new docu
   await waitFor(() => expect(calls.some((c) => c.key === "POST /api/sessions/r1/close")).toBe(true));
   await waitFor(() => expect(live.requested.at(-1)).toBeNull());
   expect(within(pane).queryByText("Writing: payments/Payments API")).toBeNull();
+});
+
+test("on the New inventory document page the run writes the resource's inventory document", async () => {
+  const calls = api({
+    ...base,
+    "POST /api/sessions": () => {
+      live.sessions.r1 = detail();
+      return [201, detail()];
+    },
+  });
+  show("/documents/new?inventory=server&resource_id=s1");
+  const pane = await openPane();
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Payments API" } });
+  fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "payments" } });
+  await waitFor(() => expect(within(pane).queryByText("Give the document a title and folder first.")).toBeNull());
+  fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
+  fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
+  const written = { folder: "payments", name: "Payments API", inventory: true, server_id: "s1" };
+  await waitFor(() =>
+    expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
+      started_from: { new_document: written },
+      resources: { documents: [{ new: written, editable: true }] },
+    }),
+  );
 });
 
 test("the agent draft shows above the editor; Promote opens the new document", async () => {

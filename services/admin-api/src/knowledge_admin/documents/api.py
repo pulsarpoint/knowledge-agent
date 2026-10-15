@@ -28,9 +28,6 @@ from knowledge_admin.repositories import RepositoryStore
 logger = logging.getLogger(__name__)
 
 
-NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
-
-
 def _text(value: str, *, blank: bool = False, strip: bool = True) -> str:
     if '\x00' in value or (not blank and not value.strip()):
         raise ValueError('Enter nonempty text without null characters')

@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from fastapi import HTTPException
+from knowledge_admin.documents.store import Provenance, create_draft
 
 from live_documents import write_live_document
 from test_api import _client
@@ -316,9 +318,48 @@ def test_a_person_creates_an_inventory_draft_and_publishing_keeps_the_flag(store
     assert message(new_draft(client, 'loose', 'Loose', inventory=True)) == (409, NOT_BUILT_FOR)
     refused = client.post(DRAFTS, headers=HEADERS, json={'document_id': draft.json()['id'], 'inventory': True})
     assert refused.status_code == 400
+    named = live(store, 'runbook', 'Runbook')
+    clash = new_draft(client, 'runbook', 'Runbook', inventory=True, server_ids=[resource(store, 'servers', 'prod-9')])
+    assert message(clash) == (
+        409,
+        'A document or draft named runbook already exists in this folder. Choose another name.',
+    )
+    assert client.get(f'{DOCUMENTS}/{named}', headers=HEADERS).json()['inventory'] is False
     published = client.post(f'{DRAFTS}/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': 1})
     assert published.status_code == 200, published.text
     assert client.get(f'{DOCUMENTS}/{draft.json()["id"]}', headers=HEADERS).json()['inventory'] is True
+
+
+def test_a_new_inventory_draft_never_becomes_a_draft_of_the_live_document_its_name_names(store):
+    server = resource(store, 'servers', 'prod-1')
+    named = live(store, 'runbook', 'Runbook')
+    content = {
+        'title': 'Runbook',
+        'description': '',
+        'purpose': 'explanation',
+        'audience': 'both',
+        'tags': [],
+        'markdown': '# Runbook\n',
+    }
+    with store.connect() as conn:
+        project = store.project(conn, 'shop')
+        with pytest.raises(HTTPException) as refused:
+            create_draft(
+                conn,
+                project,
+                Provenance('person', None),
+                content,
+                origin='manual',
+                slug='runbook',
+                links={'server_ids': [server]},
+                inventory=True,
+            )
+        assert (refused.value.status_code, refused.value.detail) == (
+            409,
+            'A document or draft named runbook already exists in this folder. Choose another name.',
+        )
+        conn.rollback()
+        assert conn.execute('SELECT count(*) AS n FROM ka.documents WHERE draft_of=%s', (named,)).fetchone()['n'] == 0
 
 
 # Readers
@@ -339,7 +380,8 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
     linked = live(store, 'linked', 'Linked')
     live(store, 'unrelated', 'Unrelated', **{kind: [elsewhere]})
     new_draft(client, 'draft', 'Draft', **{kind: [target]})  # drafts are not shown
-    assert client.put(f'{DOCUMENTS}/{linked}/links', headers=HEADERS, json={**NO_LINKS, kind: [target], 'revision': 1})
+    links = client.put(f'{DOCUMENTS}/{linked}/links', headers=HEADERS, json={**NO_LINKS, kind: [target], 'revision': 1})
+    assert links.status_code == 200, links.text
     url = f'/api/inventory/{entry}/{target}/documents'
     assert client.get(url, headers=HEADERS).json() == {
         'inventory_document': None,
@@ -434,7 +476,7 @@ def test_documents_list_has_the_flag_and_filters_inventory_documents(store, clie
     server = resource(store, 'servers', 'prod-1')
     overview = live(store, 'overview', 'Overview', server_ids=[server])
     live(store, 'other', 'Other', server_ids=[server])
-    mark(client, overview)
+    assert mark(client, overview).status_code == 200
     listed = client.get(DOCUMENTS, headers=HEADERS).json()
     assert {row['title']: row['inventory'] for row in listed['documents']} == {'Overview': True, 'Other': False}
     only = client.get(DOCUMENTS, headers=HEADERS, params={'inventory': 'true'}).json()

@@ -41,6 +41,7 @@ STALE_MESSAGE = (
     "This draft was based on version {base}; the live version is now {live}. Promoting replaces version {live}'s text."
 )
 NEW_DOCUMENT_REVISION = 'New documents cannot reuse a revision'
+NAME_IN_USE = 'A document or draft named {slug} already exists in this folder. Choose another name.'
 # An inventory document (documents.inventory): the one document of a server, service or environment, built for it.
 # The database checks the same at commit (0107); these checks give the 409 first.
 INVENTORY_TAKEN = '{type} {name} already has an inventory document.'
@@ -372,7 +373,8 @@ def create_draft(
     live version (or `base_version`, the version the person loaded: no later than the live one, so the draft is stale
     when the document moved on), with its parent source; else a brand-new document with `slug`, `folder` and `links`
     as built-for, the inventory document of the resource it is built for when `inventory` (409 as claim_inventory). A
-    draft of a live document has its document's flag, never its own (`inventory` is ignored). A run's draft
+    draft of a live document has its document's flag, never its own (`inventory` is ignored); a new inventory draft
+    whose folder and slug a live document uses is refused (409), never made a draft of it. A run's draft
     (prov.session_id) becomes the session's last_draft_id."""
     if document_id is None:
         named = conn.execute(
@@ -380,6 +382,8 @@ def create_draft(
             AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
             (project, folder, slug),
         ).fetchone()
+        if named is not None and inventory:
+            raise HTTPException(409, NAME_IN_USE.format(slug=slug))
         if named is not None:
             document_id = named['id']
     base = None

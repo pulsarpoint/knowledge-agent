@@ -54,7 +54,7 @@ export const resourceChatPath = (resource: { type: ResourceType; id: string }, c
 export type ChatScope =
   | { kind: "document"; id: string; title: string }
   | { kind: "agent"; id: string; name: string }
-  | { kind: "new-document"; folder: string; title: string }
+  | { kind: "new-document"; folder: string; title: string; inventory?: { type: ResourceType; id: string } }
   | { kind: ResourceType; id: string; name: string };
 export type ResourceScope = Extract<ChatScope, { kind: ResourceType }>;
 export const isResourceScope = (scope: ChatScope): scope is ResourceScope =>
@@ -311,10 +311,15 @@ export interface AgentOptions {
   experts: { id: string; name: string; when_to_use: string }[];
 }
 export type AgentResources = ResourceIds<AgentKey>;
-/** A document a run writes from scratch: its name and documentation folder. */
+/** A document a run writes from scratch: its name and documentation folder; with `inventory` and one resource id, the
+ * inventory document of that server, service or environment (built for it alone). */
 export interface NewDocument {
   folder: string;
   name: string;
+  inventory?: true;
+  server_id?: string;
+  service_id?: string;
+  environment_id?: string;
 }
 export interface StartInput {
   started_from?:

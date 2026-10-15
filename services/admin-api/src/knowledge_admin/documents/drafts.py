@@ -21,7 +21,6 @@ from knowledge_admin.documents.api import (
     DOCUMENT_RESOURCE_FIELDS,
     Audience,
     Description,
-    NAME_IN_USE,
     Markdown,
     Purpose,
     ResourceIds,
@@ -33,7 +32,7 @@ from knowledge_admin.documents.api import (
     export_document,
     export_input,
 )
-from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, Provenance
+from knowledge_admin.documents.store import CONTENT, DOCUMENT_NOT_FOUND, DRAFT_NOT_FOUND, NAME_IN_USE, Provenance
 from knowledge_admin.repositories import RepositoryStore
 
 logger = logging.getLogger(__name__)

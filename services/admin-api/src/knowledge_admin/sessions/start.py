@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from knowledge_admin.data_root import documentation_folder
 from knowledge_admin.servers.discovery import readiness, server_row
-from knowledge_admin.documents.api import NAME_IN_USE, document_slug
+from knowledge_admin.documents.api import document_slug
+from knowledge_admin.documents.store import NAME_IN_USE, INVENTORY_TAKEN, INVENTORY_TYPES, inventory_document_of
 
 from knowledge_admin.knowledge_agents.config import (
     get_agent_config,
@@ -49,6 +50,7 @@ ASSISTANT_TAG = 'assistant'  # with the resource type's tag (server, service, en
 ONE_START = 'Choose one starting point: a document, a new document, a server, a service or an environment.'
 ID_OR_NEW = 'Give a document id or a new document.'
 ONE_NEW = 'One new document per run.'
+INVENTORY_FOR = 'An inventory document is written for one server, service or environment.'
 NOT_THE_START = 'The new document must be the one the run starts from.'
 DOCUMENT_NOT_FOUND = 'Document not found'
 DOCUMENT_FOREIGN_KEY = 'agent_sessions_target_document'
@@ -66,7 +68,11 @@ REQUIRES = {
 }
 # A chat on a resource: its tag (lists find its chats by it) and the table its id is in.
 RESOURCE_TYPES = {'server': 'servers', 'service': 'services', 'environment': 'environments'}
-RESOURCE_NOT_FOUND = {'service': 'Service not found.', 'environment': 'Environment not found.'}
+RESOURCE_NOT_FOUND = {
+    'server': 'Server not found.',
+    'service': 'Service not found.',
+    'environment': 'Environment not found.',
+}
 TAG = re.compile(r'^[a-z0-9_-]+(/[a-z0-9_-]+)*$')
 TAG_LENGTH = 120
 MAX_TAGS = 10
@@ -86,11 +92,17 @@ TITLE_LENGTH = 120
 
 
 class NewDocument(BaseModel):
-    """A document the run writes: its name (a slug comes from it) and its documentation folder."""
+    """A document the run writes: its name (a slug comes from it) and its documentation folder; `inventory` with one
+    server_id, service_id or environment_id: the inventory document of that resource (the New inventory document
+    page's Write with an agent), built for it alone."""
 
     model_config = ConfigDict(extra='forbid')
     folder: str = Field(max_length=200)
     name: str = Field(max_length=240)
+    inventory: bool = Field(default=False, strict=True)
+    server_id: UUID | None = None
+    service_id: UUID | None = None
+    environment_id: UUID | None = None
 
     @model_validator(mode='after')
     def valid(self):
@@ -100,7 +112,14 @@ class NewDocument(BaseModel):
         if not document_slug(self.name):
             raise ValueError('Use letters or digits in the document name')
         self.folder = documentation_folder(self.folder)
+        if self.inventory != (self.inventory_for() is not None):
+            raise ValueError(INVENTORY_FOR)
         return self
+
+    def inventory_for(self) -> tuple[str, UUID] | None:
+        """(type, id) of the resource whose inventory document this is; None when it is not one (or names several)."""
+        given = [(kind, getattr(self, f'{kind}_id')) for kind in RESOURCE_TYPES if getattr(self, f'{kind}_id')]
+        return given[0] if len(given) == 1 else None
 
 
 class DocumentAccess(BaseModel):
@@ -272,6 +291,18 @@ def start_resource(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
     return row
 
 
+def inventory_owner(conn, project: UUID, kind: str, resource_id: UUID) -> None:
+    """The resource whose inventory document a new-document run writes: it exists in this workspace (404) and has no
+    inventory document yet (409, as claim_inventory says it)."""
+    row = conn.execute(
+        f'SELECT name FROM ka.{RESOURCE_TYPES[kind]} WHERE id=%s AND project_id=%s', (resource_id, project)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, RESOURCE_NOT_FOUND[kind])
+    if inventory_document_of(conn, kind, resource_id) is not None:
+        raise HTTPException(409, INVENTORY_TAKEN.format(type=INVENTORY_TYPES[kind], name=row['name']))
+
+
 def server_reason(row: dict) -> str | None:
     if not row['enabled'] or row['credential_id'] is None:
         return NOT_SET_UP
@@ -295,15 +326,18 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
     """The documents the run may read (and edit, when editable), with their current titles, and the new document it
     may write (an id of its own, 'new:<uuid>', its name, folder and slug). A brand-new draft already holding the new
     document's folder and slug refuses the run (409): every save would fail. A live document of that name does not:
-    the run drafts that document."""
+    the run drafts that document (an inventory document's run is refused: it never drafts another document)."""
     access = []
     for entry in entries:
         if entry.new is not None:
             slug = document_slug(entry.new.name)
+            owner = entry.new.inventory_for()
+            # an inventory document never drafts the live document of that name: it is refused like a brand-new draft
             if conn.execute(
-                """SELECT 1 FROM ka.documents WHERE project_id=%s AND is_draft AND draft_of IS NULL
+                """SELECT 1 FROM ka.documents WHERE project_id=%s
+                AND (draft_of IS NULL AND is_draft OR %s AND NOT is_draft)
                 AND folder IS NOT DISTINCT FROM %s AND slug=%s""",
-                (project, entry.new.folder, slug),
+                (project, owner is not None, entry.new.folder, slug),
             ).fetchone():
                 raise HTTPException(409, NAME_IN_USE.format(slug=slug))
             access.append(
@@ -314,6 +348,7 @@ def document_access(conn, project: UUID, entries: list[DocumentAccess]) -> list[
                     'slug': slug,
                     'editable': True,
                     'new': True,
+                    **({'inventory': {'type': owner[0], 'id': str(owner[1])}} if owner else {}),
                 }
             )
             continue
@@ -471,6 +506,9 @@ def build(
         raise HTTPException(400, NOT_THE_START)
     if started is not None and new is None:  # the new document it starts from is a resource it may write
         entries.append(DocumentAccess(new=started, editable=True))
+    owner = started.inventory_for() if started is not None else None
+    if owner is not None:
+        inventory_owner(conn, project, *owner)
     target = None
     if value.started_from.document_id is not None:
         target = conn.execute(
@@ -516,6 +554,9 @@ def build(
                 'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept],
             }
     pinned['document_access'] = document_access(conn, project, entries)
+    if owner is not None:  # built for the resource alone; what the person gave it is only read
+        chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
+        pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}
     unmet = [
         NEEDS.format(tool=name, what=REQUIRES[names[name].needs])
         for name in value.tools
@@ -641,7 +682,7 @@ def start_run(
             'subagents': value.subagents,
         }
     elif value.started_from.new_document is not None:
-        new = value.started_from.new_document.model_dump()
+        new = value.started_from.new_document.model_dump(mode='json', exclude_defaults=True)
         snapshot = {'system_prompt': value.system_prompt, 'context': value.context, 'prompt_id': value.prompt_id}
         conn.execute(
             """INSERT INTO ka.agent_sessions(id,project_id,agent_id,actor_id,model_id,title,purpose,tags,
