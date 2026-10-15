@@ -376,10 +376,13 @@ test("the start body for an inventory document: its resource is chosen, a server
     kind: "new-document" as const,
     folder: "payments",
     title: "Payments API",
-    inventory: { type, id },
+    inventoryFor: { type, id },
   });
   const server = startInput(inventory("server", "s1"), options, settings, "Write it.");
   expect(server.resources.server_ids).toEqual(["s1"]);
+  const written = { folder: "payments", name: "Payments API", tags: ["inventory"], server_id: "s1" };
+  expect(server.started_from).toEqual({ new_document: written });
+  expect(server.resources.documents).toEqual([{ new: written, editable: true }]);
   expect(server.tools).toContain("ssh_run");
   // prod-1 has no usable SSH: the run starts without it (the start says so)
   const unusable = startInput(inventory("server", "s2"), options, settings, "Write it.");

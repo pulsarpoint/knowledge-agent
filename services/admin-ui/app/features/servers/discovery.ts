@@ -18,13 +18,12 @@ export interface ServerPageData {
   ssh_ready: boolean;
   discovery: { ready: boolean; reason: string | null };
 }
-export type ServiceField = "service_type" | "service_role" | "description" | "owner" | "operations_notes";
+export type ServiceField = "service_type" | "service_role" | "description" | "owner";
 export const SERVICE_FIELD_LABELS: Record<ServiceField, string> = {
   service_type: "Type",
   service_role: "Role",
   description: "Description",
   owner: "Owner",
-  operations_notes: "Operations notes",
 };
 export interface ProposedDeployment {
   environment_id: string | null;

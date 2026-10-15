@@ -31,8 +31,6 @@ export interface DraftSummary {
   published?: boolean;
   /** The live document's title (null for a brand-new draft). */
   document_title?: string | null;
-  /** Its document's inventory flag (a brand-new draft's own). */
-  inventory?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -49,8 +47,6 @@ export type DraftCreate = Partial<DraftContent> & {
   slug?: string;
   folder?: string | null;
   resource_ids?: ResourceIds<DocumentKey>;
-  /** A brand-new draft that is the inventory document of the one resource it is built for. */
-  inventory?: boolean;
 };
 export interface PromoteResult {
   document_id: string;
@@ -62,9 +58,10 @@ export interface PromoteResult {
   /** The promoted draft (added here; the server's answer does not repeat it). */
   draft_id: string;
 }
-/** GET /drafts filters: only brand-new documents' drafts, or the drafts linked to a resource. */
+/** GET /drafts filters: only brand-new documents' drafts, the drafts linked to a resource, the drafts with a tag. */
 export interface DraftFilter {
   new?: boolean;
+  tag?: string;
   environment_id?: string;
   service_id?: string;
   server_id?: string;

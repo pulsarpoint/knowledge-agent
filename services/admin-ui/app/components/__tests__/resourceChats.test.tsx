@@ -332,7 +332,6 @@ test("the service page shows the service's information and its chats", async () 
           service_type: "custom",
           service_role: "application",
           owner: "",
-          operations_notes: "",
           revision: 1,
           created_at: at,
           updated_at: at,

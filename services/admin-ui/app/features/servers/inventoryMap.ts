@@ -112,20 +112,19 @@ export interface InventoryDocument {
   is_draft: boolean;
   published: boolean;
 }
-/** Another live document linked to the entry: built for it (locked) or linked later (removable). */
 /** One document of a resource's document list: a live document linked to the resource or to one of its direct
- * children (`resource`, with the link's `connection`); `inventory` marks an inventory document. */
+ * children (`resource`, with the link's `connection`); an inventory document is tagged `inventory`. */
 export interface EntryDocument {
   id: string;
   title: string;
   tags: string[];
   description_short: string;
-  inventory: boolean;
   connection: "built_for" | "linked";
   resource: { type: EntryKind; id: string; name: string };
 }
-/** An entry's documents, from the documents' links: its inventory document (a code project has none) and the document
- * list of it and its direct children, the inventory document flagged among them. */
+/** An entry's documents, from the documents' links: its inventory document (a code project has none; the live document
+ * tagged `inventory` built for it, the most recently updated if several, else a brand-new draft so tagged) and the
+ * document list of it and its direct children. */
 export interface EntryDocuments {
   inventory_document: InventoryDocument | null;
   documents: EntryDocument[];
@@ -220,7 +219,7 @@ export const linkDocument = (entry: EntryRef, documentId: string) =>
 /** Removes the document's `linked` link to the entry (a built-for link can't be removed). */
 export const unlinkDocument = (entry: EntryRef, documentId: string) =>
   request<EntryDocuments>(`${documentsUrl(entry)}/${encodeURIComponent(documentId)}`, { method: "DELETE" });
-/** The New page for the entry's inventory document: built for it, flagged. */
+/** The New page for the entry's inventory document: built for it, tagged `inventory`. */
 export const newInventoryDocumentPath = (entry: EntryRef) =>
   `/documents/new?${new URLSearchParams({ inventory: entry.kind, resource_id: entry.id })}`;
 

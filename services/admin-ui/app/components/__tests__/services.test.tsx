@@ -44,7 +44,6 @@ const service: ServiceAsset = {
   name: "Payments",
   description: "Handles payments",
   owner: "Backend",
-  operations_notes: "Queue should drain within 30 seconds.",
   revision: 3,
   created_at: "2026-09-08T10:00:00Z",
   updated_at: "2026-09-08T10:00:00Z",
@@ -202,9 +201,7 @@ test("create links several repositories without requiring known deployment detai
   await screen.findByText("Build your service inventory");
   fireEvent.click(screen.getByRole("button", { name: "Add service" }));
   fireEvent.change(screen.getByLabelText("Service name"), { target: { value: "Payments" } });
-  fireEvent.change(screen.getByLabelText("Behavior and investigation notes (optional)"), {
-    target: { value: "Normal latency below 200ms" },
-  });
+  expect(screen.queryByLabelText(/Behavior and investigation notes/)).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "API" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Shared" }));
   fireEvent.click(screen.getByRole("button", { name: "Save service" }));
@@ -216,7 +213,6 @@ test("create links several repositories without requiring known deployment detai
     service_role: "application",
     owner: "",
     description: "",
-    operations_notes: "Normal latency below 200ms",
     repository_ids: ["repo-0", "repo-1"],
     deployments: [],
     dependencies: [],
@@ -297,7 +293,8 @@ test("missing server selection is explained before saving", async () => {
 test("details distinguish deployed version from source and expose scoped agent context", async () => {
   setup([service]);
   fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
-  expect(screen.getByText("Queue should drain within 30 seconds.")).toBeInTheDocument();
+  expect(screen.queryByText("Behavior and investigation notes")).toBeNull();
+  expect(screen.queryByText("No notes recorded.")).toBeNull();
   expect(screen.getByText("v1.2")).toBeInTheDocument();
   expect(screen.getAllByText("Not pulled")).toHaveLength(2);
   expect(screen.getByRole("link", { name: "Agent context (JSON)" })).toHaveAttribute(

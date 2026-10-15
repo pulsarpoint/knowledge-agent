@@ -30,7 +30,6 @@ const service = {
     service_role: "proxy",
     description: "Reverse proxy",
     owner: "",
-    operations_notes: "",
     deployment: {
       environment_id: null,
       environment: "",

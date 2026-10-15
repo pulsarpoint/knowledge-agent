@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AGENT_KINDS, emptyIds } from "~/lib/resources";
+import { INVENTORY_TAG } from "~/features/documents/api";
 import {
   getSessionOptions,
   isResourceScope,
@@ -168,7 +169,7 @@ export function withScope(scope: ChatScope, settings: AgentSettings, options?: A
   const resource = isResourceScope(scope)
     ? { type: scope.kind, id: scope.id }
     : scope.kind === "new-document"
-      ? scope.inventory
+      ? scope.inventoryFor
       : undefined;
   if (!resource) return settings;
   if (
@@ -220,12 +221,14 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     };
   }
   if (scope.kind === "new-document") {
-    // the Title and Folder become the one document the run may write (the resource's inventory document, from New
-    // inventory document)
+    // the Title and Folder become the one document the run may write (from New inventory document: tagged inventory,
+    // built for the resource)
     const document: NewDocument = {
       folder: scope.folder.trim(),
       name: scope.title.trim(),
-      ...(scope.inventory ? { inventory: true, [`${scope.inventory.type}_id`]: scope.inventory.id } : {}),
+      ...(scope.inventoryFor
+        ? { tags: [INVENTORY_TAG], [`${scope.inventoryFor.type}_id`]: scope.inventoryFor.id }
+        : {}),
     };
     return {
       started_from: { new_document: document },

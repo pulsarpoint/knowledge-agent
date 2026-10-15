@@ -21,9 +21,9 @@ const listed = (
   id: string,
   title: string,
   connection: "built_for" | "linked",
-  inventory = false,
+  tagged = false,
   resource = { type: "service", id: "api", name: "api" },
-) => ({ id, title, tags: [], description_short: "", inventory, connection, resource });
+) => ({ id, title, tags: tagged ? ["inventory"] : [], description_short: "", connection, resource });
 
 function server(routes: Record<string, (init?: RequestInit) => { status?: number; json?: unknown }>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {

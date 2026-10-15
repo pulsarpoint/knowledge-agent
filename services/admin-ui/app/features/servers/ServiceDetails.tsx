@@ -171,11 +171,6 @@ export default function ServiceDetails({ service, onClose }: { service: ServiceA
             </div>
           ))}
         </section>
-        <Separator />
-        <section className="flex flex-col gap-3">
-          <h3 className="font-semibold">Behavior and investigation notes</h3>
-          <p className="whitespace-pre-wrap break-words text-sm">{service.operations_notes || "No notes recorded."}</p>
-        </section>
       </CardContent>
       <CardFooter className="flex flex-wrap justify-between gap-3">
         <p className="max-w-lg text-xs text-muted-foreground">

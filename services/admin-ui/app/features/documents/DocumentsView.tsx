@@ -4,6 +4,7 @@ import { FileText, Plus, RefreshCw } from "lucide-react";
 import { getDocuments, getDocumentResources, type DocumentResources, type DocumentSummary } from "./api";
 import { discardDraft, draftPath, getDrafts, getNewDrafts, promoteDraft, type DraftSummary } from "./drafts";
 import { DraftAuthor } from "./DraftView";
+import TagLinks from "./TagLinks";
 import { kindsOf } from "~/lib/resources";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
@@ -32,19 +33,19 @@ import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 const FILTERS = kindsOf(["code_projects", "services", "servers", "environments"]);
 const COUNTED = kindsOf(["code_projects", "services", "servers"]);
 const draftsLabel = (count: number) => (count === 1 ? "1 draft" : `${count} drafts`);
-/** The Drafts view's filters: the resource filters' query parameters, passed to GET /drafts as they are. */
+/** The filters both tabs share: the resource filters' query parameters and the tag, passed to GET /drafts as they are. */
 function draftFilter(params: URLSearchParams): Record<string, string> {
   const filter: Record<string, string> = {};
-  for (const { field } of FILTERS) {
-    const key = field.slice(0, -1);
+  for (const key of [...FILTERS.map(({ field }) => field.slice(0, -1)), "tag"]) {
     const value = params.get(key);
     if (value) filter[key] = value;
   }
   return filter;
 }
 
-/** Documents: the live documents (search, resource filters, Has drafts, Inventory documents only) with the new documents' drafts above them, or,
- * on the Drafts tab (?view=drafts), every draft (new documents and drafts of documents) with the same resource filters. */
+/** Documents: the live documents (search, resource filters, tag, Has drafts) with the new documents' drafts above them,
+ * or, on the Drafts tab (?view=drafts), every draft (new documents and drafts of documents) with the same resource and
+ * tag filters. Every tag badge links to the list filtered by that tag (?tag=). */
 export default function DocumentsView() {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<DocumentSummary[]>([]);
@@ -142,7 +143,7 @@ export default function DocumentsView() {
       <Tabs
         value={draftsView ? "drafts" : "documents"}
         onValueChange={(v) =>
-          // The resource filters carry over; search, Has drafts and paging belong to the documents list.
+          // The resource and tag filters carry over; search, Has drafts and paging belong to the documents list.
           setParams({ ...draftFilter(params), ...(v === "drafts" ? { view: "drafts" } : {}) }, { replace: true })
         }
       >
@@ -180,6 +181,15 @@ export default function DocumentsView() {
             />
           </Field>
         )}
+        <Field>
+          <FieldLabel htmlFor="filter-tag">Tag</FieldLabel>
+          <Input
+            id="filter-tag"
+            placeholder="One tag, e.g. inventory"
+            value={params.get("tag") || ""}
+            onChange={(e) => filter("tag", e.target.value)}
+          />
+        </Field>
         {FILTERS.map(({ key: kind, field, label, plural }) => {
           const key = field.slice(0, -1); // the filter's query parameter: code_project_id, service_id, ...
           return (
@@ -211,16 +221,6 @@ export default function DocumentsView() {
               onCheckedChange={(on) => filter("has_drafts", on === true ? "true" : "")}
             />
             <Label htmlFor="filter-has-drafts">Has drafts</Label>
-          </div>
-        )}
-        {!draftsView && (
-          <div className="flex items-center gap-2 self-end pb-2">
-            <Checkbox
-              id="filter-inventory"
-              checked={params.get("inventory") === "true"}
-              onCheckedChange={(on) => filter("inventory", on === true ? "true" : "")}
-            />
-            <Label htmlFor="filter-inventory">Inventory documents only</Label>
           </div>
         )}
       </div>
@@ -335,11 +335,6 @@ export default function DocumentsView() {
                       <Link className="font-medium underline-offset-4 hover:underline" to={draftPath(draft)}>
                         {draft.title}
                       </Link>
-                      {draft.inventory && (
-                        <Badge variant="secondary" className="ml-2">
-                          Inventory
-                        </Badge>
-                      )}
                     </TableCell>
                     <TableCell>{draft.folder ?? "—"}</TableCell>
                     <TableCell>
@@ -399,11 +394,7 @@ export default function DocumentsView() {
                         <Link className="font-medium underline-offset-4 hover:underline" to={`/documents/${doc.id}`}>
                           {doc.title}
                         </Link>
-                        {doc.inventory && (
-                          <Badge variant="secondary" className="ml-2">
-                            Inventory
-                          </Badge>
-                        )}
+                        <TagLinks tags={doc.tags} className="ml-2" />
                         <p className="mt-1 text-sm text-muted-foreground">{doc.description}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {COUNTED.map((kind) => `${doc[kind.field].length} ${kind.plural.toLowerCase()}`).join(" · ")}

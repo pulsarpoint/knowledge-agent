@@ -12,7 +12,6 @@ const services: ServiceAsset[] = ["API", "Database"].map((name, index) => ({
   name,
   description: "",
   owner: "",
-  operations_notes: "",
   revision: 1,
   service_type: index ? "builtin" : "custom",
   service_role: index ? "database" : "application",

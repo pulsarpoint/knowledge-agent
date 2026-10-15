@@ -358,10 +358,10 @@ A server's, service's or environment's **inventory document** is the document ta
 most recently updated one when several; the others are in its Documents list): Info shows it rendered, with **Open** to
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
 Info says "No inventory document yet." with **New inventory document**: the New document page opens built for the
-resource, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
+resource with its Tags starting as `inventory`, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
 published document linked to the resource (built for it or linked) and to its direct children — an environment's
 services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
-the title (opens the document), its tags, an **Inventory** badge for an inventory document, the first line of its
+the title (opens the document), its tags (each opens the Documents list filtered by it), the first line of its
 description, and "· <name>" when it belongs to a child. The resource's inventory document comes first, then its other
 documents, then the children's, grouped by child; a document linked to several of them is listed once. With none:
 "No documents yet.".
@@ -459,7 +459,6 @@ Each asset can belong to several environments.
 - **Where it runs**: **Add deployment** (server, environment, runtime/manager,
   container/unit name, port, deployed version, log location). **Register server**
   opens the server form inline.
-- **Behavior and investigation notes** — free text; keep secrets out of it.
 
 **Details** shows everything above plus code commits and SSH status per deployment,
 and links to the service's documents and environment graph. **Agent context (JSON)**
@@ -679,8 +678,9 @@ whole-environment and code-project generation; documents written by service phas
 ### 4.13 Documents
 
 **Documents** (`/documents`) — all generated and hand-written documents. Search by
-title/slug/description and filter by linked resources. **New document** writes one
-manually.
+title/slug/description and filter by linked resources and by one **Tag** (`?tag=`, exact, any case; the Drafts view
+filters by it too). Every tag badge — in the list, on a resource page and under a document's Tags — opens the list
+filtered by that tag. **New document** writes one manually.
 
 Every save is a draft: content goes live only by **Publish** (a document that is only a draft) or **Promote** (a draft
 of a live document). The editor has fields Title, Slug, Short description, Purpose, Audience (People and agents /
@@ -699,12 +699,9 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 - **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
   was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
   nothing.
-- **Inventory document**: a document built for exactly one server, service or environment that has no inventory
-  document yet offers **Mark as inventory document** on Linked resources; an inventory document shows a badge naming
-  its resource ("Inventory document of server web-1") and offers **Unmark** (its built-for link stays). A resource has
-  at most one: marking a second is refused with "<Type> <name> already has an inventory document.". It is edited like
-  any other document (drafts, Promote, Publish keep the mark). The list marks inventory documents **Inventory**;
-  **Inventory documents only** shows only them.
+- **Inventory document**: a document tagged `inventory` that is built for a server, service or environment. Make one
+  an inventory document, or stop it being one, by editing its Tags like any other content (Save, then Promote or
+  Publish). The tag filter `inventory` lists them.
 
 #### Drafts and connections
 

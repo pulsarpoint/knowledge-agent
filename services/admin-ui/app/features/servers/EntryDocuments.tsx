@@ -8,12 +8,13 @@ import {
 } from "./inventoryMap";
 import EntrySheet from "./EntrySheet";
 import Markdown from "~/components/Markdown";
+import TagLinks from "~/features/documents/TagLinks";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
 /** A resource page's documents: its inventory document rendered (Open edits it through drafts as usual), or New
- * inventory document when it has none; its document list (its and its direct children's documents: title, tags, the
- * Inventory badge, short description, and the child's name for a child's document); and Connections and documents
+ * inventory document when it has none; its document list (its and its direct children's documents: title, tags (each a
+ * link to the Documents list filtered by it), short description, and the child's name for a child's document); and Connections and documents
  * (the entry sheet) to change its links. */
 export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; onChanged?: () => void }) {
   const [documents, setDocuments] = useState<Documents | null>(null);
@@ -76,12 +77,7 @@ export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; 
                   <Link className="font-medium underline" to={`/documents/${encodeURIComponent(item.id)}`}>
                     {item.title}
                   </Link>
-                  {item.inventory && <Badge variant="secondary">Inventory</Badge>}
-                  {item.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs font-normal">
-                      {tag}
-                    </Badge>
-                  ))}
+                  <TagLinks tags={item.tags} />
                   {item.resource.id !== entry.id && (
                     <span className="text-xs text-muted-foreground">· {item.resource.name}</span>
                   )}

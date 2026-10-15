@@ -50,8 +50,8 @@ export default function AgentSettingsSheet({
   // Memoised: a fresh object every render would clear the preview on unrelated re-renders.
   const scopeResource = isResourceScope(scope)
     ? `${scope.kind}:${scope.id}`
-    : scope.kind === "new-document" && scope.inventory
-      ? `${scope.inventory.type}:${scope.inventory.id}`
+    : scope.kind === "new-document" && scope.inventoryFor
+      ? `${scope.inventoryFor.type}:${scope.inventoryFor.id}`
       : null;
   const settings = useMemo(() => withScope(scope, given, options), [scopeResource, given, options]);
   const agent = options.agent;

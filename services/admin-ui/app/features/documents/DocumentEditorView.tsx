@@ -8,9 +8,9 @@ import {
   getDocument,
   getDocumentResources,
   getDocumentVersion,
+  INVENTORY_TAG,
   INVENTORY_TYPES,
   isBuiltForRefusal,
-  isInventoryRefusal,
   saveDocumentLinks,
   type InventoryType,
   type DocumentDetail,
@@ -40,10 +40,10 @@ import AgentChat from "~/features/sessions/AgentChat";
 import DocumentAgentRuns from "./DocumentAgentRuns";
 import DocumentConnections from "./DocumentConnections";
 import DocumentDrafts from "./DocumentDrafts";
-import DocumentInventory, { inventoryLabel } from "./DocumentInventory";
 import DocumentLinkHistory from "./DocumentLinkHistory";
 import Markdown from "~/components/Markdown";
 import DocumentResourceSelection from "./DocumentResourceSelection";
+import TagLinks from "./TagLinks";
 import UnsavedDocumentChanges from "./UnsavedDocumentChanges";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import {
@@ -151,7 +151,8 @@ function Editor({
   const isDraft = document?.is_draft === true; // a brand-new draft: not published yet
   const isLive = document !== null && !isDraft;
   const [params] = useSearchParams();
-  // The New page opened by New inventory document (?inventory=server&resource_id=…): built for that resource, flagged.
+  // The New page opened by New inventory document (?inventory=server&resource_id=…): built for that resource, its Tags
+  // starting with `inventory`.
   const [inventoryFor] = useState(() => {
     const type = params.get("inventory") as InventoryType | null;
     const id = params.get("resource_id");
@@ -182,7 +183,7 @@ function Editor({
           description: "",
           purpose: "explanation",
           audience: "both",
-          tags: [],
+          tags: inventoryFor ? [INVENTORY_TAG] : [],
           markdown: "",
           ...emptyIds(DOCUMENT_KINDS),
           ...(inventoryFor ? { [`${inventoryFor.type}_ids`]: [inventoryFor.id] } : {}),
@@ -219,8 +220,6 @@ function Editor({
   // The document's revision (a brand-new draft's is the draft's): Save links and Delete send it, a brand-new draft's
   // Save too; Save links bumps it.
   const [revision, setRevision] = useState(document?.revision ?? 0);
-  // Whether it is its resource's inventory document (Mark / Unmark on Linked resources change it).
-  const [inventory, setInventory] = useState(document?.inventory === true);
   const tabs = isDraft ? DRAFT_TABS : TABS;
   const [tab, setTab] = useState(() => {
     const wanted = params.get("tab") ?? "";
@@ -318,7 +317,6 @@ function Editor({
           ...(now.folder ? { folder: now.folder } : {}),
           ...text,
           resource_ids: ids,
-          ...(inventoryFor ? { inventory: true } : {}),
         });
         leaving.current = true;
         onCreated(saved.id);
@@ -354,7 +352,7 @@ function Editor({
       setSavedContent(now);
       setNotice("Draft saved.");
     } catch (e) {
-      if (!document && e instanceof ApiError && e.status === 409 && !isInventoryRefusal(e)) setNameError(e.message);
+      if (!document && e instanceof ApiError && e.status === 409) setNameError(e.message);
       else failed(e, "Could not save the draft");
     } finally {
       setPending(false);
@@ -513,7 +511,6 @@ function Editor({
               <a href={`/api/documentation/documents/${document.id}/bundle`}>Download document folder</a>
             </Button>
           )}
-          {inventory && <Badge>{inventoryLabel(links)}</Badge>}
           {isLive && <Badge variant="secondary">Version {liveVersion}</Badge>}
           {isLive && (
             <Button
@@ -728,6 +725,8 @@ function Editor({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
             />
+            {/* the saved tags, each a link to the Documents list filtered by it */}
+            <TagLinks tags={splitTags(savedContent.tags)} label="Document tags" />
           </Field>
         </FieldGroup>
         <Tabs value={tab} onValueChange={setTab}>
@@ -804,19 +803,6 @@ function Editor({
                   Save links
                 </Button>
               </div>
-            )}
-            {document && (
-              <DocumentInventory
-                documentId={document.id}
-                revision={revision}
-                inventory={inventory}
-                links={links}
-                disabled={pending}
-                onChanged={(next, flag) => {
-                  setRevision(next);
-                  setInventory(flag);
-                }}
-              />
             )}
             {linksError && (
               <Alert variant="destructive" className="mt-4">
@@ -1069,8 +1055,9 @@ export default function DocumentEditorView() {
   const { documentId, runId } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  // New inventory document (?inventory=server&resource_id=…): Write with an agent writes that resource's inventory document.
-  const [inventory] = useState(() => {
+  // New inventory document (?inventory=server&resource_id=…): Write with an agent writes a document tagged inventory,
+  // built for that resource.
+  const [inventoryFor] = useState(() => {
     const type = params.get("inventory") as InventoryType | null;
     const id = params.get("resource_id");
     return documentId === undefined && type && INVENTORY_TYPES.includes(type) && id ? { type, id } : null;
@@ -1093,7 +1080,7 @@ export default function DocumentEditorView() {
       ? null
       : documentId
         ? { kind: "document", id: documentId, title: "" }
-        : { kind: "new-document", ...fields, ...(inventory ? { inventory } : {}) },
+        : { kind: "new-document", ...fields, ...(inventoryFor ? { inventoryFor } : {}) },
   );
   // A notice handed over in the navigation state (the new-document draft page's Promote, with a failed export).
   const location = useLocation();
@@ -1261,7 +1248,7 @@ export default function DocumentEditorView() {
           <div className="min-w-0 lg:sticky lg:top-4">
             <AgentChat
               key="new"
-              scope={{ kind: "new-document", ...fields, ...(inventory ? { inventory } : {}) }}
+              scope={{ kind: "new-document", ...fields, ...(inventoryFor ? { inventoryFor } : {}) }}
               settings={settings}
               initialRunId={null}
               onDraftChange={(draft, version) => {

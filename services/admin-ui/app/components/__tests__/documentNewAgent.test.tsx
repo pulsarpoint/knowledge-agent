@@ -233,7 +233,7 @@ test("on the New inventory document page the run writes the resource's inventory
   await waitFor(() => expect(within(pane).queryByText("Give the document a title and folder first.")).toBeNull());
   fireEvent.change(within(pane).getByLabelText("Message"), { target: { value: "Write it." } });
   fireEvent.click(within(pane).getByRole("button", { name: "Send message" }));
-  const written = { folder: "payments", name: "Payments API", inventory: true, server_id: "s1" };
+  const written = { folder: "payments", name: "Payments API", tags: ["inventory"], server_id: "s1" };
   await waitFor(() =>
     expect(calls.find((c) => c.key === "POST /api/sessions")?.body).toMatchObject({
       started_from: { new_document: written },

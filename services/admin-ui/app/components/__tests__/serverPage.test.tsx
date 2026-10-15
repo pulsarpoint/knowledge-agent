@@ -228,7 +228,6 @@ test("shows the server, its services and documents, and its chats", async () => 
             title: "web-1 overview",
             tags: [],
             description_short: "",
-            inventory: false,
             connection: "linked",
             resource: { type: "server", id: "s1", name: "web-1" },
           },

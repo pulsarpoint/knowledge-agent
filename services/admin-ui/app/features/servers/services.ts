@@ -33,7 +33,6 @@ export interface ServiceInput {
   name: string;
   description: string;
   owner: string;
-  operations_notes: string;
   repository_ids: string[];
   deployments: DeploymentInput[];
   revision?: number;
@@ -49,7 +48,6 @@ export interface ServiceAsset {
   name: string;
   description: string;
   owner: string;
-  operations_notes: string;
   revision: number;
   created_at: string;
   updated_at: string;

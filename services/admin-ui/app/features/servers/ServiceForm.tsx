@@ -56,7 +56,6 @@ export default function ServiceForm({
   const [serviceRole, setServiceRole] = useState<ServiceRole>(service?.service_role ?? "application");
   const [description, setDescription] = useState(service?.description ?? "");
   const [owner, setOwner] = useState(service?.owner ?? "");
-  const [notes, setNotes] = useState(service?.operations_notes ?? "");
   const [repositoryIds, setRepositoryIds] = useState(service?.repositories.map((repo) => repo.id) ?? []);
   const [environmentIds, setEnvironmentIds] = useState([
     ...new Set([
@@ -123,7 +122,6 @@ export default function ServiceForm({
           service_role: serviceRole,
           description,
           owner,
-          operations_notes: notes,
           repository_ids: repositoryIds,
           deployments: deployments.map(({ key, ...deployment }) => deployment),
           dependencies,
@@ -559,24 +557,6 @@ export default function ServiceForm({
               </div>
             </FieldSet>
           ))}
-        </FieldSet>
-        <FieldSet disabled={saving}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="service-notes">Behavior and investigation notes (optional)</FieldLabel>
-              <Textarea
-                id="service-notes"
-                maxLength={10000}
-                rows={4}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Expected behavior, important dependencies, useful log patterns, and known failure modes."
-              />
-              <FieldDescription>
-                Context for agents investigating this service. Keep passwords and tokens in connection settings.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
         </FieldSet>
         <div className="flex gap-2">
           <Button type="submit" disabled={saving}>

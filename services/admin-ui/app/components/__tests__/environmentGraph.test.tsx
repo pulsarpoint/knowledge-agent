@@ -26,7 +26,6 @@ const base: ServiceAsset = {
   name: "API",
   description: "",
   owner: "",
-  operations_notes: "",
   revision: 1,
   service_type: "custom",
   service_role: "application",
