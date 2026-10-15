@@ -155,11 +155,12 @@ See [agent configuration](agent-profiles.md), [SSH settings](server-operations.m
 ## Tools
 
 Tools are part of an agent's configuration (`config['tools']`, edited on the Tools tab, see
-[agent configuration](agent-profiles.md)). Conversations saved before migration 0078 use the tools
-their capabilities gave. The model gets exactly the selected tools whose needs are met; MCP tools are filtered the
-same way and edited MCP usage is added to the prompt as `Tool notes:`. `code_graph` is offered when a selected code
-project has a current generated graph (`code_graph` results carry its `generated_at`; if the project was synced after
-the graph was generated, the answer carries a note to regenerate it or confirm with `read_file`).
+[agent configuration](agent-profiles.md)). Built-in tools are `@tool` functions whose attributes are in
+`tools/tools.json`, copied into `ka.tools` at start. The model gets exactly the selected tools whose needs are met;
+MCP tools are filtered the same way and edited MCP usage is added to the prompt as `Tool notes:`. `code_graph` is
+offered when a selected code project has a current generated graph (`code_graph` results carry its `generated_at`; if
+the project was synced after the graph was generated, the answer carries a note to regenerate it or confirm with
+`read_file`).
 
 Tool usage per run is recorded as counts: the **Tools** column of Agent runs (top three and `+n`, the tooltip lists
 all), the run record, the session page and the Test tab show a line such as `code_graph 12 · read_file 31 · shell_run 4`

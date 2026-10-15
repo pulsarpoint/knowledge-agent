@@ -5,12 +5,15 @@ or reject (discovery.py). A proposal of the same service or document while the e
 it."""
 
 import asyncio
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from psycopg.types.json import Jsonb
+from pydantic import Field
 
 from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.document_tools import Proposal
 from knowledge_admin.capabilities.inventory import connect
+from knowledge_admin.tools.registry import tool
 
 NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
 NOT_FROM_SERVER = 'propose_service works only in a run started from a server.'
@@ -226,9 +229,74 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
     return _said(number, f'{what} "{value["title"]}" about {target}', replaced)
 
 
+ServiceType = Literal['unclassified', 'custom', 'builtin', 'external']
+ServiceRole = Literal[
+    'unclassified', 'application', 'proxy', 'web_server', 'database', 'cache', 'message_broker', 'worker', 'other'
+]
+
+
+class DeploymentProposal(Proposal):
+    environment: str | None = Field(
+        None,
+        max_length=100,
+        description="One of the server's environments; leave it empty when the server is in exactly one.",
+    )
+    runtime: str = Field('', max_length=80, description='How it runs, for example systemd, docker or cron.')
+    runtime_name: str = Field('', max_length=200, description='The unit, container or process name.')
+    port: int | None = Field(None, ge=1, le=65535, description='Its main listening port, if any.')
+    log_location: str = Field(
+        '', max_length=1000, description='Where its logs are, for example journalctl -u nginx or /var/log/nginx/.'
+    )
+    deployed_version: str = Field('', max_length=200, description='The version that runs.')
+
+
+class ProposeService(Proposal):
+    name: str = Field(
+        min_length=1,
+        max_length=200,
+        description='The service name. A service already recorded with this name is proposed as an update.',
+    )
+    service_type: ServiceType = Field(
+        'unclassified',
+        description='custom: built by us; builtin: part of the platform or OS; external: run by someone else.',
+    )
+    service_role: ServiceRole = Field('unclassified', description='What it does for the system.')
+    description: str = Field('', max_length=4000, description='What it does, in a few sentences.')
+    owner: str = Field('', max_length=200, description='Who runs it, when you can tell.')
+    operations_notes: str = Field(
+        '', max_length=10000, description='How to operate it: start, stop, health checks, configuration files, gotchas.'
+    )
+    deployment: DeploymentProposal = Field(description='How it runs on this server.')
+    depends_on: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=100, description='Names of recorded services it depends on.'
+    )
+    built_from: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=100, description='Names of recorded code projects it is built from.'
+    )
+
+
+class ProposeDocument(Proposal):
+    title: str = Field(
+        min_length=1,
+        max_length=240,
+        description='The document title. A document with this title already linked to the same server, service or environment gets a new version (never its inventory document: that gets a new document beside it).',
+    )
+    markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
+    description: str = Field('', max_length=4000, description='One or two sentences on what the document covers.')
+    about_service: str | None = Field(
+        None,
+        max_length=200,
+        description='The service the document is about (recorded, or proposed earlier in this run); empty: what the run started from.',
+    )
+
+
+@tool(arguments=ProposeService)
 async def propose_service(context: RunContext, **value: Any) -> str:
+    """Propose a service running on this server, with its deployment here, for an administrator to accept or reject. A service already recorded under this name is proposed as an update; proposing the same service again replaces your earlier proposal. If the call is refused, correct what it says and call again."""
     return await asyncio.to_thread(_propose_service, context['config'], value)
 
 
+@tool(arguments=ProposeDocument)
 async def propose_document(context: RunContext, **value: Any) -> str:
+    """Propose a document about the server, service or environment this run started from, or about a service (about_service), for an administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same title about the same resource again replaces your earlier proposal."""
     return await asyncio.to_thread(_propose_document, context['config'], value)

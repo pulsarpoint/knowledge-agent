@@ -5,10 +5,14 @@ import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Annotated
 
-from knowledge_admin.sessions.activity import redact
-from knowledge_admin.rag.collections import document_collections
+from pydantic import Field
+
 from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin.rag.collections import document_collections
+from knowledge_admin.sessions.activity import redact
+from knowledge_admin.tools.registry import tool
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,16 @@ def _path(context: RunContext, path: str) -> Path:
     return candidate
 
 
-async def list_files(context: RunContext, path: str | None = None, offset: int = 0, limit: int = 200) -> str:
+@tool
+async def list_files(
+    context: RunContext,
+    path: Annotated[
+        str | None, Field(description='Absolute folder path. Omit it to discover accessible root folders.')
+    ] = None,
+    offset: Annotated[int, Field(description='Number of directory entries to skip for pagination.')] = 0,
+    limit: Annotated[int, Field(description='Maximum entries to return, from 1 to 1000.')] = 200,
+) -> str:
+    """List accessible roots or the immediate children of one selected folder."""
     if offset < 0 or not 1 <= limit <= 1000:
         raise ValueError('Use a nonnegative offset and a limit from 1 to 1000.')
     if path is None:
@@ -81,14 +94,23 @@ async def list_files(context: RunContext, path: str | None = None, offset: int =
     return json.dumps({'entries': entries[offset : offset + limit], 'next_offset': next_offset})
 
 
+@tool
 async def read_file(
     context: RunContext,
-    path: str,
-    offset: int = 0,
-    max_bytes: int = 32768,
-    start_line: int | None = None,
-    end_line: int | None = None,
+    path: Annotated[str, Field(description='Absolute file path from the configured folders or workspace.')],
+    offset: Annotated[int, Field(description='Byte offset; use next_offset from an earlier result to continue.')] = 0,
+    max_bytes: Annotated[int, Field(description='Maximum bytes in byte mode, from 1 to 65536.')] = 32768,
+    start_line: Annotated[
+        int | None, Field(description='First line (1-based) from a graph symbol or search result. Supply end_line too.')
+    ] = None,
+    end_line: Annotated[
+        int | None,
+        Field(description='Last line, inclusive. Line mode returns this range with line numbers; offset must be zero.'),
+    ] = None,
 ) -> str:
+    """Read a source line range or a paginated UTF-8 byte excerpt from a selected file.
+
+    Use read_file for surrounding comments, imports and targeted ranges."""
     if offset < 0 or not 1 <= max_bytes <= 65536:
         raise ValueError('Use a nonnegative offset and max_bytes from 1 to 65536.')
     selected = _path(context, path)
@@ -131,9 +153,20 @@ async def read_file(
     )
 
 
+@tool
 async def search_files(
-    context: RunContext, path: str, query: str, case_sensitive: bool = False, max_matches: int = 100
+    context: RunContext,
+    path: Annotated[str, Field(description='Absolute file or folder path within the configured roots.')],
+    query: Annotated[str, Field(description='Literal text to find, not a regular expression; use a single line.')],
+    case_sensitive: Annotated[bool, Field(description='Whether letter case must match.')] = False,
+    max_matches: Annotated[int, Field(description='Maximum matching lines to return, from 1 to 500.')] = 100,
 ) -> str:
+    """Search literal text in selected files using ripgrep, with file/line citations.
+
+    Git ignore rules apply; hidden files and symlinks within folders are skipped.
+    A truncated result can be narrowed by searching a subfolder or a longer query.
+
+    Use search_files for text discovery."""
     if not query or '\n' in query or '\0' in query or len(query) > 4000 or not 1 <= max_matches <= 500:
         raise ValueError('Provide a single-line query up to 4000 characters and max_matches from 1 to 500.')
     selected = _path(context, path)

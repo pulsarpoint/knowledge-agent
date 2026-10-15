@@ -8,11 +8,14 @@ import socket
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import asyncssh
+from pydantic import Field
 
-from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, RunContext, allowed, require_given
+from knowledge_admin.sessions.activity import redact
+from knowledge_admin.tools.registry import tool
 
 
 class SSHError(Exception):
@@ -209,10 +212,22 @@ async def inspect_connection(connection: SSHConnection) -> dict:
         return {'ok': True, 'message': message, 'host_key': host_key}
 
 
+# Run one command on a server selected for this agent; the backend supplies the key and host verification.
+@tool
 async def ssh_run(
-    context: RunContext, server_id: str, command: str, as_root: bool = False, timeout_seconds: int = 60
+    context: RunContext,
+    server_id: Annotated[str, Field(description="Exact server ID from the agent's configured SSH server list.")],
+    command: Annotated[str, Field(description='Shell command to run remotely; check the returned exit_code.')],
+    as_root: Annotated[bool, Field(description='Request noninteractive sudo to root for this command.')] = False,
+    timeout_seconds: Annotated[int, Field(description='Remote command time limit, from 1 to 300 seconds.')] = 60,
 ) -> str:
-    """Run one command on a server selected for this agent; the backend supplies the key and host verification."""
+    """Execute a command on a server selected for this agent and return its output.
+
+    Read the server with get_resource first and follow its instructions. Use as_root for sudo only when
+    its allow_sudo is true. The backend supplies the login, key and host verification;
+    never request credentials from the user or include them in command arguments.
+
+    Use ssh_run with the server ID from your resources."""
     config = context['config']
     if not config['enabled'] or not config['ssh']['enabled']:
         raise ValueError('SSH is disabled for this agent.')

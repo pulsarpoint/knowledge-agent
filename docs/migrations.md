@@ -378,3 +378,11 @@ its trigger are dropped without carrying attachments over (they were test data);
 
 The down migration drops the flag (inventory documents become ordinary documents; their links stay), restores the
 views and recreates `inventory_documents` empty, as 0095 defines it with 0104's live-document trigger.
+
+## 0108_tools
+
+`ka.tools` holds one row per built-in tool with its attributes (`name`, `position`, `tool_group`, `label`, `summary`,
+`needs`), the table copy of `services/admin-api/src/knowledge_admin/tools/tools.json`. The migration only creates the
+table; the admin-api start replaces its rows with the file (`tools/fixture.py` `sync_tools`), so the file is the only
+writer. `agent_tools.tool` is not a foreign key, because it also names MCP tools (`mcp:<server>:<tool>`). The down
+migration drops the table; nothing else depends on it, and the catalog reads the file, not the table.

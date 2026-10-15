@@ -8,14 +8,13 @@ import json
 import pytest
 from agents import FunctionTool
 from agents.tool_context import ToolContext
-
+from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
 from knowledge_admin.tools.catalog import (
     CATALOG,
     capability_tools,
     effective_tools,
     enabled_capability_tools,
-    implied_tools,
     tools_summary,
 )
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
@@ -53,6 +52,7 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
         'services': {'enabled': False, 'items': []},
         'mcp': {'enabled': False, 'servers': []},
     }
+    value['tools'] = implied_tools(value)
     if tools is not None:
         value['tools'] = {
             'items': [
@@ -93,9 +93,8 @@ def test_catalog_offers_todays_tools_for_every_capability_combination(code, docu
     graphs = [{'id': 'p', 'name': 'P', 'graph_path': '/g', 'code_root': '/c', 'source_hash': 'h'}] if graph else []
     c = config(code, documents, grounded, ssh, graphs)
     servers = [SERVER] if ssh else []
-    assert offered(c, servers) == todays_tools(c, servers)  # without 'tools': the implied tools
     c['tools'] = implied_tools(c)
-    assert offered(c, servers) == todays_tools(c, servers)  # the same rule, written out
+    assert offered(c, servers) == todays_tools(c, servers)
 
 
 def test_only_selected_tools_with_met_needs_are_offered():
@@ -284,7 +283,6 @@ def test_run_subagent_is_never_on_by_default_and_never_implied():
     assert (spec.group, spec.label, spec.needs) == ('agents', 'Start subagents', None)
     assert spec.usage.startswith('Start a helper for a separate, well-defined part of your work')
     every = config(code=True, documents=True, ssh=True)
-    assert not spec.default_on(every)
     assert 'run_subagent' not in {entry['tool'] for entry in implied_tools(every)['items'] if entry['mode'] == 'on'}
     assert 'run_subagent' not in enabled_capability_tools(every)
     assert 'run_subagent' in offered(config(tools=['run_subagent']))  # offered exactly when its row is on

@@ -26,7 +26,7 @@ from knowledge_admin.knowledge_agents.config import credential_references
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents, failure
 from knowledge_admin.knowledge_agents.run_resources import KINDS
 from knowledge_admin.knowledge_agents.session_worker import clean_text
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item, tools_of
+from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, item
 from knowledge_admin.tools.sdk import NOT_OFFERED
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ def _given_tools(
     tools by the name the model sees), allowed for subagents, and not run_subagent."""
     if not tools:
         raise ValueError(NO_TOOLS)
-    rows = {entry['tool']: entry for entry in tools_of(config)['items']}
+    rows = {entry['tool']: entry for entry in config['tools']['items']}
     catalog: set[str] = set()
     mcp: dict[str, set[str]] = {}
     expert_tools = {entry['tool'] for entry in config.get('experts', [])}
@@ -141,7 +141,7 @@ def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_
     so a tool switched off for the parent stays off for the subagent). The kept servers offer only the tools switched
     on (an allowlist: a tool a server adds later stays out). Without ssh_run, only the SSH servers that host a kept MCP
     server stay (agent() requires their keys), so a subagent gets no other SSH private key."""
-    rows = {entry['tool']: entry for entry in tools_of(sub)['items']}
+    rows = {entry['tool']: entry for entry in sub['tools']['items']}
     items = [item(name, 'on' if name in catalog else 'off', rows.get(name, {}).get('usage')) for name in CATALOG]
 
     def keep(servers: list[dict[str, Any]]) -> list[dict[str, Any]]:

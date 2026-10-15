@@ -4,9 +4,9 @@ the description or as Tool notes, and per-run narrowing unchanged."""
 import asyncio
 
 from agents import Runner
-
+from implied_tools import implied_tools
 from knowledge_admin.agents.runner import agent, get_prompt
-from knowledge_admin.tools.catalog import CATALOG, implied_tools
+from knowledge_admin.tools.catalog import CATALOG
 from test_sdk_agent import config, responses_api  # noqa: F401  (fixtures)
 
 
@@ -101,9 +101,9 @@ def test_prompt_tool_notes_name_the_server_and_only_edited_tools(config):
     assert 'Tool notes' not in get_prompt(config, [], config['mcp']['servers'])
 
 
-def test_old_configs_without_tools_keep_todays_tools(config, responses_api):
+def test_the_implied_tools_keep_todays_tools(config, responses_api):
     _, requests = responses_api
-    assert 'tools' not in config
+    config['tools'] = implied_tools(config)
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
     names = {tool['name'] for tool in first_request(requests)['tools']}
     expected = {entry['tool'] for entry in implied_tools(config)['items'] if entry['mode'] == 'on'} - {'code_graph'}

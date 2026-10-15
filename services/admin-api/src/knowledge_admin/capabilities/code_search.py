@@ -4,23 +4,49 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from knowledge_admin.sessions.activity import redact
-from knowledge_admin.capabilities.context import RunContext, require_given
+from pydantic import Field
+
 from knowledge_admin.capabilities.ast_grep import scan_source
+from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.capabilities.files import _path
+from knowledge_admin.sessions.activity import redact
+from knowledge_admin.tools.registry import tool
 
 
+@tool
 async def code_search(
     context: RunContext,
-    path: str,
-    language: str,
-    name: str,
-    match: Literal['exact', 'contains'] = 'exact',
-    offset: int = 0,
-    limit: int = 5,
+    path: Annotated[str, Field(description='Absolute source file or directory in a selected code project.')],
+    language: Annotated[str, Field(description='Go, Python, JavaScript, TypeScript or Tsx (case-insensitive).')],
+    name: Annotated[str, Field(description='Literal function/method name, not a regular expression.')],
+    match: Annotated[Literal['exact', 'contains'], Field(description='Exact name or substring match.')] = 'exact',
+    offset: Annotated[int, Field(description='Number of matching declarations to skip, starting at zero.')] = 0,
+    limit: Annotated[int, Field(description='Maximum complete declarations returned, from 1 to 20.')] = 5,
 ) -> str:
+    """Find functions/methods by name and return complete bodies, imports and call sites.
+
+    Use this before reading whole files. Example: language="Go",
+    name="SetPersonalLimits", path=<selected project folder>. Search a narrower
+    file/folder to distinguish same-named symbols; receivers are included for Go.
+    Supports Go, Python, JavaScript, TypeScript and Tsx. Includes named functions,
+    methods, and JS/TS variables assigned arrow functions or function expressions.
+    For classes, anonymous callbacks or custom patterns, use ast_grep.
+
+    Calls are syntactic expressions inside each definition, including nested
+    closures. They are NOT resolved targets or a guaranteed execution sequence.
+    Follow package aliases using the returned imports; use code_graph for indexed
+    callees and verify uncertain edges. Calls may include type conversions.
+    Bodies are never shortened. Calls and imports use source locations, without
+    repeating bodies/arguments. Results are sorted and paginated; follow next_offset.
+    Git ignores apply to directory searches; symlinks are not followed. Empty
+    results do not prove absence (other declaration forms/languages may need ast_grep).
+    No build, code execution, LLM, graph generation, or dependencies are required.
+
+    Use code_search to find a function or method by name and read its complete body, imports and call sites. Calls
+    returned by code_search are syntax, including nested closures; resolve package/receiver targets before following
+    them."""
     if not context['config']['code']['enabled']:
         raise ValueError('Code access is disabled.')
     require_given(context['config'], 'code')

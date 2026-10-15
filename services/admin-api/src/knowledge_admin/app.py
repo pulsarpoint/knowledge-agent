@@ -16,6 +16,7 @@ from knowledge_admin.api import build_api
 from knowledge_admin.documents.api import backfill_exports
 from knowledge_admin.sessions.hub import SessionHub
 from knowledge_admin.repositories import RepositoryStore
+from knowledge_admin.tools.fixture import sync_tools
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
+        if repository_store is not None:  # ka.tools = tools/tools.json (the fixture is the only writer)
+            await asyncio.to_thread(sync_tools, repository_store)
         backfill = asyncio.create_task(backfill_document_exports(repository_store))
         hub = None
         if repository_store is not None:  # live session pages: one database listener per process

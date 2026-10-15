@@ -6,10 +6,10 @@ import json
 import httpx
 import pytest
 from agents.tool_context import ToolContext
-
-from knowledge_admin.sessions import grounding
+from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
+from knowledge_admin.sessions import grounding
 from knowledge_admin.tools.catalog import effective_tools
 from tool_helpers import tools
 
@@ -51,7 +51,7 @@ def config(**documents_settings):
         'all_collections': False,
         'collections': [{'id': '1', 'name': 'payments', 'description': '', 'path': '/work/rag-data/payments'}],
     }
-    return {
+    value = {
         'enabled': True,
         'name': 'Docs',
         'description': '',
@@ -64,6 +64,8 @@ def config(**documents_settings):
         'ssh': {'enabled': False, 'servers': []},
         'mcp': {'enabled': False, 'servers': []},
     }
+    value['tools'] = implied_tools(value)  # every saved configuration has its tools
+    return value
 
 
 def invoke(tool, context, **arguments):

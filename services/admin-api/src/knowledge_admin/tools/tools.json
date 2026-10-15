@@ -1,0 +1,128 @@
+[
+  {
+    "name": "list_files",
+    "group": "code",
+    "label": "List files",
+    "summary": "List the selected folders and their contents.",
+    "needs": "files"
+  },
+  {
+    "name": "read_file",
+    "group": "code",
+    "label": "Read file",
+    "summary": "Read a file or a line range.",
+    "needs": "files"
+  },
+  {
+    "name": "search_files",
+    "group": "code",
+    "label": "Search files",
+    "summary": "Find literal text with ripgrep.",
+    "needs": "files"
+  },
+  {
+    "name": "shell_run",
+    "group": "code",
+    "label": "Shell",
+    "summary": "Run Bash, rg, ast-grep, git and Python in an isolated sandbox.",
+    "needs": "files"
+  },
+  {
+    "name": "code_search",
+    "group": "code",
+    "label": "Code search",
+    "summary": "Find functions by name with their bodies and calls.",
+    "needs": "code"
+  },
+  {
+    "name": "ast_grep",
+    "group": "code",
+    "label": "Structural search",
+    "summary": "Match syntax patterns with ast-grep.",
+    "needs": "code"
+  },
+  {
+    "name": "code_graph",
+    "group": "code",
+    "label": "Code graph",
+    "summary": "Search symbols and follow callers and callees. Offered when a selected code project has a generated graph.",
+    "needs": "code_graph"
+  },
+  {
+    "name": "search_documents",
+    "group": "documents",
+    "label": "Search documents",
+    "summary": "Search the knowledge base for citable excerpts.",
+    "needs": "documents"
+  },
+  {
+    "name": "read_document",
+    "group": "documents",
+    "label": "Read document",
+    "summary": "Read one knowledge-base document.",
+    "needs": "documents"
+  },
+  {
+    "name": "report_not_covered",
+    "group": "documents",
+    "label": "Report not covered",
+    "summary": "Mark a question the documents do not answer.",
+    "needs": "grounded"
+  },
+  {
+    "name": "ssh_run",
+    "group": "servers",
+    "label": "SSH",
+    "summary": "Run a command on a selected server.",
+    "needs": "ssh"
+  },
+  {
+    "name": "get_resource",
+    "group": "inventory",
+    "label": "Resource info",
+    "summary": "What is recorded about a server, service, environment or code project.",
+    "needs": "resources"
+  },
+  {
+    "name": "get_document",
+    "group": "inventory",
+    "label": "Read document",
+    "summary": "Read a document given to this run or linked to a resource given to it.",
+    "needs": null
+  },
+  {
+    "name": "propose_service",
+    "group": "inventory",
+    "label": "Propose service",
+    "summary": "Propose a service for review (runs started from a server that turn it on).",
+    "needs": "server_proposals"
+  },
+  {
+    "name": "propose_document",
+    "group": "inventory",
+    "label": "Propose document",
+    "summary": "Propose a document for review (runs started from a server, service or environment that turn it on).",
+    "needs": "resource_proposals"
+  },
+  {
+    "name": "save_document",
+    "group": "documents",
+    "label": "Save a document",
+    "summary": "Save this run's draft of a document it may edit.",
+    "needs": "editable_document"
+  },
+  {
+    "name": "edit_document",
+    "group": "documents",
+    "label": "Edit a document",
+    "summary": "Replace one passage in this run's draft of a document.",
+    "needs": "editable_document"
+  },
+  {
+    "name": "run_subagent",
+    "group": "agents",
+    "label": "Start subagents",
+    "summary": "Hand a separate part of the work to a helper that runs in parallel.",
+    "needs": null
+  }
+]

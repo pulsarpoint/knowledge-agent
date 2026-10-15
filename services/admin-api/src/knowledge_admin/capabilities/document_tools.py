@@ -11,15 +11,16 @@ import asyncio
 import json
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import HTTPException
 from psycopg import errors
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from knowledge_admin.capabilities.context import NOT_AVAILABLE, allowed
 from knowledge_admin.capabilities.inventory import connect, project_of
+from knowledge_admin.documents.api import Description, Markdown, Title
 from knowledge_admin.documents.drafts import (
     NAME_IN_USE,
     NEW_DEFAULTS,
@@ -29,8 +30,9 @@ from knowledge_admin.documents.drafts import (
     live_content,
     record_run_sources,
 )
-from knowledge_admin.documents.api import Description, Markdown, Title
 from knowledge_admin.documents.store import CONTENT, Provenance, create_draft, draft_outcome, update_draft
+from knowledge_admin.tools import texts
+from knowledge_admin.tools.registry import tool
 
 NO_SESSION = 'The document tools work only in an agent session.'
 MAX_MARKDOWN = 50_000
@@ -435,15 +437,70 @@ def _replace(old_text: str, new_text: str) -> Callable[[dict[str, Any]], dict[st
     return change
 
 
+@tool(usage=texts.GET_DOCUMENT)
 async def get_document(
-    context, document_id: str, section: str | None = None, start_line: int | None = None, end_line: int | None = None
+    context,
+    document_id: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=64,
+            description='A document id: one given to this run, or one listed by get_resource.',
+        ),
+    ],
+    section: Annotated[
+        str | None,
+        Field(max_length=240, description='A heading of the document; returns that section with line numbers.'),
+    ] = None,
+    start_line: Annotated[
+        int | None, Field(ge=1, description='First line to read (1-based); alone, reads to the end.')
+    ] = None,
+    end_line: Annotated[
+        int | None, Field(ge=1, description='Last line to read, inclusive; alone, reads from line 1.')
+    ] = None,
 ) -> str:
     return await asyncio.to_thread(_get_document, context['config'], document_id, section, start_line, end_line)
 
 
+class Proposal(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+
+    @field_validator('*')
+    @classmethod
+    def no_null_characters(cls, value: Any) -> Any:
+        texts = value if isinstance(value, list) else [value]
+        if any(isinstance(text, str) and '\x00' in text for text in texts):
+            raise ValueError('Text cannot contain null characters.')
+        return value
+
+
+class SaveDocument(Proposal):
+    model_config = ConfigDict(
+        extra='forbid', str_strip_whitespace=False
+    )  # config is inherited: switch stripping off explicitly
+
+    document_id: str = Field(min_length=1, max_length=64, description='The id of a document given to this run to edit.')
+    markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
+    title: str | None = Field(None, min_length=1, max_length=240, description='A new title; omit it to keep the title.')
+    description: str | None = Field(None, max_length=4000, description='A new description; omit it to keep it.')
+
+
+class EditDocument(Proposal):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)
+
+    document_id: str = Field(min_length=1, max_length=64, description='The id of a document given to this run to edit.')
+    old_text: str = Field(
+        min_length=1, max_length=200_000, description='The exact passage to replace; it must occur exactly once.'
+    )
+    new_text: str = Field(max_length=1_000_000, description='The text that replaces it; empty removes the passage.')
+
+
+@tool(arguments=SaveDocument)
 async def save_document(
     context, document_id: str, markdown: str, title: str | None = None, description: str | None = None
 ) -> str:
+    """Save your draft of the document with this id: the complete text (optionally a new title or description). A person reviews the draft and decides whether it becomes the live version."""
+
     def change(base: dict[str, Any]) -> dict[str, Any]:
         if base['markdown'] is None:  # the first save of a new document (or of the existing one its name matched)
             return {
@@ -460,5 +517,7 @@ async def save_document(
     return await asyncio.to_thread(_save, context['config'], document_id, change)
 
 
+@tool(arguments=EditDocument)
 async def edit_document(context, document_id: str, old_text: str, new_text: str) -> str:
+    """Replace one exact passage of the document with this id (old_text, which must occur exactly once) with new_text, and save the result as your draft. An empty new_text removes the passage."""
     return await asyncio.to_thread(_save, context['config'], document_id, _replace(old_text, new_text))

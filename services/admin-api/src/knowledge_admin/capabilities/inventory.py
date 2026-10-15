@@ -6,11 +6,15 @@ about a resource the run was given (its allowlist); anything else, a linked reso
 
 import asyncio
 import json
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
+
+from pydantic import Field
 
 from knowledge_admin.capabilities.context import RunContext, allowed
 from knowledge_admin.documents.store import resource_document_list
+from knowledge_admin.tools import texts
+from knowledge_admin.tools.registry import tool
 
 MAX_ITEMS = 100
 SHORT = 300
@@ -185,5 +189,17 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
     )
 
 
-async def get_resource(context: RunContext, resource_type: ResourceType, resource_id: str) -> str:
+@tool(usage=texts.GET_RESOURCE)
+async def get_resource(
+    context: RunContext,
+    resource_type: Annotated[ResourceType, Field(description='The kind of resource.')],
+    resource_id: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=64,
+            description='The resource id: from the Resource line, your resources or a link of an earlier get_resource.',
+        ),
+    ],
+) -> str:
     return await asyncio.to_thread(_resource, context['config'], resource_type, resource_id)
