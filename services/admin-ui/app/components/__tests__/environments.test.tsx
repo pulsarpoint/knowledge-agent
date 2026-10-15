@@ -223,10 +223,10 @@ test("deletion failure retains the environment and explains the conflict", async
 
 test("list filtering includes members and hostnames", async () => {
   setup([{ ...development }]);
-  await screen.findByRole("button", { name: "View Development" });
+  await screen.findByRole("button", { name: "Details Development" });
   for (const query of ["Daily testing", "Database", "host1.internal"]) {
     fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: query } });
-    expect(screen.getByRole("button", { name: "View Development" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details Development" })).toBeInTheDocument();
   }
   fireEvent.change(screen.getByRole("textbox", { name: "Filter environments" }), { target: { value: "missing" } });
   expect(screen.getByText("No environments match this filter.")).toBeInTheDocument();
@@ -254,4 +254,14 @@ test("inventory errors disable creation and provide retry", async () => {
 test("an environment's name links to its page", async () => {
   setup([{ ...development }]);
   expect(await screen.findByRole("link", { name: "Development" })).toHaveAttribute("href", "/environments/development");
+});
+
+test("each environment row has icon buttons and a Documents link", async () => {
+  setup([{ ...development }]);
+  for (const name of ["Details", "Graph", "Edit", "Delete"])
+    expect(await screen.findByRole("button", { name: `${name} Development` })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Documents Development" })).toHaveAttribute(
+    "href",
+    `/documents?environment_id=${development.id}`,
+  );
 });

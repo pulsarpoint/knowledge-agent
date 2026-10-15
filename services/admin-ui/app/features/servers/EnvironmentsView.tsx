@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Eye, FileText, Layers, Network, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteEnvironment, getEnvironments, type EnvironmentAsset } from "./environments";
 import { getServices, type ServiceAsset } from "./services";
 import { getServers, type ServerAsset } from "./api";
+import { RowAction, RowActions } from "./RowAction";
 import EnvironmentForm from "./EnvironmentForm";
 import ServiceDependencyGraph from "./ServiceDependencyGraph";
 import ServiceDetails from "./ServiceDetails";
@@ -259,52 +260,50 @@ export default function EnvironmentsView() {
                           <TableCell className="align-top">{environment.services.length}</TableCell>
                           <TableCell className="align-top">{environment.servers.length}</TableCell>
                           <TableCell className="align-top">
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label={`View ${environment.name}`}
+                            <RowActions>
+                              <RowAction
+                                label="Details"
+                                name={environment.name}
                                 onClick={() => setSelected(environment.id)}
                               >
-                                Details
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label={`View ${environment.name} graph`}
+                                <Eye />
+                              </RowAction>
+                              <RowAction
+                                label="Graph"
+                                name={environment.name}
                                 onClick={() => openGraph(environment.id)}
                               >
-                                <Network data-icon="inline-start" />
-                                Graph
-                              </Button>
-                              <Button asChild variant="outline" size="sm">
-                                <Link to={`/documents?environment_id=${environment.id}`}>Documents</Link>
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
+                                <Network />
+                              </RowAction>
+                              <RowAction
+                                label="Documents"
+                                name={environment.name}
+                                to={`/documents?environment_id=${environment.id}`}
+                              >
+                                <FileText />
+                              </RowAction>
+                              <RowAction
+                                label="Edit"
+                                name={environment.name}
                                 disabled={loading || error !== null || deleting}
-                                aria-label={`Edit ${environment.name}`}
                                 onClick={() => openForm(environment)}
                               >
-                                <Pencil data-icon="inline-start" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
+                                <Pencil />
+                              </RowAction>
+                              <RowAction
+                                label="Delete"
+                                name={environment.name}
+                                destructive
                                 disabled={loading || error !== null || deleting}
-                                aria-label={`Delete ${environment.name}`}
                                 onClick={() => {
                                   setDeleteTarget(environment);
                                   setDeleteError(null);
                                   setNotice(null);
                                 }}
                               >
-                                <Trash2 data-icon="inline-start" />
-                                Delete
-                              </Button>
-                            </div>
+                                <Trash2 />
+                              </RowAction>
+                            </RowActions>
                           </TableCell>
                         </TableRow>
                       ))}

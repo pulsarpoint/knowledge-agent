@@ -93,7 +93,7 @@ function setup(url = "/environments", environments = [development, staging]) {
 
 test("row Graph action opens TALA for that environment and excludes outside nodes and links", async () => {
   setup();
-  await userEvent.click(await screen.findByRole("button", { name: "View Development graph" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Graph Development" }));
   expect(screen.getByRole("tab", { name: "Dependency graph" })).toHaveAttribute("aria-selected", "true");
   expect(screen.getByRole("combobox", { name: "Environment" })).toHaveTextContent("Development");
   expect(screen.getByTestId("location")).toHaveTextContent("view=graph&environment_id=dev");

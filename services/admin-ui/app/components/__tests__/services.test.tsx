@@ -159,7 +159,7 @@ test("deletion sends the revision, waits for success and removes the row and its
         finish = resolve;
       }),
   });
-  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(screen.getByRole("button", { name: "Close service details" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Delete Payments" }));
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete service" }));
@@ -296,7 +296,7 @@ test("missing server selection is explained before saving", async () => {
 
 test("details distinguish deployed version from source and expose scoped agent context", async () => {
   setup([service]);
-  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(screen.getByText("Queue should drain within 30 seconds.")).toBeInTheDocument();
   expect(screen.getByText("v1.2")).toBeInTheDocument();
   expect(screen.getAllByText("Not pulled")).toHaveLength(2);
@@ -320,7 +320,7 @@ test("empty repository inventory offers a route to connect source later", async 
 
 test("service details support code projects without a Git remote", async () => {
   setup([{ ...service, repositories: [{ ...service.repositories[0], remote_url: null }] }]);
-  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(screen.getByText("Local folders")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "API" })).toHaveAttribute("href", "/code-projects");
   expect(screen.queryByText("Not pulled")).not.toBeInTheDocument();
@@ -328,7 +328,7 @@ test("service details support code projects without a Git remote", async () => {
 
 test("service details show a checkout inside the configured code folder", async () => {
   setup([{ ...service, repositories: [{ ...service.repositories[0], checkout_path: "payments/api" }] }]);
-  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(await screen.findByText("/work/data/sources/code/payments/api")).toBeInTheDocument();
   expect(screen.queryByText(/\/work\/data\/code\//)).not.toBeInTheDocument();
 });
@@ -512,7 +512,7 @@ test("details display relationships and Cancel leaves saved relationships untouc
     dependents: [{ service_id: "reporting", name: "Reporting", description: "Reads payments" }],
   };
   const fetch = setup([linked, postgres, reporting]);
-  fireEvent.click(await screen.findByRole("button", { name: "View Payments" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Details Payments" }));
   expect(within(screen.getByRole("region", { name: "Depends on" })).getByText("Stores payments")).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Used by" })).getByText("Reads payments")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Edit Payments" }));
@@ -537,4 +537,14 @@ test("services remains an inventory page without a graph tab", async () => {
 test("a service's name links to its page", async () => {
   setup([service]);
   expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute("href", "/services/service-1");
+});
+
+test("each service row has icon buttons and a Documents link", async () => {
+  setup([service]);
+  for (const name of ["Details", "Edit", "Delete"])
+    expect(await screen.findByRole("button", { name: `${name} Payments` })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Documents Payments" })).toHaveAttribute(
+    "href",
+    `/documents?service_id=${service.id}`,
+  );
 });

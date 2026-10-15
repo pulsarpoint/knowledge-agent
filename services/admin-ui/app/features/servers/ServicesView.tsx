@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Eye, FileText, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ApiError } from "~/lib/api";
 import { deleteService, getServices, type ServiceAsset } from "./services";
 import { getEnvironments, type EnvironmentAsset } from "./environments";
 import { getRepositories, type Repository } from "~/features/codeProjects/api";
 import { getServers, type ServerAsset } from "./api";
+import { RowAction, RowActions } from "./RowAction";
 import ServiceForm from "./ServiceForm";
 import ServiceDetails from "./ServiceDetails";
 import { serviceTypes, serviceRoles } from "./serviceClassification";
@@ -263,40 +264,35 @@ export default function ServicesView() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              aria-label={`View ${service.name}`}
-                              onClick={() => setSelected(service.id)}
-                            >
-                              Details
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
+                          <RowActions>
+                            <RowAction label="Details" name={service.name} onClick={() => setSelected(service.id)}>
+                              <Eye />
+                            </RowAction>
+                            <RowAction label="Documents" name={service.name} to={`/documents?service_id=${service.id}`}>
+                              <FileText />
+                            </RowAction>
+                            <RowAction
+                              label="Edit"
+                              name={service.name}
                               disabled={loading || error !== null}
-                              aria-label={`Edit ${service.name}`}
                               onClick={() => openForm(service)}
                             >
-                              <Pencil data-icon="inline-start" />
-                              Edit
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
+                              <Pencil />
+                            </RowAction>
+                            <RowAction
+                              label="Delete"
+                              name={service.name}
+                              destructive
                               disabled={loading || error !== null || deleting}
-                              aria-label={`Delete ${service.name}`}
                               onClick={() => {
                                 setDeleteTarget(service);
                                 setDeleteError(null);
                                 setNotice(null);
                               }}
                             >
-                              <Trash2 data-icon="inline-start" />
-                              Delete
-                            </Button>
-                          </div>
+                              <Trash2 />
+                            </RowAction>
+                          </RowActions>
                         </TableCell>
                       </TableRow>
                     ))}
