@@ -73,6 +73,6 @@ def search(
 def not_embedded(conn, project_id: UUID, profile: str | None) -> int:
     """Entries without a vector of `profile` (all of them when there is no model)."""
     return conn.execute(
-        'SELECT count(*) AS n FROM ka.memories WHERE project_id=%s AND embedding_profile IS DISTINCT FROM %s',
+        'SELECT count(*) AS n FROM ka.memories WHERE project_id=%s AND (embedding_profile IS NULL OR embedding_profile IS DISTINCT FROM %s)',
         (project_id, profile),
     ).fetchone()['n']
