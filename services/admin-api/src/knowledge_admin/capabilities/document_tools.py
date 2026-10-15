@@ -1,5 +1,5 @@
 """The document tools: get_document reads a document the run was given (its own open draft of it when it has one,
-else the live version) or one attached to an inventory entry; save_document and edit_document save the run's draft of
+else the live version) or one linked to a resource it was given; save_document and edit_document save the run's draft of
 a document it was given as editable, or write the new document it was given (an id 'new:<uuid>': the first save creates
 the run's new-document draft, later saves update it). Which documents a run may use is pinned in its config (document_access) and
 checked here with allowed(); the run's session is config['session_id'], set by the worker. A save locks the run's
@@ -60,7 +60,7 @@ LIVE = """SELECT version,title,description,purpose,audience,tags,markdown FROM k
 # The run's working draft of a live document: its newest draft of it that no person edited.
 WORKING = """SELECT id,draft_of,title,description,purpose,audience,tags,markdown FROM ka.documents
     WHERE is_draft AND session_id=%s AND draft_of=%s AND NOT edited ORDER BY created_at DESC,id DESC LIMIT 1"""
-ATTACHED = """SELECT server_id,service_id,environment_id,code_project_id FROM ka.document_resources
+LINKED = """SELECT server_id,service_id,environment_id,code_project_id FROM ka.document_resources
     WHERE document_id=%s AND removed_at IS NULL"""
 # The run's working draft of its new document: the brand-new draft with the entry's folder and slug, or its draft of
 # the live document that folder and slug now name.
@@ -118,14 +118,15 @@ def _document_id(value: str) -> UUID:
 
 
 def _readable(conn, config: dict[str, Any], document: UUID) -> bool:
-    """A document the run was given, or one attached to a server, service, environment or code project the run was
-    given (read-only; get_resource lists them). A document attached only elsewhere is not readable."""
+    """A document the run was given, or one with an active link (built for or linked) to a server, service,
+    environment or code project the run was given (read-only; get_resource lists them). A document linked only to
+    resources the run was not given is not readable."""
     try:
         allowed(config, 'document', str(document))
         return True
     except ValueError:
         pass
-    for row in conn.execute(ATTACHED, (document,)).fetchall():
+    for row in conn.execute(LINKED, (document,)).fetchall():
         for kind, column in (
             ('server', 'server_id'),
             ('service', 'service_id'),

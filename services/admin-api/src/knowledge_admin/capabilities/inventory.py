@@ -56,8 +56,13 @@ SERVICE = """SELECT id,name,service_type,service_role,description,owner,operatio
 ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
     WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
-ATTACHED = """SELECT d.id,d.title FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-    WHERE a.{column}=%s AND a.removed_at IS NULL ORDER BY lower(d.title),d.id LIMIT {{limit}}"""
+# The resource's documents from their links: its inventory document (live, flagged, built for it; a brand-new
+# inventory draft is not a document get_document reads) and every other live document with an active link to it.
+INVENTORY_DOCUMENT = """SELECT d.id,d.title FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
+    WHERE a.{column}=%s AND a.removed_at IS NULL AND a.connection='built_for' AND d.inventory LIMIT 1"""
+DOCUMENTS = """SELECT d.id,d.title FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
+    WHERE a.{column}=%s AND a.removed_at IS NULL AND d.id IS DISTINCT FROM %s ORDER BY lower(d.title),d.id
+    LIMIT {{limit}}"""
 # Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS.
 SERVER_LINKS = (
     """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environment_servers es
@@ -146,7 +151,15 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
         if row is None:
             return refused
         links = [link for query in link_queries for link in _rows(conn, query, key)]
-        documents = _rows(conn, ATTACHED.format(column=column), key)
+        inventory = (
+            None
+            if resource_type == 'code_project'
+            else conn.execute(INVENTORY_DOCUMENT.format(column=column), (key,)).fetchone()
+        )
+        documents = conn.execute(
+            DOCUMENTS.format(column=column).replace('{limit}', str(MAX_ITEMS + 1)),
+            (key, inventory['id'] if inventory else None),
+        ).fetchall()
     found = {'type': resource_type, **row}
     if resource_type == 'server':
         found.update(_server_extras(config, entry))
@@ -154,6 +167,7 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
         {
             **found,
             'links': links[:MAX_ITEMS],
+            'inventory_document': inventory,
             'documents': documents[:MAX_ITEMS],
             'truncated': len(links) > MAX_ITEMS or len(documents) > MAX_ITEMS,
         }

@@ -62,11 +62,12 @@ share the turn's limit of 16 helpers with subagents.
   environments or code projects (need `resources`; not chosen on the Tools tab or per run, no `agent_tools` row).
   `get_resource(resource_type, resource_id)` — `resource_type` one
   of `server`, `service`, `environment`, `code_project` (a fixed enum), `resource_id` a plain uuid — returns everything
-  recorded about one resource as JSON: its fields, its documents (id, title) and `links` (`{type, id, name, relation,
+  recorded about one resource as JSON: its fields, its `inventory_document` (id, title; or null), its other `documents`
+  (id, title; from their links) and `links` (`{type, id, name, relation,
   ...}`) the model follows by passing `type` and `id` again; lists stop at 100 (`truncated`). A server's connection,
   instructions, skills and MCP server ids come from the run's configuration. Scoped to the run's allowlist: anything
   the run was not given (a linked resource too) or a malformed id returns "The <type> <id> is not available in this
-  run.", the same as for a missing entry. `get_document` reads documents the run was given or attached to those
+  run.", the same as for a missing entry. `get_document` reads documents the run was given or linked to those
   resources. The prompt names a run's starting resource in one line (`Resource: server <uuid> (<name>)`) and lists
   servers and services as an index (`{type, id, name, description}`); details come from `get_resource`.
 - `ssh_run`. Resolves a selected server and its credential reference from

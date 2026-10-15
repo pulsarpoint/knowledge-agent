@@ -18,7 +18,8 @@ from knowledge_admin.servers.discovery import (
 )
 from knowledge_admin.servers.discovery import DOCUMENT_CHANGED
 from knowledge_admin.tools.catalog import CATALOG
-from live_documents import rewrite_live_document
+from knowledge_admin.documents.api import document_slug
+from live_documents import live_document, rewrite_live_document
 from test_discovery_runs import config_of, ssh_ready, start
 from test_repositories import HEADERS
 
@@ -184,7 +185,10 @@ def test_documents_become_drafts_attached_when_published_and_promoted_as_new_ver
         found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
         return [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
 
-    assert {item['title'] for item in attached()} == {'web-1 overview'}  # a draft is not attached
+    # web-1 had no inventory document: the brand-new draft is it, shown unpublished; no other document yet.
+    found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
+    assert (found['inventory_document']['id'], found['inventory_document']['published']) == (document_id, False)
+    assert [item['title'] for item in found['documents']] == ['web-1 overview']
     with world.store.connect() as conn:
         row = conn.execute(
             'SELECT folder,slug,origin,markdown,is_draft,version FROM ka.documents WHERE id=%s', (document_id,)
@@ -201,7 +205,7 @@ def test_documents_become_drafts_attached_when_published_and_promoted_as_new_ver
         (str(link['server_id']), link['service_id'], link['connection'], link['added_how'], link['removed_at'])
         for link in links
     ] == [(world.server['id'], None, 'built_for', 'discovery', None)]
-    assert publish(world, accepted) == document_id  # published: the same id, now attached
+    assert publish(world, accepted) == document_id  # published: the same id, still the inventory document
     assert {item['title'] for item in attached()} == {'web-1 overview', 'Disk layout'}
     accepted = decide(world, version, 'accept')
     assert accepted.status_code == 200, accepted.text
@@ -240,6 +244,7 @@ def test_a_title_whose_slug_is_taken_gets_a_free_slug(run):
 
 def test_a_document_title_another_run_attached_meanwhile_becomes_a_new_version(run):
     world, sid, config = run
+    give_inventory_document(world)  # so the other run's document is an ordinary one
     propose(config, 'propose_document', title='Disk layout', markdown='# mine')
     other = start(world).json()['id']
     propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# theirs')
@@ -415,6 +420,7 @@ def test_a_new_version_of_a_document_changed_since_the_proposal_is_refused_once(
 
 def test_a_document_converted_to_a_new_version_stores_the_revision(run):
     world, sid, config = run
+    give_inventory_document(world)  # so the other run's document is an ordinary one
     propose(config, 'propose_document', title='Disk layout', markdown='# mine')
     other = start(world).json()['id']
     propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# theirs')
@@ -423,3 +429,105 @@ def test_a_document_converted_to_a_new_version_stores_the_revision(run):
     [proposal] = listed(world, sid)
     live = world.client.get(f'/api/documentation/documents/{theirs}', headers=HEADERS).json()
     assert proposal['document_id'] == theirs and proposal['payload']['matched_document_revision'] == live['revision']
+
+
+# Inventory documents: discovery never changes an existing one.
+
+
+def server_documents(world) -> dict:
+    response = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def give_inventory_document(world, title='web-1 inventory') -> str:
+    """A live inventory document built for web-1."""
+    with world.store.connect() as conn:
+        saved = live_document(
+            conn, world.project, document_slug(title), title, f'# {title}\n\nBody.', server_ids=[world.server['id']]
+        )
+        conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (saved['id'],))
+    return str(saved['id'])
+
+
+def snapshot(world, document_id) -> dict:
+    with world.store.connect() as conn:
+        row = conn.execute(
+            'SELECT title,markdown,revision,version,inventory,is_draft FROM ka.documents WHERE id=%s', (document_id,)
+        ).fetchone()
+        drafts = conn.execute('SELECT count(*) AS n FROM ka.documents WHERE draft_of=%s', (document_id,)).fetchone()
+    return {**row, 'drafts': drafts['n']}
+
+
+def test_a_document_for_a_resource_without_an_inventory_document_is_its_inventory_draft(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='Disk layout', markdown='# Disks', description='Mounts')
+    [proposal] = listed(world, sid)
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    draft = accepted.json()['result_id']
+    assert snapshot(world, draft)['inventory'] is True
+    inventory = server_documents(world)['inventory_document']
+    assert (inventory['id'], inventory['is_draft']) == (draft, True)
+    assert publish(world, accepted) == draft  # publish keeps the flag
+    assert snapshot(world, draft)['inventory'] is True
+    assert server_documents(world)['inventory_document']['id'] == draft
+
+
+def test_a_proposal_never_changes_a_live_inventory_document(run):
+    world, sid, config = run
+    inventory = give_inventory_document(world)
+    before = snapshot(world, inventory)
+    propose(config, 'propose_document', title='web-1 inventory', markdown='# rewritten', description='')
+    [proposal] = listed(world, sid)
+    assert proposal['document_id'] is None  # a new document beside it, never a new version of it
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    draft = accepted.json()['result_id']
+    assert draft != inventory
+    made = snapshot(world, draft)
+    assert (made['is_draft'], made['inventory'], made['markdown']) == (True, False, '# rewritten')
+    assert snapshot(world, inventory) == before  # content, revision, flag and drafts (none) unchanged
+    publish(world, accepted)
+    assert snapshot(world, draft)['inventory'] is False
+    found = server_documents(world)
+    assert found['inventory_document']['id'] == inventory
+    assert sorted(item['title'] for item in found['documents']) == ['web-1 inventory', 'web-1 overview']
+
+
+def test_a_proposal_never_changes_a_brand_new_inventory_draft(run):
+    world, sid, config = run
+    propose(config, 'propose_document', title='Disk layout', markdown='# first', description='')
+    first = decide(world, listed(world, sid)[0], 'accept').json()['result_id']
+    before = snapshot(world, first)
+    assert before['inventory'] is True
+    other = start(world).json()['id']
+    propose(config_of(world, other), 'propose_document', title='Disk layout', markdown='# second', description='')
+    [proposal] = listed(world, other)
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    second = accepted.json()['result_id']
+    assert second != first and snapshot(world, second)['inventory'] is False
+    assert snapshot(world, first) == before
+    assert server_documents(world)['inventory_document']['id'] == first
+
+
+def test_a_matched_document_that_became_the_inventory_document_gets_a_new_document_not_a_draft_of_it(run):
+    world, sid, config = run
+    with world.store.connect() as conn:
+        saved = live_document(conn, world.project, 'disks', 'Disk layout', '# Disks', server_ids=[world.server['id']])
+    document = str(saved['id'])
+    propose(config, 'propose_document', title='Disk layout', markdown='# new disks', description='')
+    [proposal] = listed(world, sid)
+    assert proposal['document_id'] == document  # a new version of an ordinary document
+    with world.store.connect() as conn:
+        conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (document,))
+    before = snapshot(world, document)
+    accepted = decide(world, proposal, 'accept')
+    assert accepted.status_code == 200, accepted.text
+    draft = accepted.json()['result_id']
+    made = snapshot(world, draft)
+    assert (made['is_draft'], made['inventory'], made['markdown']) == (True, False, '# new disks')
+    with world.store.connect() as conn:
+        assert conn.execute('SELECT draft_of FROM ka.documents WHERE id=%s', (draft,)).fetchone()['draft_of'] is None
+    assert snapshot(world, document) == before

@@ -400,9 +400,12 @@ is never written live by Accept: a new document becomes a draft (a generated doc
 `servers/<server>-2`, `-3`, ... when the folder would overlap another document's export, or in
 `server-documents/<server>` when `servers` itself is a document's export), and a new version of an existing document
 becomes a draft of that document. The accepted proposal says "Waiting to be published" (a new document) or "Waiting
-to be promoted" (a new version) with **Open draft**; **Publish** on the draft attaches the new document to the server
-or service, **Promote** on the document's Drafts tab makes the new version live, and the proposal then shows **Open
-document**. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
+to be promoted" (a new version) with **Open draft**; **Publish** on the draft makes the new document live (it is
+built for the server or service), **Promote** on the document's Drafts tab makes the new version live, and the proposal
+then shows **Open document**. A new document is the server's or service's inventory document when it has none yet;
+otherwise it is an ordinary document beside it. Discovery never changes an inventory document: a proposal with its
+title is a new document, not a new version, and you decide whether to replace the inventory document with it (Unmark the
+old one, Mark the new one) or merge them by hand. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
 review it and accept.
 **Reject** discards the proposal. Rejecting a proposed new service also rejects the document proposals about it;
 documents about an already recorded service stay and can be accepted on their own.
@@ -1044,7 +1047,7 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `code_search` | Code capability on | Tree-sitter function lookup (Go, Python, JS, TS, TSX) |
 | `ast_grep` | Code capability on | Structural code queries; 30 s timeout |
 | `ssh_run` | SSH capability on and an allowed server has a key | Runs **any** command (not read-only!) under `timeout` + `setpriv --no-new-privs`; root only via `sudo -n` when allowed; host key checked only if trusted keys are saved; 32 KiB output |
-| `get_resource`, `get_document` | Inventory tools. `get_resource` is on in every run that has servers, services, environments or code projects (it is not listed on the **Tools** tab); `get_document` when chosen for a run or switched on in the **Tools** tab | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or attached to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
+| `get_resource`, `get_document` | Inventory tools. `get_resource` is on in every run that has servers, services, environments or code projects (it is not listed on the **Tools** tab); `get_document` when chosen for a run or switched on in the **Tools** tab | Read-only: `get_resource` answers with what is recorded about one server, service, environment or code project the run was given (its connection, instructions, services, documents and links to related resources), and `get_document` reads documents the run was given or linked to those resources. Anything else gets "The server … is not available in this run." (or service, environment, code project; "This document …" for documents), the same answer as for something that does not exist |
 | Proposal tools | **Propose…** wizard runs | Exist only in a run started from a server, service or environment whose start asks for them (the **Propose…** wizard does); `propose_service` only in a run started from a server. A plain chat or a saved agent's run never has them. They record proposals that you accept or reject, and write nothing to the inventory themselves |
 | MCP tools | MCP capability on | Tools of the selected, tested MCP servers |
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |

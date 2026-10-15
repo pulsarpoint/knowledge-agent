@@ -632,6 +632,20 @@ def inventory_resource(conn, document_id: UUID) -> tuple[str, UUID] | None:
     return rows[0]['resource_type'], rows[0]['id']
 
 
+def inventory_document_of(conn, kind: str, resource_id: UUID, *, other_than: UUID | None = None) -> UUID | None:
+    """The id of the server's, service's or environment's inventory document (a live document or a brand-new draft,
+    `other_than` left out), or None. Takes the resource's lock first, the one the database's commit-time check takes:
+    a concurrent creation waits for this transaction and then sees its document."""
+    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'inventory-document:{resource_id}',))
+    found = conn.execute(
+        f"""SELECT d.id FROM ka.documents d JOIN ka.document_resources r ON r.document_id=d.id
+        WHERE d.inventory AND d.draft_of IS NULL AND d.id IS DISTINCT FROM %s AND r.{ENTRY_COLUMNS[kind]}=%s
+        AND r.connection='built_for' AND r.removed_at IS NULL LIMIT 1""",
+        (other_than, resource_id),
+    ).fetchone()
+    return found['id'] if found else None
+
+
 def claim_inventory(conn, document_id: UUID) -> None:
     """Before flagging `document_id` (a live document or a brand-new draft) as its resource's inventory document: 409
     unless it is built for exactly one server, service or environment that has no other inventory document (live or
@@ -641,15 +655,7 @@ def claim_inventory(conn, document_id: UUID) -> None:
     if resource is None:
         raise HTTPException(409, INVENTORY_BUILT_FOR)
     kind, resource_id = resource
-    conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'inventory-document:{resource_id}',))
-    column = ENTRY_COLUMNS[kind]
-    taken = conn.execute(
-        f"""SELECT 1 FROM ka.documents d JOIN ka.document_resources r ON r.document_id=d.id
-        WHERE d.inventory AND d.draft_of IS NULL AND d.id<>%s AND r.{column}=%s AND r.connection='built_for'
-        AND r.removed_at IS NULL""",
-        (document_id, resource_id),
-    ).fetchone()
-    if taken is not None:
+    if inventory_document_of(conn, kind, resource_id, other_than=document_id) is not None:
         name = conn.execute(f'SELECT name FROM ka.{kind}s WHERE id=%s', (resource_id,)).fetchone()['name']
         raise HTTPException(409, INVENTORY_TAKEN.format(type=INVENTORY_TYPES[kind], name=name))
 

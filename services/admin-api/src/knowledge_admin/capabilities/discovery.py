@@ -14,7 +14,8 @@ from knowledge_admin.capabilities.inventory import connect
 
 NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
 NOT_FROM_SERVER = 'propose_service works only in a run started from a server.'
-# A document about the run's resource is linked to it: the document_resources column of each resource type.
+# A document about the run's resource is linked to it: the document_resources column of each resource type. A
+# proposal never updates the resource's inventory document: a title matching it is a new document (discovery.py).
 RESOURCE_COLUMNS = {'server': 'server_id', 'service': 'service_id', 'environment': 'environment_id'}
 RESOURCE_TABLES = {'server': 'ka.servers', 'service': 'ka.services', 'environment': 'ka.environments'}
 SELF = 'A service cannot depend on itself.'
@@ -192,7 +193,8 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
             )
             found = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND a.removed_at IS NULL AND lower(d.title)=lower(%s) ORDER BY d.id LIMIT 1""",
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT d.inventory AND lower(d.title)=lower(%s)
+                ORDER BY d.id LIMIT 1""",
                 (entry, value['title']),
             ).fetchone()
             document_id = found['id'] if found else None

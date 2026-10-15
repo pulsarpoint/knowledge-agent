@@ -27,7 +27,7 @@ Since migration 0104 a document lives in three tables:
 Readers use views and never see a draft by accident: `ka.live_documents` (live rows), `ka.document_details` (live rows
 with their active link arrays and `draft_count`) and `ka.document_drafts_view` (every draft with its document's
 title, slug and folder, and the link arrays of its live document or, for a brand-new draft, its own). Triggers refuse
-document links, inventory attachments, a discovery proposal's `document_id` and a run's document that point at a draft
+document links, a discovery proposal's `document_id` and a run's document that point at a draft
 (a proposal's `draft_id` names the draft accepting it made).
 
 **Links.** A brand-new draft (a person's Save, a new-document run's first save, an accepted discovery proposal for a

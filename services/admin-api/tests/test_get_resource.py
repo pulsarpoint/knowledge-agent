@@ -318,3 +318,66 @@ def test_ssh_run_takes_the_index_entrys_id(world, monkeypatch):
     context = {'config': config, 'credentials': load_credentials(world.store, config)}
     result = json.loads(asyncio.run(ssh.ssh_run(context, world.server['id'], 'uptime')))
     assert result['server_id'] == world.server['id'] and result['exit_code'] == 0 and seen['host'] == '10.0.0.7'
+
+
+def test_get_resource_names_the_inventory_document_apart_from_the_other_documents(world):
+    config = given(world)
+    found = get(config, 'server', world.server['id'])
+    assert found['inventory_document'] is None
+    assert [document['title'] for document in found['documents']] == ['web-1 overview']
+    with world.store.connect() as conn:
+        saved = live_document(
+            conn,
+            world.project,
+            'web-1-inventory',
+            'web-1 inventory',
+            '# web-1 inventory',
+            server_ids=[world.server['id']],
+        )
+        conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (saved['id'],))
+    found = get(config, 'server', world.server['id'])
+    assert found['inventory_document'] == {'id': str(saved['id']), 'title': 'web-1 inventory'}
+    assert found['documents'] == [{'id': found['documents'][0]['id'], 'title': 'web-1 overview'}]
+    assert read(config, found['inventory_document']['id'])['title'] == 'web-1 inventory'
+    # A brand-new inventory draft is not a document get_document reads: get_resource does not name it.
+    with world.store.connect() as conn:
+        conn.execute('UPDATE ka.documents SET inventory=false WHERE id=%s', (saved['id'],))
+        conn.execute(
+            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,inventory,title,description,purpose,
+            audience,tags,markdown,content_hash,origin)
+            VALUES (%s,'web-1-draft','servers/web-1',1,true,true,'web-1 draft','','explanation','both','{}','# d',encode(sha256('# d'),'hex'),
+            'generated') RETURNING id""",
+            (world.project,),
+        )
+        draft = conn.execute("SELECT id FROM ka.documents WHERE slug='web-1-draft'").fetchone()['id']
+        link_document(conn, world.project, draft, 'server_id', world.server['id'], 'built_for')
+    found = get(config, 'server', world.server['id'])
+    assert found['inventory_document'] is None
+    assert [document['title'] for document in found['documents']] == ['web-1 inventory', 'web-1 overview']
+    assert get(config, 'code_project', world.shop)['inventory_document'] is None
+
+
+def test_get_document_reads_only_documents_linked_to_resources_the_run_was_given(world):
+    with world.store.connect() as conn:
+        other = conn.execute(
+            """INSERT INTO ka.servers(project_id,name,hostname,enabled) VALUES (%s,'db-1','db-1.internal',false)
+            RETURNING id""",
+            (world.project,),
+        ).fetchone()['id']
+        elsewhere = live_document(conn, world.project, 'db-notes', 'db-1 notes', '# db-1', server_ids=[other])
+        linked = live_document(conn, world.project, 'db-linked', 'db-1 linked', '# db-1 linked', server_ids=[other])
+        link_document(conn, world.project, linked['id'], 'service_id', world.nginx)
+    config = given(world)
+    # Built for a server the run was not given, linked to nothing it was given: refused.
+    assert read(config, str(elsewhere['id'])) == 'This document is not available in this run.'
+    # Also linked to a service the run was given: readable.
+    assert read(config, str(linked['id']))['title'] == 'db-1 linked'
+    assert read(given(world, services=False), str(linked['id'])) == 'This document is not available in this run.'
+    # A removed link no longer gives access.
+    with world.store.connect() as conn:
+        conn.execute(
+            """UPDATE ka.document_resources SET removed_at=now(),removed_by=(SELECT id FROM ka.principals LIMIT 1)
+            WHERE document_id=%s AND service_id=%s""",
+            (linked['id'], world.nginx),
+        )
+    assert read(config, str(linked['id'])) == 'This document is not available in this run.'

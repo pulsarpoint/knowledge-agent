@@ -402,7 +402,7 @@ class ProposeDocument(Proposal):
     title: str = Field(
         min_length=1,
         max_length=240,
-        description='The document title. A document with this title already attached to the same server, service or environment gets a new version.',
+        description='The document title. A document with this title already linked to the same server, service or environment gets a new version (never its inventory document: that gets a new document beside it).',
     )
     markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
     description: str = Field('', max_length=4000, description='One or two sentences on what the document covers.')
@@ -611,7 +611,7 @@ CATALOG: dict[str, ToolSpec] = {
             'get_document',
             'inventory',
             'Read document',
-            'Read a document given to this run or attached to the inventory.',
+            'Read a document given to this run or linked to a resource given to it.',
             GET_DOCUMENT,
             GetDocument,
             _call(document_tools.get_document),

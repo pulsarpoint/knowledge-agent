@@ -480,3 +480,35 @@ def test_deleting_the_resource_clears_its_inventory_documents_flag(store, client
     again = resource(store, 'services', 'payments')
     overview = live(store, 'overview', 'Overview', service_ids=[again])
     assert mark(client, overview).status_code == 200
+
+
+def test_nothing_reads_or_writes_the_old_attachments_table():
+    """Only the migrations and the tests of the migrations that had the table name ka.inventory_documents."""
+    root = Path(__file__).resolve().parents[3]
+    allowed = {
+        'services/admin-api/tests/test_inventory_document.py',
+        'services/admin-api/tests/test_document_model_migration.py',
+        'services/admin-api/tests/test_inventory_links_migration.py',
+    }
+    found = []
+    for folder in ('services', 'packages', 'docs/agents.md', 'docs/documentation.md'):
+        base = root / folder
+        files = [base] if base.is_file() else base.rglob('*') if base.is_dir() else []
+        for path in files:
+            if (
+                not path.is_file()
+                or 'node_modules' in path.parts
+                or path.suffix not in {'.py', '.ts', '.tsx', '.md', '.sql', '.txt', '.json', '.yaml', '.yml'}
+            ):
+                continue
+            name = str(path.relative_to(root))
+            if name in allowed:
+                continue
+            text = path.read_text(errors='ignore')
+            if (
+                'ka.inventory_documents' in text
+                or 'FROM inventory_documents' in text
+                or ' inventory_documents ' in text
+            ):
+                found.append(name)
+    assert found == []

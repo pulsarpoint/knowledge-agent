@@ -39,7 +39,8 @@ limit, no per-turn time limit, no 300-second limit).
   `skills`, `resources` by name and `model`. `GET /api/discovery/proposals?tag=&status=` lists the proposals of the
   runs with a tag, grouped by run, newest run first.
 - Document tools: `get_document(document_id, section?, start_line?, end_line?)` reads the run's own draft of a document
-  when it has one, and works for the run's documents and, read-only, documents attached to inventory entries.
+  when it has one, and works for the run's documents and, read-only, documents linked (built for or linked) to the
+  servers, services, environments and code projects the run was given.
   `edit_document(document_id, old_text, new_text)` and `save_document(document_id, markdown, title?, description?)`
   work only on documents given to the run as editable, and write the run's draft, never the live version. A new document
   is such a resource too: a run started from Documents → New (`resources.documents[{new: {folder, name}, editable: true}]`)
@@ -56,7 +57,10 @@ limit, no per-turn time limit, no 300-second limit).
   and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given, with everything recorded
   about it and links to related resources; a linked resource the run was not given, anything else, or a malformed id,
   gets "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
-  `get_document` reads documents the run was given or attached to those resources. The prompt names a run's resource
+  Its answer has the resource's `inventory_document` (`{id, title}` of its live inventory document, or null; a code
+  project's is always null) and `documents` (`[{id, title}]`, every other live document with an active link to it).
+  `get_document` reads documents the run was given or linked to those resources; a document linked only to resources
+  the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
   hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
   every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) exist only in a resource
@@ -67,7 +71,11 @@ limit, no per-turn time limit, no 300-second limit).
   last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
   run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's
   folder (`servers/<slug>`, `service-documents/<slug>`, `environments/<slug>`); a document about a service is accepted
-  even when the run's resource is gone (then in the service's folder).
+  even when the run's resource is gone (then in the service's folder). The new draft is the resource's inventory
+  document (`inventory`) when the resource has none yet (live or brand-new draft); otherwise it is an ordinary document
+  beside it. Discovery never changes an existing inventory document: a proposal titled like it is a new document, not a
+  new version, and a matched document that became the inventory document before the accept gets a new document, never
+  a draft of it. A person decides whether the new one replaces it (Unmark, Mark) or merges it by hand.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per
