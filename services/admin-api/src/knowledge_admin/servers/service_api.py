@@ -110,10 +110,9 @@ def save_service(
     if len(environments) != len(environment_ids):
         raise HTTPException(400, 'Choose existing environments from this workspace')
     classification = conn.execute(
-        """INSERT INTO ka.services(id, project_id, name, description, owner, operations_notes, created_by, service_type, service_role)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO UPDATE SET
-        name=EXCLUDED.name, description=EXCLUDED.description, owner=EXCLUDED.owner,
-        operations_notes=EXCLUDED.operations_notes, revision=%s,
+        """INSERT INTO ka.services(id, project_id, name, description, owner, created_by, service_type, service_role)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO UPDATE SET
+        name=EXCLUDED.name, description=EXCLUDED.description, owner=EXCLUDED.owner, revision=%s,
         service_type=CASE WHEN %s THEN EXCLUDED.service_type ELSE services.service_type END,
         service_role=CASE WHEN %s THEN EXCLUDED.service_role ELSE services.service_role END
         RETURNING service_type,service_role""",
@@ -123,7 +122,6 @@ def save_service(
             value.name,
             value.description,
             value.owner,
-            value.operations_notes,
             actor_id,
             value.service_type,
             value.service_role,

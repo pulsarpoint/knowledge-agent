@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import Field
 
 from knowledge_admin.capabilities.context import RunContext, allowed
-from knowledge_admin.documents.store import resource_document_list
+from knowledge_admin.documents.store import inventory_document, resource_document_list
 from knowledge_admin.tools import texts
 from knowledge_admin.tools.registry import tool
 
@@ -56,15 +56,11 @@ def dumps(value: Any) -> str:
 
 SERVER = """SELECT id,name,hostname,port,username,description,tags,allow_sudo FROM ka.servers
     WHERE id=%s AND project_id=%s"""
-SERVICE = """SELECT id,name,service_type,service_role,description,owner,operations_notes FROM ka.services
+SERVICE = """SELECT id,name,service_type,service_role,description,owner FROM ka.services
     WHERE id=%s AND project_id=%s"""
 ENVIRONMENT = 'SELECT id,name,description FROM ka.environments WHERE id=%s AND project_id=%s'
 CODE_PROJECT = """SELECT id,name,remote_url,requested_ref AS ref,current_commit FROM ka.repositories
     WHERE id=%s AND project_id=%s AND archived_at IS NULL"""
-# The resource's inventory document (live, flagged, built for it; a brand-new inventory draft is not a document
-# get_document reads). Its document list is documents.store.resource_document_list.
-INVENTORY_DOCUMENT = """SELECT d.id,d.title FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-    WHERE a.{column}=%s AND a.removed_at IS NULL AND a.connection='built_for' AND d.inventory LIMIT 1"""
 # Each query lists one kind of link: (type, id, name, relation, ...facts); {limit} caps it one past MAX_ITEMS.
 SERVER_LINKS = (
     """SELECT 'environment' AS type,e.id,e.name,'in_environment' AS relation FROM ka.environment_servers es
@@ -103,10 +99,10 @@ CODE_PROJECT_LINKS = (
     ORDER BY lower(s.name),s.id LIMIT {limit}""",
 )
 READS = {
-    'server': (SERVER, SERVER_LINKS, 'server_id'),
-    'service': (SERVICE, SERVICE_LINKS, 'service_id'),
-    'environment': (ENVIRONMENT, ENVIRONMENT_LINKS, 'environment_id'),
-    'code_project': (CODE_PROJECT, CODE_PROJECT_LINKS, 'code_project_id'),
+    'server': (SERVER, SERVER_LINKS),
+    'service': (SERVICE, SERVICE_LINKS),
+    'environment': (ENVIRONMENT, ENVIRONMENT_LINKS),
+    'code_project': (CODE_PROJECT, CODE_PROJECT_LINKS),
 }
 
 
@@ -162,18 +158,16 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
     entry = _given(config, resource_type, str(key))
     if entry is None:
         return refused
-    fields, link_queries, column = READS[resource_type]
+    fields, link_queries = READS[resource_type]
     with connect() as conn:
         project = project_of(conn, config)
         row = conn.execute(fields, (key, project)).fetchone()
         if row is None:
             return refused
         links = [link for query in link_queries for link in _rows(conn, query, key)]
-        inventory = (
-            None
-            if resource_type == 'code_project'
-            else conn.execute(INVENTORY_DOCUMENT.format(column=column), (key,)).fetchone()
-        )
+        # The live document tagged inventory built for it, as the resource page picks it (a brand-new draft is not a
+        # document get_document reads).
+        inventory = inventory_document(conn, project, resource_type, key, live_only=True)
         documents = _readable_documents(conn, config, resource_document_list(conn, project, resource_type, key))
     found = {'type': resource_type, **row}
     if resource_type == 'server':
@@ -182,7 +176,7 @@ def _resource(config: dict[str, Any], resource_type: str, resource_id: str) -> s
         {
             **found,
             'links': links[:MAX_ITEMS],
-            'inventory_document': inventory,
+            'inventory_document': inventory and {'id': inventory['id'], 'title': inventory['title']},
             'documents': documents[:MAX_ITEMS],
             'truncated': len(links) > MAX_ITEMS or len(documents) > MAX_ITEMS,
         }

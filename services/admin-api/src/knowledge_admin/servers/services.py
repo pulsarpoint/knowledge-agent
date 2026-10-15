@@ -49,7 +49,6 @@ class ServiceInput(BaseModel):
     ] = 'unclassified'
     description: str = Field(default='', max_length=4000)
     owner: str = Field(default='', max_length=200)
-    operations_notes: str = Field(default='', max_length=10000)
     repository_ids: list[UUID] = Field(default_factory=list, max_length=100)
     environment_ids: list[UUID] = Field(default_factory=list, max_length=100)
     deployments: list[DeploymentInput] = Field(default_factory=list, max_length=100)

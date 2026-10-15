@@ -21,7 +21,7 @@ SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.
     c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
     FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
     WHERE s.project_id=%s ORDER BY lower(s.name),s.id"""
-SERVICES = """SELECT id,name,description,owner,operations_notes,revision,repositories,deployments,dependencies,dependents,links
+SERVICES = """SELECT id,name,description,owner,revision,repositories,deployments,dependencies,dependents,links
     FROM ka.service_assets WHERE project_id=%s ORDER BY lower(name),id"""
 SECTIONS = (('code', 'projects'), ('documents', 'collections'), ('ssh', 'servers'), ('services', 'items'))
 

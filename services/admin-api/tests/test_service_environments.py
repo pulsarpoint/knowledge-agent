@@ -146,6 +146,7 @@ def test_environment_selection_rejects_missing_foreign_and_duplicate_ids(store, 
 def test_migration_maps_exact_labels_and_retains_unmatched_deployments(store):
     migrations = Path(__file__).resolve().parents[3] / 'db/migrations'
     with store.connect() as conn:
+        conn.execute((migrations / '0109_tags_not_flags.down.sql').read_text(), prepare=False)
         conn.execute((migrations / '0107_inventory_document.down.sql').read_text(), prepare=False)  # before 0095
         conn.execute(
             (migrations / '0095_inventory_links.down.sql').read_text(), prepare=False

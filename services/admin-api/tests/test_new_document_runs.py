@@ -484,13 +484,12 @@ def test_a_brand_new_draft_a_person_edited_is_theirs_until_they_decide(sessions,
         assert (row['document_id'], row['slug'], row['markdown']) == (None, 'payments-api-reference', '# Fresh')
 
 
-# The New inventory document page's Write with an agent: the run writes the resource's inventory document.
-
-TAKEN = 'Service Payments already has an inventory document.'
+# The New inventory document page's Write with an agent: the run writes the resource's inventory document, a new
+# document tagged inventory built for the resource.
 
 
 def inventory_body(s, **change):
-    new = {**NEW, 'inventory': True, 'service_id': s.service}
+    new = {**NEW, 'tags': ['inventory'], 'service_id': s.service}
     resources = {
         'code_project_ids': [s.repo],
         'environment_ids': [s.environment],
@@ -508,7 +507,7 @@ def inventory_draft(s, slug: str):
             'title': slug,
             'markdown': '# Payments',
             'resource_ids': {'service_ids': [s.service]},
-            'inventory': True,
+            'tags': ['inventory'],
         },
     )
 
@@ -535,39 +534,33 @@ def test_an_inventory_run_saves_the_inventory_draft_built_for_exactly_its_resour
         'deployment_ids': [],
     }
     with s.store.connect() as conn:
-        assert conn.execute('SELECT inventory FROM ka.documents WHERE id=%s', (draft,)).fetchone()['inventory']
+        assert conn.execute('SELECT tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()['tags'] == ['inventory']
     found = s.client.get(f'/api/inventory/service/{s.service}/documents', headers=HEADERS).json()
     assert found['inventory_document']['id'] == str(draft)
     assert call(config, 'save_document', document_id=new_id, markdown='# Payments\n\nMore.') == 'Saved draft (3 lines).'
     assert draft_ids(s, session['id']) == [draft]
 
 
-def test_an_inventory_run_is_refused_when_its_resource_has_an_inventory_document(sessions):
-    s = sessions
-    assert inventory_draft(s, 'payments-overview').status_code == 201
-    response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
-    assert (response.status_code, response.json()['error']['message']) == (409, TAKEN)
-
-
-def test_an_inventory_runs_save_is_refused_when_its_resource_gained_one_meanwhile(sessions, monkeypatch):
+def test_an_inventory_run_writes_another_document_tagged_inventory_when_its_resource_has_one(sessions, monkeypatch):
+    """Nothing enforces one per resource: the newest live one is the resource's inventory document."""
     s = sessions
     monkeypatch.setattr(inventory, '_store', s.store)
+    assert inventory_draft(s, 'payments-overview').status_code == 201
     response = s.client.post('/api/sessions', headers=HEADERS, json=inventory_body(s))
     assert response.status_code == 201, response.text
     session = response.json()
     config = {**session['config'], 'session_id': session['id']}
     new_id = session['config']['document_access'][0]['id']
-    assert inventory_draft(s, 'payments-overview').status_code == 201
-    with pytest.raises(ValueError) as refused:
-        call(config, 'save_document', document_id=new_id, markdown='# Payments')
-    assert str(refused.value) == TAKEN
-    assert drafts(s, session['id']) == []
+    assert call(config, 'save_document', document_id=new_id, markdown='# Payments') == 'Saved draft (1 lines).'
+    [draft] = draft_ids(s, session['id'])
+    with s.store.connect() as conn:
+        assert conn.execute('SELECT tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()['tags'] == ['inventory']
 
 
 @pytest.mark.parametrize(
     'new,message',
     [
-        ({'inventory': True}, 'An inventory document is written for one server, service or environment.'),
+        ({'tags': ['inventory']}, 'An inventory document is written for one server, service or environment.'),
         ({'service_id': str(uuid4())}, 'An inventory document is written for one server, service or environment.'),
     ],
 )
@@ -580,7 +573,7 @@ def test_bad_inventory_starts_are_refused(sessions, new, message):
 
 def test_an_inventory_run_for_a_missing_resource_is_refused(sessions):
     s = sessions
-    document = {**NEW, 'inventory': True, 'service_id': str(uuid4())}
+    document = {**NEW, 'tags': ['inventory'], 'service_id': str(uuid4())}
     change = {'started_from': {'new_document': document}, 'resources': {'documents': [{'new': document}]}}
     response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
     assert (response.status_code, response.json()['error']['message']) == (404, 'Service not found.')
@@ -604,7 +597,7 @@ def test_an_inventory_run_is_refused_when_a_live_document_has_its_name(sessions)
 
 
 def inventory_start(s, kind: str, resource_id: str, **change):
-    new = {**NEW, 'inventory': True, f'{kind}_id': resource_id}
+    new = {**NEW, 'tags': ['inventory'], f'{kind}_id': resource_id}
     change = {
         'started_from': {'new_document': new},
         'resources': {'documents': [{'new': new, 'editable': True}]},

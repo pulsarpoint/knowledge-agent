@@ -61,21 +61,20 @@ document never existed). Deleting a live document deletes its drafts, archive ro
 `document.draft.replaced` for each other draft it deleted, and `document.updated` (`document.created` for a brand-new
 draft) for the document.
 
-**Inventory documents.** A server, a service or an environment has at most one inventory document: a document with
-`inventory` set, built for exactly that one resource (migration 0107). It is edited like every other document (drafts,
-Promote / Publish, versions, links); Promote and Publish keep the flag, and a draft of a live document reports its
-document's flag (`inventory` on documents, drafts and the Documents list; `GET /documents?inventory=true` lists only
-inventory documents). A person creates one with `inventory: true` on `POST /drafts` (a brand-new draft built for the
-resource), or marks a document whose only built-for link is that resource with `PUT /documents/{id}/inventory
-{inventory, revision}` (a live document or a brand-new draft; `inventory: false` unmarks it, the link stays). Both
-answer 409 `An inventory document must be built for one server, service or environment.` or `<Type> <name> already has
-an inventory document.`; the database checks the same at commit, and a lock per resource makes a concurrent second
-claim wait and fail. The documents of an inventory entry come from links: `GET /api/inventory/{kind}/{id}/documents`
+**Tags and inventory documents.** Documents are classified by tags (`tags`, content like the title: edited in a draft
+and made live by Promote / Publish). `GET /documents?tag=<tag>` and `GET /drafts?tag=<tag>` keep the documents or
+drafts with that one tag (exact, case-insensitive; a draft of a document carries its own copy of the tags). The
+inventory document of a server, a service or an environment is the live document tagged `inventory` built for it, the
+most recently updated one when several (the others are in its Documents list); when there is no live one, a brand-new
+draft tagged `inventory` built for it. Nothing enforces one per resource (migration 0109 replaced the 0107 flag and its
+checks with the tag). A person creates one with `tags: ["inventory"]` and the resource in `resource_ids` on
+`POST /drafts`. The documents of an inventory entry come from links: `GET /api/inventory/{kind}/{id}/documents`
 (kind `server`, `service`, `environment` or `code_project`) answers `{inventory_document: {id, title, markdown,
-version, is_draft, published} | null, documents: [{id, title, connection}]}` (the inventory document may be a brand-new
-draft: `version` null, `published` false; the other documents are live ones, the inventory one not repeated); `POST`
-there with `{document_id}` adds a `linked` link (Link a document) and `DELETE .../documents/{document_id}` removes it
-(a built-for link stays: 409). The System map lists the live documents linked to each entry. Deleting a resource clears its inventory document's flag (the document stays).
+version, is_draft, published} | null, documents: [{id, title, tags, description_short, connection, resource}]}` (the
+inventory document may be a brand-new draft: `version` null, `published` false; the documents are live ones, the live
+inventory document first); `POST` there with `{document_id}` adds a `linked` link (Link a document) and
+`DELETE .../documents/{document_id}` removes it (a built-for link stays: 409). The System map lists the live documents
+linked to each entry. Deleting a resource removes its links; the documents and their tags stay.
 
 Historical versions retain inventory names and IDs in `source_snapshot` even when inventory is subsequently renamed or
 removed. These are save-time inventory descriptions, not evidence that a live server was inspected. Removing an

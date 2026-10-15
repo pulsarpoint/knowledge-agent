@@ -79,7 +79,7 @@ def test_a_server_has_its_fields_environments_services_and_documents(world):
     assert (service['id'], service['name'], service['relation']) == (str(world.nginx), 'nginx', 'runs')
     assert (service['environment'], service['runtime'], service['port']) == ('Production', 'systemd', 80)
     document, child = found['documents']
-    assert set(document) == {'id', 'title', 'tags', 'description_short', 'inventory', 'connection', 'resource'}
+    assert set(document) == {'id', 'title', 'tags', 'description_short', 'connection', 'resource'}
     assert (document['title'], document['resource']['type']) == ('web-1 overview', 'server')
     assert (child['title'], child['resource']['name']) == ('nginx runbook', 'nginx')  # the service it runs
     assert found['truncated'] is False
@@ -88,7 +88,7 @@ def test_a_server_has_its_fields_environments_services_and_documents(world):
 def test_a_service_has_its_fields_servers_code_projects_and_documents(world):
     found = get(given(world), 'service', world.nginx)
     assert found['type'] == 'service' and found['name'] == 'nginx' and found['owner'] == 'web team'
-    assert found['service_role'] == 'proxy' and 'operations_notes' in found
+    assert found['service_role'] == 'proxy' and 'operations_notes' not in found
     server = link(found, 'server')
     assert (server['id'], server['name'], server['relation']) == (world.server['id'], 'web-1', 'deployed_on')
     assert server['port'] == 80 and server['environment'] == 'Production'
@@ -338,23 +338,23 @@ def test_get_resource_names_the_inventory_document_apart_from_the_other_document
             'web-1 inventory',
             '# web-1 inventory',
             server_ids=[world.server['id']],
+            tags=['inventory'],
         )
-        conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (saved['id'],))
     found = get(config, 'server', world.server['id'])
     assert found['inventory_document'] == {'id': str(saved['id']), 'title': 'web-1 inventory'}
-    assert [(item['title'], item['inventory']) for item in found['documents']] == [
-        ('web-1 inventory', True),
-        ('web-1 overview', False),
-        ('nginx runbook', False),
+    assert [(item['title'], item['tags']) for item in found['documents']] == [
+        ('web-1 inventory', ['inventory']),
+        ('web-1 overview', []),
+        ('nginx runbook', []),
     ]
     assert read(config, found['inventory_document']['id'])['title'] == 'web-1 inventory'
     # A brand-new inventory draft is not a document get_document reads: get_resource does not name it.
     with world.store.connect() as conn:
-        conn.execute('UPDATE ka.documents SET inventory=false WHERE id=%s', (saved['id'],))
+        conn.execute("UPDATE ka.documents SET tags='{}' WHERE id=%s", (saved['id'],))
         conn.execute(
-            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,inventory,title,description,purpose,
+            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,title,description,purpose,
             audience,tags,markdown,content_hash,origin)
-            VALUES (%s,'web-1-draft','servers/web-1',1,true,true,'web-1 draft','','explanation','both','{}','# d',encode(sha256('# d'),'hex'),
+            VALUES (%s,'web-1-draft','servers/web-1',1,true,'web-1 draft','','explanation','both','{inventory}','# d',encode(sha256('# d'),'hex'),
             'generated') RETURNING id""",
             (world.project,),
         )

@@ -354,7 +354,8 @@ A server's name opens its page (`/servers/:id`): its **Info** (details, SSH stat
 documents) and its **Chats**. Services (`/services/:id`) and environments (`/environments/:id`) have the same kind of
 page. **Connections and documents** there opens the same panel as the System map.
 
-Each server, service and environment has at most one **inventory document**: Info shows it rendered, with **Open** to
+A server's, service's or environment's **inventory document** is the document tagged `inventory` built for it (the
+most recently updated one when several; the others are in its Documents list): Info shows it rendered, with **Open** to
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
 Info says "No inventory document yet." with **New inventory document**: the New document page opens built for the
 resource, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
@@ -413,10 +414,11 @@ is never written live by Accept: a new document becomes a draft (a generated doc
 becomes a draft of that document. The accepted proposal says "Waiting to be published" (a new document) or "Waiting
 to be promoted" (a new version) with **Open draft**; **Publish** on the draft makes the new document live (it is
 built for the server or service), **Promote** on the document's Drafts tab makes the new version live, and the proposal
-then shows **Open document**. A new document is the server's or service's inventory document when it has none yet;
-otherwise it is an ordinary document beside it. Discovery never changes an inventory document: a proposal with its
-title is a new document, not a new version, and you decide whether to replace the inventory document with it (Unmark the
-old one, Mark the new one) or merge them by hand. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
+then shows **Open document**. A new document is tagged `inventory` (the server's or service's inventory document) when no document tagged
+`inventory` is built for it yet; otherwise it is an ordinary document beside it. Discovery never tags an existing
+document and never changes the inventory document: a proposal with its title is a new document, not a new version, and
+you decide whether to replace the inventory document with it (move the tag: edit the tags of both and promote) or merge
+them by hand. If the document changed since the proposal was made, Accept refuses once and shows the proposal again;
 review it and accept.
 **Reject** discards the proposal. Rejecting a proposed new service also rejects the document proposals about it;
 documents about an already recorded service stay and can be accepted on their own.

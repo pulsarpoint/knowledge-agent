@@ -89,7 +89,7 @@ deployed applications and their hosts. Configure AI connections in LLM Settings.
 ## Services and agent assets
 
 Open [Administration → Services](http://localhost:8183/services) to add an
-application, its purpose, owner/team, and behavior/investigation notes. Select
+application, its purpose and owner/team (operating notes go in its documents). Select
 any number of saved code projects; the same code project can serve multiple
 applications. Each service can have multiple deployment records with a server,
 environment, runtime/manager, container or unit name, application port, log

@@ -46,7 +46,7 @@ def saved_agent(store, tmp_path):
         headers=HEADERS,
         json={
             'name': 'Payments',
-            'operations_notes': 'Check the queue.',
+            'description': 'Check the queue.',
             'repository_ids': [other_repo['id']],
             'deployments': [
                 {
@@ -139,7 +139,8 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['skills']['items'][0]['id'] == skill['id']
     assert config['skills']['items'][0]['instructions'] == 'Check the exit code.'
     assert config['mcp']['servers'][0]['tools'] == [{'name': 'lookup'}]
-    assert config['services']['items'][0]['operations_notes'] == 'Check the queue.'
+    assert config['services']['items'][0]['description'] == 'Check the queue.'
+    assert 'operations_notes' not in config['services']['items'][0]
     assert config['services']['items'][0]['repositories'][0]['id'] != repo['id']
     assert config['services']['items'][0]['repositories'][0]['checkout_path'] == '/work/code/managed/unselected'
     assert config['services']['items'][0]['deployments'][0]['log_location'] == '/var/log/payments/app.log'

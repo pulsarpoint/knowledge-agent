@@ -18,11 +18,11 @@ from knowledge_admin.tools.registry import tool
 NOT_DISCOVERY = 'The proposal tools work only in a run started from a server, service or environment.'
 NOT_FROM_SERVER = 'propose_service works only in a run started from a server.'
 # A document about the run's resource is linked to it: the document_resources column of each resource type. A
-# proposal never updates the resource's inventory document: a title matching it is a new document (discovery.py).
+# proposal never updates a document tagged inventory: a title matching it is a new document (discovery.py).
 RESOURCE_COLUMNS = {'server': 'server_id', 'service': 'service_id', 'environment': 'environment_id'}
 RESOURCE_TABLES = {'server': 'ka.servers', 'service': 'ka.services', 'environment': 'ka.environments'}
 SELF = 'A service cannot depend on itself.'
-SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner', 'operations_notes')
+SERVICE_FIELDS = ('name', 'service_type', 'service_role', 'description', 'owner')
 DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
 SERVICES = 'SELECT id,name FROM ka.services WHERE project_id=%s'
 CODE_PROJECTS = 'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL'
@@ -196,7 +196,7 @@ def _propose_document(config: dict[str, Any], value: dict[str, Any]) -> str:
             )
             found = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT d.inventory AND lower(d.title)=lower(%s)
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT 'inventory'=ANY(d.tags) AND lower(d.title)=lower(%s)
                 ORDER BY d.id LIMIT 1""",
                 (entry, value['title']),
             ).fetchone()
@@ -263,9 +263,6 @@ class ProposeService(Proposal):
     service_role: ServiceRole = Field('unclassified', description='What it does for the system.')
     description: str = Field('', max_length=4000, description='What it does, in a few sentences.')
     owner: str = Field('', max_length=200, description='Who runs it, when you can tell.')
-    operations_notes: str = Field(
-        '', max_length=10000, description='How to operate it: start, stop, health checks, configuration files, gotchas.'
-    )
     deployment: DeploymentProposal = Field(description='How it runs on this server.')
     depends_on: list[Annotated[str, Field(max_length=200)]] = Field(
         default_factory=list, max_length=100, description='Names of recorded services it depends on.'
@@ -279,7 +276,7 @@ class ProposeDocument(Proposal):
     title: str = Field(
         min_length=1,
         max_length=240,
-        description='The document title. A document with this title already linked to the same server, service or environment gets a new version (never its inventory document: that gets a new document beside it).',
+        description='The document title. A document with this title already linked to the same server, service or environment gets a new version (never the document tagged inventory: that gets a new document beside it).',
     )
     markdown: str = Field(min_length=1, max_length=1_000_000, description='The complete document in Markdown.')
     description: str = Field('', max_length=4000, description='One or two sentences on what the document covers.')

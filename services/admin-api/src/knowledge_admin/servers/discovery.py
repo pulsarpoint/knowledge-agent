@@ -61,11 +61,10 @@ DOCUMENT_CHANGED = 'This document changed since the proposal was made. Review it
 DOCUMENT_ADDED = 'A document titled {title} was added since this proposal was made. It is now shown as a new version. Review it again.'
 ACCEPT_SERVICE_FIRST = 'Accept the service first.'
 SERVICE_GONE = 'The service {name} no longer exists. Reject this proposal.'
-SERVICE_FIELDS = ('service_type', 'service_role', 'description', 'owner', 'operations_notes')
+SERVICE_FIELDS = ('service_type', 'service_role', 'description', 'owner')
 DEPLOYMENT_FIELDS = ('runtime', 'runtime_name', 'port', 'log_location', 'deployed_version')
-ServiceField = Literal['service_type', 'service_role', 'description', 'owner', 'operations_notes']
-CURRENT_SERVICE = """SELECT id,name,revision,service_type,service_role,description,owner,operations_notes
-    FROM ka.services WHERE id=%s"""
+ServiceField = Literal['service_type', 'service_role', 'description', 'owner']
+CURRENT_SERVICE = """SELECT id,name,revision,service_type,service_role,description,owner FROM ka.services WHERE id=%s"""
 DEPLOYMENT_COLUMNS = 'id,server_id,environment,environment_id,runtime,runtime_name,port,log_location,deployed_version'
 
 
@@ -327,9 +326,10 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
     def accept_document(conn, project, actor, row: dict) -> UUID:
         """The draft accepting a document proposal makes: a draft of the live document it updates, or a brand-new
         draft (built for the service it is about, else the run's server, service or environment, in that resource's
-        folder): that resource's inventory document when it has none (live or brand-new draft), else an ordinary
-        document beside it. Discovery never changes an inventory document: a title matching it is a new document, and
-        a matched document that became the inventory document since gets a new document, not a draft of it."""
+        folder), tagged inventory when that resource has no document tagged inventory built for it (live or brand-new
+        draft), else an ordinary document beside it. Discovery never changes an inventory document nor tags an
+        existing document: a title matching an inventory document is a new document, and a matched document tagged
+        inventory since gets a new document, not a draft of it."""
         payload = row['payload']
         prov = Provenance('discovery', actor, row['session_id'])
         if row['service_proposal_id'] is not None:
@@ -352,17 +352,17 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             and conn.execute('SELECT 1 FROM ka.services WHERE id=%s', (service_id,)).fetchone() is None
         ):
             raise HTTPException(400, SERVICE_GONE.format(name=payload.get('about_service') or gone_name))
-        # The document the proposal updates, unless it became the inventory document since (FOR SHARE: a concurrent
-        # Mark waits for this accept, so the flag read here holds until the draft is made).
+        # The document the proposal updates, unless it was tagged inventory since (FOR SHARE: a concurrent promote
+        # waits for this accept, so the tags read here hold until the draft is made).
         updates = row['document_id']
         matched = (
             None
             if updates is None
             else conn.execute(
-                'SELECT inventory FROM ka.documents WHERE id=%s AND NOT is_draft FOR SHARE', (updates,)
+                'SELECT tags FROM ka.documents WHERE id=%s AND NOT is_draft FOR SHARE', (updates,)
             ).fetchone()
         )
-        if matched is not None and matched['inventory']:
+        if matched is not None and lifecycle.INVENTORY_TAG in matched['tags']:
             updates = None
         if updates is None:
             # A document about a service needs only the service; the run's resource, when it still exists, picks the
@@ -375,9 +375,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             )
             clash = conn.execute(
                 f"""SELECT d.id,d.revision FROM ka.document_resources a JOIN ka.document_details d ON d.id=a.document_id
-                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT d.inventory AND lower(d.title)=lower(%s)
+                WHERE a.{column}=%s AND a.removed_at IS NULL AND NOT %s=ANY(d.tags) AND lower(d.title)=lower(%s)
                 ORDER BY d.id LIMIT 1""",
-                (entry, payload['title']),
+                (entry, lifecycle.INVENTORY_TAG, payload['title']),
             ).fetchone()
             if clash is not None:
                 convert(
@@ -399,10 +399,14 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             kind = resource['type']
             folder = free_folder(conn, project, kind, document_slug(resource['name']) or kind)
             slug = free_slug(conn, project, folder, document_slug(f'{name} {payload["title"]}'))
-            content = DraftContent(
-                title=payload['title'], description=payload['description'], markdown=payload['markdown']
-            )
             built_for = ('service', service_id) if service_id else (kind, resource['id'])
+            first = lifecycle.inventory_document(conn, project, *built_for) is None
+            content = DraftContent(
+                title=payload['title'],
+                description=payload['description'],
+                tags=[lifecycle.INVENTORY_TAG] if first else [],
+                markdown=payload['markdown'],
+            )
             return lifecycle.create_draft(
                 conn,
                 project,
@@ -412,7 +416,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                 slug=slug,
                 folder=folder,
                 links={f'{built_for[0]}_ids': [built_for[1]]},
-                inventory=lifecycle.inventory_document_of(conn, *built_for) is None,
             )
         current = conn.execute(
             'SELECT title,description,purpose,audience,tags,revision FROM ka.document_details WHERE id=%s',

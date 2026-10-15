@@ -95,13 +95,13 @@ def test_a_document_from_a_service_run_is_built_for_and_attached_to_the_service(
     assert accepted.status_code == 200, accepted.text
     draft = accepted.json()['result_id']
     with world.store.connect() as conn:
-        row = conn.execute('SELECT folder,slug,inventory FROM ka.documents WHERE id=%s', (draft,)).fetchone()
+        row = conn.execute('SELECT folder,slug,tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()
         links = conn.execute(
             'SELECT server_id,service_id,environment_id,connection FROM ka.document_resources WHERE document_id=%s',
             (draft,),
         ).fetchall()
     assert (row['folder'], row['slug']) == ('service-documents/nginx', 'nginx-health-checks')
-    assert row['inventory'] is True  # nginx had no inventory document
+    assert row['tags'] == ['inventory']  # nginx had no document tagged inventory
     assert [(link['server_id'], link['service_id'], link['environment_id'], link['connection']) for link in links] == [
         (None, world.nginx, None, 'built_for')
     ]
@@ -121,13 +121,13 @@ def test_a_document_from_an_environment_run_is_built_for_and_attached_to_the_env
     assert accepted.status_code == 200, accepted.text
     draft = accepted.json()['result_id']
     with world.store.connect() as conn:
-        row = conn.execute('SELECT folder,slug,inventory FROM ka.documents WHERE id=%s', (draft,)).fetchone()
+        row = conn.execute('SELECT folder,slug,tags FROM ka.documents WHERE id=%s', (draft,)).fetchone()
         links = conn.execute(
             'SELECT server_id,service_id,environment_id,connection FROM ka.document_resources WHERE document_id=%s',
             (draft,),
         ).fetchall()
     assert (row['folder'], row['slug']) == ('environments/production', 'production-overview')
-    assert row['inventory'] is True  # Production had no inventory document
+    assert row['tags'] == ['inventory']  # Production had no document tagged inventory
     assert [(link['server_id'], link['service_id'], link['environment_id'], link['connection']) for link in links] == [
         (None, None, world.environment, 'built_for')
     ]

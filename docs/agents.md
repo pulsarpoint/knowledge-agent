@@ -57,10 +57,10 @@ limit, no per-turn time limit, no 300-second limit).
   and its uuid) is on in every run that has resources (it is not chosen on the Tools tab) and follows the same allowlist: it answers only about the resources the run was given, with everything recorded
   about it and links to related resources; a linked resource the run was not given, anything else, or a malformed id,
   gets "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
-  Its answer has the resource's `inventory_document` (`{id, title}` of its live inventory document, or null; a code
-  project's is always null) and `documents`: every live document with an active link to the resource or to one of its
+  Its answer has the resource's `inventory_document` (`{id, title}` of its live inventory document — the live document
+  tagged `inventory` built for it, the most recently updated when several — or null; a code project's is always null) and `documents`: every live document with an active link to the resource or to one of its
   direct children (an environment's services and servers, a server's services, a service's code projects and the
-  servers it is deployed on), as `{id, title, tags, description_short, inventory, connection, resource: {type, id,
+  servers it is deployed on), as `{id, title, tags, description_short, connection, resource: {type, id,
   name}}` — `description_short` is the description's first line (160 characters at most, "…" when cut), `resource` is
   the resource it is listed under (the resource itself when linked there, else the first child). The resource's
   inventory document first, then its other documents, then the children's grouped by child, by title within a group.
@@ -78,11 +78,13 @@ limit, no per-turn time limit, no 300-second limit).
   last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
   run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's
   folder (`servers/<slug>`, `service-documents/<slug>`, `environments/<slug>`); a document about a service is accepted
-  even when the run's resource is gone (then in the service's folder). The new draft is the resource's inventory
-  document (`inventory`) when the resource has none yet (live or brand-new draft); otherwise it is an ordinary document
-  beside it. Discovery never changes an existing inventory document: a proposal titled like it is a new document, not a
-  new version, and a matched document that became the inventory document before the accept gets a new document, never
-  a draft of it. A person decides whether the new one replaces it (Unmark, Mark) or merges it by hand.
+  even when the run's resource is gone (then in the service's folder). The new draft is tagged `inventory`
+  (the resource's inventory document) when no document tagged `inventory` is built for the resource yet (live or
+  brand-new draft); otherwise it is an ordinary document beside it. Discovery never adds the tag to an existing
+  document and never changes a document tagged `inventory`: a proposal titled like it is a new document, not a new
+  version, and a matched document tagged `inventory` before the accept gets a new document, never a draft of it. A
+  person decides whether the new one replaces it (moving the tag) or merges it by hand. `propose_service` proposes a
+  service's name, type, role, description, owner and deployment; operating knowledge goes in documents.
 - The editing rules for documents are the **Revise a document** prompt in Administration → Prompts, which you can open and change.
 - Event handlers (Administration → Events → Handlers, action Send to agent) start an ordinary agent run since
   migration 0103: a session with `purpose = 'event'`, `event_id` and `handler_id` set (unique together, so one run per

@@ -1,6 +1,6 @@
 """A resource's document list (GET /api/inventory/{kind}/{id}/documents and get_resource): the documents of the resource
-and of its direct children, each with title, tags, short description, the inventory flag and the resource it belongs
-to; de-duplicated, ordered, live documents only. get_resource lists only documents the run could read."""
+and of its direct children, each with title, tags, short description and the resource it belongs to (the inventory document, the
+one tagged inventory, first); de-duplicated, ordered, live documents only. get_resource lists only documents the run could read."""
 
 from uuid import uuid4
 
@@ -13,13 +13,12 @@ from test_repositories import HEADERS
 LONG = 'x' * 170
 
 
-def entry(document, title, resource_type, resource_id, name, *, tags=(), short='', inventory=False) -> dict:
+def entry(document, title, resource_type, resource_id, name, *, tags=(), short='') -> dict:
     return {
         'id': str(document),
         'title': title,
         'tags': list(tags),
         'description_short': short,
-        'inventory': inventory,
         'resource': {'type': resource_type, 'id': str(resource_id), 'name': name},
     }
 
@@ -40,10 +39,9 @@ def documents_of(world) -> dict:
             'Zeta inventory',
             '# Zeta',
             description=f'  {LONG}\nSecond line',
-            tags=['ops', 'linux'],
+            tags=['ops', 'linux', 'inventory'],
             server_ids=[server],
         )['id']
-        conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (zeta,))
         shared = live_document(conn, world.project, 'alpha', 'Alpha shared', '# A', service_ids=[world.nginx])['id']
         link_document(conn, world.project, shared, 'server_id', server)
         readme = live_document(conn, world.project, 'readme', 'Shop readme', '# R', code_project_ids=[world.shop])['id']
@@ -51,9 +49,9 @@ def documents_of(world) -> dict:
             conn, world.project, 'notes', 'Production notes', '# P', environment_ids=[world.environment]
         )['id']
         conn.execute(
-            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,inventory,title,description,purpose,
+            """INSERT INTO ka.documents(project_id,slug,folder,revision,is_draft,title,description,purpose,
             audience,tags,markdown,content_hash,origin)
-            VALUES (%s,'web-1-draft',NULL,1,true,false,'A draft','','explanation','both','{}','# d',
+            VALUES (%s,'web-1-draft',NULL,1,true,'A draft','','explanation','both','{}','# d',
             encode(sha256('# d'),'hex'),'generated') RETURNING id""",
             (world.project,),
         )
@@ -80,9 +78,8 @@ def expected(world, found) -> dict:
                 'server',
                 server,
                 'web-1',
-                tags=['ops', 'linux'],
+                tags=['ops', 'linux', 'inventory'],
                 short=zeta_short,
-                inventory=True,
             ),
             entry(found['shared'], 'Alpha shared', 'server', server, 'web-1'),
             entry(found['overview'], 'web-1 overview', 'server', server, 'web-1', short='About web-1 overview'),
@@ -99,9 +96,8 @@ def expected(world, found) -> dict:
                 'server',
                 server,
                 'web-1',
-                tags=['ops', 'linux'],
+                tags=['ops', 'linux', 'inventory'],
                 short=zeta_short,
-                inventory=True,
             ),
         ],
         'environment': [
@@ -115,9 +111,8 @@ def expected(world, found) -> dict:
                 'server',
                 server,
                 'web-1',
-                tags=['ops', 'linux'],
+                tags=['ops', 'linux', 'inventory'],
                 short=zeta_short,
-                inventory=True,
             ),
         ],
         'code_project': [entry(found['readme'], 'Shop readme', 'code_project', shop, 'Shop')],

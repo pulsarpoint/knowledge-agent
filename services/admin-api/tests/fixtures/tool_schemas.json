@@ -797,13 +797,6 @@
           "title": "Name",
           "type": "string"
         },
-        "operations_notes": {
-          "default": "",
-          "description": "How to operate it: start, stop, health checks, configuration files, gotchas.",
-          "maxLength": 10000,
-          "title": "Operations Notes",
-          "type": "string"
-        },
         "owner": {
           "default": "",
           "description": "Who runs it, when you can tell.",
@@ -847,7 +840,6 @@
         "service_role",
         "description",
         "owner",
-        "operations_notes",
         "deployment",
         "depends_on",
         "built_from"
@@ -894,7 +886,7 @@
           "type": "string"
         },
         "title": {
-          "description": "The document title. A document with this title already linked to the same server, service or environment gets a new version (never its inventory document: that gets a new document beside it).",
+          "description": "The document title. A document with this title already linked to the same server, service or environment gets a new version (never the document tagged inventory: that gets a new document beside it).",
           "maxLength": 240,
           "minLength": 1,
           "title": "Title",

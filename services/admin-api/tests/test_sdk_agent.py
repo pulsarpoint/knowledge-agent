@@ -225,7 +225,7 @@ def config(responses_api, tmp_path):
         'ssh': {'enabled': False, 'servers': [{'hostname': 'must-not-connect.test'}]},
         'services': {
             'enabled': True,
-            'items': [{'id': 'payments', 'name': 'Payments', 'operations_notes': 'Inspect the queue.'}],
+            'items': [{'id': 'payments', 'name': 'Payments', 'owner': 'Inspect the queue.'}],
         },
     }
     value['tools'] = implied_tools(value)  # every saved configuration has its tools

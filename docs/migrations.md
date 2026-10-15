@@ -386,3 +386,19 @@ views and recreates `inventory_documents` empty, as 0095 defines it with 0104's 
 table; the admin-api start replaces its rows with the file (`tools/fixture.py` `sync_tools`), so the file is the only
 writer. `agent_tools.tool` is not a foreign key, because it also names MCP tools (`mcp:<server>:<tool>`). The down
 migration drops the table; nothing else depends on it, and the catalog reads the file, not the table.
+
+## 0109_tags_not_flags
+
+Tags instead of special columns. `ka.documents.inventory` is replaced by the tag `inventory`: a flagged document and
+its drafts get `inventory` appended to `tags` (never twice; `updated_at` stays), then the column, its check
+constraint, the commit-time constraint triggers (one per resource), the trigger clearing the flag when a resource's
+built-for link is deleted and their functions are dropped, and `document_details`, `live_documents` and
+`document_drafts_view` are recreated without it. The inventory document of a resource is now the live document tagged
+`inventory` built for it (the most recently updated when several), else a brand-new draft so tagged; nothing enforces
+one per resource. `ka.services.operations_notes` is dropped (test data: the notes are not converted) and
+`service_assets` is recreated without it.
+
+The down migration refuses (`… would be lost; …`) when two documents tagged `inventory` (live or brand-new drafts) are
+built for one server, service or environment. Otherwise it re-adds `operations_notes` empty and `service_assets` with
+it, re-adds `inventory` with 0107's constraint, triggers and views, and sets it on the live documents and brand-new
+drafts tagged `inventory` with exactly one built-for link, to a server, service or environment (the tags stay).

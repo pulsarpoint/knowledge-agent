@@ -21,7 +21,6 @@ def test_service_assets_link_multiple_repositories_and_server_deployments(store,
         'name': 'Payments',
         'description': 'Handles payments',
         'owner': 'Backend team',
-        'operations_notes': 'Queue should drain within 30 seconds.',
         'repository_ids': [str(first), str(second)],
         'deployments': [
             {

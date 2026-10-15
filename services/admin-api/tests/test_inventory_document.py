@@ -1,5 +1,6 @@
-"""0107: one inventory document per server, service or environment (documents.inventory), the documents of a resource
-read from its links, and ka.inventory_documents removed (disposable DB)."""
+"""0107: one inventory document per server, service or environment (documents.inventory, replaced by the tag
+`inventory` in 0109: its database checks are tested at 0108, after 0109's down), the documents of a resource read from
+their links, and ka.inventory_documents removed (disposable DB)."""
 
 import threading
 from pathlib import Path
@@ -16,6 +17,7 @@ from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0107_inventory_document.up.sql', '0107_inventory_document.down.sql'
+TAGS_UP, TAGS_DOWN = '0109_tags_not_flags.up.sql', '0109_tags_not_flags.down.sql'
 DOCUMENTS = '/api/documentation/documents'
 DRAFTS = '/api/documentation/drafts'
 NOT_BUILT_FOR = 'An inventory document must be built for one server, service or environment.'
@@ -64,46 +66,48 @@ def live(store, slug, title, **links) -> str:
     return write_live_document(store, slug, title, f'# {title}\n', **links)['id']
 
 
-def new_draft(client, slug, title, *, inventory=False, **ids):
+def new_draft(client, slug, title, *, tags=(), **ids):
     return client.post(
         DRAFTS,
         headers=HEADERS,
-        json={'slug': slug, 'title': title, 'markdown': f'# {title}\n', 'resource_ids': ids, 'inventory': inventory},
-    )
-
-
-def revision(client, document_id) -> int:
-    return client.get(f'{DOCUMENTS}/{document_id}', headers=HEADERS).json()['revision']
-
-
-def mark(client, document_id, inventory=True, at=None):
-    return client.put(
-        f'{DOCUMENTS}/{document_id}/inventory',
-        headers=HEADERS,
-        json={'inventory': inventory, 'revision': at if at is not None else revision(client, document_id)},
+        json={'slug': slug, 'title': title, 'markdown': f'# {title}\n', 'resource_ids': ids, 'tags': list(tags)},
     )
 
 
 def brief(answer: dict) -> dict:
-    """A resource documents answer with each listed document as {id, title, connection} (and inventory when set)."""
+    """A resource documents answer with each listed document as {id, title, connection} (and tags when it has some)."""
     return {
         'inventory_document': answer['inventory_document'],
         'documents': [
             {'id': item['id'], 'title': item['title'], 'connection': item['connection']}
-            | ({'inventory': True} if item['inventory'] else {})
+            | ({'tags': item['tags']} if item['tags'] else {})
             for item in answer['documents']
         ],
     }
+
+
+def tag(store, document_id) -> None:
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.documents SET tags='{inventory}' WHERE id=%s", (document_id,))
 
 
 def flag(conn, document_id) -> None:
     conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (document_id,))
 
 
+@pytest.fixture
+def at_0108(store):
+    """The schema before 0109: documents.inventory and its checks."""
+    with store.connect() as conn:
+        run(conn, TAGS_DOWN)
+    return store
+
+
 # Migration
 
 
-def test_0107_adds_the_flag_drops_attachments_and_round_trips(store):
+def test_0107_adds_the_flag_drops_attachments_and_round_trips(at_0108):
+    store = at_0108
     server = resource(store, 'servers', 'prod-1')
     runbook = live(store, 'runbook', 'Runbook', server_ids=[server])
     with store.connect() as conn:
@@ -140,12 +144,15 @@ def test_0107_adds_the_flag_drops_attachments_and_round_trips(store):
         run(conn, UP)
         assert conn.execute("SELECT to_regclass('ka.inventory_documents') AS t").fetchone()['t'] is None
         assert not conn.execute('SELECT inventory FROM ka.documents WHERE id=%s', (runbook,)).fetchone()['inventory']
+        conn.commit()
+        run(conn, TAGS_UP)
 
 
-# Constraint (database)
+# Constraint (database, at 0108)
 
 
-def test_the_flag_needs_exactly_one_built_for_server_service_or_environment(store):
+def test_the_flag_needs_exactly_one_built_for_server_service_or_environment(at_0108):
+    store = at_0108
     server, other = resource(store, 'servers', 'prod-1'), resource(store, 'servers', 'prod-2')
     code = resource(store, 'repositories', 'Shop')
     unlinked = live(store, 'unlinked', 'Unlinked')
@@ -187,7 +194,8 @@ def test_the_flag_needs_exactly_one_built_for_server_service_or_environment(stor
         ('environments', 'environment_ids', 'Environment'),
     ],
 )
-def test_a_second_inventory_document_for_a_resource_is_refused(store, client, table, kind, label):
+def test_a_second_inventory_document_for_a_resource_is_refused(at_0108, client, table, kind, label):
+    store = at_0108
     entry = resource(store, table, 'main')
     first = live(store, 'first', 'First', **{kind: [entry]})
     second = live(store, 'second', 'Second', **{kind: [entry]})
@@ -205,31 +213,8 @@ def test_a_second_inventory_document_for_a_resource_is_refused(store, client, ta
             conn.commit()
 
 
-def test_a_brand_new_inventory_draft_blocks_a_live_one_and_a_draft_of_the_live_one_is_fine(store, client):
-    server = resource(store, 'servers', 'prod-1')
-    draft = new_draft(client, 'overview', 'Overview', inventory=True, server_ids=[server])
-    assert draft.status_code == 201, draft.text
-    assert draft.json()['inventory'] is True
-    runbook = live(store, 'runbook', 'Runbook', server_ids=[server])
-    assert message(mark(client, runbook)) == (409, 'Server prod-1 already has an inventory document.')
-    discarded = client.post(f'{DRAFTS}/{draft.json()["id"]}/discard', headers=HEADERS, json={'revision': 1})
-    assert discarded.status_code == 200, discarded.text
-    assert mark(client, runbook).status_code == 200
-    of_live = client.post(DRAFTS, headers=HEADERS, json={'document_id': runbook})
-    assert of_live.status_code == 201, of_live.text
-    assert of_live.json()['inventory'] is True  # reports its document's flag
-    with store.connect() as conn:
-        assert not conn.execute('SELECT inventory FROM ka.documents WHERE id=%s', (of_live.json()['id'],)).fetchone()[
-            'inventory'
-        ]
-        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
-            flag(conn, of_live.json()['id'])
-    promoted = client.post(f'{DRAFTS}/{of_live.json()["id"]}/promote', headers=HEADERS, json={'revision': 1})
-    assert promoted.status_code == 200, promoted.text
-    assert client.get(f'{DOCUMENTS}/{runbook}', headers=HEADERS).json()['inventory'] is True
-
-
-def test_two_concurrent_transactions_add_only_one_inventory_document(store):
+def test_two_concurrent_transactions_add_only_one_inventory_document(at_0108):
+    store = at_0108
     """Review Focus 1: the second waits for the first and is refused, never two flagged documents."""
     server = resource(store, 'servers', 'prod-1')
     first = live(store, 'first', 'First', server_ids=[server])
@@ -258,88 +243,7 @@ def test_two_concurrent_transactions_add_only_one_inventory_document(store):
         assert conn.execute('SELECT count(*) AS n FROM ka.documents WHERE inventory').fetchone()['n'] == 1
 
 
-def test_a_concurrent_mark_waits_and_gets_the_message(store, client):
-    server = resource(store, 'servers', 'prod-1')
-    first = live(store, 'first', 'First', server_ids=[server])
-    second = live(store, 'second', 'Second', server_ids=[server])
-    responses = []
-    with store.connect() as one:
-        flag(one, first)
-        one.execute('SET CONSTRAINTS ka.documents_inventory IMMEDIATE')
-        worker = threading.Thread(target=lambda: responses.append(mark(client, second, at=1)))
-        worker.start()
-        worker.join(1)
-        assert worker.is_alive()
-    worker.join(10)
-    assert message(responses[0]) == (409, 'Server prod-1 already has an inventory document.')
-
-
-# Mark / unmark
-
-
-def test_mark_and_unmark_keep_the_built_for_link(store, client):
-    """Review Focus 4: unmarking keeps the built-for link; removing it stays refused."""
-    service = resource(store, 'services', 'payments')
-    runbook = live(store, 'runbook', 'Runbook', service_ids=[service])
-    marked = mark(client, runbook)
-    assert marked.status_code == 200, marked.text
-    assert marked.json() == {'id': runbook, 'revision': 2, 'inventory': True}
-    unmarked = mark(client, runbook, False)
-    assert unmarked.json() == {'id': runbook, 'revision': 3, 'inventory': False}
-    document = client.get(f'{DOCUMENTS}/{runbook}', headers=HEADERS).json()
-    assert document['inventory'] is False
-    assert [(link['type'], link['connection']) for link in document['resource_links']] == [('service', 'built_for')]
-    refused = client.put(f'{DOCUMENTS}/{runbook}/links', headers=HEADERS, json={**NO_LINKS, 'revision': 3})
-    assert message(refused) == (409, "This document was built for service payments; that link can't be removed.")
-    with store.connect() as conn:
-        actions = [
-            row['action']
-            for row in conn.execute(
-                "SELECT action FROM ka.audit_events WHERE action LIKE 'document.inventory.%' ORDER BY created_at,id"
-            )
-        ]
-    assert actions == ['document.inventory.marked', 'document.inventory.unmarked']
-
-
-def test_mark_errors(store, client):
-    server = resource(store, 'servers', 'prod-1')
-    code = resource(store, 'repositories', 'Shop')
-    unlinked = live(store, 'unlinked', 'Unlinked')
-    of_code = live(store, 'code', 'Code', code_project_ids=[code])
-    for document_id in (unlinked, of_code):
-        assert message(mark(client, document_id)) == (409, NOT_BUILT_FOR)
-    runbook = live(store, 'runbook', 'Runbook', server_ids=[server])
-    assert message(mark(client, runbook, at=7)) == (
-        409,
-        'This document changed. Reload it before saving; your text has not been overwritten.',
-    )
-    assert mark(client, str(uuid4()), at=1).status_code == 404
-    of_live = client.post(DRAFTS, headers=HEADERS, json={'document_id': runbook}).json()['id']
-    assert mark(client, of_live, at=1).status_code == 404  # a draft of a document uses its document's flag
-    brand_new = new_draft(client, 'notes', 'Notes', server_ids=[server]).json()['id']
-    assert mark(client, brand_new, at=1).json() == {'id': brand_new, 'revision': 2, 'inventory': True}
-    assert message(mark(client, runbook)) == (409, 'Server prod-1 already has an inventory document.')
-
-
-def test_a_person_creates_an_inventory_draft_and_publishing_keeps_the_flag(store, client):
-    environment = resource(store, 'environments', 'production')
-    draft = new_draft(client, 'production', 'Production', inventory=True, environment_ids=[environment])
-    assert draft.status_code == 201, draft.text
-    again = new_draft(client, 'production-2', 'Production 2', inventory=True, environment_ids=[environment])
-    assert message(again) == (409, 'Environment production already has an inventory document.')
-    assert message(new_draft(client, 'loose', 'Loose', inventory=True)) == (409, NOT_BUILT_FOR)
-    refused = client.post(DRAFTS, headers=HEADERS, json={'document_id': draft.json()['id'], 'inventory': True})
-    assert refused.status_code == 400
-    named = live(store, 'runbook', 'Runbook')
-    clash = new_draft(client, 'runbook', 'Runbook', inventory=True, server_ids=[resource(store, 'servers', 'prod-9')])
-    assert message(clash) == (
-        409,
-        'A document or draft named runbook already exists in this folder. Choose another name.',
-    )
-    assert client.get(f'{DOCUMENTS}/{named}', headers=HEADERS).json()['inventory'] is False
-    published = client.post(f'{DRAFTS}/{draft.json()["id"]}/promote', headers=HEADERS, json={'revision': 1})
-    assert published.status_code == 200, published.text
-    assert client.get(f'{DOCUMENTS}/{draft.json()["id"]}', headers=HEADERS).json()['inventory'] is True
+# Drafts
 
 
 def test_a_new_inventory_draft_never_becomes_a_draft_of_the_live_document_its_name_names(store):
@@ -350,7 +254,7 @@ def test_a_new_inventory_draft_never_becomes_a_draft_of_the_live_document_its_na
         'description': '',
         'purpose': 'explanation',
         'audience': 'both',
-        'tags': [],
+        'tags': ['inventory'],
         'markdown': '# Runbook\n',
     }
     with store.connect() as conn:
@@ -364,7 +268,6 @@ def test_a_new_inventory_draft_never_becomes_a_draft_of_the_live_document_its_na
                 origin='manual',
                 slug='runbook',
                 links={'server_ids': [server]},
-                inventory=True,
             )
         assert (refused.value.status_code, refused.value.detail) == (
             409,
@@ -403,7 +306,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
             {'id': overview, 'title': 'Overview', 'connection': 'built_for'},
         ],
     }
-    assert mark(client, overview).status_code == 200
+    tag(store, overview)
     assert brief(client.get(url, headers=HEADERS).json()) == {
         'inventory_document': {
             'id': overview,
@@ -414,7 +317,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
             'published': True,
         },
         'documents': [
-            {'id': overview, 'title': 'Overview', 'connection': 'built_for', 'inventory': True},
+            {'id': overview, 'title': 'Overview', 'connection': 'built_for', 'tags': ['inventory']},
             {'id': built, 'title': 'Built', 'connection': 'built_for'},
             {'id': linked, 'title': 'Linked', 'connection': 'linked'},
         ],
@@ -485,24 +388,9 @@ def test_the_system_map_shows_the_documents_linked_to_each_entry(store, client):
     ]
 
 
-def test_documents_list_has_the_flag_and_filters_inventory_documents(store, client):
-    server = resource(store, 'servers', 'prod-1')
-    overview = live(store, 'overview', 'Overview', server_ids=[server])
-    live(store, 'other', 'Other', server_ids=[server])
-    assert mark(client, overview).status_code == 200
-    listed = client.get(DOCUMENTS, headers=HEADERS).json()
-    assert {row['title']: row['inventory'] for row in listed['documents']} == {'Overview': True, 'Other': False}
-    only = client.get(DOCUMENTS, headers=HEADERS, params={'inventory': 'true'}).json()
-    assert [row['id'] for row in only['documents']] == [overview] and only['total'] == 1
-    brand_new = new_draft(client, 'draft', 'Draft').json()['id']
-    assert client.get(f'{DOCUMENTS}/{brand_new}', headers=HEADERS).json()['inventory'] is False
-    drafts = client.get(DRAFTS, headers=HEADERS).json()['drafts']
-    assert [row['inventory'] for row in drafts] == [False]
-
-
 def test_a_brand_new_inventory_draft_is_the_resources_inventory_document_unpublished(store, client):
     service = resource(store, 'services', 'payments')
-    draft = new_draft(client, 'payments', 'Payments', inventory=True, service_ids=[service]).json()['id']
+    draft = new_draft(client, 'payments', 'Payments', tags=['inventory'], service_ids=[service]).json()['id']
     url = f'/api/inventory/service/{service}/documents'
     assert client.get(url, headers=HEADERS).json() == {
         'inventory_document': {
@@ -520,21 +408,19 @@ def test_a_brand_new_inventory_draft_is_the_resources_inventory_document_unpubli
     assert (found['id'], found['version'], found['is_draft'], found['published']) == (draft, 1, False, True)
 
 
-def test_deleting_the_resource_clears_its_inventory_documents_flag(store, client):
+def test_deleting_the_resource_leaves_its_inventory_document_with_its_tag_and_no_links(store, client):
     created = client.post('/api/services', headers=HEADERS, json={'name': 'payments'}).json()
-    runbook = live(store, 'runbook', 'Runbook', service_ids=[created['id']])
-    assert mark(client, runbook).status_code == 200
+    runbook = live(store, 'runbook', 'Runbook', service_ids=[created['id']], tags=['inventory'])
     deleted = client.delete(
         f'/api/services/{created["id"]}', headers=HEADERS, params={'revision': created['revision'], 'confirmed': True}
     )
     assert deleted.status_code == 200, deleted.text
     document = client.get(f'{DOCUMENTS}/{runbook}', headers=HEADERS).json()
-    assert (document['inventory'], document['resource_links']) == (False, [])
-    with store.connect() as conn:  # nothing is left to block: the document can be built on again
-        assert conn.execute('SELECT count(*) AS n FROM ka.documents WHERE inventory').fetchone()['n'] == 0
+    assert (document['tags'], document['resource_links']) == (['inventory'], [])
     again = resource(store, 'services', 'payments')
-    overview = live(store, 'overview', 'Overview', service_ids=[again])
-    assert mark(client, overview).status_code == 200
+    overview = live(store, 'overview', 'Overview', service_ids=[again], tags=['inventory'])
+    found = client.get(f'/api/inventory/service/{again}/documents', headers=HEADERS).json()
+    assert found['inventory_document']['id'] == overview
 
 
 def test_nothing_reads_or_writes_the_old_attachments_table():

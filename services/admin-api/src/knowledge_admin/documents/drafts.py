@@ -9,7 +9,7 @@ import logging
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -87,7 +87,7 @@ class Resources(BaseModel):
 class DraftCreate(BaseModel):
     """A draft of a document (document_id; the text defaults to the live version's; base_version: the version the
     person loaded, default the live one) or of a new document (slug, an optional folder, title and Markdown, optional
-    resources; inventory: the inventory document of the one resource it is built for)."""
+    resources it is built for; a new inventory document is one tagged inventory)."""
 
     model_config = ConfigDict(extra='forbid')
     document_id: UUID | None = None
@@ -101,7 +101,6 @@ class DraftCreate(BaseModel):
     tags: Tags | None = None
     markdown: Markdown | None = None
     resource_ids: Resources | None = None
-    inventory: bool = Field(default=False, strict=True)
 
     @field_validator('folder')
     @classmethod
@@ -114,8 +113,6 @@ class DraftCreate(BaseModel):
             raise ValueError('Give a document_id, or a slug for a new document.')
         if self.document_id is not None and (self.folder is not None or self.resource_ids is not None):
             raise ValueError('A draft of a document keeps its folder and linked resources.')
-        if self.document_id is not None and self.inventory:
-            raise ValueError("A draft of a document has its document's inventory flag.")
         if self.document_id is None and self.base_version is not None:
             raise ValueError('Only a draft of a document has a base version.')
         if self.document_id is None and (self.title is None or self.markdown is None):
@@ -134,12 +131,11 @@ class Promotion(Decision):
 
 # {extra}: more columns; the only placeholder (no other braces in the SQL). A run's draft (session_id) reports origin
 # 'agent', a person's 'manual'; published: it revises a live document (false: a brand-new draft), document_title its
-# title (null for a brand-new draft); inventory the flag of its document (a brand-new draft's own); l is the live
-# document a draft revises.
+# title (null for a brand-new draft); l is the live document a draft revises.
 SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,
     CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,s.title AS session_title,
     s.purpose AS session_purpose,p.email AS author,x.edited,x.revision,x.base_version,x.live_version,x.stale,
-    x.document_id IS NOT NULL AS published,x.document_title,x.inventory,x.created_at,x.updated_at{extra}
+    x.document_id IS NOT NULL AS published,x.document_title,x.created_at,x.updated_at{extra}
     FROM ka.document_drafts_view x LEFT JOIN ka.documents l ON l.id=x.document_id
     LEFT JOIN ka.agent_sessions s ON s.id=x.session_id LEFT JOIN ka.principals p ON p.id=x.created_by"""
 DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.tags,x.markdown,
@@ -399,7 +395,6 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
                     folder=value.folder,
                     links=value.resource_ids.model_dump() if value.resource_ids else None,
                     base_version=value.base_version,
-                    inventory=value.inventory,
                 )
                 return jsonable_encoder(draft_detail(conn, project, draft_id))
         except psycopg.errors.UniqueViolation:  # a brand-new draft already holds this folder and slug
@@ -517,9 +512,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
         server_id: UUID | None = None,
         code_project_id: UUID | None = None,
         deployment_id: UUID | None = None,
+        tag: str | None = Query(default=None, max_length=80),
     ) -> dict:
         """Drafts, newest first; new=true: only brand-new documents (the Documents page's New drafts). A resource
-        filter keeps the drafts linked to it: brand-new drafts by their own links, drafts of a document by its links."""
+        filter keeps the drafts linked to it: brand-new drafts by their own links, drafts of a document by its links.
+        `tag`: the drafts with that tag (one tag, exact, case-insensitive)."""
         db = database()
         given = {
             'environment_id': environment_id,
@@ -533,6 +530,9 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             if resource_id is not None:
                 where.append(f'%s=ANY(x.{RESOURCE_FILTERS[name]})')
                 values.append(resource_id)
+        if tag is not None:
+            where.append('EXISTS (SELECT 1 FROM unnest(x.tags) t WHERE lower(t)=lower(%s))')
+            values.append(tag)
         with db.connect() as conn:
             rows = conn.execute(
                 SUMMARY.format(extra='') + f' WHERE {" AND ".join(where)} ORDER BY x.created_at DESC,x.id',
