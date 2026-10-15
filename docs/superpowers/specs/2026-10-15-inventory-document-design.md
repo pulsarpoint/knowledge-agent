@@ -45,6 +45,10 @@ the resource (environment, service, server) is opened.**
 
 ## Setting the flag
 
+- An inventory document is an ordinary document with the flag: it is edited exactly like every other document
+  (Save makes a draft, Promote/Publish makes it live, same version history, links and archive). Nothing about editing
+  is specific to inventory documents.
+
 - **New inventory document** on a resource page (shown when the resource has none): opens Documents → New built for the
   resource with `inventory` set; Save creates a brand-new draft with the flag, Publish makes it live.
 - **Mark as inventory document** on a document whose only built-for link is a server/service/environment that has no
