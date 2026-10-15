@@ -43,7 +43,7 @@ function draftFilter(params: URLSearchParams): Record<string, string> {
   return filter;
 }
 
-/** Documents: the live documents (search, resource filters, Has drafts) with the new documents' drafts above them, or,
+/** Documents: the live documents (search, resource filters, Has drafts, Inventory documents only) with the new documents' drafts above them, or,
  * on the Drafts tab (?view=drafts), every draft (new documents and drafts of documents) with the same resource filters. */
 export default function DocumentsView() {
   const [params, setParams] = useSearchParams();
@@ -213,6 +213,16 @@ export default function DocumentsView() {
             <Label htmlFor="filter-has-drafts">Has drafts</Label>
           </div>
         )}
+        {!draftsView && (
+          <div className="flex items-center gap-2 self-end pb-2">
+            <Checkbox
+              id="filter-inventory"
+              checked={params.get("inventory") === "true"}
+              onCheckedChange={(on) => filter("inventory", on === true ? "true" : "")}
+            />
+            <Label htmlFor="filter-inventory">Inventory documents only</Label>
+          </div>
+        )}
       </div>
       {(error || discardError) && (
         <Alert variant="destructive">
@@ -325,6 +335,11 @@ export default function DocumentsView() {
                       <Link className="font-medium underline-offset-4 hover:underline" to={draftPath(draft)}>
                         {draft.title}
                       </Link>
+                      {draft.inventory && (
+                        <Badge variant="secondary" className="ml-2">
+                          Inventory
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>{draft.folder ?? "—"}</TableCell>
                     <TableCell>
@@ -384,6 +399,11 @@ export default function DocumentsView() {
                         <Link className="font-medium underline-offset-4 hover:underline" to={`/documents/${doc.id}`}>
                           {doc.title}
                         </Link>
+                        {doc.inventory && (
+                          <Badge variant="secondary" className="ml-2">
+                            Inventory
+                          </Badge>
+                        )}
                         <p className="mt-1 text-sm text-muted-foreground">{doc.description}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {COUNTED.map((kind) => `${doc[kind.field].length} ${kind.plural.toLowerCase()}`).join(" · ")}

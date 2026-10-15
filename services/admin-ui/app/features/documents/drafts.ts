@@ -31,6 +31,8 @@ export interface DraftSummary {
   published?: boolean;
   /** The live document's title (null for a brand-new draft). */
   document_title?: string | null;
+  /** Its document's inventory flag (a brand-new draft's own). */
+  inventory?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +49,8 @@ export type DraftCreate = Partial<DraftContent> & {
   slug?: string;
   folder?: string | null;
   resource_ids?: ResourceIds<DocumentKey>;
+  /** A brand-new draft that is the inventory document of the one resource it is built for. */
+  inventory?: boolean;
 };
 export interface PromoteResult {
   document_id: string;

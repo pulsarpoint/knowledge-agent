@@ -344,7 +344,7 @@ test("the service page shows the service's information and its chats", async () 
         },
       },
     ],
-    "GET /api/inventory/documents?entry_kind=service&entry_id=v1": () => [200, { documents: [] }],
+    "GET /api/inventory/service/v1/documents": () => [200, { inventory_document: null, documents: [] }],
   });
   render(
     <MemoryRouter initialEntries={["/services/v1"]}>
@@ -373,7 +373,7 @@ test("the environment page shows the environment's services and servers, and its
         servers: [{ id: "s1", name: "web-1", hostname: "10.0.0.7" }],
       },
     ],
-    "GET /api/inventory/documents?entry_kind=environment&entry_id=e1": () => [200, { documents: [] }],
+    "GET /api/inventory/environment/e1/documents": () => [200, { inventory_document: null, documents: [] }],
     "GET /api/sessions?tag=environments%2Fe1": () => [200, { sessions: [] }],
   });
   render(

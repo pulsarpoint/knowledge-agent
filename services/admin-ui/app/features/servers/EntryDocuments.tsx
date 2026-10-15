@@ -1,45 +1,92 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { getAttachments, ENTRY_LABELS, type Attachment, type MapEntry } from "./inventoryMap";
+import {
+  ENTRY_LABELS,
+  getEntryDocuments,
+  newInventoryDocumentPath,
+  type EntryDocuments as Documents,
+  type MapEntry,
+} from "./inventoryMap";
 import EntrySheet from "./EntrySheet";
+import Markdown from "~/components/Markdown";
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
-/** An inventory entry's attached documents, with Connections and documents (the entry sheet) to change them. */
+export const CONNECTION_LABELS = { built_for: "built for", linked: "linked" } as const;
+
+/** A resource page's documents: its inventory document rendered (Open edits it through drafts as usual), or New
+ * inventory document when it has none; the other documents linked to it; and Connections and documents (the entry
+ * sheet) to change its links. */
 export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; onChanged?: () => void }) {
-  const [documents, setDocuments] = useState<Attachment[]>([]);
+  const [documents, setDocuments] = useState<Documents | null>(null);
   const [editing, setEditing] = useState(false);
   const [version, setVersion] = useState(0);
   useEffect(() => {
-    let current = true;
-    getAttachments(entry)
+    const controller = new AbortController();
+    getEntryDocuments(entry, controller.signal)
       .then((value) => {
-        if (current) setDocuments(value.documents);
+        if (!controller.signal.aborted) setDocuments(value);
       })
-      .catch(() => undefined); // the list stays empty; the sheet shows its own errors
-    return () => {
-      current = false;
-    };
+      .catch(() => undefined); // nothing shown; the sheet shows its own errors
+    return () => controller.abort();
   }, [entry.kind, entry.id, version]);
+  const inventory = documents?.inventory_document ?? null;
+  const others = documents?.documents ?? [];
   return (
-    <section aria-label="Documents" className="flex flex-col gap-2">
+    <section aria-label="Documents" className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Documents</h2>
         <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
           Connections and documents
         </Button>
       </div>
-      {documents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No documents are attached to this {ENTRY_LABELS[entry.kind]}.</p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {documents.map((item) => (
-            <li key={item.id}>
-              <Link className="underline" to={`/documents/${item.document_id}`}>
-                {item.title}
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {documents && entry.kind !== "code_project" && (
+        <section aria-label="Inventory document" className="flex flex-col gap-2 rounded-lg border p-4">
+          {inventory ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold">{inventory.title}</h3>
+                  {inventory.is_draft && <Badge variant="outline">Draft — not published</Badge>}
+                </div>
+                <Button asChild size="sm" variant="outline">
+                  <Link to={`/documents/${encodeURIComponent(inventory.id)}`}>Open</Link>
+                </Button>
+              </div>
+              <div className="min-w-0">
+                <Markdown content={inventory.markdown} />
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">No inventory document yet.</p>
+              <Button asChild size="sm">
+                <Link to={newInventoryDocumentPath(entry)}>New inventory document</Link>
+              </Button>
+            </div>
+          )}
+        </section>
+      )}
+      {documents && (
+        <section aria-label="Other documents" className="flex flex-col gap-2">
+          <h3 className="font-medium">Other documents</h3>
+          {others.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No other documents are linked to this {ENTRY_LABELS[entry.kind]}.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1 text-sm">
+              {others.map((item) => (
+                <li key={item.id} className="flex items-center gap-2">
+                  <Link className="underline" to={`/documents/${encodeURIComponent(item.id)}`}>
+                    {item.title}
+                  </Link>
+                  <span className="text-xs text-muted-foreground">{CONNECTION_LABELS[item.connection]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
       {editing && (
         <EntrySheet

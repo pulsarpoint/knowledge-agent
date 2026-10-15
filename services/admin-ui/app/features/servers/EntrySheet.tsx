@@ -6,25 +6,26 @@ import {
   ENTRY_LABELS,
   ENTRY_PAGES,
   LINK_LABELS,
-  attachDocument,
   createLink,
   deleteLink,
-  detachDocument,
   formatAttributes,
-  getAttachments,
+  getEntryDocuments,
   getLinks,
+  linkDocument,
   linkKindsFrom,
   parseAttributes,
   searchEntries,
   targetKinds,
+  unlinkDocument,
   updateLink,
-  type Attachment,
+  type EntryDocuments,
   type EntryHit,
   type Link,
   type LinkKind,
   type MapEntry,
 } from "./inventoryMap";
 import { Alert, AlertDescription } from "~/components/ui/alert";
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -263,7 +264,7 @@ function Connect({ entry, onConnected }: { entry: MapEntry; onConnected: () => v
   );
 }
 
-function DocumentPicker({ attached, onPick }: { attached: string[]; onPick: (document: DocumentSummary) => void }) {
+function DocumentPicker({ linked, onPick }: { linked: string[]; onPick: (document: DocumentSummary) => void }) {
   const [q, setQ] = useState("");
   const [found, setFound] = useState<DocumentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -276,9 +277,10 @@ function DocumentPicker({ attached, onPick }: { attached: string[]; onPick: (doc
       setError(say(reason, "Could not search documents."));
     }
   }
-  const shown = found?.filter((document) => !attached.includes(document.id));
+  const shown = found?.filter((document) => !linked.includes(document.id));
   return (
     <form onSubmit={find} className="flex flex-col gap-2">
+      <h4 className="text-sm font-medium">Link a document</h4>
       <div className="flex gap-2">
         <Input
           aria-label="Find a document"
@@ -293,7 +295,7 @@ function DocumentPicker({ attached, onPick }: { attached: string[]; onPick: (doc
       {error && <p className="text-destructive text-sm">{error}</p>}
       {shown &&
         (shown.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No documents to attach.</p>
+          <p className="text-muted-foreground text-sm">No documents to link.</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {shown.map((document) => (
@@ -303,10 +305,10 @@ function DocumentPicker({ attached, onPick }: { attached: string[]; onPick: (doc
                   type="button"
                   size="sm"
                   variant="outline"
-                  aria-label={`Attach: ${document.title}`}
+                  aria-label={`Link: ${document.title}`}
                   onClick={() => onPick(document)}
                 >
-                  Attach
+                  Link
                 </Button>
               </li>
             ))}
@@ -326,14 +328,14 @@ export default function EntrySheet({
   onChanged: () => void;
 }) {
   const [links, setLinks] = useState<Link[] | null>(null);
-  const [documents, setDocuments] = useState<Attachment[]>([]);
+  const [documents, setDocuments] = useState<EntryDocuments>({ inventory_document: null, documents: [] });
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const [linked, attached] = await Promise.all([getLinks(entry), getAttachments(entry)]);
+      const [linked, documented] = await Promise.all([getLinks(entry), getEntryDocuments(entry)]);
       setLinks(linked.links);
-      setDocuments(attached.documents);
+      setDocuments(documented);
     } catch (reason) {
       setError(say(reason, "Could not load the entry."));
     }
@@ -439,33 +441,49 @@ export default function EntrySheet({
           />
           <section aria-label="Documents" className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Documents</h3>
-            {documents.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No documents attached.</p>
+            {!documents.inventory_document && documents.documents.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No documents are linked.</p>
             ) : (
               <ul className="flex flex-col gap-1 text-sm">
-                {documents.map((document) => (
-                  <li key={document.id} className="flex items-center justify-between gap-2">
-                    <RouterLink to={`/documents/${document.document_id}`} className="underline">
-                      {document.title}
+                {documents.inventory_document && (
+                  <li className="flex items-center gap-2">
+                    <RouterLink to={`/documents/${documents.inventory_document.id}`} className="underline">
+                      {documents.inventory_document.title}
                     </RouterLink>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Detach ${document.title}`}
-                      onClick={() => void act(() => detachDocument(document.id), "Could not detach the document.")}
-                    >
-                      Detach
-                    </Button>
+                    <Badge variant="secondary">Inventory</Badge>
+                  </li>
+                )}
+                {documents.documents.map((document) => (
+                  <li key={document.id} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <RouterLink to={`/documents/${document.id}`} className="underline">
+                        {document.title}
+                      </RouterLink>
+                      {document.connection === "built_for" && (
+                        <span className="text-muted-foreground text-xs">built for</span>
+                      )}
+                    </span>
+                    {document.connection === "linked" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove link: ${document.title}`}
+                        onClick={() => void act(() => unlinkDocument(entry, document.id), "Could not remove the link.")}
+                      >
+                        Remove
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
             <DocumentPicker
-              attached={documents.map((document) => document.document_id)}
-              onPick={(document) =>
-                void act(() => attachDocument(entry, document.id), "Could not attach the document.")
-              }
+              linked={[
+                ...(documents.inventory_document ? [documents.inventory_document.id] : []),
+                ...documents.documents.map((document) => document.id),
+              ]}
+              onPick={(document) => void act(() => linkDocument(entry, document.id), "Could not link the document.")}
             />
           </section>
         </div>

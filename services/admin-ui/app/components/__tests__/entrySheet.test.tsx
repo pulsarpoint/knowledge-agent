@@ -14,7 +14,8 @@ const link = {
   revision: 1,
 };
 const LINKS = "/api/inventory/links?entry_kind=service&entry_id=api";
-const DOCS = "/api/inventory/documents?entry_kind=service&entry_id=api";
+const DOCS = "/api/inventory/service/api/documents";
+const none = { inventory_document: null, documents: [] };
 
 function server(routes: Record<string, (init?: RequestInit) => { status?: number; json?: unknown }>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -40,8 +41,17 @@ test("shows the entry's links and documents with a link to its page", async () =
     [`GET ${LINKS}`]: () => ({ json: { links: [link] } }),
     [`GET ${DOCS}`]: () => ({
       json: {
+        inventory_document: {
+          id: "d0",
+          title: "api overview",
+          markdown: "# api",
+          version: 1,
+          is_draft: false,
+          published: true,
+        },
         documents: [
-          { id: "a1", entry_kind: "service", entry_id: "api", document_id: "d1", slug: "runbook", title: "Runbook" },
+          { id: "d1", title: "Runbook", connection: "linked" },
+          { id: "d2", title: "Design", connection: "built_for" },
         ],
       },
     }),
@@ -50,7 +60,14 @@ test("shows the entry's links and documents with a link to its page", async () =
   expect(await screen.findByText("connects to → prod-1")).toBeInTheDocument();
   expect(screen.getByText("reads its database · port: 5432")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Open in Services" })).toHaveAttribute("href", "/services");
-  expect(screen.getByRole("link", { name: "Runbook" })).toHaveAttribute("href", "/documents/d1");
+  const documents = within(screen.getByRole("region", { name: "Documents" }));
+  expect(await documents.findByRole("link", { name: "Runbook" })).toHaveAttribute("href", "/documents/d1");
+  expect(documents.getByRole("link", { name: "api overview" })).toHaveAttribute("href", "/documents/d0");
+  expect(documents.getByText("Inventory")).toBeInTheDocument();
+  // only a linked link can be removed: the inventory document's and other built-for links stay
+  expect(documents.getByRole("button", { name: "Remove link: Runbook" })).toBeInTheDocument();
+  expect(documents.queryByRole("button", { name: "Remove link: Design" })).toBeNull();
+  expect(documents.queryByRole("button", { name: "Remove link: api overview" })).toBeNull();
 });
 
 test("connects to an entry: kinds follow the entry, targets follow the kind", async () => {
@@ -59,7 +76,7 @@ test("connects to an entry: kinds follow the entry, targets follow the kind", as
   let posted: unknown = null;
   const fetch = server({
     [`GET ${LINKS}`]: () => ({ json: { links: [] } }),
-    [`GET ${DOCS}`]: () => ({ json: { documents: [] } }),
+    [`GET ${DOCS}`]: () => ({ json: none }),
     ["GET /api/map/search?kind=service&q=wor"]: () => ({
       json: { entries: [{ entry_kind: "service", entry_id: "w", name: "worker" }] },
     }),
@@ -98,7 +115,7 @@ test("edits a link, shows a conflict, and removes it", async () => {
   const user = userEvent.setup();
   server({
     [`GET ${LINKS}`]: () => ({ json: { links: [link] } }),
-    [`GET ${DOCS}`]: () => ({ json: { documents: [] } }),
+    [`GET ${DOCS}`]: () => ({ json: none }),
     ["PUT /api/inventory/links/l1"]: () => ({
       status: 409,
       json: { error: { message: "This connection was changed by someone else. Reload and try again." } },
@@ -118,36 +135,41 @@ test("edits a link, shows a conflict, and removes it", async () => {
   await waitFor(() => expect(screen.queryByText(/changed by someone else/)).toBeNull());
 });
 
-test("attaches and detaches documents", async () => {
+test("Link a document adds a linked link; Remove link removes it", async () => {
   const user = userEvent.setup();
-  let attached = false;
+  let linked = false;
+  let posted: unknown = null;
+  const onChanged = vi.fn();
+  const docs = () => ({
+    inventory_document: null,
+    documents: linked ? [{ id: "d1", title: "Runbook", connection: "linked" }] : [],
+  });
   server({
     [`GET ${LINKS}`]: () => ({ json: { links: [] } }),
-    [`GET ${DOCS}`]: () => ({
-      json: {
-        documents: attached
-          ? [{ id: "a1", entry_kind: "service", entry_id: "api", document_id: "d1", slug: "runbook", title: "Runbook" }]
-          : [],
-      },
-    }),
+    [`GET ${DOCS}`]: () => ({ json: docs() }),
     ["GET /api/documentation/documents?q=run"]: () => ({
       json: { documents: [{ id: "d1", slug: "runbook", title: "Runbook" }] },
     }),
-    ["POST /api/inventory/documents"]: () => {
-      attached = true;
-      return { status: 201, json: { attachment: {} } };
+    [`POST ${DOCS}`]: (init) => {
+      posted = JSON.parse(String(init?.body));
+      linked = true;
+      return { status: 201, json: docs() };
     },
-    ["DELETE /api/inventory/documents/a1"]: () => {
-      attached = false;
-      return { status: 204 };
+    [`DELETE ${DOCS}/d1`]: () => {
+      linked = false;
+      return { json: docs() };
     },
   });
-  sheet();
-  await user.type(await screen.findByRole("textbox", { name: "Find a document" }), "run");
-  await user.click(within(screen.getByRole("region", { name: "Documents" })).getByRole("button", { name: "Find" }));
-  await user.click(await screen.findByRole("button", { name: "Attach: Runbook" }));
-  await user.click(await screen.findByRole("button", { name: "Detach Runbook" }));
-  await waitFor(() => expect(screen.getByText("No documents attached.")).toBeInTheDocument());
+  sheet(onChanged);
+  const documents = within(await screen.findByRole("region", { name: "Documents" }));
+  expect(documents.getByText("Link a document")).toBeInTheDocument();
+  await user.type(documents.getByRole("textbox", { name: "Find a document" }), "run");
+  await user.click(documents.getByRole("button", { name: "Find" }));
+  await user.click(await documents.findByRole("button", { name: "Link: Runbook" }));
+  await waitFor(() => expect(posted).toEqual({ document_id: "d1" }));
+  expect(onChanged).toHaveBeenCalled();
+  await user.click(await documents.findByRole("button", { name: "Remove link: Runbook" }));
+  await waitFor(() => expect(documents.getByText("No documents are linked.")).toBeInTheDocument());
 });
 
 test("after a stale-revision save the links are fetched again, so Edit reopens the current revision", async () => {
@@ -155,7 +177,7 @@ test("after a stale-revision save the links are fetched again, so Edit reopens t
   let current = 1;
   const fetch = server({
     [`GET ${LINKS}`]: () => ({ json: { links: [{ ...link, revision: current }] } }),
-    [`GET ${DOCS}`]: () => ({ json: { documents: [] } }),
+    [`GET ${DOCS}`]: () => ({ json: none }),
     ["PUT /api/inventory/links/l1"]: () => {
       current = 2;
       return {

@@ -35,6 +35,8 @@ export interface DocumentSummary extends Omit<DocumentInput, "markdown" | "revis
   updated_at: string;
   folder?: string | null;
   draft_count?: number;
+  /** Its resource's inventory document (built for one server, service or environment). */
+  inventory?: boolean;
 }
 export type DocumentOrigin = "manual" | "uploaded" | "generated";
 /** One version's content, by number: the live row (`live`) or an archived one. */
@@ -150,6 +152,27 @@ export const saveDocumentLinks = (id: string, revision: number, ids: DocumentIds
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ revision, ...ids }),
+    },
+  );
+/** The kinds of resource an inventory document can be built for. */
+export const INVENTORY_TYPES = ["server", "service", "environment"] as const;
+export type InventoryType = (typeof INVENTORY_TYPES)[number];
+/** The refusals of an inventory flag: the resource has one already, or the document is not built for exactly one
+ * server, service or environment. */
+export const isInventoryRefusal = (e: unknown) =>
+  e instanceof ApiError &&
+  e.status === 409 &&
+  (e.message.endsWith("already has an inventory document.") ||
+    e.message === "An inventory document must be built for one server, service or environment.");
+/** Marks (or unmarks) a live document or a brand-new draft as its resource's inventory document, at the revision the
+ * page holds; the answer's revision is the page's next one. Unmarking keeps every link. */
+export const saveDocumentInventory = (id: string, revision: number, inventory: boolean) =>
+  request<{ id: string; revision: number; inventory: boolean }>(
+    `/api/documentation/documents/${encodeURIComponent(id)}/inventory`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inventory, revision }),
     },
   );
 export const deleteDocument = (id: string, revision: number) =>

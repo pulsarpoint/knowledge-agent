@@ -139,7 +139,7 @@ const detail = (id: string, status: string, serverId = "s1") => ({
 const RUNS = "GET /api/sessions?tag=servers%2Fs1";
 const base = (ready = true, reason: string | null = null): Record<string, (body: any) => [number, unknown]> => ({
   "GET /api/servers/s1": () => [200, page(ready, reason)],
-  "GET /api/inventory/documents?entry_kind=server&entry_id=s1": () => [200, { documents: [] }],
+  "GET /api/inventory/server/s1/documents": () => [200, { inventory_document: null, documents: [] }],
   "GET /api/sessions/options?server_id=s1": () => [200, options],
   [RUNS]: () => [200, { sessions: [] }],
 });
@@ -218,21 +218,9 @@ test("shows the server, its services and documents, and its chats", async () => 
   api({
     ...base(),
     [RUNS]: () => [200, { sessions: [run("r1", "closed", "Disk usage")] }],
-    "GET /api/inventory/documents?entry_kind=server&entry_id=s1": () => [
+    "GET /api/inventory/server/s1/documents": () => [
       200,
-      {
-        documents: [
-          {
-            id: "a1",
-            entry_kind: "server",
-            entry_id: "s1",
-            document_id: "doc1",
-            slug: "web-1-overview",
-            title: "web-1 overview",
-            created_at: "",
-          },
-        ],
-      },
+      { inventory_document: null, documents: [{ id: "doc1", title: "web-1 overview", connection: "linked" }] },
     ],
   });
   show();
@@ -240,6 +228,11 @@ test("shows the server, its services and documents, and its chats", async () => 
   expect(within(screen.getByRole("region", { name: "Services" })).getByText("Production")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "nginx" })).toHaveAttribute("href", "/services/n1");
   expect(await screen.findByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc1");
+  expect(screen.getByText("No inventory document yet.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "New inventory document" })).toHaveAttribute(
+    "href",
+    "/documents/new?inventory=server&resource_id=s1",
+  );
   expect(screen.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/servers/s1/proposals");
   const chats = screen.getByRole("region", { name: "Chats" });
   expect(await within(chats).findByRole("button", { name: /Disk usage/ })).toBeInTheDocument();
@@ -334,5 +327,6 @@ test("empty services and documents are explained", async () => {
   api({ ...base(), "GET /api/servers/s1": () => [200, { ...page(true), deployments: [] }] });
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
-  expect(screen.getByText("No documents are attached to this server.")).toBeInTheDocument();
+  expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
+  expect(screen.getByText("No other documents are linked to this server.")).toBeInTheDocument();
 });

@@ -103,13 +103,25 @@ export interface EntryHit {
   entry_id: string;
   name: string;
 }
-export interface Attachment {
+/** A resource's inventory document: a live document or a brand-new draft (version null, not published). */
+export interface InventoryDocument {
   id: string;
-  entry_kind: EntryKind;
-  entry_id: string;
-  document_id: string;
-  slug: string;
   title: string;
+  markdown: string;
+  version: number | null;
+  is_draft: boolean;
+  published: boolean;
+}
+/** Another live document linked to the entry: built for it (locked) or linked later (removable). */
+export interface EntryDocument {
+  id: string;
+  title: string;
+  connection: "built_for" | "linked";
+}
+/** An entry's documents, from the documents' links (a code project has no inventory document). */
+export interface EntryDocuments {
+  inventory_document: InventoryDocument | null;
+  documents: EntryDocument[];
 }
 export interface MapState {
   map: MapName;
@@ -192,12 +204,18 @@ export const updateLink = (
   input: { description: string; attributes: Record<string, string>; revision: number },
 ) => request<{ link: Link }>(`/api/inventory/links/${id}`, send("PUT", input));
 export const deleteLink = (id: string) => request<void>(`/api/inventory/links/${id}`, { method: "DELETE" });
-export const getAttachments = (entry: EntryRef) =>
-  request<{ documents: Attachment[] }>(`/api/inventory/documents?${entryQuery(entry)}`);
-export const attachDocument = (entry: EntryRef, documentId: string) =>
-  request<{ attachment: Attachment }>("/api/inventory/documents", send("POST", { entry, document_id: documentId }));
-export const detachDocument = (attachmentId: string) =>
-  request<void>(`/api/inventory/documents/${attachmentId}`, { method: "DELETE" });
+const documentsUrl = (entry: EntryRef) => `/api/inventory/${entry.kind}/${encodeURIComponent(entry.id)}/documents`;
+export const getEntryDocuments = (entry: EntryRef, signal?: AbortSignal) =>
+  request<EntryDocuments>(documentsUrl(entry), { signal });
+/** Links a live document to the entry (a `linked` link); answers the entry's documents. */
+export const linkDocument = (entry: EntryRef, documentId: string) =>
+  request<EntryDocuments>(documentsUrl(entry), send("POST", { document_id: documentId }));
+/** Removes the document's `linked` link to the entry (a built-for link can't be removed). */
+export const unlinkDocument = (entry: EntryRef, documentId: string) =>
+  request<EntryDocuments>(`${documentsUrl(entry)}/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+/** The New page for the entry's inventory document: built for it, flagged. */
+export const newInventoryDocumentPath = (entry: EntryRef) =>
+  `/documents/new?${new URLSearchParams({ inventory: entry.kind, resource_id: entry.id })}`;
 
 /** Reads the Attributes field — one "name: value" per line — into an object, or says what is wrong. */
 export function parseAttributes(text: string): { value: Record<string, string> } | { problem: string } {

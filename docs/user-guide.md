@@ -354,6 +354,12 @@ A server's name opens its page (`/servers/:id`): its **Info** (details, SSH stat
 documents) and its **Chats**. Services (`/services/:id`) and environments (`/environments/:id`) have the same kind of
 page. **Connections and documents** there opens the same panel as the System map.
 
+Each server, service and environment has at most one **inventory document**: Info shows it rendered, with **Open** to
+edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
+Info says "No inventory document yet." with **New inventory document**: the New document page opens built for the
+resource, and **Save** creates the draft of its inventory document. **Other documents** lists every other document
+linked to the resource (built for it or linked).
+
 #### Chats and proposals
 
 **Chats** lists the conversations on the server (service, environment): open ones first, then by last activity; runs
@@ -686,6 +692,12 @@ and, on a live document, **Version history** (**Use version as draft**), **Draft
 - **Linked resources**: **Save links** writes the links at once (links never go through drafts); a link the document
   was built for stays locked. If someone changed the document's links meanwhile, Save links says so and writes
   nothing.
+- **Inventory document**: a document built for exactly one server, service or environment that has no inventory
+  document yet offers **Mark as inventory document** on Linked resources; an inventory document shows a badge naming
+  its resource ("Inventory document of server web-1") and offers **Unmark** (its built-for link stays). A resource has
+  at most one: marking a second is refused with "<Type> <name> already has an inventory document.". It is edited like
+  any other document (drafts, Promote, Publish keep the mark). The list marks inventory documents **Inventory**;
+  **Inventory documents only** shows only them.
 
 #### Drafts and connections
 
@@ -885,11 +897,13 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
   20), then the target by name. **Edit** changes the description and attributes; to change the ends or the kind,
   remove the connection and add it again. A *built from* connection starts from the service; a code project's panel offers *connects to* only. The Services page edits the same *depends on* and *built from*
   connections; an open Services form that someone changed meanwhile asks you to reload.
-- **Documents.** Attach documents from Docs → Documents to any entry; detaching never deletes the document. Deleting an
-  entry removes its connections and attachments.
-- **Upgrading from the stored graph.** Service dependencies and code project links become connections. Documents
-  attached to graph nodes move to the server, environment, service or code project behind the node. Nodes you drew by
-  hand (and their attachments) are gone; the documents themselves stay in Docs → Documents.
+- **Documents.** The panel lists the entry's documents from their links: its inventory document (**Inventory**) and
+  every other document built for it or linked to it. **Link a document** finds a published document and links it to
+  the entry; **Remove** removes that link (the document stays). A link a document was built for can't be removed.
+  Deleting an entry removes its connections and its documents' links to it.
+- **Upgrading from the stored graph.** Service dependencies and code project links become connections. Nodes you drew
+  by hand are gone. Document attachments are not carried over; the documents stay in Docs → Documents and keep the
+  links they were built for (add others with **Link a document**).
 
 ### 4.21 Prompts
 
