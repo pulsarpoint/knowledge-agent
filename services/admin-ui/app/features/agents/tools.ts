@@ -114,7 +114,14 @@ export function toolNeedMet(need: ToolNeed | null, s: ToolSwitches): boolean {
  * which comes with May start subagents. */
 export const impliedTools = (catalog: CatalogTool[], s: ToolSwitches) =>
   catalog
-    .filter((t) => t.group !== "agents" && t.group !== "experts" && t.group !== "inventory" && t.group !== "memory" && toolNeedMet(t.needs, s))
+    .filter(
+      (t) =>
+        t.group !== "agents" &&
+        t.group !== "experts" &&
+        t.group !== "inventory" &&
+        t.group !== "memory" &&
+        toolNeedMet(t.needs, s),
+    )
     .map((t) => t.name);
 /** All agents: "7 tools · Code 6 · Servers 1" */
 export function toolsSummaryLabel(summary?: ToolsSummary): string {

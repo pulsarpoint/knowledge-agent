@@ -39,6 +39,7 @@ export default function MemoryView() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reembedding, setReembedding] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
   /** Bumped whenever the first page is reloaded, so a Load more that started earlier is ignored. */
@@ -110,9 +111,10 @@ export default function MemoryView() {
   }
   async function reembed() {
     setReembedding(true);
+    setNotice(null);
     try {
       const result = await reembedMemories();
-      setError(result.failed ? `${result.failed} entries could not be embedded.` : null);
+      setNotice(result.failed ? `${result.failed} entries could not be embedded.` : null);
       refresh();
     } catch (reason) {
       setError(text(reason, "Could not re-embed the entries."));
@@ -143,7 +145,7 @@ export default function MemoryView() {
             value={filters.agent || ALL}
             onValueChange={(next) => setFilters((current) => ({ ...current, agent: next === ALL ? "" : next }))}
           >
-            <SelectTrigger id="memory-agent" aria-label="Agent" className="w-full">
+            <SelectTrigger id="memory-agent" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -189,6 +191,12 @@ export default function MemoryView() {
         <p className="text-sm text-muted-foreground">
           No embedding model in RAG Settings: entries are found by words only.
         </p>
+      )}
+      {notice && (
+        <Alert variant="destructive">
+          <AlertTitle>Re-embed</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
       )}
       {error && (
         <Alert variant="destructive">

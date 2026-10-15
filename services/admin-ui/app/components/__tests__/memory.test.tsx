@@ -165,3 +165,16 @@ test("a new entry is created from the sheet", async () => {
     ),
   );
 });
+
+test("a partial re-embed failure stays visible after the list reloads", async () => {
+  api((url, init) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories/re-embed" && init?.method === "POST") return { embedded: 1, failed: 2 };
+    if (url === "/api/memories") return page([entry("a")]);
+  });
+  view();
+  await userEvent.click(await screen.findByRole("button", { name: /Re-embed/ }));
+  expect(await screen.findByText("2 entries could not be embedded.")).toBeInTheDocument();
+  await screen.findByText("a");
+  expect(screen.getByText("2 entries could not be embedded.")).toBeInTheDocument();
+});

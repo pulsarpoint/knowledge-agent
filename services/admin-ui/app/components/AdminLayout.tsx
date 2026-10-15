@@ -143,93 +143,93 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     : notificationsPage
       ? "Notifications"
       : memoryPage
-      ? "Memory"
-      : eventsPage
-        ? "Events"
-        : schedulesPage
-          ? "Schedules"
-          : runsPage
-            ? "Agent runs"
-            : pathname === "/storage"
-              ? "Storage"
-              : environments
-                ? "Environments"
-                : docsPage
-                  ? docsFolders
-                    ? "Documentation folders"
-                    : "Documents"
-                  : pathname === "/mcp-servers"
-                    ? "MCP servers"
-                    : pathname === "/llm-settings"
-                      ? "LLM Settings"
-                      : pathname === "/skills"
-                        ? "Skills"
-                        : agentPage
-                          ? "Agents"
-                          : ragPage
-                            ? ragPage.title
-                            : repositories
-                              ? "Code projects"
-                              : codeGraphs
-                                ? "Code graphs"
-                                : systemMap
-                                  ? "System map"
-                                  : services
-                                    ? "Services"
-                                    : servers
-                                      ? "Servers"
-                                      : jiraSettings
-                                        ? "Jira Settings"
-                                        : jiraTickets
-                                          ? "Jira Tickets"
-                                          : jiraAutoPull
-                                            ? "Jira Auto pull"
-                                            : "Administration";
+        ? "Memory"
+        : eventsPage
+          ? "Events"
+          : schedulesPage
+            ? "Schedules"
+            : runsPage
+              ? "Agent runs"
+              : pathname === "/storage"
+                ? "Storage"
+                : environments
+                  ? "Environments"
+                  : docsPage
+                    ? docsFolders
+                      ? "Documentation folders"
+                      : "Documents"
+                    : pathname === "/mcp-servers"
+                      ? "MCP servers"
+                      : pathname === "/llm-settings"
+                        ? "LLM Settings"
+                        : pathname === "/skills"
+                          ? "Skills"
+                          : agentPage
+                            ? "Agents"
+                            : ragPage
+                              ? ragPage.title
+                              : repositories
+                                ? "Code projects"
+                                : codeGraphs
+                                  ? "Code graphs"
+                                  : systemMap
+                                    ? "System map"
+                                    : services
+                                      ? "Services"
+                                      : servers
+                                        ? "Servers"
+                                        : jiraSettings
+                                          ? "Jira Settings"
+                                          : jiraTickets
+                                            ? "Jira Tickets"
+                                            : jiraAutoPull
+                                              ? "Jira Auto pull"
+                                              : "Administration";
   const description = promptsPage
     ? "Reusable instructions for agents, organised by tags."
     : notificationsPage
       ? "Answers agents gave to events, and the calls that failed."
       : memoryPage
-      ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
-      : eventsPage
-        ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
-        : schedulesPage
-          ? "Run work on a timetable, such as pulling Jira tickets."
-          : runsPage
-            ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
-            : pathname === "/storage"
-              ? "See where source code, RAG files and documentation are stored, and browse their folders."
-              : environments
-                ? "Organize services and servers into Development, Staging, Production, or your own environments."
-                : docsPage
-                  ? "Write and maintain documentation linked to your code projects, services, and servers."
-                  : pathname === "/mcp-servers"
-                    ? "Manage external tools for Code search and SSH agents."
-                    : pathname === "/llm-settings"
-                      ? "Manage model providers, credentials, and connection tests."
-                      : pathname === "/skills"
-                        ? "Manage reusable instructions for your agents."
-                        : agentPage
-                          ? "Create agents with their own models, instructions, resources, and test conversations."
-                          : ragPage
-                            ? ragPage.description
-                            : repositories
-                              ? "Browse the mounted code folder and organize local folders and Git sources into projects."
-                              : codeGraphs
-                                ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
-                                : services
-                                  ? "Connect applications, source code, and server deployments for agent investigations."
-                                  : systemMap
-                                    ? "The system as a graph you open one level at a time."
-                                    : servers
-                                      ? "Manage hosts, descriptions, and tags for your service infrastructure."
-                                      : jiraSettings
-                                        ? "Configure access to your Jira Data Center server and test the connection."
-                                        : jiraTickets
-                                          ? "Filter Jira tickets and export their content to RAG."
-                                          : jiraAutoPull
-                                            ? "Pull Jira tickets on a timetable with their own query."
-                                            : "";
+        ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
+        : eventsPage
+          ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
+          : schedulesPage
+            ? "Run work on a timetable, such as pulling Jira tickets."
+            : runsPage
+              ? "Complete records of agent runs: instructions, reasoning, tool calls with full output, and answers."
+              : pathname === "/storage"
+                ? "See where source code, RAG files and documentation are stored, and browse their folders."
+                : environments
+                  ? "Organize services and servers into Development, Staging, Production, or your own environments."
+                  : docsPage
+                    ? "Write and maintain documentation linked to your code projects, services, and servers."
+                    : pathname === "/mcp-servers"
+                      ? "Manage external tools for Code search and SSH agents."
+                      : pathname === "/llm-settings"
+                        ? "Manage model providers, credentials, and connection tests."
+                        : pathname === "/skills"
+                          ? "Manage reusable instructions for your agents."
+                          : agentPage
+                            ? "Create agents with their own models, instructions, resources, and test conversations."
+                            : ragPage
+                              ? ragPage.description
+                              : repositories
+                                ? "Browse the mounted code folder and organize local folders and Git sources into projects."
+                                : codeGraphs
+                                  ? "Generate and explore each code project's graph: symbols, relationships, routes and languages."
+                                  : services
+                                    ? "Connect applications, source code, and server deployments for agent investigations."
+                                    : systemMap
+                                      ? "The system as a graph you open one level at a time."
+                                      : servers
+                                        ? "Manage hosts, descriptions, and tags for your service infrastructure."
+                                        : jiraSettings
+                                          ? "Configure access to your Jira Data Center server and test the connection."
+                                          : jiraTickets
+                                            ? "Filter Jira tickets and export their content to RAG."
+                                            : jiraAutoPull
+                                              ? "Pull Jira tickets on a timetable with their own query."
+                                              : "";
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
