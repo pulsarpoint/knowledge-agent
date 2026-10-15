@@ -16,6 +16,14 @@ const link = {
 const LINKS = "/api/inventory/links?entry_kind=service&entry_id=api";
 const DOCS = "/api/inventory/service/api/documents";
 const none = { inventory_document: null, documents: [] };
+/** One entry of the resource's document list (belonging to `api` unless another resource is given). */
+const listed = (
+  id: string,
+  title: string,
+  connection: "built_for" | "linked",
+  inventory = false,
+  resource = { type: "service", id: "api", name: "api" },
+) => ({ id, title, tags: [], description_short: "", inventory, connection, resource });
 
 function server(routes: Record<string, (init?: RequestInit) => { status?: number; json?: unknown }>) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -50,8 +58,10 @@ test("shows the entry's links and documents with a link to its page", async () =
           published: true,
         },
         documents: [
-          { id: "d1", title: "Runbook", connection: "linked" },
-          { id: "d2", title: "Design", connection: "built_for" },
+          listed("d0", "api overview", "built_for", true),
+          listed("d2", "Design", "built_for"),
+          listed("d1", "Runbook", "linked"),
+          listed("d3", "Disk notes", "built_for", false, { type: "server", id: "s1", name: "prod-1" }),
         ],
       },
     }),
@@ -68,6 +78,9 @@ test("shows the entry's links and documents with a link to its page", async () =
   expect(documents.getByRole("button", { name: "Remove link: Runbook" })).toBeInTheDocument();
   expect(documents.queryByRole("button", { name: "Remove link: Design" })).toBeNull();
   expect(documents.queryByRole("button", { name: "Remove link: api overview" })).toBeNull();
+  expect(documents.getAllByRole("link", { name: "api overview" })).toHaveLength(1);
+  // a child's document is on the resource page's list, not among the entry's own links
+  expect(documents.queryByRole("link", { name: "Disk notes" })).toBeNull();
 });
 
 test("connects to an entry: kinds follow the entry, targets follow the kind", async () => {
@@ -142,7 +155,7 @@ test("Link a document adds a linked link; Remove link removes it", async () => {
   const onChanged = vi.fn();
   const docs = () => ({
     inventory_document: null,
-    documents: linked ? [{ id: "d1", title: "Runbook", connection: "linked" }] : [],
+    documents: linked ? [listed("d1", "Runbook", "linked")] : [],
   });
   server({
     [`GET ${LINKS}`]: () => ({ json: { links: [] } }),

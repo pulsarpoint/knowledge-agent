@@ -355,6 +355,10 @@ export default function EntrySheet({
     }
   }
   const page = ENTRY_PAGES[entry.kind];
+  // The entry's own linked documents (the list also has its children's documents); the inventory document apart.
+  const own = documents.documents.filter(
+    (document) => document.resource.id === entry.id && document.id !== documents.inventory_document?.id,
+  );
   return (
     <Sheet
       open
@@ -441,7 +445,7 @@ export default function EntrySheet({
           />
           <section aria-label="Documents" className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Documents</h3>
-            {!documents.inventory_document && documents.documents.length === 0 ? (
+            {!documents.inventory_document && own.length === 0 ? (
               <p className="text-muted-foreground text-sm">No documents are linked.</p>
             ) : (
               <ul className="flex flex-col gap-1 text-sm">
@@ -453,7 +457,7 @@ export default function EntrySheet({
                     <Badge variant="secondary">Inventory</Badge>
                   </li>
                 )}
-                {documents.documents.map((document) => (
+                {own.map((document) => (
                   <li key={document.id} className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2">
                       <RouterLink to={`/documents/${document.id}`} className="underline">
@@ -481,7 +485,7 @@ export default function EntrySheet({
             <DocumentPicker
               linked={[
                 ...(documents.inventory_document ? [documents.inventory_document.id] : []),
-                ...documents.documents.map((document) => document.id),
+                ...own.map((document) => document.id),
               ]}
               onPick={(document) => void act(() => linkDocument(entry, document.id), "Could not link the document.")}
             />

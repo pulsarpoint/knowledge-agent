@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
-  ENTRY_LABELS,
   getEntryDocuments,
   newInventoryDocumentPath,
   type EntryDocuments as Documents,
@@ -12,11 +11,10 @@ import Markdown from "~/components/Markdown";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 
-export const CONNECTION_LABELS = { built_for: "built for", linked: "linked" } as const;
-
 /** A resource page's documents: its inventory document rendered (Open edits it through drafts as usual), or New
- * inventory document when it has none; the other documents linked to it; and Connections and documents (the entry
- * sheet) to change its links. */
+ * inventory document when it has none; its document list (its and its direct children's documents: title, tags, the
+ * Inventory badge, short description, and the child's name for a child's document); and Connections and documents
+ * (the entry sheet) to change its links. */
 export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; onChanged?: () => void }) {
   const [documents, setDocuments] = useState<Documents | null>(null);
   const [editing, setEditing] = useState(false);
@@ -31,7 +29,7 @@ export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; 
     return () => controller.abort();
   }, [entry.kind, entry.id, version]);
   const inventory = documents?.inventory_document ?? null;
-  const others = documents?.documents ?? [];
+  const list = documents?.documents ?? [];
   return (
     <section aria-label="Documents" className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
@@ -67,27 +65,32 @@ export default function EntryDocuments({ entry, onChanged }: { entry: MapEntry; 
           )}
         </section>
       )}
-      {documents && (
-        <section aria-label="Other documents" className="flex flex-col gap-2">
-          <h3 className="font-medium">Other documents</h3>
-          {others.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No other documents are linked to this {ENTRY_LABELS[entry.kind]}.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1 text-sm">
-              {others.map((item) => (
-                <li key={item.id} className="flex items-center gap-2">
-                  <Link className="underline" to={`/documents/${encodeURIComponent(item.id)}`}>
+      {documents &&
+        (list.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No documents yet.</p>
+        ) : (
+          <ul aria-label="Documents" className="flex flex-col gap-2 text-sm">
+            {list.map((item) => (
+              <li key={item.id} className="flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link className="font-medium underline" to={`/documents/${encodeURIComponent(item.id)}`}>
                     {item.title}
                   </Link>
-                  <span className="text-xs text-muted-foreground">{CONNECTION_LABELS[item.connection]}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
+                  {item.inventory && <Badge variant="secondary">Inventory</Badge>}
+                  {item.tags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-xs font-normal">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {item.resource.id !== entry.id && (
+                    <span className="text-xs text-muted-foreground">· {item.resource.name}</span>
+                  )}
+                </div>
+                {item.description_short && <p className="text-muted-foreground">{item.description_short}</p>}
+              </li>
+            ))}
+          </ul>
+        ))}
       {editing && (
         <EntrySheet
           entry={entry}

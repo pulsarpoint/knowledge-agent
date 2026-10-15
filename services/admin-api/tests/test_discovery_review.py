@@ -183,12 +183,21 @@ def test_documents_become_drafts_attached_when_published_and_promoted_as_new_ver
 
     def attached():
         found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
-        return [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
+        return [
+            *([found['inventory_document']] if found['inventory_document'] else []),
+            *(
+                item
+                for item in found['documents']
+                if item['resource']['id'] == str(world.server['id'])
+                and item['id'] != (found['inventory_document'] or {}).get('id')
+            ),
+        ]
 
     # web-1 had no inventory document: the brand-new draft is it, shown unpublished; no other document yet.
     found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
     assert (found['inventory_document']['id'], found['inventory_document']['published']) == (document_id, False)
-    assert [item['title'] for item in found['documents']] == ['web-1 overview']
+    own = [item['title'] for item in found['documents'] if item['resource']['id'] == world.server['id']]
+    assert own == ['web-1 overview']  # the brand-new draft is not listed; nginx's runbook belongs to a child
     with world.store.connect() as conn:
         row = conn.execute(
             'SELECT folder,slug,origin,markdown,is_draft,version FROM ka.documents WHERE id=%s', (document_id,)
@@ -279,7 +288,15 @@ def test_a_document_about_an_accepted_proposed_service_attaches_to_the_new_servi
     publish(world, decide(world, listed(world, sid)[1], 'accept'))
     redis = service(world, 'redis')
     found = world.client.get(f'/api/inventory/service/{redis["id"]}/documents', headers=HEADERS).json()
-    attached = [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
+    attached = [
+        *([found['inventory_document']] if found['inventory_document'] else []),
+        *(
+            item
+            for item in found['documents']
+            if item['resource']['id'] == str(redis['id'])
+            and item['id'] != (found['inventory_document'] or {}).get('id')
+        ),
+    ]
     assert [item['title'] for item in attached] == ['Redis']
     with world.store.connect() as conn:
         links = conn.execute(
@@ -492,7 +509,12 @@ def test_a_proposal_never_changes_a_live_inventory_document(run):
     assert snapshot(world, draft)['inventory'] is False
     found = server_documents(world)
     assert found['inventory_document']['id'] == inventory
-    assert sorted(item['title'] for item in found['documents']) == ['web-1 inventory', 'web-1 overview']
+    own = [
+        item['title']
+        for item in found['documents']
+        if item['resource']['id'] == world.server['id'] and item['id'] != inventory
+    ]
+    assert sorted(own) == ['web-1 inventory', 'web-1 overview']
 
 
 def test_a_proposal_never_changes_a_brand_new_inventory_draft(run):

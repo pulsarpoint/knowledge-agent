@@ -84,6 +84,18 @@ def mark(client, document_id, inventory=True, at=None):
     )
 
 
+def brief(answer: dict) -> dict:
+    """A resource documents answer with each listed document as {id, title, connection} (and inventory when set)."""
+    return {
+        'inventory_document': answer['inventory_document'],
+        'documents': [
+            {'id': item['id'], 'title': item['title'], 'connection': item['connection']}
+            | ({'inventory': True} if item['inventory'] else {})
+            for item in answer['documents']
+        ],
+    }
+
+
 def flag(conn, document_id) -> None:
     conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (document_id,))
 
@@ -383,7 +395,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
     links = client.put(f'{DOCUMENTS}/{linked}/links', headers=HEADERS, json={**NO_LINKS, kind: [target], 'revision': 1})
     assert links.status_code == 200, links.text
     url = f'/api/inventory/{entry}/{target}/documents'
-    assert client.get(url, headers=HEADERS).json() == {
+    assert brief(client.get(url, headers=HEADERS).json()) == {
         'inventory_document': None,
         'documents': [
             {'id': built, 'title': 'Built', 'connection': 'built_for'},
@@ -392,7 +404,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
         ],
     }
     assert mark(client, overview).status_code == 200
-    assert client.get(url, headers=HEADERS).json() == {
+    assert brief(client.get(url, headers=HEADERS).json()) == {
         'inventory_document': {
             'id': overview,
             'title': 'Overview',
@@ -402,6 +414,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
             'published': True,
         },
         'documents': [
+            {'id': overview, 'title': 'Overview', 'connection': 'built_for', 'inventory': True},
             {'id': built, 'title': 'Built', 'connection': 'built_for'},
             {'id': linked, 'title': 'Linked', 'connection': 'linked'},
         ],
@@ -412,7 +425,7 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
 def test_code_project_documents_and_the_old_attachments_route_is_gone(store, client):
     code = resource(store, 'repositories', 'Shop')
     readme = live(store, 'readme', 'Readme', code_project_ids=[code])
-    assert client.get(f'/api/inventory/code_project/{code}/documents', headers=HEADERS).json() == {
+    assert brief(client.get(f'/api/inventory/code_project/{code}/documents', headers=HEADERS).json()) == {
         'inventory_document': None,
         'documents': [{'id': readme, 'title': 'Readme', 'connection': 'built_for'}],
     }
@@ -427,7 +440,7 @@ def test_link_and_unlink_a_document_from_an_entry(store, client):
     url = f'/api/inventory/server/{server}/documents'
     added = client.post(url, headers=HEADERS, json={'document_id': notes})
     assert added.status_code == 201, added.text
-    assert {'id': notes, 'title': 'Notes', 'connection': 'linked'} in added.json()['documents']
+    assert {'id': notes, 'title': 'Notes', 'connection': 'linked'} in brief(added.json())['documents']
     assert message(client.post(url, headers=HEADERS, json={'document_id': notes})) == (
         409,
         'This document is already linked.',
@@ -439,7 +452,7 @@ def test_link_and_unlink_a_document_from_an_entry(store, client):
     ]
     removed = client.delete(f'{url}/{notes}', headers=HEADERS)
     assert removed.status_code == 200, removed.text
-    assert removed.json()['documents'] == [{'id': built, 'title': 'Built', 'connection': 'built_for'}]
+    assert brief(removed.json())['documents'] == [{'id': built, 'title': 'Built', 'connection': 'built_for'}]
     history = client.get(f'{DOCUMENTS}/{notes}/resource-history', headers=HEADERS).json()['history']
     assert [row['removed_at'] is not None for row in history] == [True]
     assert message(client.delete(f'{url}/{notes}', headers=HEADERS)) == (404, 'This document is not linked.')

@@ -357,8 +357,13 @@ page. **Connections and documents** there opens the same panel as the System map
 Each server, service and environment has at most one **inventory document**: Info shows it rendered, with **Open** to
 edit it (through drafts, like any document; one that is only a draft is marked "Draft — not published"). Without one,
 Info says "No inventory document yet." with **New inventory document**: the New document page opens built for the
-resource, and **Save** creates the draft of its inventory document. **Other documents** lists every other document
-linked to the resource (built for it or linked).
+resource, and **Save** creates the draft of its inventory document. Below it, the **Documents** list shows every
+published document linked to the resource (built for it or linked) and to its direct children — an environment's
+services and servers, a server's services, a service's code projects and the servers it is deployed on: each row has
+the title (opens the document), its tags, an **Inventory** badge for an inventory document, the first line of its
+description, and "· <name>" when it belongs to a child. The resource's inventory document comes first, then its other
+documents, then the children's, grouped by child; a document linked to several of them is listed once. With none:
+"No documents yet.".
 
 #### Chats and proposals
 

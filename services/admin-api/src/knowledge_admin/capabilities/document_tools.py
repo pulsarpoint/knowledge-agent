@@ -118,7 +118,7 @@ def _document_id(value: str) -> UUID:
         raise ValueError(NOT_AVAILABLE.format(kind='document')) from None
 
 
-def _readable(conn, config: dict[str, Any], document: UUID) -> bool:
+def readable(conn, config: dict[str, Any], document: UUID) -> bool:
     """A document the run was given, or one with an active link (built for or linked) to a server, service,
     environment or code project the run was given (read-only; get_resource lists them). A document linked only to
     resources the run was not given is not readable."""
@@ -184,7 +184,7 @@ def _get_document(
         live = conn.execute(LIVE, (document, project)).fetchone()
         if live is None and str(document) in {str(entry.get('id')) for entry in config.get('document_access', [])}:
             return 'Document not found'  # deleted during the run
-        if live is None or not _readable(conn, config, document):
+        if live is None or not readable(conn, config, document):
             return NOT_AVAILABLE.format(kind='document')
         session = config.get('session_id')
         draft = conn.execute(WORKING, (session, document)).fetchone() if session else None

@@ -101,7 +101,8 @@ const document = {
 };
 
 describe("a resource page", () => {
-  test("renders its inventory document with Open, and the other documents", async () => {
+  test("renders its inventory document with Open, and the documents list", async () => {
+    const web1 = { type: "server", id: "s1", name: "web-1" };
     api({
       [RESOURCE_DOCS]: () => [
         200,
@@ -115,8 +116,33 @@ describe("a resource page", () => {
             published: true,
           },
           documents: [
-            { id: "doc-2", title: "Disk runbook", connection: "built_for" },
-            { id: "doc-3", title: "Network notes", connection: "linked" },
+            {
+              id: "doc-1",
+              title: "web-1 overview",
+              tags: ["ops"],
+              description_short: "What runs on web-1.",
+              inventory: true,
+              connection: "built_for",
+              resource: web1,
+            },
+            {
+              id: "doc-2",
+              title: "Disk runbook",
+              tags: ["disk", "runbook"],
+              description_short: "",
+              inventory: false,
+              connection: "built_for",
+              resource: web1,
+            },
+            {
+              id: "doc-3",
+              title: "nginx notes",
+              tags: [],
+              description_short: "Proxy settings.",
+              inventory: false,
+              connection: "linked",
+              resource: { type: "service", id: "svc-9", name: "nginx" },
+            },
           ],
         },
       ],
@@ -128,12 +154,29 @@ describe("a resource page", () => {
     expect(within(inventory).getByRole("link", { name: "Open" })).toHaveAttribute("href", "/documents/doc-1");
     expect(within(inventory).queryByText("Draft — not published")).toBeNull();
     expect(screen.queryByText("No inventory document yet.")).toBeNull();
-    const others = screen.getByRole("region", { name: "Other documents" });
-    expect(within(others).getByRole("heading", { name: "Other documents" })).toBeInTheDocument();
-    expect(within(others).getByRole("link", { name: "Disk runbook" })).toHaveAttribute("href", "/documents/doc-2");
-    expect(within(others).getByRole("link", { name: "Network notes" })).toHaveAttribute("href", "/documents/doc-3");
-    expect(within(others).getByText("built for")).toBeInTheDocument();
-    expect(within(others).getByText("linked")).toBeInTheDocument();
+    expect(screen.queryByText("Other documents")).toBeNull();
+    const list = screen.getByRole("list", { name: "Documents" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getByRole("link", { name: "web-1 overview" })).toHaveAttribute("href", "/documents/doc-1");
+    expect(within(rows[0]).getByText("Inventory")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("ops")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("What runs on web-1.")).toBeInTheDocument();
+    expect(within(rows[0]).queryByText(/· web-1/)).toBeNull();
+    expect(within(rows[1]).getByRole("link", { name: "Disk runbook" })).toHaveAttribute("href", "/documents/doc-2");
+    expect(within(rows[1]).getByText("disk")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("runbook")).toBeInTheDocument();
+    expect(within(rows[1]).queryByText("Inventory")).toBeNull();
+    expect(within(rows[2]).getByRole("link", { name: "nginx notes" })).toHaveAttribute("href", "/documents/doc-3");
+    expect(within(rows[2]).getByText("Proxy settings.")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("· nginx")).toBeInTheDocument();
+  });
+
+  test("an empty documents list says No documents yet.", async () => {
+    api({ [RESOURCE_DOCS]: () => [200, { inventory_document: null, documents: [] }] });
+    show("/servers/s1");
+    expect(await screen.findByText("No documents yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Documents" })).toBeNull();
   });
 
   test("a brand-new inventory draft is shown as not published, with Open", async () => {

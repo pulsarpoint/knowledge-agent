@@ -320,7 +320,15 @@ def test_publishing_a_discovery_draft_attaches_it_once(run):
     assert published.status_code == 200, published.text
     assert attachments(world.store, first['draft_id']) == [(UUID(world.server['id']), None)]
     found = world.client.get(f'/api/inventory/server/{world.server["id"]}/documents', headers=HEADERS).json()
-    attached = [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
+    attached = [
+        *([found['inventory_document']] if found['inventory_document'] else []),
+        *(
+            item
+            for item in found['documents']
+            if item['resource']['id'] == str(world.server['id'])
+            and item['id'] != (found['inventory_document'] or {}).get('id')
+        ),
+    ]
     assert sorted(item['title'] for item in attached) == ['Disk layout', 'web-1 overview']
     first, about = listed(world, sid)
     assert (first['draft_id'], first['draft_published'], about['draft_published']) == (

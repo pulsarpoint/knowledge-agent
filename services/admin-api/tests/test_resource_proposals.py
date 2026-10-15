@@ -40,7 +40,15 @@ def attached(world, kind: str, entry_id) -> set[str]:
     found = response.json()
     return {
         item['title']
-        for item in [*([found['inventory_document']] if found['inventory_document'] else []), *found['documents']]
+        for item in [
+            *([found['inventory_document']] if found['inventory_document'] else []),
+            *(
+                item
+                for item in found['documents']
+                if item['resource']['id'] == str(entry_id)
+                and item['id'] != (found['inventory_document'] or {}).get('id')
+            ),
+        ]
     }
 
 

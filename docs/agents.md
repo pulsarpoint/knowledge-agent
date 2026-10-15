@@ -58,7 +58,14 @@ limit, no per-turn time limit, no 300-second limit).
   about it and links to related resources; a linked resource the run was not given, anything else, or a malformed id,
   gets "The <type> <id> is not available in this run." — the same answer as for something that does not exist.
   Its answer has the resource's `inventory_document` (`{id, title}` of its live inventory document, or null; a code
-  project's is always null) and `documents` (`[{id, title}]`, every other live document with an active link to it).
+  project's is always null) and `documents`: every live document with an active link to the resource or to one of its
+  direct children (an environment's services and servers, a server's services, a service's code projects and the
+  servers it is deployed on), as `{id, title, tags, description_short, inventory, connection, resource: {type, id,
+  name}}` — `description_short` is the description's first line (160 characters at most, "…" when cut), `resource` is
+  the resource it is listed under (the resource itself when linked there, else the first child). The resource's
+  inventory document first, then its other documents, then the children's grouped by child, by title within a group.
+  Only documents `get_document` would read in this run are listed (linked to a resource the run was given, or given
+  directly).
   `get_document` reads documents the run was given or linked to those resources; a document linked only to resources
   the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;

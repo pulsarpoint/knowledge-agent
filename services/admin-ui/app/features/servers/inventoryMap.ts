@@ -113,12 +113,19 @@ export interface InventoryDocument {
   published: boolean;
 }
 /** Another live document linked to the entry: built for it (locked) or linked later (removable). */
+/** One document of a resource's document list: a live document linked to the resource or to one of its direct
+ * children (`resource`, with the link's `connection`); `inventory` marks an inventory document. */
 export interface EntryDocument {
   id: string;
   title: string;
+  tags: string[];
+  description_short: string;
+  inventory: boolean;
   connection: "built_for" | "linked";
+  resource: { type: EntryKind; id: string; name: string };
 }
-/** An entry's documents, from the documents' links (a code project has no inventory document). */
+/** An entry's documents, from the documents' links: its inventory document (a code project has none) and the document
+ * list of it and its direct children, the inventory document flagged among them. */
 export interface EntryDocuments {
   inventory_document: InventoryDocument | null;
   documents: EntryDocument[];

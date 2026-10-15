@@ -78,8 +78,10 @@ def test_a_server_has_its_fields_environments_services_and_documents(world):
     service = link(found, 'service')
     assert (service['id'], service['name'], service['relation']) == (str(world.nginx), 'nginx', 'runs')
     assert (service['environment'], service['runtime'], service['port']) == ('Production', 'systemd', 80)
-    [document] = found['documents']
-    assert set(document) == {'id', 'title'} and document['title'] == 'web-1 overview'
+    document, child = found['documents']
+    assert set(document) == {'id', 'title', 'tags', 'description_short', 'inventory', 'connection', 'resource'}
+    assert (document['title'], document['resource']['type']) == ('web-1 overview', 'server')
+    assert (child['title'], child['resource']['name']) == ('nginx runbook', 'nginx')  # the service it runs
     assert found['truncated'] is False
 
 
@@ -93,7 +95,7 @@ def test_a_service_has_its_fields_servers_code_projects_and_documents(world):
     code = link(found, 'code_project')
     assert (code['id'], code['name'], code['relation']) == (str(world.shop), 'Shop', 'built_from')
     assert link(found, 'environment')['id'] == str(world.environment)
-    assert [document['title'] for document in found['documents']] == ['nginx runbook']
+    assert [document['title'] for document in found['documents']] == ['nginx runbook', 'web-1 overview']
 
 
 def test_a_service_lists_its_connections(world):
@@ -116,7 +118,10 @@ def test_an_environment_has_its_services_and_servers(world):
     found = get(given(world), 'environment', world.environment)
     assert found['type'] == 'environment' and found['name'] == 'Production' and found['description'] == 'Live'
     assert link(found, 'service')['id'] == str(world.nginx) and link(found, 'server')['id'] == world.server['id']
-    assert found['documents'] == []
+    assert [(item['title'], item['resource']['type']) for item in found['documents']] == [
+        ('nginx runbook', 'service'),
+        ('web-1 overview', 'server'),
+    ]
 
 
 def test_a_code_project_has_its_ref_commit_and_services(world):
@@ -181,8 +186,8 @@ def test_an_environments_documents_are_listed_and_readable_when_it_was_given(wor
         saved = live_document(conn, world.project, 'production', 'Production notes', '# Production notes\n\nBody.')
         link_document(conn, world.project, saved['id'], 'environment_id', world.environment)
     config = given(world)
-    [document] = get(config, 'environment', world.environment)['documents']
-    assert document == {'id': str(saved['id']), 'title': 'Production notes'}
+    document = get(config, 'environment', world.environment)['documents'][0]
+    assert (document['id'], document['title']) == (str(saved['id']), 'Production notes')
     assert read(config, document['id'])['title'] == 'Production notes'
     hidden = given(world, environments=False)
     assert read(hidden, document['id']) == 'This document is not available in this run.'
@@ -324,7 +329,7 @@ def test_get_resource_names_the_inventory_document_apart_from_the_other_document
     config = given(world)
     found = get(config, 'server', world.server['id'])
     assert found['inventory_document'] is None
-    assert [document['title'] for document in found['documents']] == ['web-1 overview']
+    assert [document['title'] for document in found['documents']] == ['web-1 overview', 'nginx runbook']
     with world.store.connect() as conn:
         saved = live_document(
             conn,
@@ -337,7 +342,11 @@ def test_get_resource_names_the_inventory_document_apart_from_the_other_document
         conn.execute('UPDATE ka.documents SET inventory=true WHERE id=%s', (saved['id'],))
     found = get(config, 'server', world.server['id'])
     assert found['inventory_document'] == {'id': str(saved['id']), 'title': 'web-1 inventory'}
-    assert found['documents'] == [{'id': found['documents'][0]['id'], 'title': 'web-1 overview'}]
+    assert [(item['title'], item['inventory']) for item in found['documents']] == [
+        ('web-1 inventory', True),
+        ('web-1 overview', False),
+        ('nginx runbook', False),
+    ]
     assert read(config, found['inventory_document']['id'])['title'] == 'web-1 inventory'
     # A brand-new inventory draft is not a document get_document reads: get_resource does not name it.
     with world.store.connect() as conn:
@@ -353,7 +362,8 @@ def test_get_resource_names_the_inventory_document_apart_from_the_other_document
         link_document(conn, world.project, draft, 'server_id', world.server['id'], 'built_for')
     found = get(config, 'server', world.server['id'])
     assert found['inventory_document'] is None
-    assert [document['title'] for document in found['documents']] == ['web-1 inventory', 'web-1 overview']
+    titles = [document['title'] for document in found['documents']]
+    assert titles == ['web-1 inventory', 'web-1 overview', 'nginx runbook']  # the draft is not listed
     assert get(config, 'code_project', world.shop)['inventory_document'] is None
 
 

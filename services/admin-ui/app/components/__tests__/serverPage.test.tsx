@@ -220,7 +220,20 @@ test("shows the server, its services and documents, and its chats", async () => 
     [RUNS]: () => [200, { sessions: [run("r1", "closed", "Disk usage")] }],
     "GET /api/inventory/server/s1/documents": () => [
       200,
-      { inventory_document: null, documents: [{ id: "doc1", title: "web-1 overview", connection: "linked" }] },
+      {
+        inventory_document: null,
+        documents: [
+          {
+            id: "doc1",
+            title: "web-1 overview",
+            tags: [],
+            description_short: "",
+            inventory: false,
+            connection: "linked",
+            resource: { type: "server", id: "s1", name: "web-1" },
+          },
+        ],
+      },
     ],
   });
   show();
@@ -328,5 +341,5 @@ test("empty services and documents are explained", async () => {
   show();
   expect(await screen.findByText("No services are recorded on this server.")).toBeInTheDocument();
   expect(await screen.findByText("No inventory document yet.")).toBeInTheDocument();
-  expect(screen.getByText("No other documents are linked to this server.")).toBeInTheDocument();
+  expect(screen.getByText("No documents yet.")).toBeInTheDocument();
 });

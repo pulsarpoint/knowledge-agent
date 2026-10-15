@@ -664,27 +664,121 @@ def claim_inventory(conn, document_id: UUID) -> None:
         raise HTTPException(409, INVENTORY_TAKEN.format(type=INVENTORY_TYPES[kind], name=name))
 
 
+SHORT_DESCRIPTION = 160
+ENTRY_TABLES = {
+    'server': 'servers',
+    'service': 'services',
+    'environment': 'environments',
+    'code_project': 'repositories',
+}
+# A resource's direct children whose documents its list shows, in group order: (type, query of {id, name} by the
+# resource's id), each by name. The relations get_resource's links use.
+CHILDREN = {
+    'environment': (
+        (
+            'service',
+            """SELECT s.id,s.name FROM ka.environment_services es JOIN ka.services s ON s.id=es.service_id
+            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id""",
+        ),
+        (
+            'server',
+            """SELECT s.id,s.name FROM ka.environment_servers es JOIN ka.servers s ON s.id=es.server_id
+            WHERE es.environment_id=%s ORDER BY lower(s.name),s.id""",
+        ),
+    ),
+    'server': (
+        (
+            'service',
+            """SELECT s.id,s.name FROM ka.services s
+            WHERE s.id IN (SELECT service_id FROM ka.service_deployments WHERE server_id=%s) ORDER BY lower(s.name),s.id""",
+        ),
+    ),
+    'service': (
+        (
+            'code_project',
+            """SELECT r.id,r.name FROM ka.repositories r WHERE r.archived_at IS NULL AND r.id IN (SELECT to_code_project_id
+            FROM ka.inventory_links WHERE kind='built_from' AND from_service_id=%s) ORDER BY lower(r.name),r.id""",
+        ),
+        (
+            'server',
+            """SELECT h.id,h.name FROM ka.servers h
+            WHERE h.id IN (SELECT server_id FROM ka.service_deployments WHERE service_id=%s) ORDER BY lower(h.name),h.id""",
+        ),
+    ),
+    'code_project': (),
+}
+# The live documents with an active link to any of the resources (position, type, id, name): one row per document, at
+# the first position it is linked from (built for before linked there).
+LISTED = """WITH r(position,type,id,name) AS (SELECT * FROM unnest(%s::int[],%s::text[],%s::uuid[],%s::text[]))
+    SELECT DISTINCT ON (d.id) d.id,d.title,d.tags,d.description,d.inventory,l.connection,
+    r.position,r.type AS resource_type,r.id AS resource_id,r.name AS resource_name
+    FROM r JOIN ka.document_resources l ON l.removed_at IS NULL AND CASE r.type
+        WHEN 'server' THEN l.server_id=r.id WHEN 'service' THEN l.service_id=r.id
+        WHEN 'environment' THEN l.environment_id=r.id ELSE l.code_project_id=r.id END
+    JOIN ka.documents d ON d.id=l.document_id AND d.project_id=%s AND NOT d.is_draft
+    ORDER BY d.id,r.position,l.connection='built_for' DESC"""
+
+
+def description_short(description: str | None) -> str:
+    """The first line of a description, cut at SHORT_DESCRIPTION characters with '…'; '' when there is none."""
+    lines = (description or '').strip().splitlines()
+    first = lines[0].strip() if lines else ''
+    return first if len(first) <= SHORT_DESCRIPTION else first[:SHORT_DESCRIPTION].rstrip() + '…'
+
+
+def resource_document_list(conn, project: UUID, kind: str, resource_id: UUID) -> list[dict]:
+    """Every live document of a resource and of its direct children (CHILDREN): {id, title, tags, description_short,
+    inventory, connection, resource {type, id, name}}. A document linked to several of them appears once, under the
+    resource itself when linked there, else under the first child. The resource's inventory document first, then its
+    other documents, then the children's grouped by child; by title within a group."""
+    own = conn.execute(f'SELECT name FROM ka.{ENTRY_TABLES[kind]} WHERE id=%s', (resource_id,)).fetchone()
+    resources = [(kind, resource_id, own['name'] if own else '')]
+    for child_type, query in CHILDREN[kind]:
+        resources += [(child_type, row['id'], row['name']) for row in conn.execute(query, (resource_id,)).fetchall()]
+    rows = conn.execute(
+        LISTED,
+        (
+            list(range(len(resources))),
+            [item[0] for item in resources],
+            [item[1] for item in resources],
+            [item[2] for item in resources],
+            project,
+        ),
+    ).fetchall()
+
+    def order(row: dict) -> tuple:
+        first = row['position'] == 0 and row['inventory'] and row['connection'] == 'built_for'
+        return (row['position'], not first, row['title'].lower(), str(row['id']))
+
+    return [
+        {
+            'id': row['id'],
+            'title': row['title'],
+            'tags': list(row['tags'] or []),
+            'description_short': description_short(row['description']),
+            'inventory': row['inventory'],
+            'connection': row['connection'],
+            'resource': {'type': row['resource_type'], 'id': row['resource_id'], 'name': row['resource_name']},
+        }
+        for row in sorted(rows, key=order)
+    ]
+
+
 def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
     """The documents of an inventory entry from their links: its inventory document (flagged, built for it: {id, title,
     markdown, version, is_draft, published}, a live document or a brand-new draft (version null, published false), or
-    None) and every other live document with an active link to it ({id, title, connection}), by title."""
-    column = ENTRY_COLUMNS[kind]
+    None) and its document list (resource_document_list: its and its children's live documents, the inventory
+    document flagged among them)."""
     inventory = None
     if kind in INVENTORY_TYPES:
         inventory = conn.execute(
             f"""SELECT d.id,d.title,d.markdown,d.version,d.is_draft,NOT d.is_draft AS published FROM ka.documents d
             JOIN ka.document_resources r ON r.document_id=d.id
-            WHERE d.project_id=%s AND d.draft_of IS NULL AND d.inventory AND r.{column}=%s AND r.connection='built_for'
-            AND r.removed_at IS NULL""",
+            WHERE d.project_id=%s AND d.draft_of IS NULL AND d.inventory AND r.{ENTRY_COLUMNS[kind]}=%s
+            AND r.connection='built_for' AND r.removed_at IS NULL""",
             (project, resource_id),
         ).fetchone()
-    documents = conn.execute(
-        f"""SELECT d.id,d.title,r.connection FROM ka.documents d JOIN ka.document_resources r ON r.document_id=d.id
-        WHERE d.project_id=%s AND NOT d.is_draft AND r.{column}=%s AND r.removed_at IS NULL AND d.id IS DISTINCT FROM %s
-        ORDER BY lower(d.title),d.id""",
-        (project, resource_id, inventory['id'] if inventory else None),
-    ).fetchall()
-    return {'inventory_document': inventory, 'documents': documents}
+    return {'inventory_document': inventory, 'documents': resource_document_list(conn, project, kind, resource_id)}
 
 
 def resource_links(conn, document_id: UUID) -> list[dict]:
