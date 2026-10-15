@@ -5,6 +5,7 @@ from typing import Any
 IDLE_CLOSED = 'Closed after 24 hours without activity.'
 MAX_NOTIFICATION_BODY = 200_000
 NO_ANSWER = '(The agent returned no answer.)'
+NOT_FROM_JIRA = 'This event did not come from a Jira connection.'
 
 
 def agent_system_prompt(config: dict[str, Any]) -> str:
@@ -48,7 +49,8 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
     """When an event run's first turn ends: one notification for the run, in the transaction that finishes the turn —
     the answer when the turn finished (`waiting`), else why it did not (the status message; for a run closed meanwhile,
     its close message). Number 0 is a run closed before its first turn. Other turns and runs that no event started
-    write none, and a run never gets a second one."""
+    write none, and a run never gets a second one. A succeeded run whose handler replies to Jira on a Jira event marks
+    the comment pending (events/jira_replies.py posts it)."""
     if number > 1:
         return
     row = conn.execute(
@@ -61,11 +63,30 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
         text = row['status_message']
     body = (text if text.strip() else NO_ANSWER) if succeeded else text
     conn.execute(
-        """INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id)
-        SELECT s.project_id,'agent.response',%s,left(s.title,500),%s,s.event_id,s.handler_id,s.agent_id,s.id
-        FROM ka.agent_sessions s WHERE s.id=%s AND s.purpose='event'
+        """INSERT INTO ka.notifications(project_id,kind,status,title,body,event_id,handler_id,agent_id,session_id,
+            jira_status,jira_connection_id,jira_issue_id,jira_issue_key,jira_next_attempt_at,jira_error)
+        SELECT s.project_id,'agent.response',%(status)s,left(s.title,500),%(body)s,s.event_id,s.handler_id,s.agent_id,
+            s.id,j.status,
+            CASE WHEN j.status='pending' THEN e.source_id END,
+            CASE WHEN j.status='pending' THEN e.payload->>'issue_id' END,
+            CASE WHEN j.status IS NOT NULL THEN e.subject END,
+            CASE WHEN j.status='pending' THEN now() END,
+            CASE WHEN j.status='failed' THEN %(not_from_jira)s END
+        FROM ka.agent_sessions s
+        LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
+        LEFT JOIN ka.events e ON e.id=s.event_id
+        CROSS JOIN LATERAL (SELECT CASE WHEN %(succeeded)s AND h.reply_to_jira AND e.source='jira' THEN
+            CASE WHEN e.source_id IS NULL OR e.payload->>'issue_id' IS NULL THEN 'failed' ELSE 'pending' END
+            END AS status) j
+        WHERE s.id=%(session)s AND s.purpose='event'
           AND NOT EXISTS (SELECT 1 FROM ka.notifications n WHERE n.session_id=s.id AND n.kind='agent.response')""",
-        ('succeeded' if succeeded else 'failed', body.replace('\x00', '')[:MAX_NOTIFICATION_BODY], session_id),
+        {
+            'status': 'succeeded' if succeeded else 'failed',
+            'body': body.replace('\x00', '')[:MAX_NOTIFICATION_BODY],
+            'not_from_jira': NOT_FROM_JIRA,
+            'succeeded': succeeded,
+            'session': session_id,
+        },
     )
 
 
