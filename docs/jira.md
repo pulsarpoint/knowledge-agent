@@ -160,3 +160,20 @@ Rebuild the fixture after updating its code:
 ```sh
 docker compose --env-file .env -f deploy/compose.yaml --profile jira-mock up -d --build jira-mock
 ```
+
+## Answers as comments
+
+A Send to agent handler with **Also post the answer as a comment on the Jira ticket** posts the agent's answer on the
+ticket of a Jira event (events from the scheduled pull; simulated events from Events → New event cannot be answered).
+The answer is posted as text (Jira renders wiki markup; Markdown is not converted) with the footer
+`— <agent name> (Knowledge Agent)`, cut to 32,000 characters. Only answers are posted; a failed run is not.
+
+The comment is posted by repository-worker after the run's first turn ends, as the user of the Jira connection's
+personal access token, which needs the **Add Comments** permission in the ticket's project. A failed post is tried
+again after 1 and 5 minutes; Jira refusing it (no permission, issue gone) or a deleted or replaced connection fails
+at once. The notification shows **Posted to KEY** (a link to the comment), **Posting to KEY…** or **Not posted to KEY**
+with the reason.
+
+Posting a comment moves the ticket's updated time. The next scheduled pull records no `jira.ticket.updated` for a
+ticket whose only change is our own comment (no compared field changed and the ticket was updated within 2 seconds of
+the comment), so a handler never answers itself. A person's comment within those 2 seconds is missed too.

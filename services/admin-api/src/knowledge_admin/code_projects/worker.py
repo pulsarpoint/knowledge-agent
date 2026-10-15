@@ -17,10 +17,12 @@ from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from knowledge_admin.events import processor as event_processor, scheduler, templates as event_templates
-from knowledge_admin.repositories import RepositoryStore, git_url
 from knowledge_admin.code_projects.paths import code_path
-from knowledge_admin.code_projects.processing import process_code, CodeProcessingError
+from knowledge_admin.code_projects.processing import CodeProcessingError, process_code
+from knowledge_admin.events import jira_replies, scheduler
+from knowledge_admin.events import processor as event_processor
+from knowledge_admin.events import templates as event_templates
+from knowledge_admin.repositories import RepositoryStore, git_url
 
 
 class PullError(Exception):
@@ -250,6 +252,9 @@ def main() -> None:
     # Pending events go through the event handlers every 2 s (event_processor.py).
     events = threading.Thread(target=event_processor.loop, args=(store, stopped), name='event-processor')
     events.start()
+    # Answers that handlers send to Jira are posted as comments every 5 s (jira_replies.py).
+    replies = threading.Thread(target=jira_replies.loop, args=(store, stopped), name='jira-replies')
+    replies.start()
     try:
         while not stopped.is_set():
             try:
@@ -263,4 +268,5 @@ def main() -> None:
         stopped.set()
         schedules.join()
         events.join()
+        replies.join()
         event_templates.shutdown()
