@@ -913,7 +913,7 @@ Search by words; click a metadata badge to add it as a filter chip (click the ch
 shows only the entries of one agent; **Load more** shows older ones. Open an entry (or **New entry**) to edit its
 **Name**, **Metadata** and **Content**, then **Save**. If an agent or another person changed the entry after you opened
 it, Save says so and **Load current** brings in the latest version (your edits are replaced). **History** lists every
-earlier version with a diff against the one before it; **Restore** makes an old version the newest as a new revision,
+earlier version and shows what restoring it would change in the current text; **Restore** makes an old version the newest as a new revision,
 so nothing is lost. **Delete** (after confirmation) removes the entry and its whole history.
 
 **Embedding.** Entries are embedded with the RAG embedding model (4.3, RAG Settings) so search finds related wording. When
