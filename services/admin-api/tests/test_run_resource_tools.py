@@ -6,13 +6,12 @@ import json
 
 import pytest
 from agents.tool_context import ToolContext
-
+from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
-from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
 from knowledge_admin.capabilities.context import NOTHING_GIVEN
-from knowledge_admin.tools.catalog import implied_tools
-from tool_helpers import tool, tools
+from knowledge_admin.knowledge_agents.config import NO_RUN_RESOURCES
 from test_document_tools import rag  # noqa: F401  (fixture)
+from tool_helpers import tool, tools
 
 ast_grep, code_graph, code_search, read_document, search_documents, list_files, read_file, shell_run, ssh_run = tools(
     'ast_grep',
@@ -92,6 +91,7 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
             'service_ids': [],
         },
     }
+    config['tools'] = implied_tools(config)  # every saved configuration has its tools
     return {'config': config, 'credentials': {}, 'workspace': folders['workspace'], 'shell_enabled': True}
 
 
@@ -156,7 +156,6 @@ def test_the_prompt_says_the_run_got_only_these_resources(folders):
 def test_per_run_narrowing_still_decides_what_tools_reach(folders):
     """A per-run run with every file tool switched on still reads only its own code project."""
     context = run_context(folders, code=['given'])
-    context['config']['tools'] = implied_tools(context['config'])
     read = tool('read_file')
     assert 'given' in invoke(read, context, path=str(folders['given'] / 'a.py'))
     refused = invoke(read, context, path=str(folders['other'] / 'b.py'))

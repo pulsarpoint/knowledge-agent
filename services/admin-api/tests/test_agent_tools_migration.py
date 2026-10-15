@@ -6,8 +6,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
-
-from knowledge_admin.tools.catalog import implied_tools
+from implied_tools import implied_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0078_agent_tools.up.sql', '0078_agent_tools.down.sql'

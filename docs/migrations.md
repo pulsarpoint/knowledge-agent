@@ -363,3 +363,11 @@ revision); otherwise it deletes the assistant prompts and their trigger. A promp
 `started_from_server` (backfilled runs lose their `started_from`), and their tags are dropped. The Server discovery
 prompt's `get_resource` version is removed when it is still active and untouched, and new workspaces get 0102's text
 again. The old inventory tools' rows are not restored, so those tools are off for every agent.
+
+## 0107_tools
+
+`ka.tools` holds one row per built-in tool with its attributes (`name`, `position`, `tool_group`, `label`, `summary`,
+`needs`), the table copy of `services/admin-api/src/knowledge_admin/tools/tools.json`. The migration only creates the
+table; the admin-api start replaces its rows with the file (`tools/fixture.py` `sync_tools`), so the file is the only
+writer. `agent_tools.tool` is not a foreign key, because it also names MCP tools (`mcp:<server>:<tool>`). The down
+migration drops the table; nothing else depends on it, and the catalog reads the file, not the table.

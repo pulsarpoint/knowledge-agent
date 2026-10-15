@@ -129,21 +129,6 @@ def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) ->
 
 CATALOG: dict[str, ToolSpec] = load_catalog(load_fixture(), REGISTRY)
 
-# The 0078 rule (tools a configuration's capabilities gave before tools were chosen); removed in Task 5.
-DEFAULT_ON: dict[str, Callable[[Mapping[str, Any]], bool]] = {
-    'list_files': _files,
-    'read_file': _files,
-    'search_files': _files,
-    'shell_run': _files,
-    'code_search': _code,
-    'ast_grep': _code,
-    'code_graph': _code,
-    'search_documents': _documents,
-    'read_document': _documents,
-    'report_not_covered': _grounded,
-    'ssh_run': _ssh,
-}
-
 DOCUMENT_EDIT_TOOLS = ('save_document', 'edit_document')
 PROPOSAL_TOOLS = ('propose_service', 'propose_document')
 # Never chosen for a saved agent: a run is started from a resource (and asks for the proposal tools), documents are
@@ -216,20 +201,10 @@ def item(
     }
 
 
-def implied_tools(config: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    """The tools the capabilities gave before tools were chosen (the 0078 backfill rule)."""
-    return {'items': [item(name, 'on' if DEFAULT_ON.get(name, lambda c: False)(config) else 'off') for name in CATALOG]}
-
-
-def tools_of(config: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    """The configuration's tools; a configuration saved without them (before 0078) gets the implied tools."""
-    return config['tools'] if 'tools' in config else implied_tools(config)
-
-
 def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]) -> list[tuple[ToolSpec, str]]:
     """The catalog tools this run offers, in catalog order, with their usage text: switched on, and their need met;
     get_resource (need resources) in every run that has resources, whatever its row says."""
-    chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
+    chosen = {entry['tool']: entry for entry in config['tools']['items']}
     offered = []
     for spec in CATALOG.values():
         if spec.needs == 'resources':
@@ -244,7 +219,7 @@ def effective_tools(config: Mapping[str, Any], ssh_servers: list[dict[str, Any]]
 
 
 def _mcp_rows(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entry['tool']: entry for entry in tools_of(config)['items'] if entry['tool'].startswith('mcp:')}
+    return {entry['tool']: entry for entry in config['tools']['items'] if entry['tool'].startswith('mcp:')}
 
 
 def mcp_blocked(config: Mapping[str, Any], server_id: str) -> list[str]:
@@ -305,7 +280,7 @@ CAPABILITY_NEEDS: dict[str, tuple[str, ...]] = {
 
 
 def capability_tools(capability: str, config: Mapping[str, Any]) -> list[str]:
-    """All tools of one capability, by need, in catalog order (not only those default_on gives). With code projects
+    """All tools of one capability, by need, in catalog order (not only those switched on by default). With code projects
     off and "Answer only from documents" off, documents also bring the file tools (their need, files).
     report_not_covered belongs to "Answer only from documents" and is listed only while it is on."""
     files = capability == 'documents' and not _code(config) and not _grounded(config)
@@ -331,7 +306,7 @@ def enabled_capability_tools(config: Mapping[str, Any]) -> list[str]:
 def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
     """All agents: how many tools are on with their need met (by the capability switches, as the Tools tab judges),
     per group, MCP tools of enabled servers included."""
-    chosen = {entry['tool']: entry for entry in tools_of(config)['items']}
+    chosen = {entry['tool']: entry for entry in config['tools']['items']}
     groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'mcp': 0, 'agents': 0}
     for spec in CATALOG.values():
         if chosen.get(spec.name, {}).get('mode') == 'on' and needs_met(spec.needs, config, None):

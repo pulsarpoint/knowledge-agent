@@ -235,8 +235,6 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
     """What an agent runs with, by section (SECTIONS): everything except its identity (id, name, description, on/off),
     revisions and live data (graphs; the details of shared servers, collections, skills). Equal sections run the
     same. Clone, Apply and the 0080 migration compare these."""
-    from knowledge_admin.tools.catalog import tools_of  # the catalog imports this module
-
     documents, code = config['documents'], config['code']
     return {
         'prompt': config['system_prompt']['content'],
@@ -251,7 +249,7 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
                 'usage': entry['usage'],
                 'subagent_allowed': entry.get('subagent_allowed', True),
             }
-            for entry in tools_of(config)['items']
+            for entry in config['tools']['items']
         ],
         'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
         'documents': {

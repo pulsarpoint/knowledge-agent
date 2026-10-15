@@ -6,10 +6,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import asyncssh
-from psycopg.types.json import Jsonb
-
+from implied_tools import implied_tools
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
-from knowledge_admin.tools.catalog import implied_tools
+from psycopg.types.json import Jsonb
 from test_agent_ssh import save
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_api import _client

@@ -6,11 +6,24 @@ Implementations live in `knowledge_admin/capabilities/`:
 (MCP server selection and headers), `context.py` (`RunContext`) and `shell/` (`client.py` for the API side,
 `worker.py` for the shell worker service). They do not import the Agents SDK.
 
-`tools/catalog.py` describes each built-in tool without the SDK: `ToolSpec` (name, group, label, usage text,
-argument model, the capability it `needs`, `default_on`), `NEED_REASONS` for the Tools tab, `implied_tools(config)`
-(the tools a configuration's capabilities gave before tools were chosen; it is the 0078 backfill rule and what
-configurations saved before 0078 use) and `effective_tools(config, ssh_servers)` (the tools a run offers: switched
-on and their need met). `mcp_blocked` and `mcp_notes` do the same for MCP tools.
+Each built-in tool is a function marked `@tool` (`tools/registry.py`), next to its implementation. Its signature after
+the run context is its argument schema (`Annotated[..., Field(description=...)]` gives the descriptions) and its
+docstring is the usage text the model reads. `usage=` and `arguments=` override the docstring and the schema; a
+`*args` or `**kwargs` parameter needs `arguments=`, and a name registered twice is an error.
+
+`tools/tools.json` holds the other attributes of each tool, in the order the Tools tab and the runner use: `name`,
+`group` (`code`, `documents`, `servers`, `inventory` or `agents`), `label`, `summary` (the short line on the Tools
+tab), and `needs` (the capability the tool needs, or null). `tools/catalog.py` joins the file with the registered
+functions (`load_catalog`) and raises on a tool missing from either side, a duplicate, or an unknown group or need.
+`CATALOG` is the result, a `ToolSpec` per tool (name, group, label, summary, usage text, argument model, run, needs).
+`NEED_REASONS` for the Tools tab and `effective_tools(config, ssh_servers)` (the tools a run offers: switched on and
+their need met) are built on it. Every configuration carries its own `tools` (`config['tools']['items']`, one row per
+tool with `mode`, `usage` and `subagent_allowed`), so there is no fallback for configurations without them.
+`mcp_blocked` and `mcp_notes` do the same for MCP tools.
+
+`ka.tools` is the table copy of `tools.json` (migration 0107): `tools/fixture.py` `sync_tools` replaces it with the file
+in one transaction at the admin-api start, under an advisory lock, so concurrent starts wait for each other. The file
+is the only writer; edit the file, not the table, and a start after the edit makes the table match.
 
 `tools/sdk.py` is the only Agents SDK binding: `function_tool(spec, usage)` makes a `FunctionTool` whose description
 and argument schema are the same in every run (what a run may use is in its prompt and checked by the tool), and the
