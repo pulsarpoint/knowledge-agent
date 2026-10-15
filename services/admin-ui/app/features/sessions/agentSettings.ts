@@ -162,16 +162,28 @@ export const shownTools = (options: AgentOptions, settings: AgentSettings): Agen
 
 const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
 /** A server, service or environment scope always has its resource chosen (the run is about it), so the tools that need
- * it show and are sent. */
-export function withScope(scope: ChatScope, settings: AgentSettings): AgentSettings {
-  if (!isResourceScope(scope)) return settings;
-  const field = SCOPE_FIELD[scope.kind];
-  if (settings.chosen[field].includes(scope.id)) return settings;
-  return { ...settings, chosen: { ...settings.chosen, [field]: [...settings.chosen[field], scope.id] } };
+ * it show and are sent; so does an inventory document's resource (Start adds it too), a server only when the run can
+ * use it (one without usable SSH is left out, and the start says so). */
+export function withScope(scope: ChatScope, settings: AgentSettings, options?: AgentOptions): AgentSettings {
+  const resource = isResourceScope(scope)
+    ? { type: scope.kind, id: scope.id }
+    : scope.kind === "new-document"
+      ? scope.inventory
+      : undefined;
+  if (!resource) return settings;
+  if (
+    !isResourceScope(scope) &&
+    resource.type === "server" &&
+    !options?.resources.servers.some((item) => item.id === resource.id && item.usable)
+  )
+    return settings;
+  const field = SCOPE_FIELD[resource.type];
+  if (settings.chosen[field].includes(resource.id)) return settings;
+  return { ...settings, chosen: { ...settings.chosen, [field]: [...settings.chosen[field], resource.id] } };
 }
 
 export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSettings, message: string): StartInput {
-  const settings = withScope(scope, raw);
+  const settings = withScope(scope, raw, options);
   const tools = shownTools(options, settings)
     .filter((tool) => !settings.off.includes(tool.name))
     .map((tool) => tool.name);

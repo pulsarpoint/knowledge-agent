@@ -87,6 +87,10 @@ NO_SUBAGENTS = 'This agent does not allow subagents.'
 OWN_MODEL = 'A saved agent uses its own model and prompt.'
 NO_ENVIRONMENTS = 'A saved agent takes no environments; choose its servers or services.'
 NO_DOCUMENTS = 'A saved agent takes no documents yet.'
+NO_SSH = (
+    'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
+    'commands on it. {reason}'
+)
 AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
 
@@ -507,8 +511,20 @@ def build(
     if started is not None and new is None:  # the new document it starts from is a resource it may write
         entries.append(DocumentAccess(new=started, editable=True))
     owner = started.inventory_for() if started is not None else None
-    if owner is not None:
+    notes = []
+    if owner is not None:  # the resource it writes about is read as a chat on it reads it
         inventory_owner(conn, project, *owner)
+        kind, resource_id = owner
+        if kind == 'server':
+            found = server_row(conn, project, resource_id, lock=True)
+            reason = readiness(found)
+            if reason:  # a run is given a server only with SSH to it: it starts without it
+                notes.append(NO_SSH.format(name=found['name'], reason=reason))
+            else:
+                server = found
+        key = f'{kind}_ids'
+        if (kind != 'server' or server is not None) and resource_id not in getattr(selection, key):
+            selection = selection.model_copy(update={key: [*getattr(selection, key), resource_id]})
     target = None
     if value.started_from.document_id is not None:
         target = conn.execute(
@@ -554,6 +570,8 @@ def build(
                 'server_ids': [i for i in pinned['run_resources']['server_ids'] if str(i) in kept],
             }
     pinned['document_access'] = document_access(conn, project, entries)
+    if notes:
+        pinned['start_notes'] = notes
     if owner is not None:  # built for the resource alone; what the person gave it is only read
         chosen = {key: [] for key in (*pinned.get('chosen_resources', {}), 'environment_ids', f'{owner[0]}_ids')}
         pinned['chosen_resources'] = {**chosen, f'{owner[0]}_ids': [str(owner[1])]}

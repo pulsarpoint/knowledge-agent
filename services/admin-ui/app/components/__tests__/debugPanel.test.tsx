@@ -108,6 +108,17 @@ test("an existing run: GET debug shows Instructions with Copy, Prompt, Tools, Re
   expect(calls.map((call) => call.key)).toEqual(["GET /api/sessions/r1/debug"]);
 });
 
+test("what the start left out is said above the instructions", async () => {
+  const note = "Server prod-1 is not given to this run: it has no usable SSH connection.";
+  api({ "GET /api/sessions/r1/debug": () => [200, { ...view, notes: [note] }] });
+  render(
+    <MemoryRouter>
+      <DebugPanel runId="r1" input={null} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(note)).toBeInTheDocument();
+});
+
 test("a wizard run's prompt was written in the Propose wizard", async () => {
   api({ "GET /api/sessions/r1/debug": () => [200, { ...view, prompt: null, prompt_source: "wizard" }] });
   render(

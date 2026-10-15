@@ -72,6 +72,11 @@ export default function DebugPanel({ runId, input }: { runId: string | null; inp
           What the next conversation starts with, from the current settings.
         </p>
       )}
+      {(view.notes ?? []).map((note) => (
+        <Alert key={note}>
+          <AlertDescription>{note}</AlertDescription>
+        </Alert>
+      ))}
       <Section
         title="Instructions"
         actions={

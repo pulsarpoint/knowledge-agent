@@ -368,3 +368,26 @@ test("the start body for a server: the server is chosen even when not linked, so
   });
   expect(body.tools).toContain("ssh_run");
 });
+
+test("the start body for an inventory document: its resource is chosen, a server only when the run can use it", () => {
+  const base = defaultSettings(options);
+  const settings = { ...base, chosen: { ...base.chosen, server_ids: [], service_ids: [] } };
+  const inventory = (type: "server" | "service", id: string) => ({
+    kind: "new-document" as const,
+    folder: "payments",
+    title: "Payments API",
+    inventory: { type, id },
+  });
+  const server = startInput(inventory("server", "s1"), options, settings, "Write it.");
+  expect(server.resources.server_ids).toEqual(["s1"]);
+  expect(server.tools).toContain("ssh_run");
+  // prod-1 has no usable SSH: the run starts without it (the start says so)
+  const unusable = startInput(inventory("server", "s2"), options, settings, "Write it.");
+  expect(unusable.resources.server_ids).toEqual([]);
+  expect(unusable.tools).not.toContain("ssh_run");
+  const service = startInput(inventory("service", "v1"), options, settings, "Write it.");
+  expect(service.resources.service_ids).toEqual(["v1"]);
+  expect(shownTools(options, withScope(inventory("service", "v1"), settings, options)).map((t) => t.name)).toContain(
+    "ssh_run",
+  );
+});

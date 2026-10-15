@@ -233,6 +233,8 @@ export interface SessionDebug {
   tools: { name: string; description: string }[];
   resources: Record<string, string[]>;
   model: { id: string; name: string } | null;
+  /** What the start left out, and why (an inventory document's server without usable SSH). */
+  notes?: string[];
 }
 export const getSessionDebug = (id: string, signal?: AbortSignal) =>
   request<SessionDebug>(`${session(id)}/debug`, { signal });

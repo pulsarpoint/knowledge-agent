@@ -80,4 +80,5 @@ def view(
         'skills': [{'name': item['name']} for item in skills],
         'resources': resource_names(config),
         'model': {'id': str(model['id']), 'name': model['name']} if model else None,
+        'notes': config.get('start_notes', []),  # what the start left out, and why
     }

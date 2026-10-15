@@ -597,3 +597,115 @@ def test_an_inventory_run_is_refused_when_a_live_document_has_its_name(sessions)
         409,
         'A document or draft named payments-api-reference already exists in this folder. Choose another name.',
     )
+
+
+# The agent writing a resource's inventory document reads that resource, as a chat on it would: it is added to the
+# run's resources with what it brings; it alone stays built-for.
+
+
+def inventory_start(s, kind: str, resource_id: str, **change):
+    new = {**NEW, 'inventory': True, f'{kind}_id': resource_id}
+    change = {
+        'started_from': {'new_document': new},
+        'resources': {'documents': [{'new': new, 'editable': True}]},
+        'tools': ['save_document', *change.pop('tools', [])],
+        **change,
+    }
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, **change))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    return session, {**session['config'], 'session_id': session['id']}
+
+
+def chosen_only(session) -> dict:
+    return {key: value for key, value in session['config']['chosen_resources'].items() if value}
+
+
+def read(config, kind: str, resource_id: str) -> dict:
+    return json.loads(call(config, 'get_resource', resource_type=kind, resource_id=resource_id))
+
+
+def ready_prod(s):
+    from types import SimpleNamespace
+
+    from test_discovery_runs import ssh_ready
+
+    with s.store.connect() as conn:
+        conn.execute('UPDATE ka.servers SET ssh_allowed=true WHERE id=%s', (s.server['id'],))
+    ssh_ready(SimpleNamespace(client=s.client, server=s.server))
+
+
+def test_an_inventory_run_for_a_service_reads_the_service_and_what_it_brings(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    ready_prod(s)
+    session, config = inventory_start(s, 'service', s.service)
+    assert chosen_only(session) == {'service_ids': [s.service]}
+    resources = session['run_resources']
+    assert resources['service_ids'] == [s.service]
+    assert sorted(resources['code_project_ids']) == sorted([s.repo, s.worker])
+    assert resources['server_ids'] == [s.server['id']]
+    assert read(config, 'service', s.service)['name'] == 'Payments'
+
+
+def test_an_inventory_run_for_a_server_with_ssh_reads_it_runs_commands_on_it_and_reads_its_services(
+    sessions, monkeypatch
+):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    ready_prod(s)
+    session, config = inventory_start(s, 'server', s.server['id'], tools=['ssh_run'])
+    assert chosen_only(session) == {'server_ids': [s.server['id']]}
+    assert session['run_resources']['server_ids'] == [s.server['id']]
+    assert read(config, 'server', s.server['id'])['name'] == 'prod-1'
+    assert read(config, 'service', s.service)['name'] == 'Payments'  # deployed on it, pinned as a server chat pins it
+    assert [server['id'] for server in config['ssh']['servers']] == [s.server['id']]
+    assert next(item for item in config['tools']['items'] if item['tool'] == 'ssh_run')['mode'] == 'on'
+    assert config.get('start_notes', []) == []
+
+
+def test_an_inventory_run_for_a_server_without_ssh_starts_without_it_and_says_so(sessions, monkeypatch):
+    s = sessions  # prod-1 has no SSH connection: a run cannot be given a server it cannot connect to
+    monkeypatch.setattr(inventory, '_store', s.store)
+    session, config = inventory_start(s, 'server', s.server['id'])
+    assert chosen_only(session) == {'server_ids': [s.server['id']]}
+    assert session['run_resources']['server_ids'] == []
+    assert (
+        call(config, 'get_resource', resource_type='server', resource_id=s.server['id'])
+        == f'The server {s.server["id"]} is not available in this run.'
+    )
+    [note] = config['start_notes']
+    assert 'prod-1' in note and 'SSH' in note
+    debug = s.client.get(f'/api/sessions/{session["id"]}/debug', headers=HEADERS).json()
+    assert debug['notes'] == [note]
+
+
+def test_an_inventory_run_for_an_environment_reads_it_and_what_it_brings(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    ready_prod(s)
+    session, config = inventory_start(s, 'environment', s.environment)
+    assert chosen_only(session) == {'environment_ids': [s.environment]}
+    resources = session['run_resources']
+    assert resources['service_ids'] == [s.service]
+    assert resources['server_ids'] == [s.server['id']]
+    assert sorted(resources['code_project_ids']) == sorted([s.repo, s.worker])
+    assert read(config, 'environment', s.environment)['name'] == 'Production'
+    assert read(config, 'service', s.service)['name'] == 'Payments'
+
+
+def test_a_new_document_run_without_inventory_reads_only_what_it_was_given(sessions, monkeypatch):
+    s = sessions
+    monkeypatch.setattr(inventory, '_store', s.store)
+    ready_prod(s)
+    response = s.client.post('/api/sessions', headers=HEADERS, json=body(s, tools=['save_document']))
+    assert response.status_code == 201, response.text
+    session = response.json()
+    resources = session['run_resources']
+    assert resources['code_project_ids'] == [s.repo]
+    assert resources['service_ids'] == [] and resources['server_ids'] == []
+    config = {**session['config'], 'session_id': session['id']}
+    assert call(config, 'get_resource', resource_type='service', resource_id=s.service) == (
+        f'The service {s.service} is not available in this run.'
+    )
+    assert 'start_notes' not in session['config']
