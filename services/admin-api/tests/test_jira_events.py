@@ -4,7 +4,6 @@ import copy
 from uuid import uuid4
 
 import httpx
-
 from knowledge_admin.jira.events import changes
 from knowledge_admin.jira.sync import auto_pull
 from test_api import _client
@@ -174,3 +173,52 @@ def test_hand_made_jira_events_never_change_what_a_pull_records(store, tmp_path)
         'Pulled 1 of 1 tickets · 1 new event.',
     )
     assert [e['type'] for e in events(store)] == ['jira.ticket.updated', 'jira.ticket.created']
+
+
+def posted_comment(store, issue, created: str) -> None:
+    with store.connect() as conn:
+        jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
+        conn.execute(
+            """INSERT INTO ka.notifications(project_id,kind,status,title,body,jira_status,jira_connection_id,
+            jira_issue_id,jira_issue_key,jira_comment_id,jira_comment_created)
+            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,%s,%s,'10500',%s)""",
+            (jira['project_id'], jira['id'], issue['id'], issue['key'], created),
+        )
+
+
+def test_an_update_that_is_only_our_comment_records_no_event(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
+    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')  # stays skipped
+
+
+def test_a_field_change_with_our_comment_is_recorded(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
+    issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
+    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+
+
+def test_a_later_comment_by_a_person_is_recorded(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
+    issues[0]['fields']['updated'] = '2026-10-15T10:05:00.000+0000'  # minutes after ours: someone else commented
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+
+
+def test_an_old_comment_of_ours_does_not_hide_a_new_update(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    posted_comment(store, issues[0], issues[0]['fields']['updated'])  # before the recorded state
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.000+0000'
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')

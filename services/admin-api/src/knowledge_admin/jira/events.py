@@ -1,13 +1,15 @@
 """Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
 judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
-updates."""
+updates. An update that is only our own comment (events/jira_replies.py) is not recorded."""
 
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
 CREATED, UPDATED = 'jira.ticket.created', 'jira.ticket.updated'
 COMPARED = ('summary', 'status', 'issue_type', 'priority', 'assignee')
+OWN_COMMENT_WINDOW = timedelta(seconds=2)
 
 
 def ticket(base_url: str, issue: dict) -> dict:
@@ -47,6 +49,21 @@ def changes(before: dict, after: dict) -> dict:
     return result
 
 
+def own_comment(
+    conn, project_id: UUID, connection_id: UUID, issue_id: str, before_updated: str, after_updated: str
+) -> bool:
+    """The update is our own comment (events/jira_replies.py): we posted one on the issue after the recorded state and
+    the ticket was updated within 2 seconds of it. Recording it would make a handler answer its own comment."""
+    created = conn.execute(
+        """SELECT max(jira_comment_created) AS created FROM ka.notifications
+        WHERE project_id=%s AND jira_status='posted' AND jira_connection_id=%s AND jira_issue_id=%s""",
+        (project_id, connection_id, issue_id),
+    ).fetchone()['created']
+    if created is None or created <= datetime.fromisoformat(before_updated):
+        return False
+    return abs(datetime.fromisoformat(after_updated) - created) <= OWN_COMMENT_WINDOW
+
+
 def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: list[dict]) -> int:
     """Record events for the pulled issues inside the caller's transaction; returns how many were new."""
     latest = {
@@ -64,7 +81,14 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: l
         after, before = ticket(base_url, issue), latest.get(issue['id'])
         if before is not None and before.get('updated') == after['updated']:
             continue
-        payload = {**after, 'changes': {} if before is None else changes(before, after)}
+        diff = {} if before is None else changes(before, after)
+        if (
+            before is not None
+            and not diff
+            and own_comment(conn, project_id, connection_id, issue['id'], before['updated'], after['updated'])
+        ):
+            continue
+        payload = {**after, 'changes': diff}
         row = conn.execute(
             """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
             VALUES (%s,'jira',%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (project_id,dedupe_key) DO NOTHING RETURNING id""",
