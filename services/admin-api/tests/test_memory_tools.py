@@ -104,3 +104,14 @@ def test_a_run_without_a_session_saves_without_agent(run):
     run['config'].pop('session_id')
     assert call(run, 'save_memory', name='test/run', content='x')['saved']['revision'] == 1
     assert call(run, 'get_memory', name='test/run')['memory']['saved_by'] is None
+
+
+def test_only_the_store_being_unavailable_is_a_refusal(run, monkeypatch):
+    def boom(*args, **kwargs):
+        raise ValueError('boom')
+
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.memory.get', boom)
+    with pytest.raises(ValueError, match='boom'):
+        call(run, 'get_memory', name='a')
+    monkeypatch.setattr(inventory, '_store', None)
+    assert call(run, 'get_memory', name='a') == {'refused': 'Memory is unavailable right now.'}

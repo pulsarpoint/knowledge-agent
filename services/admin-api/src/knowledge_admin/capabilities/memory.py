@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from knowledge_admin.capabilities.inventory import UNAVAILABLE as STORE_UNAVAILABLE
 from knowledge_admin.capabilities.inventory import connect, project_of
 from knowledge_admin.memory import store as memory
 from knowledge_admin.memory.embedding import current_model, embed_text
@@ -91,7 +92,9 @@ def _guarded(run):
         return run()
     except memory.Invalid as error:
         return _reply({'refused': str(error)})
-    except ValueError:  # the store is not configured in this process
+    except ValueError as error:
+        if str(error) != STORE_UNAVAILABLE:  # only 'the store is not configured in this process' is a refusal
+            raise
         return _reply({'refused': UNAVAILABLE})
 
 
