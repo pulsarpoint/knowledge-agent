@@ -1,7 +1,7 @@
 BEGIN;
 SET search_path = ka, public;
 
--- 0107: the tool attributes used to build agents (group, label, summary, needs, order), one row per built-in tool.
+-- 0108: the tool attributes used to build agents (group, label, summary, needs, order), one row per built-in tool.
 -- Filled and kept equal to services/admin-api/src/knowledge_admin/tools/tools.json by the admin-api start
 -- (tools/fixture.sync_tools); the fixture is the only writer. agent_tools.tool is not a foreign key: it also names
 -- MCP tools (mcp:<server>:<tool>).

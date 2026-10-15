@@ -402,3 +402,13 @@ The down migration refuses (`… would be lost; …`) when two documents tagged 
 built for one server, service or environment. Otherwise it re-adds `operations_notes` empty and `service_assets` with
 it, re-adds `inventory` with 0107's constraint, triggers and views, and sets it on the live documents and brand-new
 drafts tagged `inventory` with exactly one built-for link, to a server, service or environment (the tags stay).
+
+## 0110_jira_replies
+
+`event_handlers.reply_to_jira` (boolean, default false; only a Send to agent handler may set it): post the agent's
+answer as a comment on the Jira ticket that triggered the run. `notifications` gains the comment's delivery state:
+`jira_status` (`pending`, `posted`, `failed` or null for no comment), the connection and issue id it posts to, the
+issue key for the link, the posted comment's id and creation time, attempts, the next attempt time (set exactly while
+pending) and the last error. Repository-worker posts pending rows (`events/jira_replies.py`); the Jira pull reads
+posted rows to skip an update caused only by its own comment. The down migration drops the columns, their indexes and
+the handler column.
