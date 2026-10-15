@@ -7,12 +7,15 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.capabilities.context import RunContext, require_given
 from knowledge_admin.code_projects.paths import code_root, rebase_code_path
 from knowledge_admin.code_projects.processing import CodeProcessingError, index_directory, source_inventory
+from knowledge_admin.tools.registry import tool
 
 
 def load_code_graph_hashing(project: dict, expected_hash: str | None = None) -> dict:
@@ -117,18 +120,48 @@ def current_graph(project: dict) -> dict | None:
     return graph
 
 
+@tool
 async def code_graph(
     context: RunContext,
-    project_id: str,
-    action: Literal[
-        'overview', 'search', 'routes', 'code', 'context', 'callers', 'callees', 'traverse', 'unresolved'
+    project_id: Annotated[str, Field(description='Code graph project ID from the supplied agent resources.')],
+    action: Annotated[
+        Literal['overview', 'search', 'routes', 'code', 'context', 'callers', 'callees', 'traverse', 'unresolved'],
+        Field(description='Overview, search, routes, code, context, callers, callees, traverse or unresolved.'),
     ] = 'overview',
-    query: str = '',
-    node_id: str = '',
-    offset: int = 0,
-    limit: int = 50,
-    include_code: bool = False,
+    query: Annotated[
+        str, Field(description='Symbol name or text query for search; empty lists all indexed nodes.')
+    ] = '',
+    node_id: Annotated[
+        str,
+        Field(description='Exact symbol ID from search; required except overview/search/routes and global unresolved.'),
+    ] = '',
+    offset: Annotated[int, Field(description='Nonnegative pagination offset; continue using next_offset.')] = 0,
+    limit: Annotated[int, Field(description='Maximum returned entries, from 1 to 100.')] = 50,
+    include_code: Annotated[
+        bool, Field(description='Include full source for returned nodes; code action always includes it.')
+    ] = False,
 ) -> str:
+    """Search and explore indexed source with CodeGraph's own SDK functions.
+
+    Start with search; it returns every exact-name overload, or text-search hits
+    when there is no exact name. Use code for a complete function body, context
+    for imports/types/references, and callees/callers for direct relationships.
+    Traverse follows all reachable outgoing calls; results are paginated, with
+    edges grouped by their source node on each page. Continue with next_offset.
+    Routes lists the indexed API registrations. Unresolved can be scoped to a node.
+
+    Nodes and edges retain native CodeGraph fields (filePath, startLine, metadata).
+    File paths are relative to path_base. Code is read with getCode only after its
+    file hash matches the index. Changed/missing source is reported, not silently
+    paired with stale symbol ranges. No code is shortened. Edge confidence and
+    resolvedBy are evidence, not guarantees: verify import/receiver resolution,
+    branches, middleware, SQL and side effects. A missing edge proves no absence.
+    These operations do not use an LLM, re-index, or modify the saved graph/source.
+
+    Use code_graph first: search for symbols, code for full bodies, context for imports/types, and traverse for
+    reachable calls. It uses the CodeGraph SDK directly; follow pagination and inspect edge metadata and unresolved
+    references. Then verify business rules, state changes, SQL and external effects with source-file tools. Graph paths
+    are relative to CODE_ROOT, as returned by the tool. Static edges are evidence, not proof of runtime execution."""
     config = context['config']
     if not config['enabled'] or not config['code']['enabled']:
         raise ValueError('Code access is disabled.')

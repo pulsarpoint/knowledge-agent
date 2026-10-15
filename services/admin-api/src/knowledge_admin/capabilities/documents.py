@@ -1,15 +1,18 @@
 """Search and read the RAG knowledge base within the agent's document collections, recording citable excerpts."""
 
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from pydantic import Field
 
 from knowledge_admin.sessions.activity import redact
 from knowledge_admin.rag.collections import document_collections
 from knowledge_admin.sessions.grounding import empty_state
 from knowledge_admin.knowledge_agents.config import per_run
 from knowledge_admin.capabilities.context import RunContext, require_given
+from knowledge_admin.tools.registry import tool
 
 RAG_TRANSPORT: httpx.AsyncBaseTransport | None = None
 MAX_DOCUMENT_BYTES = 65536
@@ -47,7 +50,17 @@ def _register(state: dict[str, Any], collection: str, path: str, text: str) -> i
     return number
 
 
-async def search_documents(context: RunContext, query: str, collection: str | None = None) -> str:
+@tool
+async def search_documents(
+    context: RunContext,
+    query: Annotated[str, Field(description='Words or a question to search for.')],
+    collection: Annotated[
+        str | None, Field(description='Optional collection name, such as "jira", to search only that collection.')
+    ] = None,
+) -> str:
+    """Search the knowledge base and return numbered excerpts to cite as [n].
+
+    Use search_documents to find knowledge-base excerpts and read_document for a whole document."""
     allowed = _allowed(context['config'])
     if collection is not None:
         collection = collection.strip()
@@ -86,7 +99,15 @@ async def search_documents(context: RunContext, query: str, collection: str | No
     return '\n\n'.join(blocks)
 
 
-async def read_document(context: RunContext, collection: str, path: str) -> str:
+@tool
+async def read_document(
+    context: RunContext,
+    collection: Annotated[str, Field(description='The collection name shown before the path, such as "jira".')],
+    path: Annotated[
+        str, Field(description='The document\'s full path as shown after the collection, such as "jira/DEMO-1.md".')
+    ],
+) -> str:
+    """Read one knowledge-base document returned by search_documents; cite it with its [n]."""
     allowed = _allowed(context['config'])
     collection, path = collection.strip(), path.strip()
     parts = path.split('/')
@@ -114,6 +135,11 @@ async def read_document(context: RunContext, collection: str, path: str) -> str:
     return f'[{number}] {collection}/{path}\n{text}' + ('\n[truncated]' if len(encoded) > MAX_DOCUMENT_BYTES else '')
 
 
-async def report_not_covered(context: RunContext, reason: str) -> str:
+@tool
+async def report_not_covered(
+    context: RunContext,
+    reason: Annotated[str, Field(description='What information is missing from the documentation.')],
+) -> str:
+    """Record that the retrieved documents do not answer the question."""
     _state(context)['reported'] = reason.strip()[:1000] or 'Not covered by the documentation.'
     return 'Recorded. Tell the user the documentation does not cover this and what is missing.'

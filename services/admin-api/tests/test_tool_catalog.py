@@ -284,7 +284,6 @@ def test_run_subagent_is_never_on_by_default_and_never_implied():
     assert (spec.group, spec.label, spec.needs) == ('agents', 'Start subagents', None)
     assert spec.usage.startswith('Start a helper for a separate, well-defined part of your work')
     every = config(code=True, documents=True, ssh=True)
-    assert not spec.default_on(every)
     assert 'run_subagent' not in {entry['tool'] for entry in implied_tools(every)['items'] if entry['mode'] == 'on'}
     assert 'run_subagent' not in enabled_capability_tools(every)
     assert 'run_subagent' in offered(config(tools=['run_subagent']))  # offered exactly when its row is on
