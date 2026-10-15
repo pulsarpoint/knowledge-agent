@@ -92,6 +92,14 @@ class JiraMockTest(unittest.TestCase):
         search = self.call("GET", f"{API}/search?jql=project%20%3D%20DEMO%20ORDER%20BY%20updated%20DESC")[1]
         self.assertEqual(search["issues"][0]["key"], "DEMO-3")
 
+    def test_search_carries_comments_when_asked_for_them(self) -> None:
+        posted = self.call("POST", f"{API}/issue/10001/comment", {"body": "Ours"})[1]
+        with_comments = self.call("GET", f"{API}/search?jql=key%20%3D%20DEMO-1&fields=summary,comment")[1]
+        comment = with_comments["issues"][0]["fields"]["comment"]
+        self.assertEqual((comment["total"], comment["comments"][-1]["id"]), (6, posted["id"]))
+        plain = self.call("GET", f"{API}/search?jql=key%20%3D%20DEMO-1&fields=summary")[1]
+        self.assertNotIn("comment", plain["issues"][0]["fields"])
+
     def test_comment_needs_the_token_a_body_and_a_known_issue(self) -> None:
         self.assertEqual(self.call("POST", f"{API}/issue/10003/comment", {"body": "x"}, token=None)[0], 401)
         self.assertEqual(self.call("POST", f"{API}/issue/10003/comment", {"body": "x"},

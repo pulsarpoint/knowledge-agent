@@ -24,6 +24,9 @@ ISSUE_FIELDS = [
     'created',
     'updated',
 ]
+# The pull also takes each ticket's comments (events carry them); a page of tickets with comments stays small.
+PULL_FIELDS = [*ISSUE_FIELDS, 'comment']
+PULL_PAGE = 20
 
 
 class JiraSettingsInput(BaseModel):
@@ -209,8 +212,8 @@ class JiraClient:
                 {
                     'jql': jql,
                     'startAt': len(issues),
-                    'maxResults': min(50, limit - len(issues)),
-                    'fields': ','.join(ISSUE_FIELDS),
+                    'maxResults': min(PULL_PAGE, limit - len(issues)),
+                    'fields': ','.join(PULL_FIELDS),
                 },
             )
             try:
@@ -224,6 +227,13 @@ class JiraClient:
                     if not isinstance(issue['id'], str) or not issue['id'] or issue['id'] in seen:
                         raise ValueError('Invalid or duplicate issue ID')
                     validate_issue(issue)
+                    comments = self.pulled_comments(issue)
+                    issue['fields']['comment'] = {
+                        'startAt': 0,
+                        'maxResults': len(comments),
+                        'total': len(comments),
+                        'comments': comments,
+                    }
                     seen.add(issue['id'])
                     issues.append(issue)
             except (KeyError, TypeError, ValueError):
@@ -232,49 +242,65 @@ class JiraClient:
                 break
         return issues, total
 
-    def issue_with_comments(self, remote_id: str) -> tuple[dict, list[dict]]:
-        if re.fullmatch(r'[0-9]+', remote_id) is None:
-            raise HTTPException(502, 'Jira returned an invalid issue ID')
-        issue = self.get(f'issue/{remote_id}', {'fields': ','.join(ISSUE_FIELDS)})
+    def pulled_comments(self, issue: dict) -> list[dict]:
+        """The issue's comments, oldest first: those Jira put in the search result, or all of them from the comment
+        endpoint when it sent only some. A result without the comment field (it was not asked for) has none."""
+        embedded = issue['fields'].get('comment')
+        if embedded is None:
+            return []
+        rows, total = embedded['comments'], embedded['total']
+        if not isinstance(rows, list) or type(total) is not int or total < len(rows):
+            raise ValueError('Invalid comments')
+        if total > len(rows):
+            if re.fullmatch(r'[0-9]+', issue['id']) is None:
+                raise ValueError('Invalid issue ID')
+            return self.comment_pages(issue['id'])
+        seen: set[str] = set()
+        for comment in rows:
+            validate_comment(comment, seen)
+        return sorted(rows, key=lambda comment: (datetime.fromisoformat(comment['created']), comment['id']))
+
+    def comment_pages(self, remote_id: str) -> list[dict]:
+        """Every comment of the issue from its comment endpoint, oldest first; ValueError when the pages are invalid,
+        changing or over 10,000 comments or 8 MB of text."""
         comments: list[dict] = []
         seen: set[str] = set()
         expected_total: int | None = None
         content_bytes = 0
+        while True:
+            page = self.get(f'issue/{remote_id}/comment', {'startAt': len(comments), 'maxResults': 100})
+            total, rows = page['total'], page['comments']
+            if (
+                type(total) is not int
+                or not 0 <= total <= 10000
+                or page['startAt'] != len(comments)
+                or not isinstance(rows, list)
+                or (expected_total is not None and expected_total != total)
+                or len(comments) + len(rows) > total
+                or (not rows and len(comments) < total)
+            ):
+                raise ValueError('Incomplete or changing comments')
+            expected_total = total
+            for comment in rows:
+                validate_comment(comment, seen)
+                content_bytes += len(comment['body'].encode('utf-8'))
+                if content_bytes > 8_000_000:
+                    raise ValueError('Comment content exceeds export limit')
+                comments.append(comment)
+            if len(comments) == total:
+                break
+        comments.sort(key=lambda comment: (datetime.fromisoformat(comment['created']), comment['id']))
+        return comments
+
+    def issue_with_comments(self, remote_id: str) -> tuple[dict, list[dict]]:
+        if re.fullmatch(r'[0-9]+', remote_id) is None:
+            raise HTTPException(502, 'Jira returned an invalid issue ID')
+        issue = self.get(f'issue/{remote_id}', {'fields': ','.join(ISSUE_FIELDS)})
         try:
             validate_issue(issue)
             if issue['id'] != remote_id or not isinstance(issue['fields'].get('description', '') or '', str):
                 raise ValueError('Invalid issue content')
-            while True:
-                page = self.get(f'issue/{remote_id}/comment', {'startAt': len(comments), 'maxResults': 100})
-                total, rows = page['total'], page['comments']
-                if (
-                    type(total) is not int
-                    or not 0 <= total <= 10000
-                    or page['startAt'] != len(comments)
-                    or not isinstance(rows, list)
-                    or (expected_total is not None and expected_total != total)
-                    or len(comments) + len(rows) > total
-                    or (not rows and len(comments) < total)
-                ):
-                    raise ValueError('Incomplete or changing comments')
-                expected_total = total
-                for comment in rows:
-                    if not isinstance(comment['id'], str) or not comment['id'] or comment['id'] in seen:
-                        raise ValueError('Invalid or repeated comment')
-                    if not isinstance(comment['body'], str):
-                        raise ValueError('Invalid comment body')
-                    for timestamp in ['created', 'updated']:
-                        if datetime.fromisoformat(comment[timestamp]).tzinfo is None:
-                            raise ValueError('Invalid comment timestamp')
-                    if not isinstance(comment.get('author', {}), dict):
-                        raise ValueError('Invalid comment author')
-                    content_bytes += len(comment['body'].encode('utf-8'))
-                    if content_bytes > 8_000_000:
-                        raise ValueError('Comment content exceeds export limit')
-                    seen.add(comment['id'])
-                    comments.append(comment)
-                if len(comments) == total:
-                    break
+            comments = self.comment_pages(remote_id)
             # Do not publish a mixed snapshot when the issue changes during pagination.
             latest = self.get(f'issue/{remote_id}', {'fields': 'updated'})
             if latest['id'] != remote_id or latest['fields']['updated'] != issue['fields']['updated']:
@@ -284,8 +310,21 @@ class JiraClient:
                 502,
                 'Jira returned incomplete, oversized, or changing ticket content. No file was written; retry the export',
             ) from None
-        comments.sort(key=lambda comment: (datetime.fromisoformat(comment['created']), comment['id']))
         return issue, comments
+
+
+def validate_comment(comment: dict, seen: set[str]) -> None:
+    """A comment as the pull and the export use it; `seen` collects the ids so a repeated one is refused."""
+    if not isinstance(comment['id'], str) or not comment['id'] or comment['id'] in seen:
+        raise ValueError('Invalid or repeated comment')
+    if not isinstance(comment['body'], str):
+        raise ValueError('Invalid comment body')
+    for timestamp in ['created', 'updated']:
+        if datetime.fromisoformat(comment[timestamp]).tzinfo is None:
+            raise ValueError('Invalid comment timestamp')
+    if not isinstance(comment.get('author', {}), dict):
+        raise ValueError('Invalid comment author')
+    seen.add(comment['id'])
 
 
 def validate_issue(issue: dict) -> None:

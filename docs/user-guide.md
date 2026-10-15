@@ -835,7 +835,10 @@ list item), **is one of** (comma-separated values), **matches regex** or **exist
 under `payload.changes`: a changed status, assignee, priority, type or summary is `{from, to}`, so compare
 `payload.changes.status.to` (or `.from`) — `payload.changes.status` with **exists** means "the status changed";
 labels are `payload.changes.labels.added` and `.removed` (lists, use **contains**); a changed description is
-`payload.changes.description` (use **exists**).
+`payload.changes.description` (use **exists**); new comments are `payload.changes.comments.added` (their ids). A Jira
+event also carries every comment of the ticket, whole and oldest first, in `payload.comments` (each `id`, `author`,
+`author_id`, `created`, `body`) and their number in `payload.comment_count`: a Send to agent message can answer the
+latest one with `{{ event.payload.comments[-1].body }}`.
 
 A handler does one thing:
 

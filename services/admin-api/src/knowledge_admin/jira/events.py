@@ -1,16 +1,14 @@
 """Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
 judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
-updates. An update with no field change is not recorded when it is our own comment (events/jira_replies.py), or while
-a reply to that ticket is still pending (being posted)."""
+updates. Events carry the ticket's comments. An update whose only change is new comments that are all our own answers
+(events/jira_replies.py) is not recorded, so a handler never answers itself."""
 
-from datetime import datetime, timedelta
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
 CREATED, UPDATED = 'jira.ticket.created', 'jira.ticket.updated'
 COMPARED = ('summary', 'status', 'issue_type', 'priority', 'assignee')
-OWN_COMMENT_WINDOW = timedelta(seconds=2)
 
 
 def ticket(base_url: str, issue: dict) -> dict:
@@ -18,6 +16,16 @@ def ticket(base_url: str, issue: dict) -> dict:
     named = lambda value: (value or {}).get('name')
     person = lambda value: (value or {}).get('displayName') or (value or {}).get('key')
     description = fields.get('description')
+    comments = [
+        {
+            'id': comment['id'],
+            'author': person(comment.get('author')),
+            'author_id': (comment.get('author') or {}).get('name') or (comment.get('author') or {}).get('key'),
+            'created': comment['created'],
+            'body': comment['body'],
+        }
+        for comment in (fields.get('comment') or {}).get('comments', [])
+    ]
     return {
         'issue_id': issue['id'],
         'key': issue['key'],
@@ -32,6 +40,8 @@ def ticket(base_url: str, issue: dict) -> dict:
         'labels': list(fields.get('labels') or []),
         'created': fields.get('created'),
         'updated': fields['updated'],
+        'comments': comments,
+        'comment_count': len(comments),
     }
 
 
@@ -47,38 +57,45 @@ def changes(before: dict, after: dict) -> dict:
         result['labels'] = {'added': added, 'removed': removed}
     if before.get('description') != after.get('description'):
         result['description'] = {'changed': True}
+    known = {comment['id'] for comment in before.get('comments') or []}
+    if added := [comment['id'] for comment in after.get('comments') or [] if comment['id'] not in known]:
+        result['comments'] = {'added': added}
     return result
 
 
-def own_comment(
-    conn, project_id: UUID, connection_id: UUID, issue_id: str, before_updated: str, after_updated: str
-) -> bool:
-    """The update is our own comment (events/jira_replies.py): we posted one on the issue after the recorded state and
-    the ticket was updated within 2 seconds of it. Recording it would make a handler answer its own comment."""
-    created = conn.execute(
-        """SELECT max(jira_comment_created) AS created FROM ka.notifications
-        WHERE project_id=%s AND jira_status='posted' AND jira_connection_id=%s AND jira_issue_id=%s""",
-        (project_id, connection_id, issue_id),
-    ).fetchone()['created']
-    if created is None or created <= datetime.fromisoformat(before_updated):
-        return False
-    return abs(datetime.fromisoformat(after_updated) - created) <= OWN_COMMENT_WINDOW
+def all_ours(conn, project_id: UUID, connection_id: UUID, username: str, issue_id: str, new: list[dict]) -> bool:
+    """Every new comment is an answer we posted (events/jira_replies.py): its id is a posted reply's, or — while the
+    reply is still being posted and its id not yet recorded — the connection's user wrote it with exactly the text we
+    are posting. Recording such an update would make a handler answer its own comment."""
+    from knowledge_admin.events.jira_replies import (
+        comment_body,
+    )  # events.jira_replies imports jira.sync, which imports this
 
-
-def reply_pending(conn, project_id: UUID, connection_id: UUID, issue_id: str) -> bool:
-    """A reply to the issue is being posted (events/jira_replies.py): a comment-only update may be ours, which the
-    posted-comment rule cannot see yet. Recording it would make a handler answer its own comment."""
-    return (
-        conn.execute(
-            """SELECT 1 FROM ka.notifications WHERE project_id=%s AND jira_status='pending'
-            AND jira_connection_id=%s AND jira_issue_id=%s LIMIT 1""",
+    posted = {
+        row['jira_comment_id']
+        for row in conn.execute(
+            """SELECT jira_comment_id FROM ka.notifications WHERE project_id=%s AND jira_status='posted'
+            AND jira_connection_id=%s AND jira_issue_id=%s AND jira_comment_id = ANY(%s)""",
+            (project_id, connection_id, issue_id, [comment['id'] for comment in new]),
+        )
+    }
+    pending = {
+        comment_body(row['body'], row['agent_name'])
+        for row in conn.execute(
+            """SELECT n.body,coalesce(a.name,n.agent_id,'Agent') AS agent_name
+            FROM ka.notifications n LEFT JOIN ka.agents a ON a.id=n.agent_id
+            WHERE n.project_id=%s AND n.jira_status='pending' AND n.jira_connection_id=%s AND n.jira_issue_id=%s""",
             (project_id, connection_id, issue_id),
-        ).fetchone()
-        is not None
+        )
+    }
+    return all(
+        comment['id'] in posted
+        or ((comment['author_id'] or '').casefold() == username.casefold() and comment['body'] in pending)
+        for comment in new
     )
 
 
-def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: list[dict]) -> int:
+def record(conn, project_id: UUID, connection_id: UUID, base_url: str, username: str, issues: list[dict]) -> int:
     """Record events for the pulled issues inside the caller's transaction; returns how many were new."""
     latest = {
         row['issue_id']: row['payload']
@@ -97,11 +114,15 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: l
             continue
         diff = {} if before is None else changes(before, after)
         if (
-            before is not None
-            and not diff
-            and (
-                own_comment(conn, project_id, connection_id, issue['id'], before['updated'], after['updated'])
-                or reply_pending(conn, project_id, connection_id, issue['id'])
+            set(diff) == {'comments'}
+            and before.get('comments') is not None  # an event recorded before events carried comments
+            and all_ours(
+                conn,
+                project_id,
+                connection_id,
+                username,
+                issue['id'],
+                [comment for comment in after['comments'] if comment['id'] in diff['comments']['added']],
             )
         ):
             continue

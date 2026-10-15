@@ -210,7 +210,10 @@ A retry first looks for the comment on the ticket (an earlier attempt may have r
 and records the one it finds instead of posting again, so a reply is posted once. A comment Jira took on the third
 (last) failed attempt can still appear once on the ticket while the notification says **Not posted**.
 
-Posting a comment moves the ticket's updated time. The next scheduled pull records no `jira.ticket.updated` for a
-ticket whose only change is our own comment (no compared field changed and the ticket was updated within 2 seconds of
-the comment), nor for a comment-only update while a reply to that ticket is still pending. A person's comment within
-those 2 seconds, or while our reply is pending, is missed too.
+Posting a comment moves the ticket's updated time. The pull takes each ticket's comments with the search (`fields`
+includes `comment`; when Jira sends only some, the rest come from the ticket's comment endpoint), in pages of 20
+tickets, and every Jira event carries all of them (`payload.comments`, `payload.comment_count`) and the ids of the new
+ones (`payload.changes.comments.added`). The next scheduled pull records no `jira.ticket.updated` for a ticket whose
+only change is new comments that are all our own answers: a comment whose id a posted reply recorded, or, while a reply
+is still being posted, a comment by the connection's Jira user with exactly the text being posted. Any other new
+comment — a person's, even in the same second as ours — is recorded, together with ours.

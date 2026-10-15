@@ -4,6 +4,7 @@ import copy
 from uuid import uuid4
 
 import httpx
+import pytest
 from knowledge_admin.jira.events import changes
 from knowledge_admin.jira.sync import auto_pull
 from test_api import _client
@@ -175,56 +176,19 @@ def test_hand_made_jira_events_never_change_what_a_pull_records(store, tmp_path)
     assert [e['type'] for e in events(store)] == ['jira.ticket.updated', 'jira.ticket.created']
 
 
-def posted_comment(store, issue, created: str) -> None:
+def posted_comment(store, issue, comment_id: str) -> None:
     with store.connect() as conn:
         jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
         conn.execute(
             """INSERT INTO ka.notifications(project_id,kind,status,title,body,jira_status,jira_connection_id,
             jira_issue_id,jira_issue_key,jira_comment_id,jira_comment_created)
-            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,%s,%s,'10500',%s)""",
-            (jira['project_id'], jira['id'], issue['id'], issue['key'], created),
+            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,%s,%s,%s,now())""",
+            (jira['project_id'], jira['id'], issue['id'], issue['key'], comment_id),
         )
 
 
-def test_an_update_that_is_only_our_comment_records_no_event(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
-    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')  # stays skipped
-
-
-def test_a_field_change_with_our_comment_is_recorded(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
-    issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
-    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
-
-
-def test_a_later_comment_by_a_person_is_recorded(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    posted_comment(store, issues[0], '2026-10-15T10:00:01Z')
-    issues[0]['fields']['updated'] = '2026-10-15T10:05:00.000+0000'  # minutes after ours: someone else commented
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
-
-
-def test_an_old_comment_of_ours_does_not_hide_a_new_update(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    posted_comment(store, issues[0], issues[0]['fields']['updated'])  # before the recorded state
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.000+0000'
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
-
-
 def pending_reply(store, issue) -> None:
+    """A reply being posted: its answer is 'A' and it has no agent, so the comment text is OURS."""
     with store.connect() as conn:
         jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
         conn.execute(
@@ -235,29 +199,132 @@ def pending_reply(store, issue) -> None:
         )
 
 
-def test_a_comment_only_update_while_our_reply_is_pending_records_no_event(store, tmp_path):
+OURS = 'A\n\n— Agent (Knowledge Agent)'
+
+
+def commented(issue, *comments: tuple[str, str, str]) -> None:
+    """Add (id, author name, body) comments; the ticket's updated time moves to the last one, as in Jira."""
+    rows = issue['fields'].setdefault('comment', {'startAt': 0, 'maxResults': 0, 'total': 0, 'comments': []})
+    for comment_id, author, body in comments:
+        created = f'2026-10-15T10:00:{len(rows["comments"]):02d}.000+0000'
+        rows['comments'].append(
+            {
+                'id': comment_id,
+                'author': {'name': author, 'displayName': author.title()},
+                'body': body,
+                'created': created,
+                'updated': created,
+            }
+        )
+        issue['fields']['updated'] = created
+    rows['total'] = rows['maxResults'] = len(rows['comments'])
+
+
+def pulled_twice(store, tmp_path, change) -> tuple[str, list[dict]]:
+    """Pull two tickets, apply `change(store, issues)`, pull again: the second pull's summary and all events."""
     setup(store, tmp_path)
     issues = copy.deepcopy(ISSUES[:2])
+    commented(issues[0], ('500', 'jira-user', 'An old comment'))
     auto_pull(store, a_schedule(store), transport=jira(issues))
-    pending_reply(store, issues[0])
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')
+    change(store, issues)
+    return auto_pull(store, a_schedule(store), transport=jira(issues))[1], events(store)
 
 
-def test_a_field_change_while_our_reply_is_pending_is_recorded(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    pending_reply(store, issues[0])
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
-    issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+def test_events_carry_the_comments_and_which_are_new(store, tmp_path):
+    def change(_, issues):
+        commented(issues[0], ('501', 'jira-user', 'Can someone look?'))
+
+    summary, recorded = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+    created, updated = recorded[0]['payload'], recorded[-1]['payload']
+    assert created['comments'] == [
+        {
+            'id': '500',
+            'author': 'Jira-User',
+            'author_id': 'jira-user',
+            'created': '2026-10-15T10:00:00.000+0000',
+            'body': 'An old comment',
+        }
+    ]
+    assert (created['comment_count'], updated['comment_count']) == (1, 2)
+    assert updated['changes'] == {'comments': {'added': ['501']}}
+    assert recorded[1]['payload']['comments'] == []  # a ticket with no comments
 
 
-def test_a_pending_reply_on_another_ticket_does_not_hide_an_update(store, tmp_path):
-    setup(store, tmp_path)
-    issues = copy.deepcopy(ISSUES[:2])
-    auto_pull(store, a_schedule(store), transport=jira(issues))
-    pending_reply(store, issues[1])
-    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
-    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+def test_an_update_that_is_only_our_posted_comment_records_no_event(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'mock-admin', OURS))
+        posted_comment(store, issues[0], '501')
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('0 new events.')
+
+
+def test_a_person_commenting_in_the_same_second_as_us_is_recorded(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'mock-admin', OURS), ('502', 'jira-user', 'Thanks, but why?'))
+        issues[0]['fields']['comment']['comments'][-1]['created'] = '2026-10-15T10:00:01.000+0000'
+        posted_comment(store, issues[0], '501')
+
+    summary, recorded = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+    assert recorded[-1]['payload']['changes'] == {'comments': {'added': ['501', '502']}}
+
+
+def test_a_field_change_with_our_comment_is_recorded(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'mock-admin', OURS))
+        issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
+        posted_comment(store, issues[0], '501')
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+
+
+def test_our_comment_id_on_another_ticket_does_not_hide_an_update(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'jira-user', 'A question'))
+        posted_comment(store, issues[1], '501')
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+
+
+def test_our_comment_still_being_posted_is_matched_by_author_and_text(store, tmp_path):
+    def change(store, issues):
+        commented(issues[0], ('501', 'Mock-Admin', OURS))  # the connection user, any case
+        pending_reply(store, issues[0])
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('0 new events.')
+
+
+@pytest.mark.parametrize(
+    ('author', 'body'), [('jira-user', OURS), ('mock-admin', 'Something else'), ('jira-user', 'A question')]
+)
+def test_while_our_reply_is_being_posted_other_comments_are_recorded(store, tmp_path, author, body):
+    def change(store, issues):
+        commented(issues[0], ('501', author, body))
+        pending_reply(store, issues[0])
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+
+
+def test_an_update_without_new_comments_is_recorded(store, tmp_path):
+    def change(_, issues):
+        issues[0]['fields']['updated'] = '2026-10-15T11:00:00.000+0000'  # e.g. a field we do not compare
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')
+
+
+def test_an_event_recorded_before_comments_were_carried_does_not_hide_our_comment(store, tmp_path):
+    def change(store, issues):
+        with store.connect() as conn:
+            conn.execute("UPDATE ka.events SET payload = payload - 'comments'")
+        commented(issues[0], ('501', 'mock-admin', OURS))
+        posted_comment(store, issues[0], '501')
+
+    summary, _ = pulled_twice(store, tmp_path, change)
+    assert summary.endswith('1 new event.')

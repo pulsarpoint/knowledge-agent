@@ -300,7 +300,13 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self.respond(400, {"errorMessages": ["Invalid pagination or unsupported mock JQL"]})
                 return
-            self.respond(200, {"startAt": start, "maxResults": size, "total": len(issues), "issues": issues[start:start + size]})
+            page = issues[start:start + size]
+            if "comment" in query.get("fields", [""])[0].split(","):
+                # Like Jira, the search result then carries each ticket's comments.
+                page = [{**issue, "fields": {**issue["fields"], "comment": {
+                    "startAt": 0, "maxResults": len(COMMENTS[issue["id"]]), "total": len(COMMENTS[issue["id"]]),
+                    "comments": COMMENTS[issue["id"]]}}} for issue in page]
+            self.respond(200, {"startAt": start, "maxResults": size, "total": len(issues), "issues": page})
         elif match := re.fullmatch(r"/jira/rest/api/2/issue/([A-Za-z0-9_-]+)(/comment)?", url.path):
             issue = find_issue(match[1])
             if issue is None:

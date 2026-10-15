@@ -114,7 +114,9 @@ def pull_tickets(
                 ),
             )
         new_events = (
-            jira_events.record(conn, config['project_id'], config['id'], config['base_url'], issues) if events else 0
+            jira_events.record(conn, config['project_id'], config['id'], config['base_url'], config['username'], issues)
+            if events
+            else 0
         )
         if events:  # the scheduled pull keeps the manual Fetch query and limit shown on Jira → Tickets
             conn.execute(
