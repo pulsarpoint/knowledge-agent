@@ -412,3 +412,12 @@ issue key for the link, the posted comment's id and creation time, attempts, the
 pending) and the last error. Repository-worker posts pending rows (`events/jira_replies.py`); the Jira pull reads
 posted rows to skip an update caused only by its own comment. The down migration drops the columns, their indexes and
 the handler column.
+
+## 0111_memory
+
+Memory for agents. `ka.memories` holds one entry per `(project_id, name)`: a lowercase path-like name, jsonb object
+metadata, content (1 to 20000 characters), a generated `search_vector` (name split at `/`, content and metadata values,
+via `ka.jsonb_values_text`), an optional `embedding` with its `embedding_profile` (both set or both null) and the
+revision with who saved it (agent, session, actor). `ka.memory_versions` keeps earlier revisions. The `memory` tool
+group is allowed in `ka.tools` and `memory` as a `ka.events` source. The down migration deletes memory events and
+memory tools, restores both checks and drops both tables and the function.

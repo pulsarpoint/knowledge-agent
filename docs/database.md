@@ -362,6 +362,19 @@ Migration `0007_rag_folder_deletion.up.sql` adds folder deletion markers, a uniq
 
 Migration `0008_single_rag_workspace.up.sql` adds a unique constant-expression index to `rag_workspaces`, enforcing one workspace for the single source mount. Project IDs remain internal foreign keys, preserving existing repositories, Jira configuration, services, servers, credentials, RAG hashes and job history.
 
+## Memory
+
+Migration `0111_memory` adds two tables.
+
+`ka.memories` (one row per `(project_id, name)`):
+- identity: `id`, `project_id`, `created_at`, `updated_at`.
+- name, metadata, content: `name` (lowercase, `a-z0-9._/-`, up to 200 characters), `metadata` (jsonb object, for filtering), `content` (1 to 20000 characters).
+- search: `search_vector`, generated from the name (split at `/`), content and metadata values.
+- embedding: `embedding` and `embedding_profile`, both set or both null (null when no vector could be made).
+- revision and authorship: `revision`, `created_by_*` and `updated_by_*` for agent, session (no foreign key) and actor.
+
+`ka.memory_versions` (`memory_id`, `revision`): the earlier revision (name, metadata, content, who changed it and when), copied before each update, restore or delete.
+
 ## SSH agent configuration scopes
 
 Migration `0017_agent_server_configs` stores global defaults (`server_id IS NULL`) and optional server overrides in `ka.agent_configs`. The unique `(project_id, agent, server_id)` constraint uses `NULLS NOT DISTINCT`. Nullable instructions and nullable API skill selections mean inherit; explicit empty values clear that setting for the server. `ka.agent_config_skills` stores explicit assignments, while `inherit_skills` distinguishes inheritance from an empty selection. Global rows require explicit instructions and skills.
