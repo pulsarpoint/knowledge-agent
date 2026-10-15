@@ -275,6 +275,33 @@ export default function NotificationsView() {
                       </dd>
                     </>
                   )}
+                  {selected.jira_status && (
+                    <>
+                      <dt className="text-muted-foreground">Jira</dt>
+                      <dd>
+                        {selected.jira_status === "posted" && selected.jira_base_url ? (
+                          <a
+                            className="text-primary underline underline-offset-4"
+                            href={`${selected.jira_base_url}/browse/${encodeURIComponent(selected.jira_issue_key ?? "")}?focusedCommentId=${encodeURIComponent(selected.jira_comment_id ?? "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Posted to {selected.jira_issue_key}
+                          </a>
+                        ) : selected.jira_status === "posted" ? (
+                          `Posted to ${selected.jira_issue_key}`
+                        ) : selected.jira_status === "pending" ? (
+                          selected.jira_error ? (
+                            `Posting to ${selected.jira_issue_key}… (attempt ${selected.jira_attempts} failed: ${selected.jira_error})`
+                          ) : (
+                            `Posting to ${selected.jira_issue_key}…`
+                          )
+                        ) : (
+                          `Not posted to ${selected.jira_issue_key}: ${selected.jira_error}`
+                        )}
+                      </dd>
+                    </>
+                  )}
                 </dl>
                 <pre className="whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-sm">{selected.body}</pre>
               </div>

@@ -16,6 +16,7 @@ import {
 } from "./handlers";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
@@ -38,6 +39,7 @@ interface Form {
   emit: { type: string; subject: string; title: string; payload: string };
   agent_id: string;
   prompt: string;
+  reply_to_jira: boolean;
 }
 
 const BLANK: Form = {
@@ -49,6 +51,7 @@ const BLANK: Form = {
   emit: { type: "", subject: "", title: "", payload: "" },
   agent_id: "",
   prompt: "",
+  reply_to_jira: false,
 };
 /** Send to agent on a pattern like * or jira.ticket.* can run the agent many times at once (the first Jira pull records every ticket). */
 const broad = (pattern: string) => pattern === "*" || pattern.endsWith(".*");
@@ -69,6 +72,7 @@ function fromHandler(handler: EventHandler): Form {
     emit: handler.emit ?? BLANK.emit,
     agent_id: handler.agent_id ?? "",
     prompt: handler.prompt ?? "",
+    reply_to_jira: handler.reply_to_jira,
   };
 }
 function toDraft(form: Form): HandlerDraft {
@@ -93,6 +97,7 @@ function toDraft(form: Form): HandlerDraft {
     emit: form.action === "emit" ? form.emit : null,
     agent_id: form.action === "agent" ? form.agent_id || null : null,
     prompt: form.action === "agent" ? form.prompt : null,
+    reply_to_jira: form.action === "agent" && form.reply_to_jira,
   };
 }
 
@@ -354,6 +359,21 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
                 placeholder="Triage {{ event.subject }}: {{ event.payload.summary }}"
                 onChange={(e) => update({ prompt: e.target.value })}
               />
+            </Field>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="handler-reply-to-jira"
+                checked={form.reply_to_jira}
+                onCheckedChange={(checked) => update({ reply_to_jira: checked === true })}
+              />
+              <div>
+                <FieldLabel htmlFor="handler-reply-to-jira">
+                  Also post the answer as a comment on the Jira ticket
+                </FieldLabel>
+                <FieldDescription>
+                  Jira events only. Posted as the Jira connection&apos;s user, which needs the Add Comments permission.
+                </FieldDescription>
+              </div>
             </Field>
           </>
         )}

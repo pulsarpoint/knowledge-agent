@@ -152,3 +152,50 @@ test("empty and error states", async () => {
   view();
   await waitFor(() => expect(screen.getByText("Database down")).toBeInTheDocument());
 });
+
+const JIRA = { jira_base_url: "https://jira.internal/jira", jira_attempts: 1, jira_comment_id: null, jira_error: null };
+test.each([
+  [{ jira_status: "posted", jira_issue_key: "DEMO-3", jira_comment_id: "10500" }, "Posted to DEMO-3"],
+  [
+    { jira_status: "pending", jira_issue_key: "DEMO-3", jira_error: "Jira could not complete the request" },
+    "Posting to DEMO-3… (attempt 1 failed: Jira could not complete the request)",
+  ],
+  [{ jira_status: "pending", jira_issue_key: "DEMO-3", jira_attempts: 0 }, "Posting to DEMO-3…"],
+  [
+    { jira_status: "failed", jira_issue_key: "DEMO-3", jira_error: "Jira refused the comment" },
+    "Not posted to DEMO-3: Jira refused the comment",
+  ],
+])("the detail shows the Jira comment's state %#", async (jira, text) => {
+  api({
+    "/api/notifications": { notifications: [], next_offset: null },
+    "/api/notifications/3": { notification: detail(3, { ...JIRA, ...jira }) },
+  });
+  view("/notifications?id=3");
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByText(text)).toBeInTheDocument();
+});
+
+test("a posted comment links to it on Jira", async () => {
+  api({
+    "/api/notifications": { notifications: [], next_offset: null },
+    "/api/notifications/3": {
+      notification: detail(3, { ...JIRA, jira_status: "posted", jira_issue_key: "DEMO-3", jira_comment_id: "10500" }),
+    },
+  });
+  view("/notifications?id=3");
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("link", { name: "Posted to DEMO-3" })).toHaveAttribute(
+    "href",
+    "https://jira.internal/jira/browse/DEMO-3?focusedCommentId=10500",
+  );
+});
+
+test("a notification without a Jira comment shows no Jira line", async () => {
+  api({
+    "/api/notifications": { notifications: [], next_offset: null },
+    "/api/notifications/4": { notification: detail(4) },
+  });
+  view("/notifications?id=4");
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).queryByText("Jira")).toBeNull();
+});

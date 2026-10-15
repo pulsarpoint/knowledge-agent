@@ -848,7 +848,9 @@ A handler does one thing:
   is the run's first message, the run uses everything the agent has switched on that it can use, and the handler's
   creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
-  notification is written with the answer, or why it failed (4.19). A failed run is not retried: continue it, or send
+  notification is written with the answer, or why it failed (4.19). With **Also post the answer as a comment on the Jira
+  ticket**, the answer to a Jira event is also posted on its ticket as the Jira connection's user (see the Jira docs for
+  the permission it needs); a failed run is not posted. A failed run is not retried: continue it, or send
   the event again. Only enabled agents with fixed resources can be chosen (agents that choose resources per run are
   refused). A handler whose agent was deleted or no longer qualifies can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
@@ -876,6 +878,8 @@ Status (**Succeeded** or **Failed**), Title (`<agent> · <event type> <subject>`
 title; **Load more** and **Refresh** work as on Events. Open a notification to read the whole answer (or why the run
 failed), the agent, **Open run**, which opens the run in the agent's Test tab, and **Open event**, which opens the event that
 triggered it. On the event, the handler run shows the run's status, **Open run** and **Open notification**.
+A notification whose answer goes to Jira shows **Posted to KEY** (opens the comment), **Posting to KEY…** while it is
+being posted or retried, or **Not posted to KEY** with the reason.
 Notifications from before event runs show the old task's attempts and have no **Open run**.
 
 ### 4.20 System map

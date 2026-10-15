@@ -12,10 +12,16 @@ export interface NotificationRow {
   session_id: string | null;
   agent_id: string | null;
   agent_name: string | null;
+  jira_status?: "pending" | "posted" | "failed" | null;
+  jira_issue_key?: string | null;
 }
 export interface NotificationDetail extends NotificationRow {
   body: string;
   handler_id: string | null;
+  jira_comment_id?: string | null;
+  jira_attempts?: number;
+  jira_error?: string | null;
+  jira_base_url?: string | null;
   event: { id: number; type: string; subject: string } | null;
   task: { id: string; attempts: number; created_at: string; finished_at: string | null } | null;
 }

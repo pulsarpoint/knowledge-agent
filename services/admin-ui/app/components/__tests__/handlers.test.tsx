@@ -14,6 +14,7 @@ const handler = (extra = {}) => ({
   agent_id: null,
   agent_name: null,
   prompt: null,
+  reply_to_jira: false,
   revision: 1,
   created_at: "2026-10-09T10:00:00Z",
   updated_at: "2026-10-09T10:00:00Z",
@@ -123,6 +124,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
   await user.click(screen.getByRole("option", { name: "is one of" }));
   await user.type(within(sheet).getByLabelText("Condition 1 value"), "Open, In Progress");
   await user.type(within(sheet).getByLabelText("New event type"), "triage.requested");
+  expect(within(sheet).queryByRole("checkbox", { name: /Jira ticket/ })).toBeNull();
   await user.click(within(sheet).getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(sent).toEqual({
@@ -134,6 +136,7 @@ test("creating an emit handler with a condition sends the draft", async () => {
       emit: { type: "triage.requested", subject: "", title: "", payload: "" },
       agent_id: null,
       prompt: null,
+      reply_to_jira: false,
     }),
   );
   expect(await screen.findByText("Emit triage.requested")).toBeInTheDocument();
@@ -160,13 +163,17 @@ test("send to agent picks an agent and a prompt; server errors show in the form"
   await user.click(screen.getByRole("option", { name: "Tester" }));
   await user.click(within(sheet).getByLabelText("Prompt"));
   await user.paste("Triage {{ event.subject");
+  await user.click(
+    within(sheet).getByRole("checkbox", { name: "Also post the answer as a comment on the Jira ticket" }),
+  );
   await user.click(within(sheet).getByRole("button", { name: "Save" }));
   expect(await within(sheet).findByText("Prompt: unexpected end of template (line 1).")).toBeInTheDocument();
-  expect([sent.action, sent.agent_id, sent.prompt, sent.emit]).toEqual([
+  expect([sent.action, sent.agent_id, sent.prompt, sent.emit, sent.reply_to_jira]).toEqual([
     "agent",
     "tester",
     "Triage {{ event.subject",
     null,
+    true,
   ]);
 });
 

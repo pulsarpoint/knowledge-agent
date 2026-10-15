@@ -52,6 +52,8 @@ def test_rows_carry_a_preview_and_the_agent(store, tmp_path):
         'agent_id',
         'agent_name',
         'session_id',
+        'jira_status',
+        'jira_issue_key',
     }
     assert (row['preview'], row['agent_id'], row['agent_name'], row['event_id'], row['kind']) == (
         'x' * 200,
@@ -115,3 +117,26 @@ def test_missing_and_other_projects(store, tmp_path):
     assert client.get('/api/notifications', headers=HEADERS).json()['notifications'] == []
     response = client.get(f'/api/notifications/{hidden}', headers=HEADERS)
     assert (response.status_code, response.json()['error']['message']) == (404, 'Notification not found.')
+
+
+def test_a_notification_shows_its_jira_comment(store, tmp_path):
+    from test_jira import setup
+
+    client, _ = setup(store, tmp_path)
+    with store.connect() as conn:
+        jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
+        nid = conn.execute(
+            """INSERT INTO ka.notifications(project_id,kind,status,title,body,jira_status,jira_connection_id,
+            jira_issue_id,jira_issue_key,jira_comment_id,jira_comment_created,jira_attempts)
+            VALUES (%s,'agent.response','succeeded','T','A','posted',%s,'10001','DEMO-1','10500',now(),1) RETURNING id""",
+            (jira['project_id'], jira['id']),
+        ).fetchone()['id']
+    [row] = client.get('/api/notifications', headers=HEADERS).json()['notifications']
+    assert (row['jira_status'], row['jira_issue_key']) == ('posted', 'DEMO-1')
+    detail = client.get(f'/api/notifications/{nid}', headers=HEADERS).json()['notification']
+    assert (detail['jira_comment_id'], detail['jira_attempts'], detail['jira_error'], detail['jira_base_url']) == (
+        '10500',
+        1,
+        None,
+        'https://jira.internal/jira',
+    )
