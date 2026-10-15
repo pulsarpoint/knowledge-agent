@@ -270,6 +270,7 @@ export default function DocumentsView() {
                             Not published
                           </Badge>
                         )}
+                        <TagLinks tags={draft.tags} className="ml-2" />
                       </TableCell>
                       <TableCell className="whitespace-normal">
                         {draft.document_id ? (
@@ -335,6 +336,7 @@ export default function DocumentsView() {
                       <Link className="font-medium underline-offset-4 hover:underline" to={draftPath(draft)}>
                         {draft.title}
                       </Link>
+                      <TagLinks tags={draft.tags} className="ml-2" />
                     </TableCell>
                     <TableCell>{draft.folder ?? "—"}</TableCell>
                     <TableCell>

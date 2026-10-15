@@ -326,4 +326,47 @@ describe("the Documents list", () => {
     expect(new URLSearchParams(router.state.location.search).get("tag")).toBe("inventory");
     expect(screen.getByLabelText("Tag")).toHaveValue("inventory");
   });
+  test("a draft tagged inventory shows its tag badges, linking to ?tag=, in New drafts and the Drafts view", async () => {
+    const draft = {
+      id: "d9",
+      document_id: null,
+      slug: "web-1",
+      folder: null,
+      title: "web-1 overview",
+      origin: "manual",
+      session_id: null,
+      session_title: null,
+      author: "ana@example.com",
+      edited: false,
+      revision: 1,
+      base_version: null,
+      live_version: null,
+      stale: false,
+      published: false,
+      document_title: null,
+      tags: ["inventory", "ops"],
+      created_at: at,
+      updated_at: at,
+    };
+    api({
+      "GET /api/documentation/documents?": () => [200, { documents: [], total: 0 }],
+      "GET /api/documentation/drafts?new=true": () => [200, { drafts: [draft] }],
+      "GET /api/documentation/drafts": () => [
+        200,
+        { drafts: [draft, { ...draft, id: "d8", title: "Plain", tags: [] }] },
+      ],
+      "GET /api/documentation/resources": () => [200, resources],
+    });
+    show("/documents");
+    const newDrafts = await screen.findByRole("region", { name: "New drafts" });
+    const row = within(newDrafts).getByRole("link", { name: "web-1 overview" }).closest("tr")!;
+    expect(within(row).getByRole("link", { name: "inventory" })).toHaveAttribute("href", "/documents?tag=inventory");
+    expect(within(row).getByRole("link", { name: "ops" })).toHaveAttribute("href", "/documents?tag=ops");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Drafts" }), { button: 0, ctrlKey: false });
+    const drafts = await screen.findByRole("region", { name: "Drafts" });
+    const tagged = within(drafts).getAllByRole("link", { name: "web-1 overview" })[0].closest("tr")!;
+    expect(within(tagged).getByRole("link", { name: "inventory" })).toHaveAttribute("href", "/documents?tag=inventory");
+    const plain = within(drafts).getAllByRole("link", { name: "Plain" })[0].closest("tr")!;
+    expect(within(plain).queryByRole("link", { name: "inventory" })).toBeNull();
+  });
 });

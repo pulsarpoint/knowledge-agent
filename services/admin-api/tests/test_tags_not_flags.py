@@ -330,6 +330,24 @@ def test_documents_and_drafts_filter_by_one_tag_exactly_and_case_insensitively(s
     assert len(client.get(DRAFTS, headers=HEADERS).json()['drafts']) == 2
 
 
+def test_draft_rows_carry_their_tags(store, client):
+    ops = live(store, 'ops', 'Ops', tags=['Ops', 'inventory'])
+    brand_new = client.post(
+        DRAFTS,
+        headers=HEADERS,
+        json={'slug': 'web-1', 'title': 'web-1', 'markdown': '# web-1\n', 'tags': ['inventory']},
+    ).json()['id']
+    of_ops = client.post(DRAFTS, headers=HEADERS, json={'document_id': ops}).json()['id']
+    rows = {row['id']: row for row in client.get(DRAFTS, headers=HEADERS).json()['drafts']}
+    assert rows[brand_new]['tags'] == ['inventory']
+    assert rows[of_ops]['tags'] == ['Ops', 'inventory']
+    [new] = client.get(DRAFTS, headers=HEADERS, params={'new': 'true'}).json()['drafts']
+    assert new['tags'] == ['inventory']
+    [of_document] = client.get(f'{DOCUMENTS}/{ops}/drafts', headers=HEADERS).json()['drafts']
+    assert of_document['tags'] == ['Ops', 'inventory']
+    assert client.get(f'{DRAFTS}/{of_ops}', headers=HEADERS).json()['tags'] == ['Ops', 'inventory']
+
+
 # Discovery
 
 

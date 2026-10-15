@@ -131,14 +131,14 @@ class Promotion(Decision):
 
 # {extra}: more columns; the only placeholder (no other braces in the SQL). A run's draft (session_id) reports origin
 # 'agent', a person's 'manual'; published: it revises a live document (false: a brand-new draft), document_title its
-# title (null for a brand-new draft); l is the live document a draft revises.
+# title (null for a brand-new draft), tags its tags (a draft's own); l is the live document a draft revises.
 SUMMARY = """SELECT x.id,x.document_id,x.slug,x.folder,x.title,
     CASE WHEN x.session_id IS NULL THEN 'manual' ELSE 'agent' END AS origin,x.session_id,s.title AS session_title,
     s.purpose AS session_purpose,p.email AS author,x.edited,x.revision,x.base_version,x.live_version,x.stale,
-    x.document_id IS NOT NULL AS published,x.document_title,x.created_at,x.updated_at{extra}
+    x.document_id IS NOT NULL AS published,x.document_title,x.tags,x.created_at,x.updated_at{extra}
     FROM ka.document_drafts_view x LEFT JOIN ka.documents l ON l.id=x.document_id
     LEFT JOIN ka.agent_sessions s ON s.id=x.session_id LEFT JOIN ka.principals p ON p.id=x.created_by"""
-DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.tags,x.markdown,
+DETAIL_EXTRA = """,x.description,x.purpose,x.audience,x.markdown,
     jsonb_build_object('code_project_ids',x.code_project_ids,'service_ids',x.service_ids,'server_ids',x.server_ids,
     'deployment_ids',x.deployment_ids,'environment_ids',x.environment_ids) AS resource_ids,
     l.markdown AS live_markdown"""

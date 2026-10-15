@@ -53,6 +53,7 @@ const newDraft = {
   base_version: null,
   live_version: null,
   stale: false,
+  tags: [],
   created_at: "2026-10-12T10:00:00Z",
   updated_at: "2026-10-12T11:00:00Z",
 };

@@ -709,8 +709,8 @@ Anything a person or an agent saves is a **draft** (an accepted discovery docume
 only when a person publishes or promotes a draft.
 
 - The list's **Drafts** column counts each document's open drafts and opens its Drafts tab; **Has drafts** shows only
-  documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title, folder,
-  written by, updated) with **Open** and **Discard**. The **Drafts** view lists every draft: a draft of a new document
+  documents with drafts. **New drafts** above the table lists drafts of documents that do not exist yet (title and tags,
+  folder, written by, updated) with **Open** and **Discard**; it ignores the filters. The **Drafts** view lists every draft with its tags: a draft of a new document
   is marked **Not published** (**Open**, **Publish**, **Discard**); a draft of a live document names its document.
 - **Drafts** tab: the open drafts (written by a person or an **Agent run**, updated, based on version n, **stale** when
   the live version moved on). A draft shows its changes against the live version, a preview and its **Sources** (the

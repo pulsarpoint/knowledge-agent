@@ -31,6 +31,8 @@ export interface DraftSummary {
   published?: boolean;
   /** The live document's title (null for a brand-new draft). */
   document_title?: string | null;
+  /** The draft's own tags. */
+  tags: string[];
   created_at: string;
   updated_at: string;
 }
