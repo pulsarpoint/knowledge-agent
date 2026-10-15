@@ -30,8 +30,9 @@ the differences are listed in [Appendix B](#appendix-b-where-older-docs-disagree
   - [4.17 Events](#417-events)
   - [4.18 Event handlers](#418-event-handlers)
   - [4.19 Notifications](#419-notifications)
-  - [4.20 System map](#420-system-map)
-  - [4.21 Prompts](#421-prompts)
+  - [4.20 Memory](#420-memory)
+  - [4.21 System map](#421-system-map)
+  - [4.22 Prompts](#422-prompts)
 - [5. End-to-end workflows](#5-end-to-end-workflows)
 - [6. Operations](#6-operations)
 - [7. Current limitations](#7-current-limitations)
@@ -160,7 +161,7 @@ General conventions throughout the admin app:
 
 | Group | Items |
 | --- | --- |
-| Administration | Storage · Prompts · Skills · MCP servers · Agent runs · Schedules · Events · Notifications |
+| Administration | Storage · Prompts · Skills · MCP servers · Agent runs · Schedules · Events · Notifications · Memory |
 | Agents | All agents |
 | LLM Settings | Models |
 | Jira | Tickets · Auto pull · Settings |
@@ -801,7 +802,7 @@ Schedules run at most every 5 minutes. **History** shows the newest 20 runs. Sch
 ### 4.17 Events
 
 Administration → Events lists what happened at your sources and what handlers made of it: Time, Source, Type,
-Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Today the source is Jira:
+Subject, Title and Status. Click a column header to sort by it, and again to flip the order. Sources are Jira, Memory (4.20) and Manual. For Jira:
 every scheduled pull (Jira → Auto pull, or Run now) records **Ticket created** for a ticket it sees for the first time
 and **Ticket updated** when a ticket changed in Jira, with what changed (status, labels, assignee, priority, type,
 summary, description). The very first pull records every ticket it fetches. Events a handler emitted have the source
@@ -829,7 +830,7 @@ shows **Created by hand**.
 
 Administration → Events → **Handlers** reacts to events. Every few seconds repository-worker takes each new event and
 runs every enabled handler whose **Event type** pattern matches (`*` for any part: `jira.ticket.*`, `jira.*.created`,
-or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source`, `type`, `subject`,
+or `*` for every event) and whose **Conditions** all hold. Conditions compare a field — `source` (`jira`, `memory`, `handler` or `manual`), `type`, `subject`,
 `title` or `payload.<field>` such as `payload.status` — with **equals**, **does not equal**, **contains** (text or
 list item), **is one of** (comma-separated values), **matches regex** or **exists**. What changed in a Jira ticket is
 under `payload.changes`: a changed status, assignee, priority, type or summary is `{from, to}`, so compare
@@ -886,7 +887,45 @@ A notification whose answer goes to Jira shows **Posted to KEY** (opens the comm
 being posted or retried, or **Not posted to KEY** with the reason.
 Notifications from before event runs show the old task's attempts and have no **Open run**.
 
-### 4.20 System map
+### 4.20 Memory
+
+Memory is a shared notebook for the whole project: agents save what they learn (a decision, a convention, a fact about a
+system) and every agent can find it again in a later run. Each entry has a unique **name**, **content** (text, up to
+20,000 characters), optional **metadata** (up to 20 labels such as `topic` or `system`) and the agent that saved it.
+Names use lowercase letters, digits and `. _ / -` (up to 200 characters). Metadata keys are lowercase snake_case (up to
+64 characters) and values are text of 1 to 500 characters.
+
+**Tools.** Turn them on in an agent's **Tools** tab, group **Memory**:
+
+- `search_memory` finds entries by meaning and by words. It can narrow by metadata and by the agent that saved them, and
+  returns up to `limit` entries with the content cut at 2,000 characters.
+- `get_memory` reads one entry whole by name.
+- `save_memory` creates an entry. If the name already exists nothing is overwritten: the agent gets the existing entry
+  back, merges its new knowledge into it and calls `update_memory`.
+- `update_memory` replaces an entry's content and metadata. It must pass the **revision** it read; if someone changed
+  the entry meanwhile, the update is refused and the current entry is returned, so the agent reads it and tries again.
+
+In the tools, metadata is a list of `{key, value}` items; on the page and in the API it is a plain object. Agents cannot
+delete or rename entries; only people can, on the page.
+
+**The page.** Administration → **Memory** lists entries with name, metadata, who saved them (agent or person) and when.
+Search by words; click a metadata badge to add it as a filter chip (click the chip to remove it); **Saved by agent**
+shows only the entries of one agent; **Load more** shows older ones. Open an entry (or **New entry**) to edit its
+**Name**, **Metadata** and **Content**, then **Save**. If an agent or another person changed the entry after you opened
+it, Save says so and **Load current** brings in the latest version (your edits are replaced). **History** lists every
+earlier version with a diff against the one before it; **Restore** makes an old version the newest as a new revision,
+so nothing is lost. **Delete** (after confirmation) removes the entry and its whole history.
+
+**Embedding.** Entries are embedded with the RAG embedding model (4.3, RAG Settings) so search finds related wording. When
+no embedding model is configured, or embedding fails, the entry is still saved and shows **Not embedded**: it is found
+by words only. After fixing the model, **Re-embed** on the page embeds those entries.
+
+**Events.** Every change records an event with the source `memory`: `memory.saved`, `memory.updated`,
+`memory.restored` and `memory.deleted`. The payload holds `memory_id`, `name`, `metadata`, `revision`, `agent_id`,
+`session_id` and `actor`, but not the content. Event handlers (4.18) can react, for example a Send to agent handler
+with the condition `source equals memory` and `type equals memory.saved`.
+
+### 4.21 System map
 
 Environments → **System map** draws your inventory — environments, servers, services and code projects — and the
 connections between them. Nothing is drawn by hand: add entries on their own pages, and connect them here.
@@ -917,7 +956,7 @@ connections between them. Nothing is drawn by hand: add entries on their own pag
   by hand are gone. Document attachments are not carried over; the documents stay in Docs → Documents and keep the
   links they were built for (add others with **Link a document**).
 
-### 4.21 Prompts
+### 4.22 Prompts
 
 **Administration → Prompts** (`/prompts`) is the library of reusable instructions for agents. Each prompt has tags —
 lowercase letters, digits and `-`, at most 10 — that features use to find it: the agent chat on Documents → New filters by tag,
