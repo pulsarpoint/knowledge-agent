@@ -222,3 +222,42 @@ def test_an_old_comment_of_ours_does_not_hide_a_new_update(store, tmp_path):
     auto_pull(store, a_schedule(store), transport=jira(issues))
     issues[0]['fields']['updated'] = '2026-10-15T10:00:01.000+0000'
     assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+
+
+def pending_reply(store, issue) -> None:
+    with store.connect() as conn:
+        jira = conn.execute('SELECT id,project_id FROM ka.jira_connections').fetchone()
+        conn.execute(
+            """INSERT INTO ka.notifications(project_id,kind,status,title,body,jira_status,jira_connection_id,
+            jira_issue_id,jira_issue_key,jira_next_attempt_at)
+            VALUES (%s,'agent.response','succeeded','T','A','pending',%s,%s,%s,now())""",
+            (jira['project_id'], jira['id'], issue['id'], issue['key']),
+        )
+
+
+def test_a_comment_only_update_while_our_reply_is_pending_records_no_event(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    pending_reply(store, issues[0])
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('0 new events.')
+
+
+def test_a_field_change_while_our_reply_is_pending_is_recorded(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    pending_reply(store, issues[0])
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
+    issues[0]['fields']['status'] = {'id': '3', 'name': 'Done'}
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')
+
+
+def test_a_pending_reply_on_another_ticket_does_not_hide_an_update(store, tmp_path):
+    setup(store, tmp_path)
+    issues = copy.deepcopy(ISSUES[:2])
+    auto_pull(store, a_schedule(store), transport=jira(issues))
+    pending_reply(store, issues[1])
+    issues[0]['fields']['updated'] = '2026-10-15T10:00:01.400+0000'
+    assert auto_pull(store, a_schedule(store), transport=jira(issues))[1].endswith('1 new event.')

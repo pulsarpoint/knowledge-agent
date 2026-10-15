@@ -50,7 +50,8 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
     the answer when the turn finished (`waiting`), else why it did not (the status message; for a run closed meanwhile,
     its close message). Number 0 is a run closed before its first turn. Other turns and runs that no event started
     write none, and a run never gets a second one. A succeeded run whose handler replies to Jira on a Jira event marks
-    the comment pending (events/jira_replies.py posts it)."""
+    the comment pending (events/jira_replies.py posts it); an empty answer is not posted (its placeholder stays
+    here)."""
     if number > 1:
         return
     row = conn.execute(
@@ -75,7 +76,7 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
         FROM ka.agent_sessions s
         LEFT JOIN ka.event_handlers h ON h.id=s.handler_id
         LEFT JOIN ka.events e ON e.id=s.event_id
-        CROSS JOIN LATERAL (SELECT CASE WHEN %(succeeded)s AND h.reply_to_jira AND e.source='jira' THEN
+        CROSS JOIN LATERAL (SELECT CASE WHEN %(answered)s AND h.reply_to_jira AND e.source='jira' THEN
             CASE WHEN e.source_id IS NULL OR e.payload->>'issue_id' IS NULL THEN 'failed' ELSE 'pending' END
             END AS status) j
         WHERE s.id=%(session)s AND s.purpose='event'
@@ -84,7 +85,7 @@ def notify_event_run(conn, session_id, number: int, status: str, text: str) -> N
             'status': 'succeeded' if succeeded else 'failed',
             'body': body.replace('\x00', '')[:MAX_NOTIFICATION_BODY],
             'not_from_jira': NOT_FROM_JIRA,
-            'succeeded': succeeded,
+            'answered': succeeded and bool(text.strip()),
             'session': session_id,
         },
     )

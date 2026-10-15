@@ -860,7 +860,8 @@ A handler does one thing:
 pull records every ticket it fetches as **Ticket created**, so a `jira.ticket.*` handler runs the agent once per
 ticket; `*` and other broad patterns also match the events other handlers emit, multiplying calls down a chain. Start
 narrow (a specific type plus conditions), check with **Preview**, and widen later. The form warns when Send to agent
-uses `*` or a pattern ending in `.*`.
+uses `*` or a pattern ending in `.*`. With **Also post the answer as a comment on the Jira ticket** on, the agent also
+comments on every matching ticket — after the first pull, on every ticket it fetched.
 
 Templates render in a separate process with a 2 second time limit (and, on Linux, a 512 MiB memory limit); a template
 that overruns fails with `Template took too long to render.` or `Template used too much memory.`

@@ -297,7 +297,7 @@ export default function NotificationsView() {
                             `Posting to ${selected.jira_issue_key}…`
                           )
                         ) : (
-                          `Not posted to ${selected.jira_issue_key}: ${selected.jira_error}`
+                          `Not posted to ${selected.jira_issue_key}: ${selected.jira_error ?? ""}`
                         )}
                       </dd>
                     </>

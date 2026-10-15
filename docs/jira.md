@@ -174,6 +174,11 @@ again after 1 and 5 minutes; Jira refusing it (no permission, issue gone) or a d
 at once. The notification shows **Posted to KEY** (a link to the comment), **Posting to KEY…** or **Not posted to KEY**
 with the reason.
 
+A retry first looks for the comment on the ticket (an earlier attempt may have reached Jira without us recording it)
+and records the one it finds instead of posting again, so a reply is posted once. A comment Jira took on the third
+(last) failed attempt can still appear once on the ticket while the notification says **Not posted**.
+
 Posting a comment moves the ticket's updated time. The next scheduled pull records no `jira.ticket.updated` for a
 ticket whose only change is our own comment (no compared field changed and the ticket was updated within 2 seconds of
-the comment), so a handler never answers itself. A person's comment within those 2 seconds is missed too.
+the comment), nor for a comment-only update while a reply to that ticket is still pending. A person's comment within
+those 2 seconds, or while our reply is pending, is missed too.

@@ -1,6 +1,7 @@
 """Jira events: what the scheduled pull saw change. One event per new or changed ticket (Jira's `updated` moved),
 judged against the pull's own latest event for that ticket — not the tickets table, which the manual fetch also
-updates. An update that is only our own comment (events/jira_replies.py) is not recorded."""
+updates. An update with no field change is not recorded when it is our own comment (events/jira_replies.py), or while
+a reply to that ticket is still pending (being posted)."""
 
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -64,6 +65,19 @@ def own_comment(
     return abs(datetime.fromisoformat(after_updated) - created) <= OWN_COMMENT_WINDOW
 
 
+def reply_pending(conn, project_id: UUID, connection_id: UUID, issue_id: str) -> bool:
+    """A reply to the issue is being posted (events/jira_replies.py): a comment-only update may be ours, which the
+    posted-comment rule cannot see yet. Recording it would make a handler answer its own comment."""
+    return (
+        conn.execute(
+            """SELECT 1 FROM ka.notifications WHERE project_id=%s AND jira_status='pending'
+            AND jira_connection_id=%s AND jira_issue_id=%s LIMIT 1""",
+            (project_id, connection_id, issue_id),
+        ).fetchone()
+        is not None
+    )
+
+
 def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: list[dict]) -> int:
     """Record events for the pulled issues inside the caller's transaction; returns how many were new."""
     latest = {
@@ -85,7 +99,10 @@ def record(conn, project_id: UUID, connection_id: UUID, base_url: str, issues: l
         if (
             before is not None
             and not diff
-            and own_comment(conn, project_id, connection_id, issue['id'], before['updated'], after['updated'])
+            and (
+                own_comment(conn, project_id, connection_id, issue['id'], before['updated'], after['updated'])
+                or reply_pending(conn, project_id, connection_id, issue['id'])
+            )
         ):
             continue
         payload = {**after, 'changes': diff}

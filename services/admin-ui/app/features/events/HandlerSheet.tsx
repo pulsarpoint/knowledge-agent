@@ -283,6 +283,8 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
           {form.action === "agent" && broad(form.type_pattern.trim()) && (
             <FieldDescription className="text-amber-700 dark:text-amber-400">
               Runs the agent once for every matching event.
+              {form.reply_to_jira &&
+                " The agent also comments on every matching Jira ticket: the first scheduled pull records every ticket as created."}
             </FieldDescription>
           )}
         </Field>

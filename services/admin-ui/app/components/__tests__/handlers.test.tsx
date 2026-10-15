@@ -276,3 +276,20 @@ test("a broad Send to agent pattern warns that each matching event runs the agen
   await user.type(within(sheet).getByLabelText("Event type"), "*");
   expect(within(sheet).getByText(warning)).toBeInTheDocument();
 });
+
+test("the broad-pattern warning adds that the agent comments on every matching ticket when posting to Jira", async () => {
+  const user = userEvent.setup();
+  api({ "GET /api/event-handlers": { handlers: [] }, ...SHEET_DATA });
+  view();
+  await user.click(await screen.findByRole("button", { name: "New handler" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.click(within(sheet).getByRole("combobox", { name: "Action" }));
+  await user.click(screen.getByRole("option", { name: "Send to agent" }));
+  const comments = /also comments on every matching Jira ticket/;
+  expect(within(sheet).queryByText(comments)).toBeNull();
+  await user.click(within(sheet).getByLabelText("Also post the answer as a comment on the Jira ticket"));
+  expect(within(sheet).getByText(comments)).toBeInTheDocument();
+  await user.clear(within(sheet).getByLabelText("Event type"));
+  await user.type(within(sheet).getByLabelText("Event type"), "jira.ticket.updated");
+  expect(within(sheet).queryByText(comments)).toBeNull();
+});

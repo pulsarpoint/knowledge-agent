@@ -1,10 +1,9 @@
-"""0109: handlers may post their agent's answer to Jira; a notification carries the comment's delivery state."""
+"""0110: handlers may post their agent's answer to Jira; a notification carries the comment's delivery state."""
 
 from pathlib import Path
 
 import psycopg
 import pytest
-from psycopg.types.json import Jsonb
 from test_event_processor import a_handler
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'

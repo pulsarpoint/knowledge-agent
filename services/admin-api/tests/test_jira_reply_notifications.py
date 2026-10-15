@@ -41,10 +41,15 @@ def test_a_succeeded_jira_run_with_the_option_is_pending(sessions):
     assert row['jira_next_attempt_at'] is not None and row['jira_attempts'] == 0
 
 
-def test_an_empty_answer_posts_the_placeholder(sessions):
+def test_an_empty_answer_is_not_posted(sessions):
     sid, _ = prepared(sessions)
     row = notified(sessions, sid, text='  ')
-    assert (row['jira_status'], row['body']) == ('pending', NO_ANSWER)
+    assert (row['jira_status'], row['jira_issue_key'], row['jira_next_attempt_at'], row['body']) == (
+        None,
+        None,
+        None,
+        NO_ANSWER,
+    )
 
 
 def test_a_simulated_jira_event_fails_the_delivery(sessions):
