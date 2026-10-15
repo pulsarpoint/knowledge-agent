@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import MemoryView from "~/features/memory/MemoryView";
+import { tooLongToCompare } from "~/features/memory/MemorySheet";
 
 const entry = (name: string, extra = {}) => ({
   id: `id-${name}`,
@@ -25,6 +26,7 @@ const page = (memories: unknown[], extra = {}) => ({
   next_offset: null,
   not_embedded: memories.length,
   embedding_model: true,
+  current_profile: null,
   ...extra,
 });
 
@@ -177,4 +179,73 @@ test("a partial re-embed failure stays visible after the list reloads", async ()
   expect(await screen.findByText("2 entries could not be embedded.")).toBeInTheDocument();
   await screen.findByText("a");
   expect(screen.getByText("2 entries could not be embedded.")).toBeInTheDocument();
+});
+
+test("an entry embedded with another model's profile shows Not embedded, the current one does not", async () => {
+  api((url) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories")
+      return page([entry("old", { embedding_profile: "old" }), entry("fresh", { embedding_profile: "new" })], {
+        current_profile: "new",
+        not_embedded: 1,
+      });
+  });
+  view();
+  const old = (await screen.findByText("old")).closest("tr")!;
+  expect(within(old).getByText("Not embedded")).toBeInTheDocument();
+  expect(within(screen.getByText("fresh").closest("tr")!).queryByText("Not embedded")).not.toBeInTheDocument();
+});
+
+test("a rename clash shows its message without Load current", async () => {
+  api((url, init) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories") return page([entry("a")]);
+    if (url === "/api/memories/id-a" && !init?.method) return { memory: entry("a"), versions: [] };
+    if (url === "/api/memories/id-a" && init?.method === "PUT")
+      return new Response(JSON.stringify({ error: { message: "An entry named b already exists." } }), { status: 409 });
+  });
+  view();
+  await userEvent.click(await screen.findByText("a"));
+  await screen.findByLabelText("Content");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("An entry named b already exists.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Load current" })).not.toBeInTheDocument();
+});
+
+test("a stale restore offers Load current", async () => {
+  api((url, init) => {
+    if (url === "/api/memories/agents") return { agents: [] };
+    if (url === "/api/memories") return page([entry("a", { revision: 2 })]);
+    if (url === "/api/memories/id-a" && !init?.method)
+      return {
+        memory: entry("a", { revision: 2 }),
+        versions: [
+          {
+            revision: 1,
+            name: "a",
+            metadata: {},
+            content: "Old",
+            by_agent_name: null,
+            by_email: null,
+            changed_at: "2026-10-15T09:00:00Z",
+          },
+        ],
+      };
+    if (url === "/api/memories/id-a/restore")
+      return new Response(JSON.stringify({ error: { message: "This entry changed since you opened it." } }), {
+        status: 409,
+      });
+  });
+  view();
+  await userEvent.click(await screen.findByText("a"));
+  await userEvent.click(await screen.findByRole("tab", { name: "History" }));
+  await userEvent.click(screen.getByRole("button", { name: "Restore revision 1" }));
+  expect(await screen.findByRole("button", { name: "Load current" })).toBeInTheDocument();
+});
+
+test("the line diff is skipped for texts over 2,000 lines", () => {
+  const long = Array.from({ length: 2001 }, (_, n) => `line ${n}`).join("\n");
+  expect(tooLongToCompare(long, "short")).toBe(true);
+  expect(tooLongToCompare("short", long)).toBe(true);
+  expect(tooLongToCompare("a\nb", "a\nc")).toBe(false);
 });

@@ -6,6 +6,7 @@ import {
   getMemories,
   getMemoryAgents,
   reembedMemories,
+  isEmbedded,
   savedBy,
   type MemoryEntry,
   type MemoryFilters,
@@ -36,6 +37,7 @@ export default function MemoryView() {
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [notEmbedded, setNotEmbedded] = useState(0);
   const [embeddingModel, setEmbeddingModel] = useState(true);
+  const [currentProfile, setCurrentProfile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reembedding, setReembedding] = useState(false);
@@ -65,6 +67,7 @@ export default function MemoryView() {
         setNextOffset(result.next_offset);
         setNotEmbedded(result.not_embedded);
         setEmbeddingModel(result.embedding_model);
+        setCurrentProfile(result.current_profile);
         setError(null);
       })
       .catch((reason) => {
@@ -239,7 +242,7 @@ export default function MemoryView() {
                     <button type="button" className="text-left hover:underline" onClick={() => setOpenId(item.id)}>
                       {item.name}
                     </button>
-                    {item.embedding_profile === null && (
+                    {!isEmbedded(item, currentProfile) && (
                       <Badge variant="outline" className="ml-2">
                         Not embedded
                       </Badge>

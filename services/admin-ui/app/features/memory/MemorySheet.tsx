@@ -7,7 +7,9 @@ import {
   getMemory,
   restoreMemory,
   saveMemory,
+  isEmbedded,
   savedBy,
+  STALE_MESSAGE,
   type MemoryDraft,
   type MemoryEntry,
   type MemoryVersion,
@@ -33,7 +35,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 
 const when = (value: string) => new Date(value).toLocaleString();
+const stale = (reason: unknown) =>
+  reason instanceof ApiError && reason.status === 409 && reason.message === STALE_MESSAGE;
 const text = (reason: unknown, fallback: string) => (reason instanceof ApiError ? reason.message : fallback);
+
+const MAX_DIFF_LINES = 2000;
+/** Whether either text is too long for the quadratic line diff. */
+export const tooLongToCompare = (before: string, after: string) =>
+  before.split("\n").length > MAX_DIFF_LINES || after.split("\n").length > MAX_DIFF_LINES;
 
 export interface DiffLine {
   type: "same" | "add" | "del";
@@ -73,6 +82,13 @@ const toDraft = (name: string, rows: Row[], content: string): MemoryDraft => ({
 });
 
 function Diff({ from, to }: { from: string; to: string }) {
+  if (tooLongToCompare(from, to))
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">Too long to compare line by line.</p>
+        <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 text-xs">{to}</pre>
+      </div>
+    );
   return (
     <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 text-xs">
       {lineDiff(from, to).map((line, index) => (
@@ -107,6 +123,7 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reload, setReload] = useState(0);
+  const [currentProfile, setCurrentProfile] = useState<string | null>(null);
 
   // Loads the entry into the form (again after a save, a restore or Load current).
   useEffect(() => {
@@ -114,8 +131,9 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
     const controller = new AbortController();
     setLoading(true);
     getMemory(entryId, controller.signal)
-      .then(({ memory, versions: earlier }) => {
+      .then(({ memory, versions: earlier, current_profile }) => {
         setEntry(memory);
+        setCurrentProfile(current_profile);
         setVersions(earlier);
         setName(memory.name);
         setRows(toRows(memory.metadata));
@@ -149,7 +167,7 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
       setReload((count) => count + 1);
     } catch (reason) {
       setError(text(reason, "Could not save the entry."));
-      setConflict(Boolean(entry) && reason instanceof ApiError && reason.status === 409);
+      setConflict(stale(reason));
     } finally {
       setBusy(false);
     }
@@ -158,12 +176,14 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
     if (!entry) return;
     setBusy(true);
     setError(null);
+    setConflict(false);
     try {
       await restoreMemory(entry.id, version.revision, entry.revision);
       onChanged();
       setReload((count) => count + 1);
     } catch (reason) {
       setError(text(reason, "Could not restore the version."));
+      setConflict(stale(reason));
     } finally {
       setBusy(false);
     }
@@ -269,7 +289,7 @@ function SheetBody({ id, onClose, onChanged }: { id: string; onClose: () => void
         <SheetTitle>{entry ? entry.name : "New entry"}</SheetTitle>
         <SheetDescription>
           {entry
-            ? `Saved by ${savedBy(entry)} · revision ${entry.revision}${entry.embedding_profile === null ? " · Not embedded" : ""}`
+            ? `Saved by ${savedBy(entry)} · revision ${entry.revision}${isEmbedded(entry, currentProfile) ? "" : " · Not embedded"}`
             : "Saved for all agents."}
         </SheetDescription>
       </SheetHeader>

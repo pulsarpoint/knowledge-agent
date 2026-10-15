@@ -41,7 +41,14 @@ export interface MemoryList {
   next_offset: number | null;
   not_embedded: number;
   embedding_model: boolean;
+  current_profile: string | null;
 }
+
+/** The API's message for a stale revision; the only conflict that Load current resolves. */
+export const STALE_MESSAGE = "This entry changed since you opened it.";
+/** Embedded means embedded with the current model's profile; a vector of another profile counts as not embedded. */
+export const isEmbedded = (entry: Pick<MemoryEntry, "embedding_profile">, currentProfile: string | null) =>
+  currentProfile !== null && entry.embedding_profile === currentProfile;
 
 export const NO_MEMORY_FILTERS: MemoryFilters = { query: "", metadata: {}, agent: "" };
 const json = (body: unknown, method = "POST"): RequestInit => ({
@@ -66,7 +73,9 @@ export function getMemories(filters: MemoryFilters, offset = 0, signal?: AbortSi
 export const getMemoryAgents = (signal?: AbortSignal) =>
   request<{ agents: { id: string; name: string }[] }>("/api/memories/agents", { signal });
 export const getMemory = (id: string, signal?: AbortSignal) =>
-  request<{ memory: MemoryEntry; versions: MemoryVersion[] }>(`/api/memories/${id}`, { signal });
+  request<{ memory: MemoryEntry; versions: MemoryVersion[]; current_profile: string | null }>(`/api/memories/${id}`, {
+    signal,
+  });
 export const createMemory = (draft: MemoryDraft) => request<{ memory: MemoryEntry }>("/api/memories", json(draft));
 export const saveMemory = (id: string, draft: MemoryDraft, revision: number) =>
   request<{ memory: MemoryEntry }>(`/api/memories/${id}`, json({ ...draft, revision }, "PUT"));
