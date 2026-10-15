@@ -106,11 +106,12 @@ def _event(
 ) -> None:
     conn.execute(
         """INSERT INTO ka.events(project_id,source,source_id,type,subject,title,payload,dedupe_key,occurred_at)
-        VALUES (%s,'memory',%s,%s,%s,'',%s,%s,now())""",
+        VALUES (%s,'memory',%s,%s,%s,%s,%s,%s,now())""",
         (
             project_id,
             memory_id,
             kind,
+            name,
             name,
             Jsonb(
                 {
@@ -305,11 +306,16 @@ def reembed(store, project_id: UUID, transport=None) -> dict:
         tried += [row['id'] for row in rows]
         try:
             vectors = embeddings.embed(model, [row['content'] for row in rows], transport)
-        except ModelUnavailable:
-            failed += len(rows)
-            continue
+            pairs = list(zip(rows, vectors, strict=True))
+        except ModelUnavailable:  # one bad entry must not fail the good ones: retry the batch one entry at a time
+            pairs = []
+            for row in rows:
+                try:
+                    pairs.append((row, embeddings.embed(model, [row['content']], transport)[0]))
+                except ModelUnavailable:
+                    failed += 1
         with store.connect() as conn:
-            for row, vector in zip(rows, vectors, strict=True):
+            for row, vector in pairs:
                 done = conn.execute(
                     """UPDATE ka.memories SET embedding=%s::public.vector,embedding_profile=%s
                     WHERE id=%s AND revision=%s""",

@@ -19,7 +19,7 @@ def project(store):
 def events(store) -> list[dict]:
     with store.connect() as conn:
         return conn.execute(
-            "SELECT type,subject,source,source_id,payload FROM ka.events WHERE source='memory' ORDER BY id"
+            "SELECT type,subject,title,source,source_id,payload FROM ka.events WHERE source='memory' ORDER BY id"
         ).fetchall()
 
 
@@ -47,6 +47,7 @@ def test_create_returns_the_entry_and_records_an_event(store):
     )
     [event] = events(store)
     assert (event['type'], event['subject'], event['source_id']) == ('memory.saved', 'payments/deploy', entry['id'])
+    assert event['title'] == 'payments/deploy'
     assert event['payload'] == {
         'memory_id': str(entry['id']),
         'name': 'payments/deploy',
@@ -201,6 +202,27 @@ def test_reembed_embeds_what_has_no_vector_of_the_current_profile(store, monkeyp
         rows = conn.execute('SELECT name,embedding_profile,revision FROM ka.memories ORDER BY name').fetchall()
     assert [(r['name'], r['embedding_profile'], r['revision']) for r in rows] == [('a', PROFILE, 1), ('b', PROFILE, 1)]
     assert len(events(store)) == 2  # re-embedding is not a change: no new revision, no event
+
+
+def test_reembed_retries_a_failed_batch_one_entry_at_a_time(store, monkeypatch):
+    from knowledge_llm import ModelUnavailable
+
+    saved(store, name='a', content='good one')
+    saved(store, name='b', content='bad')
+    saved(store, name='c', content='good two')
+
+    def embed(model, texts, transport=None):
+        if 'bad' in texts:
+            raise ModelUnavailable('bad entry')
+        return [[1.0, 0.0, 0.0]] * len(texts)
+
+    monkeypatch.setattr('knowledge_admin.memory.store.current_model', lambda conn, project_id: object())
+    monkeypatch.setattr('knowledge_admin.memory.store.embeddings.embed', embed)
+    monkeypatch.setattr('knowledge_admin.memory.store.embeddings.embedding_profile', lambda model: PROFILE)
+    assert memory.reembed(store, project(store)) == {'embedded': 2, 'failed': 1}
+    with store.connect() as conn:
+        rows = conn.execute('SELECT name,embedding_profile FROM ka.memories ORDER BY name').fetchall()
+    assert [(r['name'], r['embedding_profile']) for r in rows] == [('a', PROFILE), ('b', None), ('c', PROFILE)]
 
 
 def test_create_is_atomic_when_the_event_fails_on_a_fresh_connection(store, monkeypatch):
