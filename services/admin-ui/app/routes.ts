@@ -48,4 +48,5 @@ export default [
   route("events", "./routes/events.tsx"),
   route("events/handlers", "./routes/eventHandlers.tsx"),
   route("notifications", "./routes/notifications.tsx"),
+  route("memory", "./routes/memory.tsx"),
 ] satisfies RouteConfig;

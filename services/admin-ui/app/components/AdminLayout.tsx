@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
   Bell,
+  Brain,
   BookOpen,
   CalendarClock,
   FolderOpen,
@@ -136,10 +137,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const schedulesPage = pathname === "/schedules";
   const eventsPage = pathname === "/events" || pathname.startsWith("/events/");
   const notificationsPage = pathname === "/notifications";
+  const memoryPage = pathname === "/memory" || pathname.startsWith("/memory/");
   const title = promptsPage
     ? "Prompts"
     : notificationsPage
       ? "Notifications"
+      : memoryPage
+      ? "Memory"
       : eventsPage
         ? "Events"
         : schedulesPage
@@ -185,6 +189,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     ? "Reusable instructions for agents, organised by tags."
     : notificationsPage
       ? "Answers agents gave to events, and the calls that failed."
+      : memoryPage
+      ? "What agents saved, shared by all agents. Search, filter, edit, restore or delete entries."
       : eventsPage
         ? "Things that happened at your sources, and handlers that turn them into new events or agent answers."
         : schedulesPage
@@ -307,6 +313,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <Link to="/notifications">
                     <Bell />
                     <span>Notifications</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={memoryPage}>
+                  <Link to="/memory">
+                    <Brain />
+                    <span>Memory</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

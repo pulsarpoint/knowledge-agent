@@ -22,6 +22,7 @@ const GROUPS: [string, string][] = [
   ["documents", "Documents"],
   ["servers", "Servers"],
   ["inventory", "Inventory"],
+  ["memory", "Memory"],
 ];
 
 /** The Ask agent settings for a document, or the narrowing of a saved agent: editable before a conversation starts (Preview shows the JSON the next message
