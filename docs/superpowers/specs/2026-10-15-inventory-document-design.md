@@ -54,9 +54,11 @@ the resource (environment, service, server) is opened.**
 - **Mark as inventory document** on a document whose only built-for link is a server/service/environment that has no
   inventory document yet: `PUT /api/documentation/documents/{id}/inventory {inventory: bool, revision}` (live documents
   and brand-new drafts; refused with the messages above). Unmarking clears it.
-- **Discovery:** a document proposal about a server (overview) or a service (one per service) creates an inventory
-  draft for it; if the resource already has an inventory document, the accepted proposal becomes a **draft of that
-  document** instead of a second one.
+- **Discovery never changes an existing inventory document** — not directly and not through a draft of it. An accepted
+  document proposal about a server (overview) or a service (one per service) creates a brand-new draft built for that
+  resource: flagged `inventory` only when the resource has no inventory document (live or brand-new draft) yet;
+  otherwise an ordinary (unflagged) document draft beside it. A person decides whether it replaces the inventory
+  document (Unmark the old one, Mark the new one) or merges it by hand.
 - Promote and Publish keep the flag (drafts of a live document inherit their document's flag; Publish keeps a brand-new
   draft's flag).
 
@@ -85,7 +87,8 @@ the resource (environment, service, server) is opened.**
   show linked documents; Link/remove adds/removes a `linked` link; `get_resource` returns `inventory_document` and
   `documents`; `get_document` reads a document linked to a given resource and refuses one linked only to a resource
   the run was not given.
-- Discovery: overview/service document proposal → inventory brand-new draft; when one exists → draft of it; Publish
-  keeps the flag; nothing written to a removed table.
+- Discovery: overview/service document proposal → inventory brand-new draft when the resource has none; when it has
+  one → an unflagged brand-new draft, and the existing inventory document (and its drafts) unchanged; Publish keeps the
+  flag; nothing written to a removed table.
 - UI: resource page renders the inventory document, empty state with New inventory document, Other documents list;
   Mark/Unmark on the document page; entry sheet Link a document; Documents list badge and filter.
