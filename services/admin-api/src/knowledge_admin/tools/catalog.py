@@ -19,6 +19,7 @@ from knowledge_admin.capabilities import (  # noqa: F401
     documents,
     files,
     inventory,
+    memory,
     ssh,
 )
 from knowledge_admin.capabilities.context import ACCESS, RunContext
@@ -26,7 +27,7 @@ from knowledge_admin.capabilities.shell import client as shell  # noqa: F401
 from knowledge_admin.tools.fixture import load_fixture
 from knowledge_admin.tools.registry import REGISTRY, Tool, tool
 
-Group = Literal['code', 'documents', 'servers', 'inventory', 'agents']
+Group = Literal['code', 'documents', 'servers', 'inventory', 'memory', 'agents']
 Need = Literal[
     'files',
     'code',
@@ -316,7 +317,7 @@ def tools_summary(config: Mapping[str, Any]) -> dict[str, Any]:
     """All agents: how many tools are on with their need met (by the capability switches, as the Tools tab judges),
     per group, MCP tools of enabled servers included."""
     chosen = {entry['tool']: entry for entry in config['tools']['items']}
-    groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'mcp': 0, 'agents': 0}
+    groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'memory': 0, 'mcp': 0, 'agents': 0}
     for spec in CATALOG.values():
         if chosen.get(spec.name, {}).get('mode') == 'on' and needs_met(spec.needs, config, None):
             groups[spec.group] += 1

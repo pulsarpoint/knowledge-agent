@@ -119,6 +119,34 @@
     "needs": "editable_document"
   },
   {
+    "name": "search_memory",
+    "group": "memory",
+    "label": "Search memory",
+    "summary": "Find what agents saved before, by words, meaning, metadata or agent.",
+    "needs": null
+  },
+  {
+    "name": "get_memory",
+    "group": "memory",
+    "label": "Read a memory",
+    "summary": "Read one memory entry in full.",
+    "needs": null
+  },
+  {
+    "name": "save_memory",
+    "group": "memory",
+    "label": "Save a memory",
+    "summary": "Save a new fact or procedure under a unique name.",
+    "needs": null
+  },
+  {
+    "name": "update_memory",
+    "group": "memory",
+    "label": "Update a memory",
+    "summary": "Replace an entry with a merged version (revision-checked).",
+    "needs": null
+  },
+  {
     "name": "run_subagent",
     "group": "agents",
     "label": "Start subagents",

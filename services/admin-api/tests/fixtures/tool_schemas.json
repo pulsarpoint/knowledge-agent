@@ -1008,6 +1008,268 @@
     "usage": "Replace one exact passage of the document with this id (old_text, which must occur exactly once) with new_text, and save the result as your draft. An empty new_text removes the passage."
   },
   {
+    "group": "memory",
+    "label": "Search memory",
+    "name": "search_memory",
+    "needs": null,
+    "schema": {
+      "$defs": {
+        "MetadataItem": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "description": "A metadata key, e.g. service.",
+              "title": "Key",
+              "type": "string"
+            },
+            "value": {
+              "description": "Its text value, e.g. payments-api.",
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "title": "MetadataItem",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only entries this agent saved (its name).",
+          "title": "Agent"
+        },
+        "limit": {
+          "default": 10,
+          "description": "How many entries, 1-50.",
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MetadataItem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only entries with all these metadata key/value items.",
+          "title": "Metadata"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Words or a question; omit to list by filters.",
+          "title": "Query"
+        }
+      },
+      "required": [
+        "query",
+        "metadata",
+        "agent",
+        "limit"
+      ],
+      "title": "SearchMemory",
+      "type": "object"
+    },
+    "summary": "Find what agents saved before, by words, meaning, metadata or agent.",
+    "usage": "Search the shared memory: what any agent saved before. Search before you save, to update an entry instead of duplicating it. Results show each entry's name, metadata, revision, who saved it and its content (long content is cut; read the whole entry with get_memory)."
+  },
+  {
+    "group": "memory",
+    "label": "Read a memory",
+    "name": "get_memory",
+    "needs": null,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The entry name, e.g. payments-api/deploy-steps.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GetMemory",
+      "type": "object"
+    },
+    "summary": "Read one memory entry in full.",
+    "usage": "Read one memory entry in full, with its revision (needed to update it)."
+  },
+  {
+    "group": "memory",
+    "label": "Save a memory",
+    "name": "save_memory",
+    "needs": null,
+    "schema": {
+      "$defs": {
+        "MetadataItem": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "description": "A metadata key, e.g. service.",
+              "title": "Key",
+              "type": "string"
+            },
+            "value": {
+              "description": "Its text value, e.g. payments-api.",
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "title": "MetadataItem",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "The full text of the entry.",
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "description": "Text values you will filter by, as key/value items, e.g. service=payments-api, kind=runbook.",
+              "items": {
+                "$ref": "#/$defs/MetadataItem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Metadata"
+        },
+        "name": {
+          "description": "The entry name, e.g. payments-api/deploy-steps.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "content",
+        "metadata"
+      ],
+      "title": "SaveMemory",
+      "type": "object"
+    },
+    "summary": "Save a new fact or procedure under a unique name.",
+    "usage": "Save a new memory entry: one fact or procedure under a stable name (lowercase letters, digits and . _ / -, e.g. payments-api/deploy-steps), with metadata for what you will filter by. If the name exists you get the entry back: merge your information into it and call update_memory."
+  },
+  {
+    "group": "memory",
+    "label": "Update a memory",
+    "name": "update_memory",
+    "needs": null,
+    "schema": {
+      "$defs": {
+        "MetadataItem": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "description": "A metadata key, e.g. service.",
+              "title": "Key",
+              "type": "string"
+            },
+            "value": {
+              "description": "Its text value, e.g. payments-api.",
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "title": "MetadataItem",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "The full text of the entry.",
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "metadata": {
+          "description": "Text values you will filter by, as key/value items, e.g. service=payments-api, kind=runbook.",
+          "items": {
+            "$ref": "#/$defs/MetadataItem"
+          },
+          "title": "Metadata",
+          "type": "array"
+        },
+        "name": {
+          "description": "The entry name, e.g. payments-api/deploy-steps.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The revision you read with get_memory or search_memory.",
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "content",
+        "metadata",
+        "revision"
+      ],
+      "title": "UpdateMemory",
+      "type": "object"
+    },
+    "summary": "Replace an entry with a merged version (revision-checked).",
+    "usage": "Replace a memory entry's content and metadata with your merged version. Give the revision you read; if someone changed it since, you get the current entry back to merge again. Keep what is still true from the old content."
+  },
+  {
     "group": "agents",
     "label": "Start subagents",
     "name": "run_subagent",

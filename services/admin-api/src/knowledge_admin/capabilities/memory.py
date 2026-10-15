@@ -1,0 +1,228 @@
+"""The memory tools: search_memory, get_memory, save_memory, update_memory. One shared memory per project; each
+entry records the agent and session that saved it (config['session_id'] → ka.agent_sessions.agent_id; a run without a
+session saves with neither). Saving an existing name is refused with the entry so the agent merges and updates with
+the revision it read; agents never delete. Replies are JSON."""
+
+import asyncio
+import json
+from typing import Annotated, Any
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from knowledge_admin.capabilities.inventory import connect, project_of
+from knowledge_admin.memory import store as memory
+from knowledge_admin.memory.embedding import current_model, embed_text
+from knowledge_admin.memory.search import search
+from knowledge_admin.tools.registry import tool
+
+PREVIEW = 2000
+MORE = '… (call get_memory for the full entry)'
+NOT_EMBEDDED = 'Not embedded: found by words only until it is embedded.'
+EXISTS = (
+    'An entry with this name exists. Merge your new information into its content and call update_memory '
+    'with revision {revision}.'
+)
+STALE = 'It changed since you read it: merge again and call update_memory with revision {revision}.'
+MISSING = 'No entry named {name}; use save_memory.'
+NO_AGENT = 'No agent named {name}.'
+UNAVAILABLE = 'Memory is unavailable right now.'
+
+Name = Annotated[
+    str, Field(min_length=1, max_length=200, description='The entry name, e.g. payments-api/deploy-steps.')
+]
+Content = Annotated[str, Field(min_length=1, max_length=20000, description='The full text of the entry.')]
+
+
+class MetadataItem(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    key: str = Field(description='A metadata key, e.g. service.')
+    value: str = Field(description='Its text value, e.g. payments-api.')
+
+
+Metadata = Annotated[
+    list[MetadataItem],
+    Field(description='Text values you will filter by, as key/value items, e.g. service=payments-api, kind=runbook.'),
+]
+
+
+def _metadata(items: list[dict[str, str]] | None) -> dict[str, str]:
+    """The items as the tool receives them (the registry dumps the argument model to dicts) → a metadata dict."""
+    return {item['key']: item['value'] for item in items or []}
+
+
+def _reply(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _shown(entry: dict, cut: bool) -> dict:
+    content = entry['content']
+    if cut and len(content) > PREVIEW:
+        content = content[:PREVIEW] + MORE
+    return {
+        'name': entry['name'],
+        'metadata': entry['metadata'],
+        'content': content,
+        'revision': entry['revision'],
+        'saved_by': entry['updated_by_agent_name'] or (None if entry['updated_by_actor'] is None else 'a person'),
+        'updated_at': entry['updated_at'].isoformat(),
+        'embedded': entry['embedding_profile'] is not None,
+    }
+
+
+def _author(conn, config: dict[str, Any]) -> memory.Author:
+    session = config.get('session_id')
+    if not session:
+        return memory.Author()
+    row = conn.execute('SELECT agent_id FROM ka.agent_sessions WHERE id=%s', (session,)).fetchone()
+    return memory.Author(agent_id=None if row is None else row['agent_id'], session_id=UUID(str(session)))
+
+
+def _embedded(config: dict[str, Any], text: str) -> tuple[UUID, list[float] | None, str | None]:
+    with connect() as conn:
+        project = project_of(conn, config)
+        model = current_model(conn, project)
+    vector, profile = embed_text(model, text)
+    return project, vector, profile
+
+
+def _guarded(run):
+    try:
+        return run()
+    except memory.Invalid as error:
+        return _reply({'refused': str(error)})
+    except ValueError:  # the store is not configured in this process
+        return _reply({'refused': UNAVAILABLE})
+
+
+def _search(config, query, metadata, agent, limit) -> str:
+    def run():
+        with connect() as conn:
+            project = project_of(conn, config)
+            agent_id = None
+            if agent:
+                row = conn.execute('SELECT id FROM ka.agents WHERE lower(name)=lower(%s)', (agent,)).fetchone()
+                if row is None:
+                    return _reply({'refused': NO_AGENT.format(name=agent)})
+                agent_id = row['id']
+            model = current_model(conn, project) if query and query.strip() else None
+        vector, profile = embed_text(model, query) if model else (None, None)
+        with connect() as conn:
+            rows = search(
+                conn,
+                project,
+                query=query,
+                metadata=metadata or None,
+                agent_id=agent_id,
+                limit=limit,
+                vector=vector,
+                profile=profile,
+            )
+        return _reply({'results': [_shown(row, cut=True) for row in rows]})
+
+    return _guarded(run)
+
+
+def _get(config, name) -> str:
+    def run():
+        with connect() as conn:
+            entry = memory.get(conn, project_of(conn, config), name=name)
+        if entry is None:
+            return _reply({'refused': MISSING.format(name=name)})
+        return _reply({'memory': _shown(entry, cut=False)})
+
+    return _guarded(run)
+
+
+def _save(config, name, content, metadata) -> str:
+    def run():
+        memory.validate(name, metadata, content)
+        project, vector, profile = _embedded(config, content)
+        with connect() as conn:
+            try:
+                entry = memory.create(conn, project, name, metadata, content, _author(conn, config), vector, profile)
+            except memory.Exists as exists:
+                return _reply(
+                    {
+                        'refused': EXISTS.format(revision=exists.entry['revision']),
+                        'memory': _shown(exists.entry, cut=False),
+                    }
+                )
+        done = {'saved': {'name': entry['name'], 'revision': 1, 'embedded': vector is not None}}
+        return _reply(done if vector is not None else {**done, 'note': NOT_EMBEDDED})
+
+    return _guarded(run)
+
+
+def _update(config, name, content, metadata, revision) -> str:
+    def run():
+        memory.validate(name, metadata, content)
+        project, vector, profile = _embedded(config, content)
+        with connect() as conn:
+            current = memory.get(conn, project, name=name)
+            if current is None:
+                return _reply({'refused': MISSING.format(name=name)})
+            try:
+                entry = memory.update(
+                    conn,
+                    project,
+                    current['id'],
+                    name,
+                    metadata,
+                    content,
+                    revision,
+                    _author(conn, config),
+                    vector,
+                    profile,
+                )
+            except memory.Stale as stale:
+                return _reply(
+                    {
+                        'refused': STALE.format(revision=stale.entry['revision']),
+                        'memory': _shown(stale.entry, cut=False),
+                    }
+                )
+        done = {'updated': {'name': entry['name'], 'revision': entry['revision'], 'embedded': vector is not None}}
+        return _reply(done if vector is not None else {**done, 'note': NOT_EMBEDDED})
+
+    return _guarded(run)
+
+
+@tool
+async def search_memory(
+    context,
+    query: Annotated[
+        str | None, Field(max_length=500, description='Words or a question; omit to list by filters.')
+    ] = None,
+    metadata: Annotated[
+        list[MetadataItem] | None, Field(description='Only entries with all these metadata key/value items.')
+    ] = None,
+    agent: Annotated[str | None, Field(max_length=100, description='Only entries this agent saved (its name).')] = None,
+    limit: Annotated[int, Field(ge=1, le=50, description='How many entries, 1-50.')] = 10,
+) -> str:
+    """Search the shared memory: what any agent saved before. Search before you save, to update an entry instead of duplicating it. Results show each entry's name, metadata, revision, who saved it and its content (long content is cut; read the whole entry with get_memory)."""
+    return await asyncio.to_thread(_search, context['config'], query, _metadata(metadata), agent, limit)
+
+
+@tool
+async def get_memory(context, name: Name) -> str:
+    """Read one memory entry in full, with its revision (needed to update it)."""
+    return await asyncio.to_thread(_get, context['config'], name)
+
+
+@tool
+async def save_memory(context, name: Name, content: Content, metadata: Metadata | None = None) -> str:
+    """Save a new memory entry: one fact or procedure under a stable name (lowercase letters, digits and . _ / -, e.g. payments-api/deploy-steps), with metadata for what you will filter by. If the name exists you get the entry back: merge your information into it and call update_memory."""
+    return await asyncio.to_thread(_save, context['config'], name, content, _metadata(metadata))
+
+
+@tool
+async def update_memory(
+    context,
+    name: Name,
+    content: Content,
+    metadata: Metadata,
+    revision: Annotated[int, Field(ge=1, description='The revision you read with get_memory or search_memory.')],
+) -> str:
+    """Replace a memory entry's content and metadata with your merged version. Give the revision you read; if someone changed it since, you get the current entry back to merge again. Keep what is still true from the old content."""
+    return await asyncio.to_thread(_update, context['config'], name, content, _metadata(metadata), revision)

@@ -286,7 +286,7 @@ def test_the_list_summarises_the_tools_that_run(store, saved_agent):
     assert summary == {
         'on': 3,
         'per_run': 0,
-        'groups': {'code': 1, 'documents': 0, 'servers': 1, 'inventory': 0, 'mcp': 1, 'agents': 0},
+        'groups': {'code': 1, 'documents': 0, 'servers': 1, 'inventory': 0, 'memory': 0, 'mcp': 1, 'agents': 0},
     }
 
 

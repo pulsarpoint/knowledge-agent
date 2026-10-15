@@ -236,7 +236,15 @@ def test_the_summary_counts_tools_that_are_on_with_their_need_met_and_enabled_mc
         ],
     }
     summary = tools_summary(c)  # ssh_run: no SSH; search_documents: no documents; code_graph counts by the switch
-    assert summary['groups'] == {'code': 3, 'documents': 0, 'servers': 0, 'inventory': 0, 'mcp': 2, 'agents': 0}
+    assert summary['groups'] == {
+        'code': 3,
+        'documents': 0,
+        'servers': 0,
+        'inventory': 0,
+        'memory': 0,
+        'mcp': 2,
+        'agents': 0,
+    }
     assert summary['on'] == 5
 
 
