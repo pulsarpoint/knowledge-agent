@@ -115,3 +115,30 @@ def test_only_the_store_being_unavailable_is_a_refusal(run, monkeypatch):
         call(run, 'get_memory', name='a')
     monkeypatch.setattr(inventory, '_store', None)
     assert call(run, 'get_memory', name='a') == {'refused': 'Memory is unavailable right now.'}
+
+
+def test_embedded_means_embedded_with_the_current_models_profile(run, monkeypatch):
+    from knowledge_admin.memory import store as memory
+
+    with run['store'].connect() as conn:
+        memory.create(
+            conn, run['store'].project(conn, 'shop'), 'old/one', {}, 'text', memory.Author(), [1.0, 0.0, 0.0], 'old'
+        )
+    assert call(run, 'get_memory', name='old/one')['memory']['embedded'] is False  # no model at all
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.current_model', lambda conn, project_id: object())
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.embeddings.embedding_profile', lambda model: 'new')
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.embed_text', lambda model, text: ([0.0, 1.0, 0.0], 'new'))
+    assert call(run, 'get_memory', name='old/one')['memory']['embedded'] is False
+    assert call(run, 'search_memory')['results'][0]['embedded'] is False
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.embeddings.embedding_profile', lambda model: 'old')
+    assert call(run, 'get_memory', name='old/one')['memory']['embedded'] is True
+
+
+def test_a_database_outage_is_a_refusal(run, monkeypatch):
+    import psycopg
+
+    def down():
+        raise psycopg.OperationalError('connection refused')
+
+    monkeypatch.setattr('knowledge_admin.capabilities.memory.connect', down)
+    assert call(run, 'get_memory', name='a') == {'refused': 'Memory is unavailable right now.'}

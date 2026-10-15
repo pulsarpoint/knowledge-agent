@@ -98,3 +98,17 @@ def test_metadata_values_must_be_text(client):
     assert client.post('/api/memories', headers=HEADERS, json=body).status_code == 400
     body['metadata'] = [1]
     assert client.post('/api/memories', headers=HEADERS, json=body).status_code == 400
+
+
+def test_current_profile_is_reported_for_the_embedded_badge(client, store, monkeypatch):
+    entry = created(client)
+    with store.connect() as conn:
+        conn.execute("UPDATE ka.memories SET embedding=%s::public.vector,embedding_profile='old'", ('[1,0,0]',))
+    assert client.get('/api/memories', headers=HEADERS).json()['current_profile'] is None
+    monkeypatch.setattr('knowledge_admin.memory.api.current_model', lambda conn, project_id: object())
+    monkeypatch.setattr('knowledge_admin.memory.api.embeddings.embedding_profile', lambda model: 'new')
+    listed = client.get('/api/memories', headers=HEADERS).json()
+    assert (listed['current_profile'], listed['not_embedded']) == ('new', 1)
+    assert listed['memories'][0]['embedding_profile'] == 'old'
+    one = client.get(f'/api/memories/{entry["id"]}', headers=HEADERS).json()
+    assert (one['current_profile'], one['memory']['embedding_profile']) == ('new', 'old')

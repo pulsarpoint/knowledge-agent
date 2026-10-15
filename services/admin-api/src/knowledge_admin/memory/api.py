@@ -99,6 +99,7 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             'next_offset': offset + limit if len(rows) > limit else None,
             'not_embedded': missing,
             'embedding_model': model is not None,
+            'current_profile': profile,
         }
 
     @router.get('/memories/agents')
@@ -129,7 +130,9 @@ def build_api(app: str, store: RepositoryStore | None) -> APIRouter:
             entry = memory.get(conn, project, memory_id=memory_id)
             if entry is None:
                 raise HTTPException(404, NOT_FOUND)
-            return {'memory': entry, 'versions': memory.versions(conn, memory_id)}
+            model = current_model(conn, project)
+            profile = embeddings.embedding_profile(model) if model else None
+            return {'memory': entry, 'versions': memory.versions(conn, memory_id), 'current_profile': profile}
 
     @router.post('/memories', status_code=201)
     def create(value: Draft, request: Request) -> dict:
