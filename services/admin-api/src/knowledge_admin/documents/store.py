@@ -655,16 +655,16 @@ def claim_inventory(conn, document_id: UUID) -> None:
 
 
 def resource_documents(conn, project: UUID, kind: str, resource_id: UUID) -> dict:
-    """The documents of an inventory entry from their links: its inventory document (live, flagged, built for it:
-    {id, title, markdown, version} or None) and every other live document with an active link to it ({id, title,
-    connection}), by title."""
+    """The documents of an inventory entry from their links: its inventory document (flagged, built for it: {id, title,
+    markdown, version, is_draft, published}, a live document or a brand-new draft (version null, published false), or
+    None) and every other live document with an active link to it ({id, title, connection}), by title."""
     column = ENTRY_COLUMNS[kind]
     inventory = None
     if kind in INVENTORY_TYPES:
         inventory = conn.execute(
-            f"""SELECT d.id,d.title,d.markdown,d.version FROM ka.documents d
+            f"""SELECT d.id,d.title,d.markdown,d.version,d.is_draft,NOT d.is_draft AS published FROM ka.documents d
             JOIN ka.document_resources r ON r.document_id=d.id
-            WHERE d.project_id=%s AND NOT d.is_draft AND d.inventory AND r.{column}=%s AND r.connection='built_for'
+            WHERE d.project_id=%s AND d.draft_of IS NULL AND d.inventory AND r.{column}=%s AND r.connection='built_for'
             AND r.removed_at IS NULL""",
             (project, resource_id),
         ).fetchone()

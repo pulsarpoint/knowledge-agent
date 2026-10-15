@@ -65,6 +65,16 @@ CREATE CONSTRAINT TRIGGER document_resources_inventory AFTER INSERT OR UPDATE ON
     DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
     EXECUTE FUNCTION document_resources_inventory_check();
 
+-- A resource deleted (its built-for link cascades away) leaves no inventory document behind: the flag is cleared.
+CREATE FUNCTION document_resources_inventory_gone() RETURNS trigger LANGUAGE plpgsql SET search_path = ka, pg_temp AS $$
+BEGIN
+    UPDATE documents SET inventory = false WHERE id = OLD.document_id AND inventory;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER document_resources_inventory_gone AFTER DELETE ON document_resources
+    FOR EACH ROW WHEN (OLD.connection = 'built_for' AND OLD.removed_at IS NULL)
+    EXECUTE FUNCTION document_resources_inventory_gone();
+
 DROP TABLE inventory_documents;
 
 CREATE OR REPLACE VIEW live_documents AS SELECT * FROM documents WHERE NOT is_draft;

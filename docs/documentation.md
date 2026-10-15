@@ -72,9 +72,10 @@ answer 409 `An inventory document must be built for one server, service or envir
 an inventory document.`; the database checks the same at commit, and a lock per resource makes a concurrent second
 claim wait and fail. The documents of an inventory entry come from links: `GET /api/inventory/{kind}/{id}/documents`
 (kind `server`, `service`, `environment` or `code_project`) answers `{inventory_document: {id, title, markdown,
-version} | null, documents: [{id, title, connection}]}` (live documents only, the inventory one not repeated); `POST`
+version, is_draft, published} | null, documents: [{id, title, connection}]}` (the inventory document may be a brand-new
+draft: `version` null, `published` false; the other documents are live ones, the inventory one not repeated); `POST`
 there with `{document_id}` adds a `linked` link (Link a document) and `DELETE .../documents/{document_id}` removes it
-(a built-for link stays: 409). The System map lists the live documents linked to each entry.
+(a built-for link stays: 409). The System map lists the live documents linked to each entry. Deleting a resource clears its inventory document's flag (the document stays).
 
 Historical versions retain inventory names and IDs in `source_snapshot` even when inventory is subsequently renamed or
 removed. These are save-time inventory descriptions, not evidence that a live server was inspected. Removing an

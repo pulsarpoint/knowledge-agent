@@ -351,7 +351,14 @@ def test_resource_documents_are_the_inventory_document_and_the_other_linked_ones
     }
     assert mark(client, overview).status_code == 200
     assert client.get(url, headers=HEADERS).json() == {
-        'inventory_document': {'id': overview, 'title': 'Overview', 'markdown': '# Overview\n', 'version': 1},
+        'inventory_document': {
+            'id': overview,
+            'title': 'Overview',
+            'markdown': '# Overview\n',
+            'version': 1,
+            'is_draft': False,
+            'published': True,
+        },
         'documents': [
             {'id': built, 'title': 'Built', 'connection': 'built_for'},
             {'id': linked, 'title': 'Linked', 'connection': 'linked'},
@@ -436,3 +443,40 @@ def test_documents_list_has_the_flag_and_filters_inventory_documents(store, clie
     assert client.get(f'{DOCUMENTS}/{brand_new}', headers=HEADERS).json()['inventory'] is False
     drafts = client.get(DRAFTS, headers=HEADERS).json()['drafts']
     assert [row['inventory'] for row in drafts] == [False]
+
+
+def test_a_brand_new_inventory_draft_is_the_resources_inventory_document_unpublished(store, client):
+    service = resource(store, 'services', 'payments')
+    draft = new_draft(client, 'payments', 'Payments', inventory=True, service_ids=[service]).json()['id']
+    url = f'/api/inventory/service/{service}/documents'
+    assert client.get(url, headers=HEADERS).json() == {
+        'inventory_document': {
+            'id': draft,
+            'title': 'Payments',
+            'markdown': '# Payments\n',
+            'version': None,
+            'is_draft': True,
+            'published': False,
+        },
+        'documents': [],  # a draft is not among the other documents
+    }
+    assert client.post(f'{DRAFTS}/{draft}/promote', headers=HEADERS, json={'revision': 1}).status_code == 200
+    found = client.get(url, headers=HEADERS).json()['inventory_document']
+    assert (found['id'], found['version'], found['is_draft'], found['published']) == (draft, 1, False, True)
+
+
+def test_deleting_the_resource_clears_its_inventory_documents_flag(store, client):
+    created = client.post('/api/services', headers=HEADERS, json={'name': 'payments'}).json()
+    runbook = live(store, 'runbook', 'Runbook', service_ids=[created['id']])
+    assert mark(client, runbook).status_code == 200
+    deleted = client.delete(
+        f'/api/services/{created["id"]}', headers=HEADERS, params={'revision': created['revision'], 'confirmed': True}
+    )
+    assert deleted.status_code == 200, deleted.text
+    document = client.get(f'{DOCUMENTS}/{runbook}', headers=HEADERS).json()
+    assert (document['inventory'], document['resource_links']) == (False, [])
+    with store.connect() as conn:  # nothing is left to block: the document can be built on again
+        assert conn.execute('SELECT count(*) AS n FROM ka.documents WHERE inventory').fetchone()['n'] == 0
+    again = resource(store, 'services', 'payments')
+    overview = live(store, 'overview', 'Overview', service_ids=[again])
+    assert mark(client, overview).status_code == 200

@@ -371,7 +371,7 @@ never set on a draft of a live document). A constraint trigger on `documents` an
 commit, refuses a flagged document without exactly one active `built_for` link to a server, service or environment
 (`An inventory document must be built for one server, service or environment.`) and a second flagged document (live
 or brand-new draft) built for the same resource (`<Type> <name> already has an inventory document.`); the check takes
-an advisory lock per resource, so two transactions cannot both add one. `document_details`, `live_documents` and
+an advisory lock per resource, so two transactions cannot both add one. Deleting a resource (its built-for link cascades away) clears its inventory document's flag; the document stays. `document_details`, `live_documents` and
 `document_drafts_view` gain `inventory` (a draft of a live document reports its document's). `inventory_documents` and
 its trigger are dropped without carrying attachments over (they were test data); an entry's documents are read from
 `document_resources`.

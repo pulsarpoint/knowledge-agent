@@ -9,6 +9,8 @@ DROP VIEW document_drafts_view;
 DROP VIEW document_details;
 DROP VIEW live_documents;
 
+DROP TRIGGER document_resources_inventory_gone ON document_resources;
+DROP FUNCTION document_resources_inventory_gone();
 DROP TRIGGER document_resources_inventory ON document_resources;
 DROP TRIGGER documents_inventory ON documents;
 DROP FUNCTION document_resources_inventory_check();
