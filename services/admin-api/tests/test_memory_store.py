@@ -201,3 +201,32 @@ def test_reembed_embeds_what_has_no_vector_of_the_current_profile(store, monkeyp
         rows = conn.execute('SELECT name,embedding_profile,revision FROM ka.memories ORDER BY name').fetchall()
     assert [(r['name'], r['embedding_profile'], r['revision']) for r in rows] == [('a', PROFILE, 1), ('b', PROFILE, 1)]
     assert len(events(store)) == 2  # re-embedding is not a change: no new revision, no event
+
+
+def test_create_is_atomic_when_the_event_fails_on_a_fresh_connection(store, monkeypatch):
+    pid = project(store)
+
+    def failing(*_):
+        raise RuntimeError('event failed')
+
+    monkeypatch.setattr('knowledge_admin.memory.store._event', failing)
+    with store.connect() as conn, pytest.raises(RuntimeError):
+        memory.create(conn, pid, 'atomic/one', {}, 'text', AGENT, None, None)
+    with store.connect() as conn:
+        assert conn.execute("SELECT 1 FROM ka.memories WHERE name='atomic/one'").fetchone() is None
+
+
+def test_update_is_atomic_when_the_event_fails(store, monkeypatch):
+    entry = saved(store)
+    pid = project(store)
+
+    def failing(*_):
+        raise RuntimeError('event failed')
+
+    monkeypatch.setattr('knowledge_admin.memory.store._event', failing)
+    with store.connect() as conn, pytest.raises(RuntimeError):
+        memory.update(conn, pid, entry['id'], entry['name'], {}, 'new text', 1, AGENT, None, None)
+    with store.connect() as conn:
+        current = memory.get(conn, pid, memory_id=entry['id'])
+        assert (current['revision'], current['content']) == (1, 'Deploy with make release.')
+        assert memory.versions(conn, entry['id']) == []

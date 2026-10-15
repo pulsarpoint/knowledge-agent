@@ -164,9 +164,9 @@ def create(
                     author.actor_id,
                 ),
             ).fetchone()['id']
+            _event(conn, project_id, 'memory.saved', memory_id, name, metadata, 1, author)
     except psycopg.errors.UniqueViolation:
         raise Exists(get(conn, project_id, name=name)) from None
-    _event(conn, project_id, 'memory.saved', memory_id, name, metadata, 1, author)
     return get(conn, project_id, memory_id=memory_id)
 
 
@@ -229,9 +229,9 @@ def _replace(
                     row['id'],
                 ),
             )
+            _event(conn, project_id, kind, row['id'], name, metadata, row['revision'] + 1, author)
     except psycopg.errors.UniqueViolation:
         raise Exists(get(conn, project_id, name=name)) from None
-    _event(conn, project_id, kind, row['id'], name, metadata, row['revision'] + 1, author)
     return get(conn, project_id, memory_id=row['id'])
 
 
