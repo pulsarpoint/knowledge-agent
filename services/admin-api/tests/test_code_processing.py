@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,6 +9,7 @@ import pytest
 from agents.tool_context import ToolContext
 
 from knowledge_admin.code_projects.processing import process_code, CodeProcessingError
+from knowledge_admin.capabilities import code_graph as code_graph_module
 from knowledge_admin.capabilities.code_graph import load_code_graph_hashing
 from tool_helpers import tool
 from test_api import _client
@@ -22,6 +24,14 @@ def project_access(project: dict) -> dict:
         'resources': [{'type': 'code_project', 'id': project['id'], 'source': 'given'}],
         'roles': {'content_editor': False},
     }
+
+
+def serve_graph(monkeypatch, project: dict, graph: dict) -> None:
+    """The code_graph tool loads the project's current graph live; serve this one without a database."""
+    monkeypatch.setattr(
+        code_graph_module, 'load_graphs', lambda conn, workspace, ids: [graph] if project['id'] in ids else []
+    )
+    monkeypatch.setattr(code_graph_module, 'connect', nullcontext)
 
 
 def test_go_module_root_resolves_package_function_instead_of_same_named_method(tmp_path, monkeypatch):
@@ -47,11 +57,12 @@ func (c *Ctrl) Read() {}
     assert graph['relative_root'] == 'app' and graph['code_root'] == str(app)
     assert process_code(project)['reused']
     assert load_code_graph_hashing(project, graph['source_hash'])['code_root'] == str(app)
+    serve_graph(monkeypatch, project, graph)
     context = ToolContext(
         {
             'config': {
                 'enabled': True,
-                'code': {'enabled': True, 'graphs': [graph]},
+                'project_id': str(uuid4()),  # project_of reads it without a query
                 'access': project_access(project),
             },
             'credentials': {},
@@ -133,11 +144,12 @@ def test_real_multilanguage_graph_incremental_hashes_scope_and_queries(store, tm
     before = (mirror / 'app/main.py').stat().st_mtime_ns
     assert process_code(project)['reused'] is True
     assert (mirror / 'app/main.py').stat().st_mtime_ns == before
+    serve_graph(monkeypatch, project, first)
     context = ToolContext(
         {
             'config': {
                 'enabled': True,
-                'code': {'enabled': True, 'graphs': [first]},
+                'project_id': str(uuid4()),  # project_of reads it without a query
                 'access': project_access(project),
             },
             'credentials': {},
