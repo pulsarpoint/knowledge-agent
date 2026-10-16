@@ -592,7 +592,8 @@ def build(
     for entry in pinned['document_access']:
         if entry.get('new'):  # a document run names its document in its context; a new document's id is made here
             context = f'Document: {entry["title"]} (id {entry["id"]})'
-            content = pinned['system_prompt']['content'] + f'\n\n{context}'
+            content = pinned['system_prompt']['content']
+            content += f'\n\n{context}' if '\n# Context\n' in content else f'\n\n# Context\n\n{context}'
             pinned['system_prompt'] = {**pinned['system_prompt'], 'content': content}
     if notes:
         pinned['start_notes'] = notes
