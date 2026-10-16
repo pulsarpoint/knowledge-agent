@@ -1,8 +1,7 @@
-"""Experts as tools: which experts a caller is offered, their tool names and descriptions, pinning into Test and
-Generate documents sessions, and the Tools tab's Experts group."""
+"""Experts as tools: which experts a caller is offered, their tool names and descriptions, and pinning into Test and
+Generate documents sessions."""
 
 from access_helpers import give
-from test_agent_tools_api import put, view
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_generations import sessions, start  # noqa: F401  (fixtures)
 from test_test_sessions import test_start
@@ -59,9 +58,7 @@ def test_tool_names_are_slugs_and_collisions_get_a_number(store, saved_agent):
     assert tools[first['id']] == 'ask_payments_api' and tools[second['id']] == 'ask_payments_api_2'
 
 
-def test_only_enabled_experts_with_a_model_other_than_the_caller_are_offered_whatever_its_old_rows_say(
-    store, saved_agent
-):
+def test_only_enabled_experts_with_a_model_other_than_the_caller_are_offered(store, saved_agent):
     client, model = saved_agent[0], model_of(saved_agent)
     me = update(client, caller(store, saved_agent, model), expert=True, when_to_use='Me.', model_id=model).json()
     expert(client, 'No model')
@@ -75,13 +72,9 @@ def test_only_enabled_experts_with_a_model_other_than_the_caller_are_offered_wha
     with store.connect() as conn:
         service = conn.execute('SELECT id FROM ka.services ORDER BY id LIMIT 1').fetchone()['id']
         give(conn, per_run['id'], [('code_project', saved_agent[5]['id']), ('service', service)])
-        conn.execute(
-            "INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,%s,'off',false)",
-            (me['id'], f'expert:{hidden["id"]}'),
-        )
         found = {entry['id']: entry for entry in offered(conn, me['id'])}
         everyone = {entry['id'] for entry in offered(conn, None)}
-    assert set(found) == {hidden['id'], fixed['id'], per_run['id']}  # an off row is no longer read
+    assert set(found) == {hidden['id'], fixed['id'], per_run['id']}  # every other expert
     assert {hidden['id'], me['id']} <= everyone and disabled['id'] not in everyone
     assert (
         found[fixed['id']]['description']
@@ -128,69 +121,6 @@ def test_generate_documents_pins_every_expert_and_offers_run_subagent(sessions):
             'agent_config'
         ]
     assert {entry['id'] for entry in pinned['experts']} == {first['id'], second['id']}  # none named: all of them
-
-
-def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(store, saved_agent):
-    client = saved_agent[0]
-    me = expert(client, 'Lead', 'Leads.')
-    other = expert(client, 'Payments', 'Payments questions.')
-    plain = create(client, 'Plain')
-    tab = view(client, me['id'])
-    experts = [tool for tool in tab['tools'] if tool['group'] == 'experts']
-    assert tab['expert'] is True and view(client, plain['id'])['expert'] is False
-    assert experts == [
-        {
-            'tool': f'expert:{other["id"]}',
-            'label': 'Payments',
-            'summary': 'Payments questions.',
-            'group': 'experts',
-            'mode': 'on',
-            'usage': None,
-            'default_usage': '',
-            'subagent_allowed': False,
-            'available': True,
-            'reason': None,
-            'tab': None,
-        }
-    ]
-    name = f'expert:{other["id"]}'
-
-    def stored():
-        with store.connect() as conn:
-            return conn.execute(
-                'SELECT mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s AND tool=%s', (me['id'], name)
-            ).fetchone()
-
-    off = put(client, me['id'], tab['revision'], [{'tool': name, 'mode': 'off'}])
-    assert off.status_code == 200, off.text
-    assert stored() == {'mode': 'off', 'usage': None, 'subagent_allowed': False}
-    assert [t['mode'] for t in off.json()['tools'] if t['group'] == 'experts'] == ['off']
-    back = put(client, me['id'], off.json()['revision'], [{'tool': name, 'mode': 'on'}])
-    assert back.status_code == 200 and stored() is None
-    for bad in ('expert:nope', f'expert:{me["id"]}'):
-        refused = put(client, me['id'], back.json()['revision'], [{'tool': bad, 'mode': 'off'}])
-        assert refused.status_code == 400 and refused.json()['error']['message'] == f'Unknown expert: {bad}.'
-    # An off choice about an agent that stops being an expert survives a save.
-    assert put(client, me['id'], back.json()['revision'], [{'tool': name, 'mode': 'off'}]).status_code == 200
-    update(client, client.get(f'/api/agents/{other["id"]}', headers=HEADERS).json(), expert=False)
-    kept = put(client, me['id'], client.get(f'/api/agents/{me["id"]}/tools', headers=HEADERS).json()['revision'], [])
-    assert kept.status_code == 200 and stored() == {'mode': 'off', 'usage': None, 'subagent_allowed': False}
-    # A tab that was open while the owner switched the expert off still saves: on is skipped, off is kept.
-    rev = lambda: client.get(f'/api/agents/{me["id"]}/tools', headers=HEADERS).json()['revision']
-    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'on'}]).status_code == 200 and stored() is None
-    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'off'}]).status_code == 200
-    assert stored() == {'mode': 'off', 'usage': None, 'subagent_allowed': False}
-    assert put(client, me['id'], rev(), [{'tool': name, 'mode': 'off'}]).status_code == 200  # already stored
-    plain_name = f'expert:{plain["id"]}'
-    assert put(client, me['id'], rev(), [{'tool': plain_name, 'mode': 'on'}]).status_code == 200
-    assert put(client, me['id'], rev(), [{'tool': plain_name, 'mode': 'off'}]).status_code == 200
-    with store.connect() as conn:
-        assert conn.execute(
-            'SELECT mode FROM ka.agent_tools WHERE agent_id=%s AND tool=%s', (me['id'], plain_name)
-        ).fetchone() == {'mode': 'off'}
-    for bad in ('expert:nope', f'expert:{me["id"]}'):
-        refused = put(client, me['id'], rev(), [{'tool': bad, 'mode': 'on'}])
-        assert refused.status_code == 400 and refused.json()['error']['message'] == f'Unknown expert: {bad}.'
 
 
 def test_an_expert_without_resources_lists_no_kinds():

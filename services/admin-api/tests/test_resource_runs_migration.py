@@ -25,8 +25,17 @@ TOOLS = [
 ]
 
 
+LATER = '0115_tools_always_on.down.sql'  # ka.agent_tools comes back (empty): 0106 deletes old tools' rows
+
+
 def run(conn, name):
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
+
+
+@pytest.fixture(autouse=True)
+def tools_table(world):
+    with world.store.connect() as conn:
+        run(conn, LATER)
 
 
 def discovery_run(conn, world, status='waiting'):

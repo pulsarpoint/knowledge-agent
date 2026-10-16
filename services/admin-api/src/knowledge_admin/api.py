@@ -71,7 +71,6 @@ def build_api(
     from knowledge_admin.agents import (
         profiles_api,
         wizard as agent_wizard,
-        tools_api,
         clones as agent_clones,
         reviews as agent_reviews,
     )
@@ -80,7 +79,6 @@ def build_api(
     router.include_router(profiles_api.build_api(app_name, repository_store))
     router.include_router(agent_clones.build_api(app_name, repository_store))
     router.include_router(agent_reviews.build_api(app_name, repository_store))
-    router.include_router(tools_api.build_api(app_name, repository_store))
     router.include_router(mcp_api.build_api(app_name, repository_store))
     router.include_router(llm_api.build_api(app_name, repository_store))
     router.include_router(jira_api.build_api(app_name, repository_store, jira_transport, backoffice_client))

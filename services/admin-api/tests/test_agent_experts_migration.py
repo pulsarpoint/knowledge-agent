@@ -10,8 +10,17 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0085_agent_experts.up.sql', '0085_agent_experts.down.sql'
 
 
+LATER = '0115_tools_always_on.down.sql'  # ka.agent_tools comes back (empty) for these tests
+
+
 def run(conn, name: str) -> None:
     conn.execute((MIGRATIONS / name).read_text(), prepare=False)
+
+
+@pytest.fixture(autouse=True)
+def tools_table(store):
+    with store.connect() as conn:
+        run(conn, LATER)
 
 
 def an_agent(conn, name: str) -> str:

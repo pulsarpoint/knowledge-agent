@@ -43,19 +43,13 @@ def clone_name(conn, name: str) -> str:
 
 def copy_configuration(conn, source_id: str, target_id: str, actor_id) -> None:
     """Make the target run exactly what the source runs: every configuration column (its access object and
-    instructions among them) and tool. Bumps the target's revision."""
+    instructions among them). Bumps the target's revision."""
     columns = ','.join(f'{column}=s.{column}' for column in CONFIGURATION)
     conn.execute(
         f"""UPDATE ka.agents t SET {columns},revision=t.revision+1,updated_by=%s
         FROM ka.agents s WHERE s.id=%s AND t.id=%s""",
         (actor_id, source_id, target_id),
     )
-    conn.execute('DELETE FROM ka.agent_tools WHERE agent_id=%s', (target_id,))
-    conn.execute(
-        """INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed)
-        SELECT %s,tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s AND tool<>%s""",
-        (target_id, source_id, f'expert:{target_id}'),
-    )  # an agent never lists itself as an expert
 
 
 def clone(conn, source_id: str, actor_id) -> dict[str, str]:

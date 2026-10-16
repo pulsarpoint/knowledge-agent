@@ -6,7 +6,6 @@ import json
 
 import pytest
 from agents.tool_context import ToolContext
-from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
 from access_helpers import with_access
 from knowledge_admin import access as access_rules
@@ -90,7 +89,6 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
             'service_ids': [],
         },
     }
-    config['tools'] = implied_tools(config)  # every saved configuration has its tools
     with_access(config)
     return {'config': config, 'credentials': {}, 'workspace': folders['workspace'], 'shell_enabled': True}
 

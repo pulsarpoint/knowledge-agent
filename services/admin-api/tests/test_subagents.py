@@ -23,7 +23,7 @@ from knowledge_admin.agents.runner import agent
 from knowledge_admin.capabilities.context import TOOL_CALL_ID
 from knowledge_admin.knowledge_agents import native_sessions
 from knowledge_admin.knowledge_agents.native_sessions import SessionEvents
-from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, PROMPT, Subagents, run_subagent
+from knowledge_admin.knowledge_agents.subagents import FAILED, LIMIT, PROMPT, UNAVAILABLE, Subagents, run_subagent
 from knowledge_admin.sessions.run_record import RunRecorder
 from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import function_tool
@@ -607,3 +607,18 @@ def test_stop_takes_at_most_one_grace_period_when_the_turn_and_a_subagent_ignore
     took = asyncio.run(scenario())
     assert 'lead' in ignored and 'cancel' in ignored  # both the turn and the subagent ignored their cancellation
     assert took < grace * 1.6, took
+
+
+def test_run_subagent_outside_a_session_is_a_tool_error():
+    tool = function_tool(CATALOG['run_subagent'], CATALOG['run_subagent'].usage)
+    context = {
+        'config': {'access': {'resources': [], 'roles': {'content_editor': False}}},
+        'credentials': {},
+        'workspace': None,
+        'shell_enabled': False,
+        'tools': frozenset({'run_subagent'}),
+    }
+    payload = json.dumps({'task': 'Read the worker', 'resources': None})
+    wrapped = ToolContext(context=context, tool_name='run_subagent', tool_call_id='s1', tool_arguments=payload)
+    result = asyncio.run(tool.on_invoke_tool(wrapped, payload))
+    assert result.startswith('An error occurred while running the tool.') and UNAVAILABLE in result

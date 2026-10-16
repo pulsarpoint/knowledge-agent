@@ -19,6 +19,7 @@ UP, DOWN = '0080_clone_agents.up.sql', '0080_clone_agents.down.sql'
 REMOVED = '0084_remove_claude_code.down.sql'  # renames ka.agent_sessions back to agent_sessions_cc
 LATER = '0081_test_sessions.down.sql'  # 0080 down re-adds agent_sessions.agent_version_id
 DROPPED = '0114_drop_agent_resource_tables.down.sql'  # the per-type tables 0080 materialised versions into
+TOOLS_DROPPED = '0115_tools_always_on.down.sql'  # ka.agent_tools, which 0080 materialised versions' tools into
 TABLES = ('agent_versions', 'agent_prompts', 'agent_prompt_versions', 'agent_prompt_version_details')
 COLUMNS = (
     ('agents', 'active_config_version_id'),
@@ -35,7 +36,10 @@ BEFORE = {
 
 
 def with_old_tables(conn) -> None:
-    """0114 down, once: these tests write and read the per-type tables (0114 down fills them from each agent's access)."""
+    """0115 and 0114 down, once: these tests write and read ka.agent_tools and the per-type tables (0114 down fills
+    them from each agent's access; 0115 down recreates ka.agent_tools empty)."""
+    if conn.execute("SELECT to_regclass('ka.agent_tools') AS r").fetchone()['r'] is None:
+        conn.execute((MIGRATIONS / TOOLS_DROPPED).read_text(), prepare=False)
     if conn.execute("SELECT to_regclass('ka.agent_configs') AS r").fetchone()['r'] is None:
         conn.execute((MIGRATIONS / DROPPED).read_text(), prepare=False)
 
@@ -66,9 +70,9 @@ def as_saved(config: dict) -> dict:
     """The configuration as a version stored it (0034…0079): no live graphs, the prompt version's fields."""
     saved = copy.deepcopy(config)
     saved['code'].pop('graphs', None)
-    saved['tools']['items'] = [
-        entry for entry in saved['tools']['items'] if entry['tool'] != 'run_subagent'
-    ]  # not yet a tool
+    saved['tools'] = {  # the tools section versions had (configurations lost it in 0115); run_subagent: not yet a tool
+        'items': [entry for entry in implied_tools(saved)['items'] if entry['tool'] != 'run_subagent']
+    }
     saved['system_prompt'] = {
         'id': str(uuid4()),
         'title': 'Tuned',
@@ -86,6 +90,17 @@ def ran_before(saved: dict, agent: dict) -> dict:
     config.setdefault('resources', 'fixed')  # versions saved before 0075
     config['tools'] = config.get('tools', implied_tools(config))
     return config
+
+
+def tool_rows(store, agent_id: str) -> dict[str, tuple]:
+    """The agent's ka.agent_tools rows (0080 materialises a version's tools there; nothing reads them after 0115)."""
+    with store.connect() as conn:
+        return {
+            row['tool']: (row['mode'], row['usage'], row['subagent_allowed'])
+            for row in conn.execute(
+                'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
+            )
+        }
 
 
 def _ids(items) -> list[str]:
@@ -204,7 +219,7 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     assert after['instructions'] == 'Gather evidence first.'  # the per-server override is not kept
     assert 'instructions' not in after['ssh']['servers'][0]
     assert after['services']['enabled'] is False and after['when_to_use'] == 'When payments fail.'
-    assert {item['tool'] for item in after['tools']['items'] if item['mode'] == 'on'} == {
+    assert {tool for tool, row in tool_rows(store, 'operations').items() if row[0] == 'on'} == {
         item['tool'] for item in implied_tools(saved)['items'] if item['mode'] == 'on'
     }
     for agent_id, before in working.items():  # agents without a version keep their own configuration
@@ -289,8 +304,10 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(after))
-    migrated['tools'] = [entry for entry in migrated['tools'] if entry['tool'] != 'run_subagent']  # not in old versions
     assert migrated == expected
+    assert tool_rows(store, 'operations') == {
+        entry['tool']: (entry['mode'], entry['usage'], entry['subagent_allowed']) for entry in saved['tools']['items']
+    }
     assert (after['name'], after['description']) == ('Payments operator', 'Investigates payment failures.')
     assert runbooks not in [c['id'] for c in after['documents']['collections']]
     assert unselected not in [p['id'] for p in after['code']['projects']]

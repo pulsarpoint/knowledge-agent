@@ -11,12 +11,12 @@ the run context is its argument schema (`Annotated[..., Field(description=...)]`
 docstring is the usage text the model reads. `usage=` and `arguments=` override the docstring and the schema; a
 `*args` or `**kwargs` parameter needs `arguments=`, and a name registered twice is an error.
 
-`tools/tools.json` holds the other attributes of each tool, in the order the Tools tab and the runner use: `name`,
-`group` (`code`, `documents`, `servers`, `inventory`, `memory` or `agents`), `label` and `summary` (the short line on
-the Tools tab). `tools/catalog.py` joins the file with the registered functions (`load_catalog`) and raises on a tool
-missing from either side, a duplicate, or an unknown group. `CATALOG` is the result, a `ToolSpec` per tool (name,
+`tools/tools.json` holds the other attributes of each tool, in the order the runner uses: `name`, `group` (`code`,
+`documents`, `servers`, `inventory`, `memory` or `agents`), `label` and `summary` (a short line). `tools/catalog.py`
+joins the file with the registered functions (`load_catalog`) and raises on a tool missing from either side, a
+duplicate, or an unknown group. `CATALOG` is the result, a `ToolSpec` per tool (name,
 group, label, summary, usage text, argument model, run). Every run gets every catalog tool with its built-in usage
-text: no per-agent choice, needs or usage overrides (the Tools tab's `ka.agent_tools` rows are no longer read by runs).
+text: no per-agent choice, needs or usage overrides (migration 0115 dropped `ka.agent_tools` and `ka.tools.needs`).
 What a tool may do is decided by its `check_<tool>` against the run's access object (`knowledge_admin/access.py`).
 
 `ka.tools` is the table copy of `tools.json` (migration 0108): `tools/fixture.py` `sync_tools` replaces it with the file
@@ -38,13 +38,12 @@ finds the host in the run context (`context['subagents']`) and the call id in `c
 the subagent gets every tool but `run_subagent`, the parent's MCP servers, no experts, and the parent's access
 narrowed with content editor off.
 
-Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog, have no `ka.agent_tools` usage text
-and cannot be edited on the Tools tab. A session pins the experts it may call (`config['experts']`); the runtime builds
-one function tool per entry with `tools/sdk.py` (name, description and parameters from the entry; per-run experts also
-take `resources`), and `knowledge_agents/experts.py` runs the call. A run gets every enabled expert other than its own
-agent, or those its start request names (`expert_ids`). Subagents never get them, and an expert's own run has an empty
-`experts` list. Calls
-share the turn's limit of 16 helpers with subagents.
+Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
+own. A session pins the experts it may call (`config['experts']`); the runtime builds one function tool per entry
+with `tools/sdk.py` (name, description and parameters from the entry; per-run experts also take `resources`), and
+`knowledge_agents/experts.py` runs the call. A run gets every enabled expert other than its own agent, or those its
+start request names (`expert_ids`). Subagents never get them, and an expert's own run has an empty `experts` list.
+Calls share the turn's limit of 16 helpers with subagents.
 
 - `list_files`, `read_file`, `search_files`. Read-only access to the
   enabled code/document roots and the run's workspace. Absolute paths are checked

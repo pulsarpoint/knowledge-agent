@@ -75,10 +75,10 @@ limit, no per-turn time limit, no 300-second limit).
   the run was not given is not available. The prompt names a run's resource
   in one line (`Resource: server <uuid> (<name>)`) and lists servers and services only by id, name and description;
   hostnames, connections and server instructions come from `get_resource`. The edit tools' schemas are the same in
-  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) exist only in a resource
-  run whose start request asks for them (`tools`; recorded as `proposal_tools`), which is what the Propose wizard
-  does: `propose_document` in a run started from a server, service or environment, `propose_service` only from a
-  server. A plain chat, a saved agent's run or any other run never has them. Accepting a document proposal creates a
+  every run; given another document they answer with the documents the run may change. The proposal tools (`propose_service`, `propose_document`) are offered in every run like
+  every tool; their checks allow them only in a content-editor run that may propose for its starting resource, which
+  is what the Propose wizard starts (`content_editor: true`): `propose_document` in a run started from a server,
+  service or environment, `propose_service` only from a server. A plain chat refuses them. Accepting a document proposal creates a
   draft with the run's `session_id` (a brand-new draft, or a draft of the document it updates; it becomes the run's
   last draft); a person publishes or promotes it. A new document is built for the service it is about, else for the
   run's server, service or environment (for a run without `started_from`, the proposal's server), in that resource's

@@ -58,7 +58,6 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
         'catalog',
         'schema',
         'prompt',
-        'tools',
     }  # no default model: the UI starts with the first
     repository = next(r['id'] for r in proposal['access']['resources'] if r['type'] == 'code_project')
     assert next(p for p in catalog['code_projects'] if p['id'] == repository)['folder_paths'] == ['managed/payments']

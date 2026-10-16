@@ -8,7 +8,7 @@ import pytest
 
 from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.capabilities.discovery import NOT_DISCOVERY, resolve_environment
-from knowledge_admin.tools.catalog import CATALOG, catalog_listing
+from knowledge_admin.tools.catalog import CATALOG
 from test_discovery_runs import config_of, ssh_ready, start
 
 SERVICE = {
@@ -122,7 +122,7 @@ def test_documents_attach_to_the_server_a_service_or_a_proposed_service(run):
     assert rows[3]['service_proposal_id'] == rows[2]['id']
 
 
-def test_proposal_tools_work_only_in_runs_started_from_a_resource_and_never_show_on_the_tools_tab(run):
+def test_proposal_tools_work_only_in_runs_started_from_a_resource_and_are_catalog_tools(run):
     world, sid, config = run
     assert NOT_DISCOVERY == 'The proposal tools work only in a run started from a server, service or environment.'
     with pytest.raises(ValueError, match=NOT_DISCOVERY):
@@ -138,8 +138,7 @@ def test_proposal_tools_work_only_in_runs_started_from_a_resource_and_never_show
     with pytest.raises(ValueError, match=NOT_DISCOVERY):
         propose({**config, 'session_id': str(other)}, 'propose_service', **SERVICE)
     assert proposals(world, sid) == []
-    listed = {tool['name'] for tool in catalog_listing()}
-    assert {'propose_service', 'propose_document', 'get_resource', 'get_document'} <= listed
+    assert {'propose_service', 'propose_document', 'get_resource', 'get_document'} <= set(CATALOG)
 
 
 def test_repeated_documents_replace_their_pending_proposal_and_servers_and_services_stay_apart(run):

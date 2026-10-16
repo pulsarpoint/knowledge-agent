@@ -160,14 +160,8 @@ def test_an_event_or_handler_deleted_later_leaves_the_run(tester):
     assert (session['handler_id'], session['purpose']) == (None, 'event')
 
 
-def test_an_event_run_starts_whatever_the_agents_old_tool_rows_say(tester):
-    t = tester
-    with t.store.connect() as conn:  # ssh_run on, but SSH is off and no server is usable: its check refuses
-        conn.execute(
-            """INSERT INTO ka.agent_tools(agent_id,tool,mode,subagent_allowed) VALUES (%s,'ssh_run','on',true)
-            ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on'""",
-            (t.agent,),
-        )
+def test_an_event_run_starts_with_every_tool_even_without_servers(tester):
+    t = tester  # ssh_run is offered, but no server is usable: its check refuses a call
     a_handler(t.store, action='agent', emit=None, agent_id=t.agent, prompt=PROMPT)
     first = an_event(t.store)
     event_processor.run_once(t.store)

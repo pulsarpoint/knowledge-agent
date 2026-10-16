@@ -116,6 +116,7 @@ def test_up_closes_open_discovery_runs_whose_proposals_stay_listed(world):
     store = world.store
     with store.connect() as conn:
         conn.commit()
+        run(conn, '0115_tools_always_on.down.sql')  # 0106 up deletes old tools' ka.agent_tools rows
         run(conn, '0106_resource_runs.down.sql')  # discovery runs as 0102 saw them
         actor = conn.execute('SELECT id FROM ka.principals LIMIT 1').fetchone()['id']
         model = a_model(conn, actor)

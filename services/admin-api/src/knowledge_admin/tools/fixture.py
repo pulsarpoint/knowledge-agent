@@ -1,5 +1,5 @@
 """tools.json: the attributes of each built-in tool used to build agents (group, label, summary), in the order
-the Tools tab and the runner use. tools/catalog.py reads it at import; sync_tools copies it into ka.tools at the
+the runner uses. tools/catalog.py reads it at import; sync_tools copies it into ka.tools at the
 admin-api start, so the table always equals the file."""
 
 import json

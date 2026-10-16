@@ -35,23 +35,21 @@ def names(c, subagents=True) -> list[str]:
 
 
 def test_a_saved_agent_an_ad_hoc_run_and_a_grounded_agent_get_every_tool():
-    saved = with_access(config(code=True, tools=['read_file']))  # its old rows say only read_file
+    saved = with_access(config(code=True))
     saved['experts'] = [EXPERT]
     assert names(saved) == [*EVERY, 'ask_payments_expert']
-    ad_hoc = with_access(config())  # nothing in its access, no rows at all
-    del ad_hoc['tools']
+    ad_hoc = with_access(config())  # nothing in its access
     ad_hoc['id'] = 'ad-hoc'
     assert names(ad_hoc) == EVERY
-    grounded = with_access(config(documents=True, grounded=True, tools=[]))
+    grounded = with_access(config(documents=True, grounded=True))
     assert names(grounded) == EVERY
-    # usage overrides are gone: every tool has its built-in description
-    saved['tools']['items'][0]['usage'] = 'Read only the files you were asked about.'
+    # every tool has its built-in description
     _, tools, _, _ = instructions_and_tools(saved, subagents=True)
     assert all(tool.description == CATALOG[tool.name].usage for tool in tools)
 
 
 def test_a_subagent_gets_every_tool_but_run_subagent_and_no_experts():
-    parent = with_access(config(code=True, ssh=True, tools=['read_file']))
+    parent = with_access(config(code=True, ssh=True))
     parent['experts'] = [EXPERT]
     sub = subagent_config(parent, None)
     assert names(sub, subagents=False) == [name for name in EVERY if name != 'run_subagent']
@@ -85,11 +83,8 @@ def test_run_subagent_has_no_tools_argument():
 def test_the_prompt_has_no_tool_notes():
     c = with_access(config(code=True))
     c['mcp'] = {'enabled': True, 'servers': [{'id': 'm1', 'name': 'Docs', 'enabled': True, 'tools': []}]}
-    c['tools']['items'].append(
-        {'tool': 'mcp:m1:lookup', 'group': 'mcp', 'mode': 'on', 'usage': 'Use it first.', 'subagent_allowed': True}
-    )
     prompt, _, _, _ = instructions_and_tools(c, subagents=True)
-    assert 'Tool notes' not in prompt and 'Use it first.' not in prompt
+    assert 'Tool notes' not in prompt
 
 
 def test_report_not_covered_refuses_outside_a_grounded_run():

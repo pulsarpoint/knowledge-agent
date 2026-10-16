@@ -7,7 +7,6 @@ import httpx
 import pytest
 from access_helpers import with_access
 from agents.tool_context import ToolContext
-from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_paths, get_prompt
 from knowledge_admin.capabilities import documents
 from knowledge_admin.sessions import grounding
@@ -64,7 +63,6 @@ def config(**documents_settings):
         'ssh': {'enabled': False, 'servers': []},
         'mcp': {'enabled': False, 'servers': []},
     }
-    value['tools'] = implied_tools(value)  # every saved configuration has its tools
     return value
 
 

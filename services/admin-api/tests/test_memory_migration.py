@@ -67,8 +67,8 @@ def test_memory_tool_group_and_event_source(store):
     with store.connect() as conn:
         project = store.project(conn, 'shop')
         conn.execute(
-            """INSERT INTO ka.tools(name,position,tool_group,label,summary,needs)
-            VALUES ('probe_memory',999,'memory','Probe','Probe.',NULL)"""
+            """INSERT INTO ka.tools(name,position,tool_group,label,summary)
+            VALUES ('probe_memory',999,'memory','Probe','Probe.')"""
         )
         conn.execute(
             """INSERT INTO ka.events(project_id,source,type,subject,payload,dedupe_key,occurred_at)

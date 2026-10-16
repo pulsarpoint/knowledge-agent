@@ -14,22 +14,14 @@ from test_repositories import HEADERS
 
 
 def rows(conn, agent_id: str) -> dict[str, list]:
-    """What decides how the agent runs: its configuration columns (access and instructions among them) and its tool
-    rows, comparable between two agents."""
+    """What decides how the agent runs: its configuration columns (access and instructions among them), comparable
+    between two agents."""
     return {
         'agent': conn.execute(
             """SELECT when_to_use,model_id,system_prompt,documents_grounded,access,instructions
             FROM ka.agents WHERE id=%s""",
             (agent_id,),
         ).fetchone(),
-        'agent_tools': sorted(
-            map(
-                str,
-                conn.execute(
-                    'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
-                ).fetchall(),
-            )
-        ),
     }
 
 

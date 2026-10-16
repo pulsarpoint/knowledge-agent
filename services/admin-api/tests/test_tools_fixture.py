@@ -8,7 +8,7 @@ import pytest
 from knowledge_admin.tools.fixture import FIXTURE, load_fixture, sync_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
-ROWS = 'SELECT name,position,tool_group,label,summary,needs FROM ka.tools ORDER BY position'  # needs: no longer written
+ROWS = 'SELECT name,position,tool_group,label,summary FROM ka.tools ORDER BY position'
 
 
 def rows(store):
@@ -28,7 +28,6 @@ def test_sync_inserts_every_entry_in_order(store):
         'tool_group': entries[0]['group'],
         'label': entries[0]['label'],
         'summary': entries[0]['summary'],
-        'needs': None,
     }
 
 

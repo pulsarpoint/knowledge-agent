@@ -1,4 +1,4 @@
-"""The catalog: SDK-independent tools with usage text, the list summary and the adapter (every run gets every tool:
+"""The catalog: SDK-independent tools with usage text and the adapter (every run gets every tool:
 test_every_tool.py)."""
 
 import asyncio
@@ -8,9 +8,8 @@ import json
 from access_helpers import with_access
 from agents import FunctionTool
 from agents.tool_context import ToolContext
-from implied_tools import implied_tools
 from knowledge_admin.agents.runner import get_prompt
-from knowledge_admin.tools.catalog import CATALOG, tools_summary
+from knowledge_admin.tools.catalog import CATALOG
 from knowledge_admin.tools.sdk import NOT_OFFERED, function_tool
 
 SERVER = {
@@ -30,7 +29,7 @@ SERVER = {
 }
 
 
-def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), tools=None):
+def config(code=False, documents=False, grounded=False, ssh=False, graphs=()):
     value = {
         'id': 'agent',
         'name': 'Agent',
@@ -45,14 +44,6 @@ def config(code=False, documents=False, grounded=False, ssh=False, graphs=(), to
         'services': {'enabled': False, 'items': []},
         'mcp': {'enabled': False, 'servers': []},
     }
-    value['tools'] = implied_tools(value)
-    if tools is not None:
-        value['tools'] = {
-            'items': [
-                {'tool': name, 'group': CATALOG[name].group, 'mode': 'on', 'usage': None, 'subagent_allowed': True}
-                for name in tools
-            ]
-        }
     return value
 
 
@@ -168,22 +159,6 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
     [error] = errors
     assert error['message'] == 'Error running tool (non-fatal)' and error['data']['tool_name'] == 'read_file'
     assert 'TOP-SECRET' not in error['data']['error'] and '[redacted]' in error['data']['error']
-
-
-def test_the_summary_counts_every_tool_and_the_tools_of_enabled_mcp_servers():
-    c = config(code=True, tools=['read_file'])
-    c['mcp'] = {
-        'enabled': True,
-        'servers': [
-            {'id': 'm1', 'name': 'One', 'enabled': True, 'tools': [{'name': 'a'}, {'name': 'b'}]},
-            {'id': 'm2', 'name': 'Two', 'enabled': False, 'tools': [{'name': 'c'}]},
-        ],
-    }
-    summary = tools_summary(c)
-    groups = {'code': 0, 'documents': 0, 'servers': 0, 'inventory': 0, 'memory': 0, 'mcp': 2, 'agents': 0}
-    for spec in CATALOG.values():
-        groups[spec.group] += 1
-    assert summary['groups'] == groups and summary['on'] == len(CATALOG) + 2
 
 
 def test_run_subagent_is_in_the_catalog():

@@ -10,7 +10,6 @@ from knowledge_admin import access as access_rules
 from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
 
-ROW_PREFIX = 'expert:'  # the Tools tab's rows of an expert (no run reads them)
 UNAVAILABLE = 'Expert {name} is not available.'
 FAILED = 'Expert {name} failed: {message}'
 MAX_SLUG = 50

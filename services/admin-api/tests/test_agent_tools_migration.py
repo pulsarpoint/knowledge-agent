@@ -1,5 +1,5 @@
-"""0078: an agent's tools, backfilled from today's capability rule; the checks; up and down. Rollbacks run 0114 and
-0084 down first, as golang-migrate does."""
+"""0078: an agent's tools, backfilled from today's capability rule; the checks; up and down. Rollbacks run 0115, 0114
+and 0084 down first, as golang-migrate does."""
 
 import itertools
 from pathlib import Path
@@ -10,7 +10,11 @@ from implied_tools import implied_tools
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0078_agent_tools.up.sql', '0078_agent_tools.down.sql'
-LATER = ('0114_drop_agent_resource_tables.down.sql', '0084_remove_claude_code.down.sql')
+LATER = (
+    '0115_tools_always_on.down.sql',
+    '0114_drop_agent_resource_tables.down.sql',
+    '0084_remove_claude_code.down.sql',
+)
 COMBINATIONS = list(itertools.product([False, True], repeat=4))  # code, documents, grounded, ssh
 
 
@@ -20,7 +24,7 @@ def run(conn, *names):
 
 
 def roll_back_later(conn):
-    """0114 and 0084 down. 0114 down switches a kind on only for an agent that references something of it; the seeded
+    """0115, 0114 and 0084 down. 0114 down switches a kind on only for an agent that references something of it; the seeded
     Search and Code agents reference nothing in the test database, so their seeded switches are set again."""
     run(conn, *LATER)
     conn.execute("UPDATE ka.agents SET documents_enabled=true WHERE id='search'")
@@ -75,6 +79,8 @@ def test_backfill_reproduces_todays_tools_for_every_capability_combination(store
 
 def test_checks_and_cascade(store):
     with store.connect() as conn:
+        run(conn, LATER[0])  # the table as 0115 down recreates it, empty
+        conn.execute("INSERT INTO ka.agent_tools(agent_id,tool) VALUES ('code','read_file')")
         for statement, error in (
             (
                 "INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES ('code','read_file','sometimes')",

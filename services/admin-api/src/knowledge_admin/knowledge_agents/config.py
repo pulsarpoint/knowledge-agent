@@ -74,41 +74,9 @@ class AgentConfig(TypedDict):
     mcp: dict[str, Any]
     ssh: dict[str, Any]
     services: dict[str, Any]
-    tools: dict[str, list[dict[str, Any]]]
     document_access: list[dict[str, Any]]
     access: dict[str, Any]  # as stored on the agent; a run pins its own (sessions.run_access)
     run_resources: NotRequired[dict[str, list[str]]]
-
-
-def tool_items(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """The agent's tools in config shape: every catalog tool (no row: off), then MCP rows by name; each with whether
-    run_subagent may give it to a subagent (no row, or a row read without it: yes)."""
-    from knowledge_admin.tools.catalog import CATALOG, item  # the catalog imports this module
-
-    saved = {row['tool']: row for row in rows}
-    items = []
-    for name in CATALOG:
-        row = saved.get(name)
-        items.append(
-            item(
-                name,
-                row['mode'] if row else 'off',
-                row['usage'] if row else None,
-                subagent_allowed=row.get('subagent_allowed', True) if row else True,
-            )
-        )
-    for name in sorted(tool for tool in saved if tool.startswith('mcp:')):
-        row = saved[name]
-        items.append(
-            item(name, row['mode'], row['usage'], group='mcp', subagent_allowed=row.get('subagent_allowed', True))
-        )
-    return {'items': items}
-
-
-def native_tools(conn, agent_id: str) -> dict[str, list[dict[str, Any]]]:
-    return tool_items(
-        conn.execute('SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,))
-    )
 
 
 def model_fits(model: Mapping[str, Any]) -> bool:
@@ -176,7 +144,6 @@ SECTIONS: dict[str, str] = {
     'model': 'General',
     'grounded': 'General',
     'resources': 'Resources',
-    'tools': 'Tools',
 }
 
 
@@ -207,15 +174,6 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'model': str(config['model']['id']) if config['model'] else None,
         'grounded': bool(config['documents'].get('grounded', False)),
         'resources': _access(config.get('access') or {}),
-        'tools': [
-            {
-                'tool': entry['tool'],
-                'mode': entry['mode'],
-                'usage': entry['usage'],
-                'subagent_allowed': entry.get('subagent_allowed', True),
-            }
-            for entry in config['tools']['items']
-        ],
     }
 
 
@@ -272,7 +230,7 @@ EXISTING = {
 
 def without_missing(conn, access: Mapping[str, Any]) -> dict[str, Any]:
     """The access object without the code projects, collections, servers and services it references that no longer
-    exist (the kinds the Tools tab and an expert's accepted resources count)."""
+    exist (the kinds an expert's accepted resources count)."""
     gone = set()
     for type_, query in EXISTING.items():
         ids = access_ids(access, type_)
@@ -438,7 +396,6 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'ssh': {'enabled': bool(servers), 'servers': servers},
                 'services': {'enabled': bool(services), 'items': services},
                 'document_access': document_access,
-                'tools': native_tools(conn, agent_id),
                 'access': access,
             }
         )

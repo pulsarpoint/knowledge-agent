@@ -421,3 +421,11 @@ via `ka.jsonb_values_text`), an optional `embedding` with its `embedding_profile
 revision with who saved it (agent, session, actor). `ka.memory_versions` keeps earlier revisions. The `memory` tool
 group is allowed in `ka.tools` and `memory` as a `ka.events` source. The down migration deletes memory events and
 memory tools, restores both checks and drops both tables and the function.
+
+## 0115_tools_always_on
+
+Every run gets every tool (the whole catalog, its MCP servers' tools, every expert; `run_subagent` except in
+subagents), so per-agent tool storage goes: `ka.agent_tools` (on/off, edited usage, `subagent_allowed`, the
+`run_subagent` row behind May start subagents and a caller's `expert:<id>` choices) and `ka.tools.needs` are dropped.
+The down migration recreates both empty with their original columns and constraints (0078, 0085, 0108); the rows are
+not restored.

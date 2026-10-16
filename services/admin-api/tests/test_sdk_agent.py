@@ -13,7 +13,6 @@ import asyncssh
 import pytest
 from access_helpers import with_access
 from agents import Runner
-from implied_tools import implied_tools
 from knowledge_admin.agents.runner import agent
 from test_ssh import ssh_server
 
@@ -234,7 +233,6 @@ def config(responses_api, tmp_path):
             'items': [{'id': 'payments', 'name': 'Payments', 'owner': 'Inspect the queue.'}],
         },
     }
-    value['tools'] = implied_tools(value)  # every saved configuration has its tools
     return with_access(value)
 
 
@@ -379,7 +377,6 @@ def test_sdk_connects_selected_mcp_and_keeps_ssh_keys_out_of_prompt(config, resp
             }
         ],
     }
-    config['tools'] = implied_tools(config)
     directories = []
     ssh_key = asyncssh.generate_private_key('ssh-ed25519')
     private_key = ssh_key.export_private_key('openssh').decode()
@@ -430,7 +427,6 @@ def test_missing_mcp_credential_cleans_temporary_runtime(config, monkeypatch, tm
             }
         ],
     }
-    config['tools'] = implied_tools(config)
     directory = TemporaryDirectory(dir=tmp_path)
     monkeypatch.setattr('knowledge_admin.agents.runner.TemporaryDirectory', lambda **kwargs: directory)
     with pytest.raises(ValueError, match='MCP token'):
@@ -519,7 +515,6 @@ def test_sdk_ssh_tool_uses_configured_key_and_returns_output(config, responses_a
             }
         ],
     }
-    config['tools'] = implied_tools(config)
     with_access(config)
     result = asyncio.run(
         agent(
@@ -552,7 +547,6 @@ def test_mcp_tools_with_same_local_name_remain_distinct(config, responses_api):
             for name in ('docs-one', 'docs-two')
         ],
     }
-    config['tools'] = implied_tools(config)
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     names = [t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]
@@ -576,7 +570,7 @@ def test_a_missing_document_collection_path_is_skipped_not_fatal(config, respons
     assert 'Skipping unavailable document collection folder: /missing/rag-data/jira' in caplog.text
 
 
-def test_every_tool_of_an_mcp_server_in_access_is_offered_whatever_its_old_rows_say(config, responses_api):
+def test_every_tool_of_an_mcp_server_in_access_is_offered(config, responses_api):
     config['mcp'] = {
         'enabled': True,
         'servers': [
@@ -591,13 +585,9 @@ def test_every_tool_of_an_mcp_server_in_access_is_offered_whatever_its_old_rows_
         ],
     }
     with_access(config)
-    config['tools']['items'].append(
-        {'tool': 'mcp:docs:lookup', 'group': 'mcp', 'mode': 'off', 'usage': 'Never.', 'subagent_allowed': True}
-    )
     asyncio.run(agent(config, 'Describe the tools.', credentials={'model-key': 'fixture-api-secret'}))
     request = next(r for r in responses_api[1] if r['path'] == '/v1/responses')
     assert len([t['name'] for t in request['body']['tools'] if 'lookup' in t['name']]) == 1
-    assert 'Never.' not in json.dumps(request['body'])
 
 
 def test_an_internal_llm_call_sends_no_tools(config, responses_api):

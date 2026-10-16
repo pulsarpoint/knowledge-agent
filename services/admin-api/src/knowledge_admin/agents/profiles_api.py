@@ -13,9 +13,7 @@ from knowledge_admin.access import TYPES, is_content_editor
 from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
-from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, tool_items
-from knowledge_admin.tools.catalog import tools_summary
-from knowledge_admin.agents.tools_api import flags, subagents_on, switch_subagents
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits
 
 
 EXPERT_NEEDS_WHEN = 'Experts need When to use.'
@@ -134,7 +132,6 @@ class ProfileInput(BaseModel):
     documents_grounded: bool | None = Field(default=None, strict=True)
     access: AccessInput
     instructions: str = Field(max_length=INSTRUCTIONS_LIMIT)
-    subagents: bool | None = Field(default=None, strict=True)  # May start subagents; None keeps the switch
     expert: bool | None = Field(default=None, strict=True)  # Offer as an expert; None keeps the switch
     model_id: UUID | None = None  # Left out keeps the model; null clears it
 
@@ -235,7 +232,6 @@ def build_api(app_name, store):
             if row['cloned_from']
             else None
         )
-        row['subagents'] = subagents_on(conn, agent_id)
         return row
 
     def audit(conn, request, agent_id, action, **details):
@@ -252,37 +248,10 @@ def build_api(app_name, store):
                 FROM ka.agents a LEFT JOIN ka.llm_models m ON m.id=a.model_id
                 LEFT JOIN ka.agents o ON o.id=a.cloned_from
                 ORDER BY a.created_at,a.id""").fetchall()
-            project = store.project(conn, app_name)
-            found = project_resources(conn, project)
-            index = _index(found)
-            saved_tools: dict[str, list[dict]] = {}
-            for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
-                saved_tools.setdefault(tool['agent_id'], []).append(tool)
-            mcp_servers = {
-                row['id']: row
-                for row in conn.execute(
-                    'SELECT id::text AS id,enabled,tools FROM ka.mcp_servers WHERE project_id=%s', (project,)
-                )
-            }
+            found = project_resources(conn, store.project(conn, app_name))
             for row in rows:
                 row.pop('system_prompt')  # read with the agent, not in the list
-                access = row['access']
-                existing = {**access, 'resources': [r for r in access['resources'] if (r['type'], r['id']) in index]}
-                row['counts'] = counts(access, found)
-                row['tools_summary'] = tools_summary(
-                    {
-                        **flags(existing, row['documents_grounded']),
-                        'mcp': {
-                            'enabled': True,
-                            'servers': [
-                                mcp_servers[ref['id']]
-                                for ref in access['resources']
-                                if ref['type'] == 'mcp_server' and ref['id'] in mcp_servers
-                            ],
-                        },
-                        'tools': tool_items(saved_tools.get(row['id'], [])),
-                    }
-                )
+                row['counts'] = counts(row['access'], found)
             return {'agents': rows}
 
     @router.get('/{agent_id}')
@@ -361,8 +330,6 @@ def build_api(app_name, store):
                 )
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
-                if value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
-                    switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision
                 return read(conn, agent_id)
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, 'An agent with this name already exists.') from None
@@ -404,7 +371,6 @@ def build_api(app_name, store):
                     raise HTTPException(409, HISTORY_REFUSED)
                 delete_history(conn, agent_id)
             audit(conn, request, agent_id, 'agent.deleted', **({'history': history} if any(history.values()) else {}))
-            conn.execute('DELETE FROM ka.agent_tools WHERE tool=%s', (f'expert:{agent_id}',))
             conn.execute('DELETE FROM ka.agents WHERE id=%s', (agent_id,))
             conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1')
         return Response(status_code=204)

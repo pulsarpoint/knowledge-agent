@@ -14,6 +14,7 @@ MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
 UP, DOWN = '0083_session_notices.up.sql', '0083_session_notices.down.sql'
 LATER_UP, LATER_DOWN = '0084_remove_claude_code.up.sql', '0084_remove_claude_code.down.sql'
 DROP_UP, DROP_DOWN = '0114_drop_agent_resource_tables.up.sql', '0114_drop_agent_resource_tables.down.sql'
+TOOLS_UP, TOOLS_DOWN = '0115_tools_always_on.up.sql', '0115_tools_always_on.down.sql'
 
 
 def run(conn, name: str) -> None:
@@ -121,6 +122,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
     project, _, (first, _) = two_sessions(store)
     with psycopg.connect(store.conninfo, autocommit=True) as listener, store.connect() as conn:
         listener.execute('LISTEN ka_sessions')
+        run(conn, TOOLS_DOWN)  # 0084 up fills ka.agent_tools, which 0115 dropped
         run(conn, DROP_DOWN)  # 0084 down reads the capability switches 0114 dropped
         run(conn, LATER_DOWN)  # 0084 renamed the table the down migration names
         run(conn, DOWN)
@@ -132,6 +134,7 @@ def test_down_removes_the_notices_and_up_restores_them(store):
         run(conn, UP)
         run(conn, LATER_UP)
         run(conn, DROP_UP)
+        run(conn, TOOLS_UP)
         conn.commit()
         conn.execute("UPDATE ka.agent_sessions SET status='waiting' WHERE id=%s", (first,))
         conn.commit()

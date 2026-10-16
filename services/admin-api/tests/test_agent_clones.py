@@ -31,8 +31,6 @@ def clone(client, agent_id: str = 'operations') -> dict:
 def test_a_clone_runs_exactly_what_its_original_runs(store, saved_agent):
     client = saved_agent[0]
     with store.connect() as conn:
-        conn.execute("""INSERT INTO ka.agent_tools(agent_id,tool,usage) VALUES ('operations','read_file','Read narrowly.')
-            ON CONFLICT (agent_id,tool) DO UPDATE SET usage=EXCLUDED.usage""")
         conn.execute(
             """UPDATE ka.agents SET system_prompt='Answer from evidence.',
             access=jsonb_set(access,'{roles,content_editor}','true') WHERE id='operations'"""

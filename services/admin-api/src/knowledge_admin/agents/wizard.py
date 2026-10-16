@@ -25,8 +25,6 @@ from knowledge_admin.agents.profiles_api import (
     project_resources,
     references,
 )
-from knowledge_admin.tools.catalog import CATALOG, SUBAGENT, catalog_listing
-from knowledge_admin.agents.tools_api import SUBAGENT_SWITCH, UNKNOWN, switch_subagents
 
 
 DESIGN_PROMPT = """Design one specialist agent for the administrator's requested role.
@@ -69,11 +67,7 @@ class AgentProposal(BaseModel):
 
 
 class CreateInput(AgentProposal):
-    """A reviewed proposal plus the settings the administrator chooses; the designer never proposes them."""
-
-    tools: list[str] | None = Field(default=None, max_length=50)  # None: what the access gives
-    subagents: bool = False  # May start subagents (native agents only)
-    subagent_blocked: list[str] = Field(default_factory=list, max_length=50)  # tools a subagent may not be given
+    """A reviewed proposal, as the administrator saves it."""
 
 
 class GenerateInput(BaseModel):
@@ -168,7 +162,6 @@ def build_api(app_name, store):
             'catalog': catalog,
             'schema': AgentProposal.model_json_schema(),
             'prompt': DESIGN_PROMPT,
-            'tools': catalog_listing(),
         }
 
     @router.post('/generate')
@@ -272,11 +265,6 @@ def build_api(app_name, store):
                 project = store.project(conn, app_name)
                 catalog = inventory(conn, project)
                 validate_resources(value, catalog)
-                for name in [*(value.tools or []), *value.subagent_blocked]:
-                    if name not in CATALOG:
-                        raise HTTPException(400, UNKNOWN.format(tool=name))
-                    if name == SUBAGENT:
-                        raise HTTPException(400, SUBAGENT_SWITCH)
                 actor = store.actor(conn, *request_actor(request))
                 access = references(value.access, project_resources(conn, project))
                 conn.execute(
@@ -296,16 +284,6 @@ def build_api(app_name, store):
                         actor,
                     ),
                 )
-                names = value.tools or []  # every run gets every tool: these rows are no longer read by runs
-                for name in dict.fromkeys(names):
-                    conn.execute("INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')", (agent_id, name))
-                if value.subagent_blocked:
-                    conn.execute(
-                        'UPDATE ka.agent_tools SET subagent_allowed=false WHERE agent_id=%s AND tool=ANY(%s)',
-                        (agent_id, value.subagent_blocked),
-                    )
-                if value.subagents:
-                    switch_subagents(conn, agent_id, True)
                 conn.execute(
                     """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
                     VALUES (%s,%s,'agent.created','agent',%s)""",
