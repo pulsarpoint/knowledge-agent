@@ -101,8 +101,8 @@ export default function MCPServersView() {
           <CardHeader>
             <CardTitle>{editing.server ? "Edit MCP server" : "Add MCP server"}</CardTitle>
             <CardDescription>
-              Streamable HTTP with an optional bearer token. Save, test the connection, then select it in agent
-              settings.
+              Streamable HTTP with an optional bearer token. Save, test the connection, then add it on an agent's
+              Resources tab.
             </CardDescription>
           </CardHeader>
           <form
