@@ -5,9 +5,9 @@ tools/sdk.py turns an entry into an Agents SDK tool."""
 import typing
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 # Imported for their @tool registrations.
 from knowledge_admin.capabilities import (  # noqa: F401
@@ -21,11 +21,12 @@ from knowledge_admin.capabilities import (  # noqa: F401
     inventory,
     memory,
     ssh,
+    subagents,
 )
 from knowledge_admin.capabilities.context import ACCESS, RunContext
 from knowledge_admin.capabilities.shell import client as shell  # noqa: F401
 from knowledge_admin.tools.fixture import load_fixture
-from knowledge_admin.tools.registry import REGISTRY, Tool, tool
+from knowledge_admin.tools.registry import REGISTRY, Tool
 
 Group = Literal['code', 'documents', 'servers', 'inventory', 'memory', 'agents']
 Need = Literal[
@@ -75,36 +76,6 @@ def _documents(config: Mapping[str, Any]) -> bool:
 
 def _ssh(config: Mapping[str, Any]) -> bool:
     return bool(config['ssh']['enabled'])
-
-
-class SubagentResources(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    code_project_ids: list[str] = Field(default_factory=list, description='Code project IDs from your resources.')
-    collection_ids: list[str] = Field(default_factory=list, description='Document collection IDs from your resources.')
-    server_ids: list[str] = Field(default_factory=list, description='SSH server IDs from your resources.')
-    service_ids: list[str] = Field(default_factory=list, description='Service IDs from your resources.')
-
-
-@tool
-async def run_subagent(
-    context: RunContext,
-    task: Annotated[
-        str, Field(description='The complete task, up to 20000 characters: the helper does not see this conversation.')
-    ],
-    tools: Annotated[
-        list[str], Field(description='Names of your tools the helper may use, as you see them; at least one.')
-    ],
-    resources: Annotated[
-        SubagentResources | None,
-        Field(description='The resources the helper may use, from yours; omit it to give all of yours.'),
-    ] = None,
-) -> str:
-    """Start a helper for a separate, well-defined part of your work, such as exploring one project or checking one question. Give it a complete task, because it does not see this conversation. Give it the fewest tools and resources it needs. Helpers may run in parallel. You get their final answer as the result; verify important claims."""
-    # Imported here: the subagent runtime imports the native session runtime, which imports this module.
-    from knowledge_admin.knowledge_agents import subagents
-
-    return await subagents.run_subagent(context, task, tools, resources)
 
 
 def load_catalog(entries: list[dict[str, Any]], registry: Mapping[str, Tool]) -> dict[str, ToolSpec]:
