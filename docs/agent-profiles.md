@@ -55,7 +55,7 @@ run."; `report_not_covered` outside a grounded run refuses "This run does not an
 runs, run records, session pages and Test chats still show how often each tool was used. See
 [Agent execution](agents.md#tools).
 
-**Subagents.** Every saved agent's run may start subagents with `run_subagent`: helpers that work on separate parts of
+**Subagents.** Every run may start subagents with `run_subagent`: helpers that work on separate parts of
 the task in parallel, each with every tool except `run_subagent` and the run's access narrowed to the resources it is
 given, with content editor off. There is no switch for it.
 

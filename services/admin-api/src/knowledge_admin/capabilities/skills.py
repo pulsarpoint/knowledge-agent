@@ -29,7 +29,11 @@ def section(access: dict) -> str:
     skills = access_rules.listing(access, 'skill')
     if not skills:
         return ''
-    lines = [f'- {item["name"]}: {" ".join(item["description"].split())}' for item in skills]
+    # runs pinned before skills were listed carry only description_short
+    lines = [
+        f'- {item["name"]}: {" ".join((item.get("description") or item.get("description_short", "")).split())}'
+        for item in skills
+    ]
     return '\n'.join([HEADER, *lines, HOW_TO])
 
 

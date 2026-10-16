@@ -898,7 +898,7 @@ system) and every agent can find it again in a later run. Each entry has a uniqu
 Names use lowercase letters, digits and `. _ / -` (up to 200 characters). Metadata keys are lowercase snake_case (up to
 64 characters) and values are text of 1 to 500 characters.
 
-**Tools.** Turn them on in an agent's **Tools** tab, group **Memory**:
+**Tools.** Every run has the memory tools (group **Memory**):
 
 - `search_memory` finds entries by meaning and by words. It can narrow by metadata and by the agent that saved them, and
   returns up to `limit` entries with the content cut at 2,000 characters.

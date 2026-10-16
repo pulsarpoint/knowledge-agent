@@ -872,7 +872,7 @@
       "title": "ProposeService",
       "type": "object"
     },
-    "summary": "Propose a service for review (runs started from a server that turn it on).",
+    "summary": "Propose a service for review (content editor runs started from a server).",
     "usage": "Propose a service running on this server, with its deployment here, for an administrator to accept or reject. A service already recorded under this name is proposed as an update; proposing the same service again replaces your earlier proposal. If the call is refused, correct what it says and call again."
   },
   {
@@ -926,7 +926,7 @@
       "title": "ProposeDocument",
       "type": "object"
     },
-    "summary": "Propose a document for review (runs started from a server, service or environment that turn it on).",
+    "summary": "Propose a document for review (content editor runs started from a server, service or environment).",
     "usage": "Propose a document about the server, service or environment this run started from, or about a service (about_service), for an administrator to accept or reject. Never include passwords, keys or tokens. Proposing the same title about the same resource again replaces your earlier proposal."
   },
   {
