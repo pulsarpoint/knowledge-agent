@@ -269,13 +269,32 @@ test("switching the document never writes the first document's settings under th
   vi.unstubAllGlobals();
 });
 
+/** The saved agent with more in its access: a server without usable SSH, an environment and two documents. */
+const fuller = {
+  ...agentOptions,
+  resources: {
+    ...agentOptions.resources,
+    servers: [
+      ...agentOptions.resources.servers,
+      { id: "s2", name: "db-1", linked: false, usable: false, reason: "SSH is not set up" },
+    ],
+    environments: [{ id: "env", name: "Production", linked: false, brings_code: false, brings_servers: false }],
+    documents: [
+      { id: "d1", name: "Runbook", linked: false, editable: true },
+      { id: "d2", name: "Guide", linked: false, editable: false },
+    ],
+  },
+};
+const agentScope = { kind: "agent" as const, id: "ops", name: "Operations" };
+
 test("a saved agent starts with its own configuration and only narrows it", () => {
   const settings = {
-    ...defaultSettings(agentOptions),
-    chosen: { ...defaultSettings(agentOptions).chosen, server_ids: ["s1"] },
+    ...defaultSettings(fuller),
+    chosen: { ...defaultSettings(fuller).chosen, server_ids: ["s1"] },
+    documents: ["d1"],
     off: ["read_file"],
   };
-  const body = startInput({ kind: "agent", id: "ops", name: "Operations" }, agentOptions, settings, " Check disk ");
+  const body = startInput(agentScope, fuller, settings, " Check disk ");
   expect(body).toEqual({
     agent_id: "ops",
     message: "Check disk",
@@ -286,39 +305,51 @@ test("a saved agent starts with its own configuration and only narrows it", () =
     resources: {
       server_ids: ["s1"],
       service_ids: [],
-      environment_ids: [],
+      environment_ids: ["env"],
       code_project_ids: [],
       collection_ids: [],
-      documents: [],
+      documents: [{ id: "d1", editable: true }],
     },
   });
 });
 
-test("a saved agent defaults: its model and prompt, nothing chosen", () => {
-  expect(defaultSettings(agentOptions)).toEqual({
+test("a saved agent's documents are sent with the agent's own editable flag", () => {
+  const body = startInput(agentScope, fuller, defaultSettings(fuller), "Go");
+  expect(body.resources.documents).toEqual([
+    { id: "d1", editable: true },
+    { id: "d2", editable: false },
+  ]);
+});
+
+test("a saved agent defaults: its model and prompt, every resource of its access chosen", () => {
+  expect(defaultSettings(fuller)).toEqual({
     modelId: "m1",
     promptKey: OWN,
     systemPrompt: "You operate servers.",
-    chosen: { server_ids: [], service_ids: [], environment_ids: [], code_project_ids: [], collection_ids: [] },
+    chosen: {
+      server_ids: ["s1", "s2"],
+      service_ids: [],
+      environment_ids: ["env"],
+      code_project_ids: [],
+      collection_ids: [],
+    },
+    documents: ["d1", "d2"],
     off: [],
     subagents: true,
     experts: ["e1"],
   });
 });
 
+test("a saved agent's restored settings keep the picked subset of today's resources", () => {
+  const picked = { ...defaultSettings(fuller), documents: ["d2", "gone"] };
+  const saved = { v: 2, revision: 3, linked: [], settings: picked };
+  expect(restoreSettings(fuller, saved).documents).toEqual(["d2"]);
+});
+
 test("settings saved for an older revision of the agent are dropped", () => {
   const saved = { v: 2, revision: 2, linked: [], settings: { ...defaultSettings(agentOptions), off: ["ssh_run"] } };
   expect(restoreSettings(agentOptions, saved)).toEqual(defaultSettings(agentOptions));
   expect(restoreSettings(agentOptions, { ...saved, revision: 3 }).off).toEqual(["ssh_run"]);
-});
-
-test("a saved agent with fixed resources keeps every tool, since its options list no resources", () => {
-  const fixed = { ...agentOptions, agent: { ...agentOptions.agent!, resources_fixed: true } };
-  const settings = defaultSettings(fixed);
-  expect(shownTools(fixed, settings).map((tool) => tool.name)).toEqual(["ssh_run", "read_file"]);
-  const body = startInput({ kind: "agent", id: "ops", name: "Operations" }, fixed, settings, "Go");
-  expect((body as { tools: string[] }).tools).toContain("ssh_run");
-  expect(shownTools(agentOptions, defaultSettings(agentOptions)).map((tool) => tool.name)).toEqual([]);
 });
 
 test("a new document: the start body names it as started_from and as the one editable document", () => {

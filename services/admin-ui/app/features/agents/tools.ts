@@ -13,8 +13,7 @@ export interface AgentTool {
   subagent_allowed: boolean;
   available: boolean;
   reason: string | null;
-  tab: string | null;
-  resources?: "fixed" | "per_run";
+  tab: string | null; // set while a need is unmet: the resources it needs are added on the Resources tab
 }
 export interface AgentTools {
   revision: number;
@@ -52,19 +51,12 @@ export const NEED_REASONS: Record<ToolNeed, string> = {
   grounded: 'Needs "Answer only from documents"',
   ssh: "Needs SSH servers",
 };
-export const TOOLS_TAB_NOTE = "Tools for these projects are chosen on the Tools tab.";
 export const SUBAGENT_TOOL = "run_subagent";
 export const SUBAGENTS_HELP = "The agent can hand separate parts of its work to helpers that run in parallel.";
 export const SUBAGENTS_OFF_NOTE = "Turn on May start subagents in General to let this agent start helpers.";
 export const EXPERT_HELP = "Other agents can call this agent as a tool. Its When to use text tells them when.";
 export const NO_EXPERTS_NOTE = "No experts yet. Turn on Offer as an expert on an agent's General tab.";
 export const EXPERT_SELF_NOTE = "When this agent runs as an expert it cannot call experts.";
-export const TAB_LABELS: Record<string, string> = {
-  git: "Code projects",
-  documents: "Documents",
-  ssh: "SSH",
-  mcp: "MCP",
-};
 
 const path = (id: string) => `/api/agents/${encodeURIComponent(id)}/tools`;
 export const getToolCatalog = () => request<{ tools: CatalogTool[] }>("/api/tools");

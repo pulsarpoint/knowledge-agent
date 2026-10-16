@@ -32,12 +32,18 @@ export interface AgentSettings {
   promptKey: string;
   systemPrompt: string;
   chosen: AgentResources;
+  /** A saved agent's run: the documents of its access picked for it (each as the agent has it). */
+  documents?: string[];
   off: string[]; // tools the person unticked (a tool that newly applies starts ticked)
   subagents: boolean;
   experts: string[];
 }
 
 const usable = (item: { id: string; usable?: boolean }) => item.usable !== false;
+/** What a run may choose of a kind: a saved agent's run any resource of its access (a server without usable SSH is
+ * still given), another run the usable ones. */
+const choosable = (options: AgentOptions, key: (typeof AGENT_KINDS)[number]["key"]) =>
+  options.agent ? options.resources[key] : options.resources[key].filter(usable);
 const linkedIds = (options: AgentOptions) =>
   AGENT_KINDS.flatMap(({ key }) => options.resources[key].filter((item) => item.linked).map((item) => item.id)).sort();
 const strings = (value: unknown): string[] =>
@@ -45,12 +51,15 @@ const strings = (value: unknown): string[] =>
 
 export function defaultSettings(options: AgentOptions): AgentSettings {
   if (options.agent) {
-    // a saved agent: its own model and prompt; a per-run agent starts with nothing chosen
+    // a saved agent: its own model and prompt; everything its access holds is chosen (a run may pick a subset)
+    const chosen = { ...EMPTY };
+    for (const { key, field } of AGENT_KINDS) chosen[field] = options.resources[key].map((item) => item.id);
     return {
       modelId: options.agent.model?.id ?? options.default_model_id ?? "",
       promptKey: OWN,
       systemPrompt: options.agent.system_prompt,
-      chosen: { ...EMPTY },
+      chosen,
+      documents: options.resources.documents.map((item) => item.id),
       off: [],
       subagents: options.agent.subagents_allowed,
       experts: options.experts.map((item) => item.id),
@@ -93,10 +102,11 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
   if (sameLinks && settings.chosen && typeof settings.chosen === "object") {
     const savedChosen = settings.chosen as Record<string, unknown>;
     for (const { key, field } of AGENT_KINDS) {
-      const present = new Set(options.resources[key].filter(usable).map((item) => item.id));
+      const present = new Set(choosable(options, key).map((item) => item.id));
       chosen[field] = strings(savedChosen[field]).filter((id) => present.has(id));
     }
   }
+  const documents = new Set(options.resources.documents.map((item) => item.id));
   const modelId =
     typeof settings.modelId === "string" && models.has(settings.modelId) ? settings.modelId : base.modelId;
   const promptKey =
@@ -112,6 +122,7 @@ export function restoreSettings(options: AgentOptions, saved: unknown): AgentSet
     promptKey,
     systemPrompt,
     chosen,
+    ...(options.agent ? { documents: strings(settings.documents).filter((id) => documents.has(id)) } : {}),
     off: strings(settings.off).filter((name) => tools.has(name)),
     subagents: settings.subagents === true,
     experts: strings(settings.experts).filter((id) => experts.has(id)),
@@ -127,7 +138,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     experts?: { id: string }[];
   };
   const items = config.tools?.items ?? [];
-  const choosable = new Set(options.tools.map((tool) => tool.name));
+  const tools = new Set(options.tools.map((tool) => tool.name));
   const experts = new Set(options.experts.map((item) => item.id));
   // what the run was started for (an environment, not what it brought); runs started before it was recorded: what they were given
   const resources = (session.chosen_resources ?? session.run_resources ?? {}) as Partial<
@@ -135,7 +146,7 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   >;
   const chosen = { ...EMPTY };
   for (const { key, field } of AGENT_KINDS) {
-    const present = new Set(options.resources[key].filter(usable).map((item) => item.id));
+    const present = new Set(choosable(options, key).map((item) => item.id));
     chosen[field] = strings(resources[field]).filter((id) => present.has(id));
   }
   const promptId = session.prompt_snapshot?.prompt_id ?? null;
@@ -147,7 +158,9 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
     promptKey: promptId && options.prompts.some((item) => item.id === promptId) ? promptId : OWN,
     systemPrompt: session.prompt_snapshot?.system_prompt ?? defaultSettings(options).systemPrompt,
     chosen,
-    off: items.filter((item) => choosable.has(item.tool) && item.mode !== "on").map((item) => item.tool),
+    // the documents a run was given are not recorded: a saved agent's run starts again with all of them
+    ...(options.agent ? { documents: options.resources.documents.map((item) => item.id) } : {}),
+    off: items.filter((item) => tools.has(item.tool) && item.mode !== "on").map((item) => item.tool),
     subagents:
       (!options.agent || options.agent.subagents_allowed) &&
       items.some((item) => item.tool === "run_subagent" && item.mode === "on"),
@@ -155,11 +168,9 @@ export function settingsFromSession(options: AgentOptions, session: SessionDetai
   };
 }
 
-/** A saved agent with fixed resources lists none in its options, so no tool is filtered by what is chosen. */
+/** The tools that apply to what is chosen. */
 export const shownTools = (options: AgentOptions, settings: AgentSettings): AgentTool[] =>
-  options.agent?.resources_fixed
-    ? options.tools
-    : options.tools.filter((tool) => toolApplies(tool, settings.chosen, options.resources));
+  options.tools.filter((tool) => toolApplies(tool, settings.chosen, options.resources));
 
 const SCOPE_FIELD = { server: "server_ids", service: "service_ids", environment: "environment_ids" } as const;
 /** A server, service or environment scope always has its resource chosen (the run is about it), so the tools that need
@@ -189,7 +200,8 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
     .filter((tool) => !settings.off.includes(tool.name))
     .map((tool) => tool.name);
   if (scope.kind === "agent") {
-    // a saved agent keeps its own model and prompt; the run only narrows it
+    // a saved agent keeps its own model and prompt; the run only narrows it (a document as the agent has it)
+    const picked = settings.documents ?? [];
     return {
       agent_id: scope.id,
       message: message.trim(),
@@ -197,7 +209,12 @@ export function startInput(scope: ChatScope, options: AgentOptions, raw: AgentSe
       tools,
       expert_ids: settings.experts,
       subagents: settings.subagents,
-      resources: { ...settings.chosen, environment_ids: [], documents: [] },
+      resources: {
+        ...settings.chosen,
+        documents: options.resources.documents
+          .filter((item) => picked.includes(item.id))
+          .map((item) => ({ id: item.id, editable: item.editable })),
+      },
     };
   }
   if (isResourceScope(scope)) {

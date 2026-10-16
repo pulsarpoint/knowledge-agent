@@ -155,42 +155,38 @@ export default function AgentSettingsSheet({
             )}
             <FieldSet>
               <FieldLegend>Servers and resources</FieldLegend>
-              {agent?.resources_fixed ? (
-                <FieldDescription>This agent's resources are fixed.</FieldDescription>
-              ) : (
-                <>
-                  {/* A new document is implied: the run writes it. The documents show first, always on. */}
-                  <ResourcePicker
-                    kinds={[DOCUMENTS, ...AGENT_KINDS]}
-                    idPrefix="settings"
-                    disabled={locked}
-                    value={chosen}
-                    onChange={(next) => onChange({ chosen: next })}
-                    options={{
-                      ...options.resources,
-                      documents: scope.kind === "new-document" ? [] : options.resources.documents,
-                    }}
-                    itemState={(key, item) => {
-                      if (key === "documents")
-                        return {
-                          locked: true,
-                          note: documents.get(item.id)?.editable
-                            ? "The agent may change it (as a draft)."
-                            : "Read only.",
-                        };
-                      const server =
-                        key === "servers" ? options.resources.servers.find((entry) => entry.id === item.id) : undefined;
-                      const unusable = server !== undefined && !server.usable;
-                      // A server, service or environment scope's run is about it: always on.
-                      return {
-                        locked: isResourceScope(scope) && key === `${scope.kind}s` && item.id === scope.id,
-                        disabled: unusable,
-                        note: unusable ? server.reason : null,
-                      };
-                    }}
-                  />
-                </>
-              )}
+              {/* A new document is implied: the run writes it. The documents show first: always on for a document's
+                  run, picked like the rest for a saved agent's run (each as the agent has it). */}
+              <ResourcePicker
+                kinds={[DOCUMENTS, ...AGENT_KINDS]}
+                idPrefix="settings"
+                disabled={locked}
+                value={{ ...chosen, documents: settings.documents ?? [] }}
+                onChange={({ documents: picked, ...next }) =>
+                  onChange({ chosen: next, ...(agent ? { documents: picked } : {}) })
+                }
+                options={{
+                  ...options.resources,
+                  documents: scope.kind === "new-document" ? [] : options.resources.documents,
+                }}
+                itemState={(key, item) => {
+                  if (key === "documents")
+                    return {
+                      locked: !agent,
+                      note: documents.get(item.id)?.editable ? "The agent may change it (as a draft)." : "Read only.",
+                    };
+                  const server =
+                    key === "servers" ? options.resources.servers.find((entry) => entry.id === item.id) : undefined;
+                  const unusable = server !== undefined && !server.usable;
+                  // A server, service or environment scope's run is about it: always on. A saved agent's server
+                  // without usable SSH is still given (only its SSH is left out).
+                  return {
+                    locked: isResourceScope(scope) && key === `${scope.kind}s` && item.id === scope.id,
+                    disabled: unusable && !agent,
+                    note: unusable ? server.reason : null,
+                  };
+                }}
+              />
             </FieldSet>
             <FieldSet>
               <FieldLegend>Tools</FieldLegend>

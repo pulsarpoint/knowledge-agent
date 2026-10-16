@@ -9,15 +9,12 @@ inherited from another agent. Agents share these tabs:
 
 | Tab | Configuration |
 | --- | --- |
-| General | Name, purpose, routing description, availability, Resources (Fixed / Per run), model connection, additional instructions and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
-| Skills | Enable skills; select one or more predefined skills from the library |
-| Documents | Enable document search; choose folders and whether to include descendants |
-| Git paths | Enable read-only Git access; choose repositories |
-| SSH | Enable SSH access; choose multiple servers, optional SSH connection overrides, and per-server instructions, skills and MCP selections |
-| MCP | Enable MCP tools; choose this agent’s HTTP connections |
-| Tools | Choose which tools the agent gets, edit their usage instructions (native agents) |
-| Services | Enable context from selected service descriptions |
-| Test | Continue a Agents SDK conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+| General | Name, purpose, routing description, model connection, **Instructions** (additional notes for every run), **Content editor** (off by default: "Lets this agent propose services and documents and edit editable documents."), **Answer only from documents**, May start subagents, Offer as an expert, availability, and the required system prompt (one field, up to 100,000 characters); *Clone of <original>* for a clone |
+| Resources | The agent's resources grouped by type (servers, services, environments, code projects, collections, documents, skills, MCP servers) with name and short description. **Add** per type offers the project's resources the agent does not have yet (from `GET /api/agents/{id}/options`), with **Select all**; **Remove**; a document has an **Editable** switch (read-only by default). A reference to a resource that no longer exists shows *missing* and is dropped on save. **Save resources** writes `PUT /api/agents/{id}` with the access object |
+| Tools | Choose which tools the agent gets, edit their usage instructions; a tool whose need is unmet links to Resources |
+| Test | Run the agent with all its resources, or a subset picked in the chat settings (all picked by default; a document goes with the agent's own Editable); continue the conversation, inspect live activity, close/resume sessions, and request tuning suggestions |
+
+Other `?view=` values open General.
 
 **Access.** What an agent may use is one access object, `ka.agents.access`:
 `{"resources": [{"type", "id", "editable"?}], "roles": {"content_editor": bool}}`. Types are `server`, `service`,
@@ -53,8 +50,7 @@ hidden, except Agents), each with an on/off switch, a one-line summary and its u
 built-in instructions the model reads with your own text (up to 8,000 characters; the row shows **Edited**);
 **Reset** returns to the built-in text. A tool whose capability is not available shows a "Needs …" row instead of
 a switch effect: `Needs code projects`, `Needs documents`, `Needs "Answer only from documents"`, `Needs SSH servers`,
-`Needs MCP`; it stays saved but is not offered until the need is met. Capability tabs (native) say
-"Tools for these projects are chosen on the Tools tab." MCP tools of the selected servers are on by default; an
+`Needs MCP`; it stays saved but is not offered until the need is met, and links to **Resources**. MCP tools of the selected servers are on by default; an
 edited usage text for one is added to the prompt as **Tool notes** (the tool's own description still comes from the
 server). **Save tools** saves the whole list with the agent's revision (`GET/PUT /api/agents/{id}/tools`; a stale
 list returns 409 "The tools changed since you opened them. Reload.").
@@ -84,8 +80,8 @@ Clone and Apply copy the row and `subagent_allowed` with the other tool rows.
 **Experts.** **Offer as an expert** (General, native agents, off by default; `expert` in `GET/PUT /api/agents/{id}` and
 in the list, which shows an **Expert** badge) offers the agent to every other native agent as a tool. Saving it on
 needs a non-empty When to use (400 "Experts need When to use."). An expert is offered while it is enabled and has a
-model; a caller never gets itself. The Tools tab's **Experts** group lists every other expert with its When to use,
-Fixed / Per run and a switch, on by default; switching one off stores an `expert:<agent id>` row in `ka.agent_tools`
+model; a caller never gets itself. The Tools tab's **Experts** group lists every other expert with its When to use
+and a switch, on by default; switching one off stores an `expert:<agent id>` row in `ka.agent_tools`
 (`mode = 'off'`, `subagent_allowed = false`) and switching it back on deletes the row. `PUT /api/agents/{id}/tools`
 accepts `expert:<id>` entries (`on` or `off`) for existing experts other than the agent; usage is not editable. With
 no experts the group says "No experts yet. Turn on Offer as an expert on an agent's General tab."; on an agent that is
@@ -98,12 +94,12 @@ the original itself. Deleting an agent deletes the `expert:<its id>` rows of all
 Agents → New agent designs a specialist from a role description. Choose
 an enabled model connection, then generate a proposal with the official Agents SDK.
 The designer receives the agent JSON schema and current resource metadata:
-code projects and their mapped folders, document folders, SSH servers and saved
-credential references, skills, MCP servers, services, model connections, and
-existing agent descriptions. **Show design context** displays this input and the
+code projects and their mapped folders, collections, documents, servers,
+environments, skills, MCP servers, services, model connections, and existing
+agent descriptions. **Show design context** displays this input and the
 generation prompt. Private keys and tokens never enter that context.
 
-The wizard asks for **Agent model** (default: the first model in the catalog) and **Resources** first (page 1) and shows them as one `<model> · <resources>` line on the review. `POST /api/agents/wizard` accepts `access` (references and roles) and `instructions`. The Tools page is always shown.
+The wizard asks for **Agent model** (default: the first model in the catalog) first (page 1) and shows it on the review. The review has General (identity, instructions, the **Content editor** switch and a summary of the proposed resources), Prompt, Resources (the catalog per type, with **Editable** for picked documents) and Tools tabs. `POST /api/agents/wizard` accepts `access` (references and roles) and `instructions`. The Tools page is always shown.
 
 Generation does not create an agent or execute its proposed capabilities. The
 parser keeps supported configuration fields, validates their types and resource
@@ -111,10 +107,8 @@ IDs, and discards model-added annotations; the create API rejects unknown fields
 The administration proxy allows 300 seconds for generation's 240-second budget.
 The designer has no code, document, SSH, skill, MCP, or service access. Review tabs
 let the administrator edit identity, routing guidance, model, system prompt,
-instructions, availability, all six capabilities, resource selections, and
-per-server instructions, skills, MCP selections, and SSH connection overrides.
-Connection overrides can reference an existing encrypted private key. New key
-material is added through the ordinary SSH editor after creating the agent.
+instructions, availability, the Content editor role and the resources. Servers are
+reached with their own saved SSH settings.
 
 **Create agent** validates the reviewed proposal against current available
 resources and saves the agent, its prompt, settings, and joins

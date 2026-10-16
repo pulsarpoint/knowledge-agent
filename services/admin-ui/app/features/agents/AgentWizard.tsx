@@ -2,15 +2,15 @@ import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { Sparkles } from "lucide-react";
 import {
+  accessSwitches,
   createWizardAgent,
   generateAgent,
   getWizardOptions,
   type AgentProposal,
   type WizardOptions,
   type WizardResource,
-  type WizardServer,
 } from "./wizard";
-import { RESOURCE_MODES, RESOURCES_HELP, resourcesLabel, type AgentResources } from "./api";
+import { ACCESS_TYPES, CONTENT_EDITOR_HELP, countsSummary, type AccessType } from "./api";
 import { NEED_REASONS, SUBAGENTS_HELP, TOOL_GROUPS, impliedTools, toolNeedMet } from "./tools";
 import { PROMPT_LIMIT } from "./AgentPromptCard";
 import { Alert, AlertDescription } from "~/components/ui/alert";
@@ -102,21 +102,36 @@ function blankProposal(model_id: string | null): AgentProposal {
     instructions: "",
     model_id,
     enabled: true,
-    documents_enabled: false,
-    repositories_enabled: false,
-    ssh_enabled: false,
-    skills_enabled: false,
-    mcp_enabled: false,
-    services_enabled: false,
-    all_collections: false,
-    all_repositories: false,
-    collection_ids: [],
-    repository_ids: [],
-    skill_ids: [],
-    mcp_server_ids: [],
-    service_ids: [],
-    servers: [],
+    access: { resources: [], roles: { content_editor: false } },
   };
+}
+
+/** The catalog list a type of resource is picked from, with a line that tells them apart. */
+function catalogList(catalog: WizardOptions["catalog"], type: AccessType): WizardResource[] {
+  switch (type) {
+    case "server":
+      return catalog.servers.map((s) => ({
+        ...s,
+        description: [s.hostname, s.description].filter(Boolean).join(" · "),
+      }));
+    case "service":
+      return catalog.services;
+    case "environment":
+      return catalog.environments;
+    case "code_project":
+      return catalog.code_projects.map((p) => ({
+        ...p,
+        description: [p.description, p.folder_paths.join(", "), p.remote_url].filter(Boolean).join(" · "),
+      }));
+    case "collection":
+      return catalog.collections;
+    case "document":
+      return catalog.documents.map((d) => ({ id: d.id, name: d.title, description: d.description }));
+    case "skill":
+      return catalog.skills;
+    case "mcp_server":
+      return catalog.mcp_servers;
+  }
 }
 
 export default function AgentWizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
@@ -134,7 +149,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   const [error, setError] = useState("");
   const [showContext, setShowContext] = useState(false);
   const [reload, setReload] = useState(0);
-  const [resources, setResources] = useState<AgentResources>("fixed");
   useEffect(() => {
     let live = true;
     getWizardOptions()
@@ -158,7 +172,8 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
   }, [reload]);
   const catalog = options?.catalog;
   const catalogTools = options?.tools ?? [];
-  const impliedNames = proposal ? impliedTools(catalogTools, proposal) : [];
+  const switches = accessSwitches(proposal?.access.resources ?? []);
+  const impliedNames = proposal ? impliedTools(catalogTools, switches) : [];
   const chosenTools = toolChoice ?? impliedNames;
   const inCatalogOrder = (names: string[]) =>
     catalogTools.map((tool) => tool.name).filter((name) => names.includes(name));
@@ -183,32 +198,17 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       <FieldDescription>The model this agent runs on. An agent runs only after a model is selected.</FieldDescription>
     </Field>
   );
-  const resourcesField = (
-    <Field>
-      <FieldLabel htmlFor="wizard-resources">Resources</FieldLabel>
-      <Select value={resources} onValueChange={(value) => setResources(value as AgentResources)}>
-        <SelectTrigger id="wizard-resources">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {RESOURCE_MODES.map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <FieldDescription>{RESOURCES_HELP[resources]}</FieldDescription>
-    </Field>
-  );
   function edit(value: Partial<AgentProposal>) {
     setProposal((current) => (current ? { ...current, ...value } : current));
   }
-  function editServer(id: string, value: Partial<WizardServer>) {
-    if (proposal)
-      edit({ servers: proposal.servers.map((server) => (server.server_id === id ? { ...server, ...value } : server)) });
+  /** The picked ids of one type: kept ones stay in place, new ones are added at the end (a document read-only). */
+  function pick(type: AccessType, ids: string[]) {
+    if (!proposal) return;
+    const kept = proposal.access.resources.filter((item) => item.type !== type || ids.includes(item.id));
+    const added = ids
+      .filter((id) => !kept.some((item) => item.type === type && item.id === id))
+      .map((id) => (type === "document" ? { type, id, editable: false } : { type, id }));
+    edit({ access: { ...proposal.access, resources: [...kept, ...added] } });
   }
   async function generate() {
     setBusy("generate");
@@ -249,7 +249,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
       const saved = await createWizardAgent({
         ...proposal,
         model_id: agentModel,
-        resources,
         ...(toolChoice ? { tools: inCatalogOrder(toolChoice) } : {}),
         subagents,
         subagent_blocked: subagentBlocked.filter((name) => chosenTools.includes(name)),
@@ -291,10 +290,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
           <fieldset disabled={busy !== null} className="min-w-0">
             {step === "describe" ? (
               <FieldGroup>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {agentModelField}
-                  {resourcesField}
-                </div>
+                <div className="grid gap-4 sm:grid-cols-2">{agentModelField}</div>
                 <Field>
                   <FieldLabel htmlFor="wizard-role">What should this agent do?</FieldLabel>
                   <Textarea
@@ -347,7 +343,9 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                       [
                         ["Code projects", catalog.code_projects.length],
                         ["Collections", catalog.collections.length],
-                        ["SSH servers", catalog.servers.length],
+                        ["Documents", catalog.documents.length],
+                        ["Servers", catalog.servers.length],
+                        ["Environments", catalog.environments.length],
                         ["Skills", catalog.skills.length],
                         ["MCP servers", catalog.mcp_servers.length],
                         ["Services", catalog.services.length],
@@ -397,12 +395,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                     {[
                       ["general", "General"],
                       ["prompt", "Prompt"],
-                      ["documents", "Documents"],
-                      ["code", "Code projects"],
-                      ["ssh", "SSH"],
-                      ["skills", "Skills"],
-                      ["mcp", "MCP"],
-                      ["services", "Services"],
+                      ["resources", "Resources"],
                       ["tools", "Tools"],
                     ].map(([value, label]) => (
                       <TabsTrigger key={value} value={value}>
@@ -412,12 +405,11 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                   </TabsList>
                   <TabsContent value="general">
                     <FieldGroup>
-                      <p className="text-sm" aria-label="Model and resources">
-                        <span className="font-medium">
-                          {catalog.models.find((m) => m.id === agentModel)?.name ?? "No model"} ·{" "}
-                          {resourcesLabel(resources)}
+                      <p className="text-sm">
+                        <span className="font-medium" aria-label="Chosen model">
+                          {catalog.models.find((m) => m.id === agentModel)?.name ?? "No model"}
                         </span>{" "}
-                        <span className="text-muted-foreground">Change them on page 1 with Edit role.</span>
+                        <span className="text-muted-foreground">Change it on page 1 with Edit role.</span>
                       </p>
                       <Field>
                         <FieldLabel htmlFor="wizard-name">Agent name</FieldLabel>
@@ -461,25 +453,32 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           onChange={(e) => edit({ instructions: e.target.value })}
                         />
                       </Field>
+                      <Field orientation="horizontal">
+                        <Switch
+                          id="wizard-content-editor"
+                          checked={proposal.access.roles.content_editor}
+                          onCheckedChange={(content_editor) =>
+                            edit({ access: { ...proposal.access, roles: { content_editor } } })
+                          }
+                        />
+                        <FieldContent>
+                          <FieldLabel htmlFor="wizard-content-editor">Content editor</FieldLabel>
+                          <FieldDescription>{CONTENT_EDITOR_HELP}</FieldDescription>
+                        </FieldContent>
+                      </Field>
                       <FieldSet>
-                        <FieldLegend>Proposed access</FieldLegend>
-                        <div className="flex flex-wrap gap-2">
-                          {(
-                            [
-                              ["documents_enabled", "Documents"],
-                              ["repositories_enabled", "Code projects"],
-                              ["ssh_enabled", "SSH"],
-                              ["skills_enabled", "Skills"],
-                              ["mcp_enabled", "MCP"],
-                              ["services_enabled", "Services"],
-                            ] as const
-                          ).map(([key, label]) => (
-                            <Badge key={key} variant={proposal[key] ? "default" : "outline"}>
-                              {label}: {proposal[key] ? "on" : "off"}
-                            </Badge>
-                          ))}
-                        </div>
-                        <FieldDescription>Review each tab to change access and resource selections.</FieldDescription>
+                        <FieldLegend>Proposed resources</FieldLegend>
+                        <p className="text-sm" aria-label="Proposed resources">
+                          {countsSummary(
+                            Object.fromEntries(
+                              ACCESS_TYPES.map(({ type }) => [
+                                type,
+                                proposal.access.resources.filter((item) => item.type === type).length,
+                              ]),
+                            ),
+                          )}
+                        </p>
+                        <FieldDescription>Change them on the Resources tab.</FieldDescription>
                       </FieldSet>
                     </FieldGroup>
                   </TabsContent>
@@ -500,125 +499,49 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                       </Field>
                     </FieldGroup>
                   </TabsContent>
-                  <TabsContent value="documents">
+                  <TabsContent value="resources">
                     <FieldGroup>
-                      <Toggle
-                        label="Enable documents"
-                        checked={proposal.documents_enabled}
-                        onChange={(documents_enabled) => edit({ documents_enabled })}
-                      />
-                      {proposal.documents_enabled && (
-                        <>
-                          <Toggle
-                            label="All collections"
-                            checked={proposal.all_collections}
-                            onChange={(all_collections) => edit({ all_collections, collection_ids: [] })}
-                          />
-                          {proposal.all_collections ? (
-                            <FieldDescription>Includes all current and future collections.</FieldDescription>
-                          ) : (
+                      {ACCESS_TYPES.map(({ type, label }) => {
+                        const options = catalogList(catalog, type);
+                        const picked = proposal.access.resources.filter((item) => item.type === type);
+                        return (
+                          <FieldGroup key={type}>
                             <Selection
-                              label="Collections"
-                              options={catalog.collections}
-                              selected={proposal.collection_ids}
-                              onChange={(collection_ids) => edit({ collection_ids })}
+                              label={label}
+                              options={options}
+                              selected={picked.map((item) => item.id)}
+                              onChange={(ids) => pick(type, ids)}
                             />
-                          )}
-                        </>
-                      )}
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="code">
-                    <FieldGroup>
-                      <Toggle
-                        label="Enable code projects"
-                        checked={proposal.repositories_enabled}
-                        onChange={(repositories_enabled) => edit({ repositories_enabled })}
-                      />
-                      {proposal.repositories_enabled && (
-                        <>
-                          <Toggle
-                            label="All code projects"
-                            checked={proposal.all_repositories}
-                            onChange={(all_repositories) => edit({ all_repositories, repository_ids: [] })}
-                          />
-                          {proposal.all_repositories ? (
-                            <FieldDescription>Includes all current and future code projects.</FieldDescription>
-                          ) : (
-                            <Selection
-                              label="Code projects"
-                              options={catalog.code_projects.map((p) => ({
-                                ...p,
-                                description: [p.description, p.folder_paths.join(", "), p.remote_url]
-                                  .filter(Boolean)
-                                  .join(" · "),
-                              }))}
-                              selected={proposal.repository_ids}
-                              onChange={(repository_ids) => edit({ repository_ids })}
-                            />
-                          )}
-                        </>
-                      )}
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="skills">
-                    <FieldGroup>
-                      <Toggle
-                        label="Enable skills"
-                        checked={proposal.skills_enabled}
-                        onChange={(skills_enabled) => edit({ skills_enabled })}
-                      />
-                      {proposal.skills_enabled && (
-                        <Selection
-                          label="Skills"
-                          options={catalog.skills}
-                          selected={proposal.skill_ids}
-                          onChange={(skill_ids) => edit({ skill_ids })}
-                        />
-                      )}
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="mcp">
-                    <FieldGroup>
-                      <Toggle
-                        label="Enable MCP"
-                        checked={proposal.mcp_enabled}
-                        onChange={(mcp_enabled) => edit({ mcp_enabled })}
-                      />
-                      {proposal.mcp_enabled && (
-                        <Selection
-                          label="MCP servers"
-                          options={catalog.mcp_servers}
-                          selected={proposal.mcp_server_ids}
-                          onChange={(mcp_server_ids) => edit({ mcp_server_ids })}
-                        />
-                      )}
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="services">
-                    <FieldGroup>
-                      <Toggle
-                        label="Enable services"
-                        checked={proposal.services_enabled}
-                        onChange={(services_enabled) => edit({ services_enabled })}
-                      />
-                      {proposal.services_enabled && (
-                        <Selection
-                          label="Services"
-                          options={catalog.services}
-                          selected={proposal.service_ids}
-                          onChange={(service_ids) => edit({ service_ids })}
-                        />
-                      )}
+                            {type === "document" &&
+                              picked.map((item) => (
+                                <Toggle
+                                  key={item.id}
+                                  label={`Editable ${options.find((option) => option.id === item.id)?.name ?? item.id}`}
+                                  checked={Boolean(item.editable)}
+                                  onChange={(editable) =>
+                                    edit({
+                                      access: {
+                                        ...proposal.access,
+                                        resources: proposal.access.resources.map((entry) =>
+                                          entry.type === "document" && entry.id === item.id
+                                            ? { ...entry, editable }
+                                            : entry,
+                                        ),
+                                      },
+                                    })
+                                  }
+                                />
+                              ))}
+                          </FieldGroup>
+                        );
+                      })}
                     </FieldGroup>
                   </TabsContent>
                   <TabsContent value="tools">
                     <FieldGroup>
                       <FieldDescription>
-                        {toolChoice
-                          ? "Your choice of tools."
-                          : "Follows the capability switches until you change a tool."}{" "}
-                        Usage instructions can be edited on the agent’s Tools tab after it is created.
+                        {toolChoice ? "Your choice of tools." : "Follows the resources until you change a tool."} Usage
+                        instructions can be edited on the agent’s Tools tab after it is created.
                       </FieldDescription>
                       {TOOL_GROUPS.filter(([group]) => group !== "agents").map(([group, label]) => {
                         const items = catalogTools.filter((tool) => tool.group === group);
@@ -626,7 +549,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           <FieldSet key={group}>
                             <FieldLegend>{label}</FieldLegend>
                             {items.map((tool) => {
-                              const met = toolNeedMet(tool.needs, proposal);
+                              const met = toolNeedMet(tool.needs, switches);
                               return (
                                 <Field key={tool.name} orientation="horizontal" className={met ? "" : "opacity-60"}>
                                   <Switch
@@ -656,7 +579,7 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                       })}
                       {toolChoice && (
                         <Button type="button" variant="outline" className="w-fit" onClick={() => setToolChoice(null)}>
-                          Follow the capabilities
+                          Follow the resources
                         </Button>
                       )}
                       <FieldSet>
@@ -691,232 +614,6 @@ export default function AgentWizard({ onClose, onCreated }: { onClose: () => voi
                           </FieldSet>
                         )}
                       </FieldSet>
-                    </FieldGroup>
-                  </TabsContent>
-                  <TabsContent value="ssh">
-                    <FieldGroup>
-                      <Toggle
-                        label="Enable SSH"
-                        checked={proposal.ssh_enabled}
-                        onChange={(ssh_enabled) => edit({ ssh_enabled })}
-                      />
-                      {proposal.ssh_enabled && (
-                        <>
-                          <Selection
-                            label="Allowed servers"
-                            options={catalog.servers.map((s) => ({
-                              ...s,
-                              description: `${s.hostname} · ${s.description ?? ""}`,
-                            }))}
-                            selected={proposal.servers.map((s) => s.server_id)}
-                            onChange={(ids) =>
-                              edit({
-                                servers: ids.map(
-                                  (server_id) =>
-                                    proposal.servers.find((s) => s.server_id === server_id) ?? {
-                                      server_id,
-                                      instructions: null,
-                                      skill_ids: null,
-                                      mcp_server_ids: null,
-                                      connection: null,
-                                    },
-                                ),
-                              })
-                            }
-                          />
-                          {proposal.servers.map((server) => {
-                            const defaults = catalog.servers.find((s) => s.id === server.server_id);
-                            const connection = server.connection;
-                            return (
-                              <FieldSet key={server.server_id}>
-                                <FieldLegend>{defaults?.name ?? "Unavailable server"}</FieldLegend>
-                                <FieldGroup>
-                                  <Toggle
-                                    label="Use agent instructions"
-                                    checked={server.instructions === null}
-                                    onChange={(inherit) =>
-                                      editServer(server.server_id, {
-                                        instructions: inherit ? null : proposal.instructions,
-                                      })
-                                    }
-                                  />
-                                  {server.instructions !== null && (
-                                    <Field>
-                                      <FieldLabel htmlFor={`server-notes-${server.server_id}`}>
-                                        Instructions for {defaults?.name}
-                                      </FieldLabel>
-                                      <Textarea
-                                        id={`server-notes-${server.server_id}`}
-                                        rows={4}
-                                        maxLength={40000}
-                                        value={server.instructions}
-                                        onChange={(e) => editServer(server.server_id, { instructions: e.target.value })}
-                                      />
-                                    </Field>
-                                  )}
-                                  {proposal.skills_enabled && (
-                                    <>
-                                      <Toggle
-                                        label="Use agent skills"
-                                        checked={server.skill_ids === null}
-                                        onChange={(inherit) =>
-                                          editServer(server.server_id, {
-                                            skill_ids: inherit ? null : [...proposal.skill_ids],
-                                          })
-                                        }
-                                      />
-                                      {server.skill_ids !== null && (
-                                        <Selection
-                                          label="Server skills"
-                                          options={catalog.skills}
-                                          selected={server.skill_ids}
-                                          onChange={(skill_ids) => editServer(server.server_id, { skill_ids })}
-                                        />
-                                      )}
-                                    </>
-                                  )}
-                                  {proposal.mcp_enabled && (
-                                    <>
-                                      <Toggle
-                                        label="Use agent MCP servers"
-                                        checked={server.mcp_server_ids === null}
-                                        onChange={(inherit) =>
-                                          editServer(server.server_id, {
-                                            mcp_server_ids: inherit ? null : [...proposal.mcp_server_ids],
-                                          })
-                                        }
-                                      />
-                                      {server.mcp_server_ids !== null && (
-                                        <Selection
-                                          label="Server MCP servers"
-                                          options={catalog.mcp_servers}
-                                          selected={server.mcp_server_ids}
-                                          onChange={(mcp_server_ids) =>
-                                            editServer(server.server_id, { mcp_server_ids })
-                                          }
-                                        />
-                                      )}
-                                    </>
-                                  )}
-                                  <Toggle
-                                    label="Override server connection"
-                                    checked={connection !== null}
-                                    onChange={(override) =>
-                                      editServer(server.server_id, {
-                                        connection:
-                                          override && defaults
-                                            ? {
-                                                username: defaults.username,
-                                                port: defaults.port,
-                                                allow_sudo: defaults.allow_sudo,
-                                                known_hosts: defaults.known_hosts,
-                                                credential_id: defaults.credential_id,
-                                              }
-                                            : null,
-                                      })
-                                    }
-                                  />
-                                  {connection === null ? (
-                                    <FieldDescription>
-                                      Uses {defaults?.username ?? "the configured user"} at {defaults?.hostname}:
-                                      {defaults?.port}. Sudo {defaults?.allow_sudo ? "allowed" : "not allowed"}.{" "}
-                                      {defaults?.credential_id
-                                        ? "Uses the server’s saved private key."
-                                        : "No saved private key; configure SSH before running."}
-                                    </FieldDescription>
-                                  ) : (
-                                    <>
-                                      <Field>
-                                        <FieldLabel htmlFor={`server-user-${server.server_id}`}>
-                                          SSH login user
-                                        </FieldLabel>
-                                        <Input
-                                          id={`server-user-${server.server_id}`}
-                                          maxLength={65}
-                                          value={connection.username ?? ""}
-                                          onChange={(e) =>
-                                            editServer(server.server_id, {
-                                              connection: { ...connection, username: e.target.value || null },
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                      <Field>
-                                        <FieldLabel htmlFor={`server-port-${server.server_id}`}>SSH port</FieldLabel>
-                                        <Input
-                                          id={`server-port-${server.server_id}`}
-                                          type="number"
-                                          min={1}
-                                          max={65535}
-                                          value={connection.port}
-                                          onChange={(e) =>
-                                            editServer(server.server_id, {
-                                              connection: { ...connection, port: Number(e.target.value) },
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                      <Toggle
-                                        label="Allow sudo to root"
-                                        checked={connection.allow_sudo}
-                                        onChange={(allow_sudo) =>
-                                          editServer(server.server_id, { connection: { ...connection, allow_sudo } })
-                                        }
-                                      />
-                                      <Field>
-                                        <FieldLabel htmlFor={`server-key-${server.server_id}`}>
-                                          Saved SSH private key
-                                        </FieldLabel>
-                                        <Select
-                                          value={connection.credential_id ?? "none"}
-                                          onValueChange={(id) =>
-                                            editServer(server.server_id, {
-                                              connection: { ...connection, credential_id: id === "none" ? null : id },
-                                            })
-                                          }
-                                        >
-                                          <SelectTrigger id={`server-key-${server.server_id}`}>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectGroup>
-                                              <SelectItem value="none">No key — configure later</SelectItem>
-                                              {catalog.credentials.map((c) => (
-                                                <SelectItem key={c.id} value={c.id}>
-                                                  {c.name}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectGroup>
-                                          </SelectContent>
-                                        </Select>
-                                        <FieldDescription>
-                                          References an encrypted saved key. Add or replace a private key in this
-                                          agent’s SSH tab after creation.
-                                        </FieldDescription>
-                                      </Field>
-                                      <Field>
-                                        <FieldLabel htmlFor={`server-trust-${server.server_id}`}>
-                                          Trusted host keys (optional)
-                                        </FieldLabel>
-                                        <Textarea
-                                          id={`server-trust-${server.server_id}`}
-                                          maxLength={40000}
-                                          value={connection.known_hosts}
-                                          onChange={(e) =>
-                                            editServer(server.server_id, {
-                                              connection: { ...connection, known_hosts: e.target.value },
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                    </>
-                                  )}
-                                </FieldGroup>
-                              </FieldSet>
-                            );
-                          })}
-                        </>
-                      )}
                     </FieldGroup>
                   </TabsContent>
                 </Tabs>

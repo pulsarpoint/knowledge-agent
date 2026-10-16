@@ -23,7 +23,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/servers/OperationsView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = {
@@ -32,22 +32,12 @@ const agent: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_enabled: false,
-  repositories_enabled: true,
-  ssh_enabled: false,
-  skills_enabled: false,
-  mcp_enabled: false,
-  services_enabled: false,
   documents_grounded: false,
   revision: 4,
   model_id: null,
-  all_collections: false,
-  all_repositories: true,
-  collection_ids: [],
-  repository_ids: [],
-  service_ids: [],
-  skill_ids: [],
   system_prompt: "",
+  instructions: "",
+  access: { resources: [], roles: { content_editor: false } },
 };
 const expertRow: tools.AgentTool = {
   tool: "expert:p1",
@@ -61,7 +51,6 @@ const expertRow: tools.AgentTool = {
   available: true,
   reason: null,
   tab: null,
-  resources: "per_run",
 };
 
 beforeEach(() => {
@@ -72,10 +61,14 @@ beforeEach(() => {
   );
   vi.mocked(profiles.getAgent).mockImplementation(async (id) => ({ ...structuredClone(agent), id }));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(profiles.saveAgent).mockImplementation(async (draft) => ({ ...draft, revision: draft.revision + 1 }));
   vi.mocked(llm.getLlmSettings).mockResolvedValue({
@@ -124,7 +117,7 @@ test("the Tools tab lists experts and saves them off", async () => {
   open("/agents/caller?view=tools");
   const group = await screen.findByRole("group", { name: "Experts" });
   expect(within(group).getByText("Payment questions.")).toBeVisible();
-  expect(within(group).getByText("Per run")).toBeVisible();
+  expect(within(group).queryByText("Per run")).toBeNull();
   expect(within(group).queryByRole("button", { name: /Edit usage/ })).toBeNull();
   expect(screen.queryByText(tools.EXPERT_SELF_NOTE)).toBeNull();
   await user.click(within(group).getByRole("switch", { name: "Payments" }));
@@ -147,8 +140,37 @@ test("the Experts group shows the empty and the self notes", async () => {
 test("All agents and the agent header show the Expert badge", async () => {
   vi.mocked(profiles.getAgents).mockResolvedValue({
     agents: [
-      { ...agent, model_name: null, expert: true },
-      { ...agent, id: "other", name: "Other", model_name: null },
+      {
+        ...agent,
+        model_name: null,
+        expert: true,
+        counts: {
+          server: 0,
+          service: 0,
+          environment: 0,
+          code_project: 0,
+          collection: 0,
+          document: 0,
+          skill: 0,
+          mcp_server: 0,
+        },
+      },
+      {
+        ...agent,
+        id: "other",
+        name: "Other",
+        model_name: null,
+        counts: {
+          server: 0,
+          service: 0,
+          environment: 0,
+          code_project: 0,
+          collection: 0,
+          document: 0,
+          skill: 0,
+          mcp_server: 0,
+        },
+      },
     ],
   });
   const { unmount } = open("/agents");

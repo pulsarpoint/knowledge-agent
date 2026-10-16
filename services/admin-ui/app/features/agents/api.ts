@@ -1,35 +1,40 @@
 import { request } from "~/lib/api";
 import type { ToolsSummary } from "./tools";
 import type { ResourceIds, RunKey } from "~/lib/resources";
-export type AgentResources = "fixed" | "per_run";
-export const RESOURCE_MODES: [AgentResources, string][] = [
-  ["fixed", "Fixed"],
-  ["per_run", "Per run"],
-];
-export interface ResourceLimit {
-  kind: "code" | "documents" | "servers" | "services";
-  limit: number | "any";
+/** The types of resource an agent's access may reference, with their labels, in the order the editor shows them. */
+export const ACCESS_TYPES = [
+  { type: "server", label: "Servers", one: "server", many: "servers" },
+  { type: "service", label: "Services", one: "service", many: "services" },
+  { type: "environment", label: "Environments", one: "environment", many: "environments" },
+  { type: "code_project", label: "Code projects", one: "code project", many: "code projects" },
+  { type: "collection", label: "Collections", one: "collection", many: "collections" },
+  { type: "document", label: "Documents", one: "document", many: "documents" },
+  { type: "skill", label: "Skills", one: "skill", many: "skills" },
+  { type: "mcp_server", label: "MCP servers", one: "MCP server", many: "MCP servers" },
+] as const;
+export type AccessType = (typeof ACCESS_TYPES)[number]["type"];
+/** One reference of an agent's access as the editor shows it: `missing` when the resource no longer exists;
+ * `editable` for documents only. */
+export interface AccessEntry {
+  type: AccessType;
+  id: string;
+  name: string;
+  description_short: string;
+  editable?: boolean;
+  missing?: boolean;
 }
-/** "Fixed", or what a per-run agent accepts: "Per run · code (any) · servers (2)". */
-export const resourcesSummary = (agent: { resources?: AgentResources; accepts?: ResourceLimit[] }) =>
-  agent.resources !== "per_run"
-    ? "Fixed"
-    : agent.accepts?.length
-      ? ["Per run", ...agent.accepts.map(({ kind, limit }) => `${kind} (${limit})`)].join(" · ")
-      : "Per run · nothing";
-/** Notes on the capability tabs of a per-run agent: its selections are what callers may pass. */
-export const PER_RUN_NOTES: Partial<Record<string, string>> = {
-  git: "Per run: callers may pass any of the code projects selected here. All code projects = any code project.",
-  documents: "Per run: callers may pass any of the collections selected here. All collections = any collection.",
-  ssh: "Per run: callers may pass any of the servers selected here. Their instructions and connection overrides still apply.",
-  services: "Per run: callers may pass any of the services selected here.",
-};
-export const resourcesLabel = (mode?: AgentResources) => (mode === "per_run" ? "Per run" : "Fixed");
-export const RESOURCES_HELP: Record<AgentResources, string> = {
-  fixed: "Always works with the resources selected in its tabs.",
-  per_run:
-    "Each run says what to work on: callers pass code projects, collections, servers or services from those selected in its tabs.",
-};
+export interface AgentAccess {
+  resources: AccessEntry[];
+  roles: { content_editor: boolean };
+}
+export const CONTENT_EDITOR_HELP = "Lets this agent propose services and documents and edit editable documents.";
+/** "1 server · 2 documents", or "No resources". */
+export function countsSummary(counts: Partial<Record<AccessType, number>>): string {
+  const parts = ACCESS_TYPES.filter(({ type }) => counts[type]).map(
+    ({ type, one, many }) => `${counts[type]} ${counts[type] === 1 ? one : many}`,
+  );
+  return parts.length ? parts.join(" · ") : "No resources";
+}
 export type RunResourcesInput = ResourceIds<RunKey>;
 export interface AgentProfile {
   id: string;
@@ -37,40 +42,25 @@ export interface AgentProfile {
   description: string;
   when_to_use: string;
   enabled: boolean;
-  resources?: AgentResources;
   subagents?: boolean;
   expert?: boolean;
-  documents_enabled: boolean;
-  repositories_enabled: boolean;
-  ssh_enabled: boolean;
-  skills_enabled: boolean;
-  mcp_enabled: boolean;
-  services_enabled: boolean;
   documents_grounded: boolean;
   revision: number;
   model_id: string | null;
-  all_collections: boolean;
-  all_repositories: boolean;
-  collection_ids: string[];
-  repository_ids: string[];
-  service_ids: string[];
-  skill_ids: string[];
   system_prompt: string;
+  instructions: string;
+  access: AgentAccess;
   cloned_from?: string | null;
   original?: { id: string; name: string } | null;
 }
 export interface AgentSummary extends AgentProfile {
-  accepts?: ResourceLimit[];
+  counts: Record<AccessType, number>;
   model_name: string | null;
   original_name?: string | null;
   tools_summary?: ToolsSummary;
 }
-export interface AgentOptions {
-  collections: { id: string; name: string; description: string }[];
-  repositories: { id: string; name: string }[];
-  services: { id: string; name: string; description: string }[];
-  skills: { id: string; name: string; description: string; enabled: boolean }[];
-}
+/** Every resource of the project an agent's access may reference, by type. */
+export type AgentOptions = Record<AccessType, AccessEntry[]>;
 const json = (method: string, value: unknown) => ({
   method,
   headers: { "Content-Type": "application/json" },
@@ -81,26 +71,18 @@ export const getAgents = () => request<{ agents: AgentSummary[] }>("/api/agents"
 export const getAgent = (id: string) => request<AgentProfile>(path(id));
 export const getAgentConfig = (id: string) => request<Record<string, unknown>>(path(id) + "/config");
 export const getAgentOptions = (id: string) => request<AgentOptions>(path(id) + "/options");
-export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
+/** Saves the agent: its details and its access object as references (missing ones are dropped; a document's
+ * editable is sent, read-only when unset). */
+export const saveAgent = (value: AgentProfile) => {
   const {
     revision,
     name,
     description,
     when_to_use,
     enabled,
-    all_collections,
-    all_repositories,
-    collection_ids,
-    repository_ids,
-    service_ids,
-    documents_enabled,
-    repositories_enabled,
-    ssh_enabled,
-    skills_enabled,
-    mcp_enabled,
-    services_enabled,
     documents_grounded,
-    resources,
+    instructions,
+    access,
     subagents,
     expert,
     model_id,
@@ -108,25 +90,21 @@ export const saveAgent = (value: AgentProfile, skillIds?: string[]) => {
   return request<AgentProfile>(
     path(value.id),
     json("PUT", {
-      ...(skillIds === undefined ? {} : { skill_ids: skillIds }),
       revision,
       name,
       description,
       when_to_use,
       enabled,
-      all_collections,
-      all_repositories,
-      collection_ids,
-      repository_ids,
-      service_ids,
-      documents_enabled,
-      repositories_enabled,
-      ssh_enabled,
-      skills_enabled,
-      mcp_enabled,
-      services_enabled,
       documents_grounded,
-      ...(resources ? { resources } : {}),
+      instructions,
+      access: {
+        resources: access.resources
+          .filter((item) => !item.missing)
+          .map(({ type, id, editable }) =>
+            type === "document" ? { type, id, editable: Boolean(editable) } : { type, id },
+          ),
+        roles: { content_editor: access.roles.content_editor },
+      },
       ...(subagents !== undefined ? { subagents } : {}),
       ...(expert !== undefined ? { expert } : {}),
       ...(model_id !== undefined ? { model_id } : {}),

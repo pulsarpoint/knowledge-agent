@@ -1,29 +1,28 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ArrowLeft } from "lucide-react";
-import { PER_RUN_NOTES, getAgent, type AgentProfile } from "./api";
+import { getAgent, type AgentProfile } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import AgentProfileSettings from "./AgentProfileSettings";
-import OperationsView from "~/features/servers/OperationsView";
+import AgentResources from "./AgentResources";
+import AgentTestView from "./AgentTestView";
 import AgentPromptCard from "./AgentPromptCard";
 import AgentToolsView from "./AgentToolsView";
 import AgentActions from "./AgentActions";
-import { TOOLS_TAB_NOTE } from "./tools";
 
 export default function AgentDetailView({ agentId }: { agentId: string }) {
   const [params, setParams] = useSearchParams();
   const [profile, setProfile] = useState<AgentProfile>();
-  const sections = ["general", "tools", "skills", "documents", "git", "ssh", "mcp", "services", "test"];
+  const sections = ["general", "resources", "tools", "test"];
   const selected = params.get("view") ?? "";
   const view = sections.includes(selected) ? selected : "general";
-  const nativeTest = view === "test";
   const [error, setError] = useState("");
   const [profileDirty, setProfileDirty] = useState(false);
-  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [resourcesDirty, setResourcesDirty] = useState(false);
   const [toolsDirty, setToolsDirty] = useState(false);
   const [toolsOpened, setToolsOpened] = useState(false);
   useEffect(() => {
@@ -96,8 +95,7 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
               <TabsList aria-label="Agent sections" className="w-max">
                 {sections.map((section) => (
                   <TabsTrigger key={section} value={section}>
-                    {({ git: "Code projects", ssh: "SSH", mcp: "MCP" } as Record<string, string>)[section] ??
-                      section[0].toUpperCase() + section.slice(1)}
+                    {section[0].toUpperCase() + section.slice(1)}
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -114,19 +112,6 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
                   </Link>
                 </p>
               )}
-              {profile.resources === "per_run" && PER_RUN_NOTES[view] && (
-                <Alert>
-                  <AlertDescription>{PER_RUN_NOTES[view]}</AlertDescription>
-                </Alert>
-              )}
-              {["git", "documents", "ssh", "mcp"].includes(view) && (
-                <p className="text-sm text-muted-foreground">
-                  <span>{TOOLS_TAB_NOTE}</span>{" "}
-                  <Link className="underline underline-offset-4" to="?view=tools">
-                    Open Tools
-                  </Link>
-                </p>
-              )}
               {toolsOpened && (
                 <div hidden={view !== "tools"}>
                   <AgentToolsView
@@ -138,30 +123,28 @@ export default function AgentDetailView({ agentId }: { agentId: string }) {
                   />
                 </div>
               )}
-              <div hidden={["test", "tools"].includes(view)}>
+              <div hidden={view !== "general"} className="flex flex-col gap-6">
                 <AgentProfileSettings
                   key={reload}
                   profile={profile}
-                  view={view}
                   onSaved={setProfile}
                   onDirtyChange={setProfileDirty}
-                  configurationDirty={configurationDirty}
                 />
-              </div>
-              <div hidden={view !== "general"}>
                 <AgentPromptCard profile={profile} onSaved={setProfile} onDirtyChange={setPromptDirty} />
               </div>
-              <div hidden={!(["general", "ssh", "mcp"].includes(view) || nativeTest)}>
-                <OperationsView
-                  view={nativeTest ? "test" : "settings"}
-                  section={view}
+              <div hidden={view !== "resources"}>
+                <AgentResources key={reload} profile={profile} onSaved={setProfile} onDirtyChange={setResourcesDirty} />
+              </div>
+              <div hidden={view !== "test"}>
+                <AgentTestView
                   agentId={agentId}
-                  profile={profile}
-                  unsavedProfile={profileDirty || promptDirty}
-                  onDirtyChange={setConfigurationDirty}
-                  onAgentChanged={() => setReload((n) => n + 1)}
+                  agentName={profile.name}
                   available={profile.enabled}
-                  active={["general", "ssh", "mcp"].includes(view) || nativeTest}
+                  ready
+                  dirty={profileDirty || promptDirty || resourcesDirty}
+                  active={view === "test"}
+                  revision={profile.revision}
+                  onAgentChanged={() => setReload((n) => n + 1)}
                 />
               </div>
             </TabsContent>

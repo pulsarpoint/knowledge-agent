@@ -22,7 +22,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/servers/OperationsView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => null }));
 
 const base: profiles.AgentProfile = {
@@ -31,22 +31,12 @@ const base: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_enabled: false,
-  repositories_enabled: false,
-  ssh_enabled: true,
-  skills_enabled: false,
-  mcp_enabled: false,
-  services_enabled: false,
   documents_grounded: false,
   revision: 3,
   model_id: null,
-  all_collections: false,
-  all_repositories: false,
-  collection_ids: [],
-  repository_ids: [],
-  service_ids: [],
-  skill_ids: [],
   system_prompt: "Operate servers.",
+  instructions: "",
+  access: { resources: [], roles: { content_editor: false } },
   cloned_from: null,
   original: null,
 };
@@ -75,15 +65,47 @@ beforeEach(() => {
   );
   vi.mocked(profiles.getAgents).mockResolvedValue({
     agents: [
-      { ...structuredClone(base), model_name: null, original_name: null },
-      { ...structuredClone(copy), model_name: null, original_name: "SSH agent" },
+      {
+        ...structuredClone(base),
+        model_name: null,
+        original_name: null,
+        counts: {
+          server: 0,
+          service: 0,
+          environment: 0,
+          code_project: 0,
+          collection: 0,
+          document: 0,
+          skill: 0,
+          mcp_server: 0,
+        },
+      },
+      {
+        ...structuredClone(copy),
+        model_name: null,
+        original_name: "SSH agent",
+        counts: {
+          server: 0,
+          service: 0,
+          environment: 0,
+          code_project: 0,
+          collection: 0,
+          document: 0,
+          skill: 0,
+          mcp_server: 0,
+        },
+      },
     ],
   });
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 2, documentation_sessions: 0, run_records: 0 });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({

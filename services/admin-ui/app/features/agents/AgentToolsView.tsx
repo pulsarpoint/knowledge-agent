@@ -7,7 +7,6 @@ import {
   NO_EXPERTS_NOTE,
   SUBAGENT_TOOL,
   SUBAGENTS_OFF_NOTE,
-  TAB_LABELS,
   TOOL_GROUPS,
   getAgentTools,
   saveAgentTools,
@@ -67,9 +66,6 @@ function ToolRow({
             {tool.group !== "mcp" && tool.group !== "experts" && (
               <code className="text-xs text-muted-foreground">{tool.tool}</code>
             )}
-            {tool.group === "experts" && (
-              <Badge variant="outline">{tool.resources === "per_run" ? "Per run" : "Fixed"}</Badge>
-            )}
             {tool.usage !== null && <Badge variant="outline">Edited</Badge>}
           </div>
           {tool.summary && <p className="text-sm text-muted-foreground">{tool.summary}</p>}
@@ -83,8 +79,8 @@ function ToolRow({
                 <>
                   {" "}
                   ·{" "}
-                  <Link className="underline underline-offset-4" to={`?view=${tool.tab}`}>
-                    Open {TAB_LABELS[tool.tab] ?? tool.tab}
+                  <Link className="underline underline-offset-4" to="?view=resources">
+                    Open Resources
                   </Link>
                 </>
               )}

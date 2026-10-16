@@ -3,14 +3,6 @@ import { request } from "~/lib/api";
 export interface InstructionChanges {
   system_prompt: string | null;
   instructions: string | null;
-  server_instructions: { server_id: string; instructions: string }[];
-}
-/** A selected SSH server: `inherits` while its instructions are the agent's additional instructions. */
-export interface ReviewServer {
-  id: string;
-  name: string;
-  instructions: string;
-  inherits: boolean;
 }
 export interface ReviewSource {
   suggestion: string;
@@ -19,7 +11,6 @@ export interface ReviewSource {
   fingerprint: string;
   system_prompt: string;
   instructions: string;
-  servers: ReviewServer[];
 }
 const path = (agentId: string, reviewId: string) =>
   `/api/agents/${encodeURIComponent(agentId)}/reviews/${encodeURIComponent(reviewId)}`;

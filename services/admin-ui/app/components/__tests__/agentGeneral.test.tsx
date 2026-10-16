@@ -20,8 +20,8 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/servers/OperationsView", () => ({
-  default: ({ view }: { view: string }) => <div>{view === "test" ? "Native test chat" : "Operations settings"}</div>,
+vi.mock("~/features/agents/AgentTestView", () => ({
+  default: ({ active }: { active: boolean }) => (active ? <div>Native test chat</div> : null),
 }));
 vi.mock("~/features/agents/AgentWizard", () => ({ default: () => <div>Agent wizard</div> }));
 
@@ -31,22 +31,22 @@ const writer: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_enabled: false,
-  repositories_enabled: false,
-  ssh_enabled: false,
-  skills_enabled: false,
-  mcp_enabled: false,
-  services_enabled: false,
   documents_grounded: false,
   revision: 1,
   model_id: "claude",
-  all_collections: false,
-  all_repositories: false,
-  collection_ids: [],
-  repository_ids: [],
-  service_ids: [],
-  skill_ids: [],
   system_prompt: "You are an expert technical writer.",
+  instructions: "",
+  access: { resources: [], roles: { content_editor: false } },
+};
+const NO_COUNTS = {
+  server: 0,
+  service: 0,
+  environment: 0,
+  code_project: 0,
+  collection: 0,
+  document: 0,
+  skill: 0,
+  mcp_server: 0,
 };
 const connection = {
   base_url: null,
@@ -86,10 +86,14 @@ beforeEach(() => {
     model_id: id === "search" ? "gpt" : "claude",
   }));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(profiles.saveAgent).mockImplementation(async (value) => ({ ...value, revision: value.revision + 1 }));
   vi.mocked(llm.getLlmSettings).mockResolvedValue({
@@ -111,13 +115,22 @@ const open = (path: string) =>
       <Toaster />
     </MemoryRouter>,
   );
-const TABS = ["General", "Tools", "Skills", "Documents", "Code projects", "SSH", "MCP", "Services", "Test"];
+const TABS = ["General", "Resources", "Tools", "Test"];
 
 test.each(["writer", "search"])("every agent shows the same tabs: %s", async (id) => {
   open(`/agents/${id}`);
   await screen.findByRole("heading", { name: "Technical writer", level: 2 });
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(TABS);
 });
+
+test.each(["ssh", "skills", "documents", "git", "mcp", "services", "nonsense"])(
+  "a removed or unknown tab opens General: %s",
+  async (view) => {
+    open(`/agents/writer?view=${view}`);
+    expect(await screen.findByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("textbox", { name: "Name" })).toBeVisible();
+  },
+);
 
 test("General shows every compatible model", async () => {
   const user = userEvent.setup();
@@ -151,8 +164,8 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   const user = userEvent.setup();
   vi.mocked(profiles.getAgents).mockResolvedValue({
     agents: [
-      { ...writer, id: "search", name: "Search agent", documents_enabled: true, model_name: "GPT" },
-      { ...writer, model_name: "Claude on Bedrock" },
+      { ...writer, id: "search", name: "Search agent", counts: { ...NO_COUNTS, collection: 1 }, model_name: "GPT" },
+      { ...writer, counts: NO_COUNTS, model_name: "Claude on Bedrock" },
     ],
   });
   render(
@@ -166,7 +179,7 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   expect(screen.queryByRole("columnheader", { name: "Agent type" })).toBeNull();
   expect(within(row).getByText("Claude on Bedrock")).toBeVisible();
   const other = screen.getByRole("link", { name: "Search agent" }).closest("tr")!;
-  expect(within(other).getByText("Documents")).toBeVisible();
+  expect(within(other).getByText("1 collection")).toBeVisible();
   await user.type(screen.getByLabelText("Find agents"), "technical");
   expect(screen.queryByRole("link", { name: "Search agent" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "New agent" }));
@@ -174,26 +187,69 @@ test("All agents has no type column and New agent opens one wizard", async () =>
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
-test("General sets Resources", async () => {
+test("General switches Content editor and saves Instructions", async () => {
   const user = userEvent.setup();
   open("/agents/search");
-  const resources = await screen.findByRole("combobox", { name: "Resources" });
-  expect(resources).toHaveTextContent("Fixed");
-  expect(screen.getByText("Always works with the resources selected in its tabs.")).toBeVisible();
-  await user.click(resources);
-  await user.click(screen.getByRole("option", { name: "Per run" }));
-  expect(screen.getByText(/^Each run says what to work on/)).toBeVisible();
+  const editor = await screen.findByRole("switch", { name: "Content editor" });
+  expect(editor).not.toBeChecked();
+  expect(screen.getByText("Lets this agent propose services and documents and edit editable documents.")).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
+  await user.click(editor);
+  await user.type(screen.getByRole("textbox", { name: "Instructions" }), "Check the runbook first.");
   await user.click(screen.getByRole("button", { name: "Save details" }));
   await waitFor(() =>
-    expect(profiles.saveAgent).toHaveBeenCalledWith(expect.objectContaining({ id: "search", resources: "per_run" })),
+    expect(profiles.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "search",
+        instructions: "Check the runbook first.",
+        access: { resources: [], roles: { content_editor: true } },
+      }),
+    ),
   );
 });
 
-test("All agents shows how each agent gets its resources", async () => {
+test("General keeps resources saved on the Resources tab meanwhile", async () => {
+  const user = userEvent.setup();
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({
+    server: [{ type: "server", id: "s1", name: "web-1", description_short: "Web" }],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
+  });
+  open("/agents/search");
+  await user.type(await screen.findByRole("textbox", { name: "Instructions" }), "x");
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  await user.click(await screen.findByRole("button", { name: "Add servers" }));
+  await user.click(screen.getByRole("button", { name: "Add web-1" }));
+  await user.click(screen.getByRole("button", { name: "Save resources" }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("tab", { name: "General" }));
+  await user.click(screen.getByRole("button", { name: "Save details" }));
+  await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(profiles.saveAgent).mock.calls[1][0]).toEqual(
+    expect.objectContaining({
+      revision: 2,
+      instructions: "x",
+      access: expect.objectContaining({ resources: [expect.objectContaining({ type: "server", id: "s1" })] }),
+    }),
+  );
+});
+
+test("All agents shows how many resources of each type an agent has", async () => {
   vi.mocked(profiles.getAgents).mockResolvedValue({
     agents: [
-      { ...writer, id: "search", name: "Search agent", resources: "fixed", model_name: "GPT" },
-      { ...writer, resources: "per_run", model_name: "Claude on Bedrock" },
+      {
+        ...writer,
+        id: "search",
+        name: "Search agent",
+        counts: { ...NO_COUNTS, server: 1, document: 2, mcp_server: 2 },
+        model_name: "GPT",
+      },
+      { ...writer, counts: NO_COUNTS, model_name: "Claude on Bedrock" },
     ],
   });
   render(
@@ -205,53 +261,13 @@ test("All agents shows how each agent gets its resources", async () => {
   );
   const row = (await screen.findByRole("link", { name: "Technical writer" })).closest("tr")!;
   expect(screen.getByRole("columnheader", { name: "Resources" })).toBeVisible();
-  expect(within(row).getByText("Per run · nothing")).toBeVisible();
-  expect(within(screen.getByRole("link", { name: "Search agent" }).closest("tr")!).getByText("Fixed")).toBeVisible();
-});
-
-test("the list says what a per-run agent accepts", async () => {
-  vi.mocked(profiles.getAgents).mockResolvedValue({
-    agents: [
-      {
-        ...writer,
-        resources: "per_run",
-        accepts: [
-          { kind: "code", limit: "any" },
-          { kind: "servers", limit: 2 },
-        ],
-        model_name: "Claude on Bedrock",
-      },
-    ],
-  });
-  render(
-    <MemoryRouter initialEntries={["/agents"]}>
-      <Routes>
-        <Route path="/agents" element={<AgentsView />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-  const row = (await screen.findByRole("link", { name: "Technical writer" })).closest("tr")!;
-  expect(within(row).getByText("Per run · code (any) · servers (2)")).toBeVisible();
-});
-
-test("capability tabs of a per-run agent say what callers may pass", async () => {
-  vi.mocked(profiles.getAgent).mockImplementation(async (id) => ({
-    ...structuredClone(writer),
-    id,
-    model_id: "gpt",
-    resources: "per_run",
-  }));
-  const user = userEvent.setup();
-  open("/agents/search?view=git");
+  expect(screen.queryByRole("columnheader", { name: "Capabilities" })).toBeNull();
+  expect(within(row).getByText("No resources")).toBeVisible();
   expect(
-    await screen.findByText(
-      "Per run: callers may pass any of the code projects selected here. All code projects = any code project.",
+    within(screen.getByRole("link", { name: "Search agent" }).closest("tr")!).getByText(
+      "1 server · 2 documents · 2 MCP servers",
     ),
   ).toBeVisible();
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
-  expect(screen.getByText(/^Per run: callers may pass any of the servers selected here/)).toBeVisible();
-  await user.click(screen.getByRole("tab", { name: "Skills" }));
-  expect(screen.queryByText(/^Per run:/)).toBeNull();
 });
 
 test("All agents shows each agent's tools", async () => {
@@ -262,9 +278,10 @@ test("All agents shows each agent's tools", async () => {
         id: "analyst",
         name: "Analyst",
         model_name: null,
+        counts: NO_COUNTS,
         tools_summary: { on: 3, per_run: 0, groups: { code: 1, documents: 0, servers: 1, mcp: 1, agents: 0 } },
       },
-      { ...structuredClone(writer), model_name: null, tools_summary: { on: 0, per_run: 0 } },
+      { ...structuredClone(writer), counts: NO_COUNTS, model_name: null, tools_summary: { on: 0, per_run: 0 } },
     ],
   });
   render(

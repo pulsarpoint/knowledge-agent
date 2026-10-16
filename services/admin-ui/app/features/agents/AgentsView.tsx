@@ -5,7 +5,7 @@ import AgentWizard from "./AgentWizard";
 import { toast } from "sonner";
 import { toolsSummaryLabel } from "./tools";
 import { cloneAgent } from "./clones";
-import { deleteAgent, resourcesSummary, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
+import { countsSummary, deleteAgent, describeHistory, getAgentHistory, getAgents, type AgentSummary } from "./api";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button, buttonVariants } from "~/components/ui/button";
@@ -113,7 +113,7 @@ export default function AgentsView() {
     }
   }
   const filtered = agents?.filter((a) =>
-    `${a.name} ${a.description} ${resourcesSummary(a)} ${toolsSummaryLabel(a.tools_summary)}`
+    `${a.name} ${a.description} ${countsSummary(a.counts)} ${toolsSummaryLabel(a.tools_summary)}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -157,7 +157,6 @@ export default function AgentsView() {
                 <TableHead>Agent</TableHead>
                 <TableHead>Resources</TableHead>
                 <TableHead>Tools</TableHead>
-                <TableHead>Capabilities</TableHead>
                 <TableHead>Model</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>
@@ -185,36 +184,8 @@ export default function AgentsView() {
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{a.description}</p>
                     )}
                   </TableCell>
-                  <TableCell>{resourcesSummary(a)}</TableCell>
+                  <TableCell className="max-w-xs whitespace-normal">{countsSummary(a.counts)}</TableCell>
                   <TableCell className="max-w-xs whitespace-normal">{toolsSummaryLabel(a.tools_summary)}</TableCell>
-                  <TableCell className="max-w-xs whitespace-normal">
-                    <div className="flex flex-wrap gap-1">
-                      {(
-                        [
-                          ["documents_enabled", "Documents"],
-                          ["repositories_enabled", "Code"],
-                          ["ssh_enabled", "SSH"],
-                          ["skills_enabled", "Skills"],
-                          ["mcp_enabled", "MCP"],
-                          ["services_enabled", "Services"],
-                        ] as const
-                      )
-                        .filter(([key]) => a[key])
-                        .map(([key, label]) => (
-                          <Badge key={key} variant="outline">
-                            {label}
-                          </Badge>
-                        ))}
-                      {![
-                        a.documents_enabled,
-                        a.repositories_enabled,
-                        a.ssh_enabled,
-                        a.skills_enabled,
-                        a.mcp_enabled,
-                        a.services_enabled,
-                      ].some(Boolean) && <span className="text-muted-foreground">None enabled</span>}
-                    </div>
-                  </TableCell>
                   <TableCell>{a.model_name ?? "Not configured"}</TableCell>
                   <TableCell>
                     <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "Enabled" : "Disabled"}</Badge>
@@ -251,7 +222,7 @@ export default function AgentsView() {
               ))}
               {filtered?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     No agents match your search.
                   </TableCell>
                 </TableRow>

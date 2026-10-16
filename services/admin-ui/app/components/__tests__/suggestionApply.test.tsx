@@ -11,13 +11,9 @@ const source: api.ReviewSource = {
   suggestion: "Be clearer.",
   revision: 3,
   fingerprint: "f".repeat(64),
-  changes: { system_prompt: null, instructions: "State uncertainty.", server_instructions: [] },
+  changes: { system_prompt: null, instructions: "State uncertainty." },
   system_prompt: "Use evidence.",
   instructions: "Original instructions",
-  servers: [
-    { id: "server-1", name: "Test server", instructions: "Original instructions", inherits: true },
-    { id: "server-2", name: "Queue host", instructions: "Inspect only.", inherits: false },
-  ],
 };
 const applied = vi.fn();
 function page() {
@@ -29,24 +25,20 @@ beforeEach(() => {
   vi.mocked(api.applyReview).mockResolvedValue({ agent_id: "custom" });
 });
 
-it("prefills the proposed texts, lets inheriting servers follow and applies to this agent", async () => {
+it("prefills the proposed texts and applies the agent's prompt and instructions to this agent", async () => {
   page();
   expect(await screen.findByLabelText("Additional instructions")).toHaveValue("State uncertainty.");
   expect(api.getReviewSource).toHaveBeenCalledWith("custom", "review-1");
   expect(screen.getByLabelText("System prompt")).toHaveValue("Use evidence.");
-  expect(screen.getByLabelText("Test server instructions")).toHaveValue("State uncertainty.");
-  expect(screen.getByLabelText("Queue host instructions")).toHaveValue("Inspect only.");
+  expect(screen.queryByLabelText(/server instructions/)).toBeNull();
   fireEvent.change(screen.getByLabelText("Additional instructions"), {
     target: { value: "Separate facts from guesses." },
   });
-  expect(screen.getByLabelText("Test server instructions")).toHaveValue("Separate facts from guesses.");
-  fireEvent.change(screen.getByLabelText("Queue host instructions"), { target: { value: "Check the queue only." } });
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   await waitFor(() =>
     expect(api.applyReview).toHaveBeenCalledWith("custom", "review-1", source, "agent", {
       system_prompt: null,
       instructions: "Separate facts from guesses.",
-      server_instructions: [{ server_id: "server-2", instructions: "Check the queue only." }],
     }),
   );
   expect(applied).toHaveBeenCalledWith("agent", "custom");
@@ -80,10 +72,6 @@ it("reloads the latest agent after a conflict, keeps the edits and applies with 
     revision: 4,
     fingerprint: "e".repeat(64),
     system_prompt: "Use sources.",
-    servers: [
-      ...structuredClone(source.servers),
-      { id: "server-3", name: "New host", instructions: "Read logs.", inherits: false },
-    ],
   };
   vi.mocked(api.getReviewSource)
     .mockResolvedValueOnce(structuredClone(source))
@@ -93,24 +81,18 @@ it("reloads the latest agent after a conflict, keeps the edits and applies with 
     .mockResolvedValueOnce({ agent_id: "custom" });
   page();
   fireEvent.change(await screen.findByLabelText("System prompt"), { target: { value: "Answer from evidence." } });
-  fireEvent.change(screen.getByLabelText("Queue host instructions"), { target: { value: "Check the queue only." } });
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   fireEvent.click(await screen.findByRole("button", { name: "Reload latest" }));
-  expect(await screen.findByLabelText("New host instructions")).toHaveValue("Read logs.");
-  expect(api.getReviewSource).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(api.getReviewSource).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("System prompt")).toHaveValue("Answer from evidence.");
   expect(screen.getByLabelText("Additional instructions")).toHaveValue("State uncertainty.");
-  expect(screen.getByLabelText("Queue host instructions")).toHaveValue("Check the queue only.");
   fireEvent.click(screen.getByRole("button", { name: "Apply to this agent" }));
   await waitFor(() => expect(applied).toHaveBeenCalledWith("agent", "custom"));
   const [, , sent, , changes] = vi.mocked(api.applyReview).mock.calls[1];
   expect([sent.revision, sent.fingerprint]).toEqual([4, "e".repeat(64)]);
-  expect(changes).toEqual({
-    system_prompt: "Answer from evidence.",
-    instructions: "State uncertainty.",
-    server_instructions: [{ server_id: "server-2", instructions: "Check the queue only." }],
-  });
+  expect(changes).toEqual({ system_prompt: "Answer from evidence.", instructions: "State uncertainty." });
 });
 
 it("offers Reload latest when the suggestion fails to load", async () => {
@@ -125,11 +107,9 @@ it("offers Reload latest when the suggestion fails to load", async () => {
 });
 
 it("does not offer Reload latest after other apply failures", async () => {
-  vi.mocked(api.applyReview).mockRejectedValueOnce(
-    new ApiError("Instructions refer to a server outside this agent.", 422),
-  );
+  vi.mocked(api.applyReview).mockRejectedValueOnce(new ApiError("Enter a system prompt.", 422));
   page();
   fireEvent.click(await screen.findByRole("button", { name: "Apply to this agent" }));
-  expect(await screen.findByText("Instructions refer to a server outside this agent.")).toBeVisible();
+  expect(await screen.findByText("Enter a system prompt.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Reload latest" })).not.toBeInTheDocument();
 });

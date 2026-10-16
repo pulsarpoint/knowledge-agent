@@ -5,7 +5,8 @@ import AgentWizard from "~/features/agents/AgentWizard";
 import * as api from "~/features/agents/wizard";
 import { Toaster } from "~/components/ui/sonner";
 
-vi.mock("~/features/agents/wizard", () => ({
+vi.mock("~/features/agents/wizard", async () => ({
+  ...(await vi.importActual("~/features/agents/wizard")),
   getWizardOptions: vi.fn(),
   generateAgent: vi.fn(),
   createWizardAgent: vi.fn(),
@@ -18,20 +19,18 @@ const proposal: api.AgentProposal = {
   instructions: "Check exit codes.",
   model_id: "model",
   enabled: true,
-  documents_enabled: true,
-  repositories_enabled: true,
-  ssh_enabled: true,
-  skills_enabled: true,
-  mcp_enabled: true,
-  services_enabled: true,
-  all_collections: false,
-  all_repositories: false,
-  collection_ids: ["jira"],
-  repository_ids: ["repo"],
-  skill_ids: ["skill"],
-  mcp_server_ids: ["mcp"],
-  service_ids: ["service"],
-  servers: [{ server_id: "server", instructions: null, skill_ids: null, mcp_server_ids: null, connection: null }],
+  access: {
+    resources: [
+      { type: "collection", id: "jira" },
+      { type: "code_project", id: "repo" },
+      { type: "skill", id: "skill" },
+      { type: "mcp_server", id: "mcp" },
+      { type: "service", id: "service" },
+      { type: "server", id: "server" },
+      { type: "document", id: "doc", editable: false },
+    ],
+    roles: { content_editor: true },
+  },
 };
 const catalogTools = [
   { name: "read_file", group: "code", label: "Read file", summary: "Read a file.", usage: "", needs: "files" },
@@ -62,21 +61,9 @@ const options: api.WizardOptions = {
     models: [{ id: "model", name: "Claude", model: "claude-test", provider: "bedrock", api_format: "native" }],
     code_projects: [{ id: "repo", name: "Payments", folder_paths: ["payments"], remote_url: null }],
     collections: [{ id: "jira", name: "jira-tickets", description: "Jira tickets" }],
-    servers: [
-      {
-        id: "server",
-        name: "Staging",
-        description: "",
-        hostname: "staging.test",
-        tags: [],
-        username: "operator",
-        port: 22,
-        allow_sudo: false,
-        known_hosts: "",
-        credential_id: "key",
-      },
-    ],
-    credentials: [{ id: "key", name: "Staging key" }],
+    servers: [{ id: "server", name: "Staging", description: "", hostname: "staging.test", tags: [], ssh_ready: true }],
+    environments: [{ id: "env", name: "Production", description: "" }],
+    documents: [{ id: "doc", title: "Runbook", description: "On-call runbook" }],
     skills: [{ id: "skill", name: "Inspection" }],
     mcp_servers: [{ id: "mcp", name: "Docs MCP" }],
     services: [{ id: "service", name: "Payments API" }],
@@ -104,7 +91,7 @@ async function open() {
   return { user, created, close };
 }
 
-test("generates a reviewable proposal, edits resources and SSH overrides, then creates once", async () => {
+test("generates a reviewable proposal, edits resources and the Content editor switch, then creates once", async () => {
   const { user, created } = await open();
   await user.click(screen.getByRole("button", { name: "Show design context" }));
   expect(
@@ -115,41 +102,46 @@ test("generates a reviewable proposal, edits resources and SSH overrides, then c
   await screen.findByLabelText("Agent name");
   expect(api.generateAgent).toHaveBeenCalledWith("Investigate payment incidents.", "model");
   expect(api.createWizardAgent).not.toHaveBeenCalled();
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Prompt", "Resources", "Tools"]);
   await user.clear(screen.getByLabelText("Agent name"));
   await user.type(screen.getByLabelText("Agent name"), "Reviewed agent");
-  await user.click(screen.getByRole("tab", { name: "Documents" }));
-  expect(screen.getByRole("switch", { name: "All collections" })).not.toBeChecked();
+  expect(screen.getByLabelText("Proposed resources")).toHaveTextContent(
+    "1 server · 1 service · 1 code project · 1 collection · 1 document · 1 skill · 1 MCP server",
+  );
+  const editor = screen.getByRole("switch", { name: "Content editor" });
+  expect(editor).toBeChecked();
+  await user.click(editor);
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  const projects = screen.getByRole("group", { name: "Code projects" });
+  expect(within(projects).getByRole("checkbox", { name: "Payments" })).toBeChecked();
+  await user.click(within(projects).getByRole("checkbox", { name: "Payments" }));
   expect(screen.getByRole("checkbox", { name: "jira-tickets" })).toBeChecked();
-  expect(screen.queryByText("Include subfolders")).toBeNull();
-  await user.click(screen.getByRole("tab", { name: "Code projects" }));
-  expect(screen.getByRole("checkbox", { name: "Payments" })).toBeChecked();
-  await user.click(screen.getByRole("switch", { name: "All code projects" }));
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
   expect(screen.getByRole("checkbox", { name: "Staging" })).toBeChecked();
-  await user.click(screen.getByRole("switch", { name: "Use agent instructions" }));
-  fireEvent.change(screen.getByLabelText("Instructions for Staging"), { target: { value: "Inspect logs only." } });
-  await user.click(screen.getByRole("switch", { name: "Override server connection" }));
-  fireEvent.change(screen.getByLabelText("SSH login user"), { target: { value: "observer" } });
+  await user.click(screen.getByRole("checkbox", { name: "Production" }));
+  await user.click(screen.getByRole("switch", { name: "Editable Runbook" }));
   await user.click(screen.getByRole("tab", { name: "Prompt" }));
   expect(screen.getByLabelText("System prompt")).toHaveAttribute("maxLength", "100000");
   fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Use evidence and cite sources." } });
   await user.click(screen.getByRole("button", { name: "Create agent" }));
   expect(api.createWizardAgent).toHaveBeenCalledTimes(1);
-  expect(api.createWizardAgent).toHaveBeenCalledWith(
-    expect.objectContaining({
-      name: "Reviewed agent",
-      resources: "fixed",
-      all_repositories: true,
-      repository_ids: [],
-      system_prompt: "Use evidence and cite sources.",
-      servers: [
-        expect.objectContaining({
-          instructions: "Inspect logs only.",
-          connection: expect.objectContaining({ username: "observer", credential_id: "key" }),
-        }),
-      ],
-    }),
-  );
+  const sent = vi.mocked(api.createWizardAgent).mock.calls[0][0];
+  expect(sent).toMatchObject({
+    name: "Reviewed agent",
+    system_prompt: "Use evidence and cite sources.",
+    instructions: "Check exit codes.",
+    access: { roles: { content_editor: false } },
+  });
+  expect(sent).not.toHaveProperty("resources");
+  expect(sent).not.toHaveProperty("servers");
+  expect(sent.access.resources).toEqual([
+    { type: "collection", id: "jira" },
+    { type: "skill", id: "skill" },
+    { type: "mcp_server", id: "mcp" },
+    { type: "service", id: "service" },
+    { type: "server", id: "server" },
+    { type: "document", id: "doc", editable: true },
+    { type: "environment", id: "env" },
+  ]);
   expect(created).toHaveBeenCalledWith("new-agent");
   expect(await screen.findByText("Agent Reviewed agent created")).toBeVisible();
 });
@@ -211,16 +203,13 @@ test("start blank opens an empty proposal without generating and can create with
       name: "Blank helper",
       system_prompt: "Answer carefully.",
       model_id: null,
-      documents_enabled: false,
-      ssh_enabled: false,
-      collection_ids: [],
-      servers: [],
+      access: { resources: [], roles: { content_editor: false } },
     }),
   );
   expect(created).toHaveBeenCalledWith("new-agent");
 });
 
-test("Agent model and Resources come from page 1 and show on the review", async () => {
+test("Agent model comes from page 1 and shows on the review", async () => {
   vi.mocked(api.getWizardOptions).mockResolvedValue({
     ...structuredClone(options),
     catalog: {
@@ -245,26 +234,22 @@ test("Agent model and Resources come from page 1 and show on the review", async 
   expect(screen.queryByRole("combobox", { name: "Agent type" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Agent model" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
-  expect(screen.getByLabelText("Model and resources")).toHaveTextContent("GPT · Fixed");
+  expect(screen.getByLabelText("Chosen model")).toHaveTextContent("GPT");
   await user.click(screen.getByRole("button", { name: "Edit role" }));
   expect(screen.getByRole("combobox", { name: "Agent model" })).toHaveTextContent("GPT");
   await user.click(screen.getByRole("combobox", { name: "Agent model" }));
   await user.click(screen.getByRole("option", { name: /^Claude/ }));
-  await user.click(screen.getByRole("combobox", { name: "Resources" }));
-  await user.click(screen.getByRole("option", { name: "Per run" }));
   await user.click(screen.getByRole("button", { name: "Back to proposal" }));
-  expect(screen.getByLabelText("Model and resources")).toHaveTextContent("Claude · Per run");
+  expect(screen.getByLabelText("Chosen model")).toHaveTextContent("Claude");
   await user.type(screen.getByLabelText("Agent name"), "Writer");
   await user.click(screen.getByRole("tab", { name: "Prompt" }));
   await user.type(screen.getByLabelText("System prompt"), "Write documentation.");
   await user.click(screen.getByRole("button", { name: "Create agent" }));
-  expect(api.createWizardAgent).toHaveBeenCalledWith(
-    expect.objectContaining({ name: "Writer", model_id: "model", resources: "per_run" }),
-  );
+  expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ name: "Writer", model_id: "model" }));
   expect(vi.mocked(api.createWizardAgent).mock.calls[0][0]).not.toHaveProperty("runtime");
 });
 
-test("step 1 starts with Agent model and Resources, which shape the proposal and a blank start", async () => {
+test("step 1 starts with Agent model, which shapes the proposal and a blank start", async () => {
   vi.mocked(api.getWizardOptions).mockResolvedValue({
     ...structuredClone(options),
     catalog: {
@@ -276,18 +261,13 @@ test("step 1 starts with Agent model and Resources, which shape the proposal and
     },
   });
   const { user } = await open();
-  expect(
-    screen
-      .getAllByRole("combobox")
-      .map((box) => box.getAttribute("id"))
-      .slice(0, 2),
-  ).toEqual(["wizard-agent-model", "wizard-resources"]);
+  expect(screen.getAllByRole("combobox")[0]).toHaveAttribute("id", "wizard-agent-model");
   expect(screen.getByRole("combobox", { name: "Agent model" })).toHaveTextContent("GPT"); // the first model that fits
   expect(screen.queryByRole("combobox", { name: "Agent type" })).toBeNull();
-  expect(screen.getByRole("combobox", { name: "Resources" })).toHaveTextContent("Fixed");
+  expect(screen.queryByRole("combobox", { name: "Resources" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Generate proposal" }));
   expect(api.generateAgent).toHaveBeenCalledWith("Investigate payment incidents.", "gpt");
-  expect(await screen.findByLabelText("Model and resources")).toHaveTextContent("GPT · Fixed");
+  expect(await screen.findByLabelText("Chosen model")).toHaveTextContent("GPT");
   expect(screen.queryByRole("combobox", { name: "Agent model" })).toBeNull();
 });
 
@@ -327,7 +307,7 @@ test("a generated proposal runs on the model chosen on page 1", async () => {
   expect(api.createWizardAgent).toHaveBeenCalledWith(expect.objectContaining({ model_id: "gpt" }));
 });
 
-test("the wizard Tools page follows the capabilities until changed and sends the choice", async () => {
+test("the wizard Tools page follows the resources until changed and sends the choice", async () => {
   const { user } = await open();
   await user.click(screen.getByRole("button", { name: "Generate proposal" }));
   await screen.findByLabelText("Agent name");
@@ -337,13 +317,13 @@ test("the wizard Tools page follows the capabilities until changed and sends the
       (name) => screen.getByRole("switch", { name }).getAttribute("aria-checked") === "true",
     );
   expect(checked()).toEqual(["Read file", "Code search", "Search documents", "SSH"]);
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
-  await user.click(screen.getByRole("switch", { name: "Enable SSH" }));
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  await user.click(screen.getByRole("checkbox", { name: "Staging" }));
   await user.click(screen.getByRole("tab", { name: "Tools" }));
   expect(checked()).toEqual(["Read file", "Code search", "Search documents"]);
   await user.click(screen.getByRole("switch", { name: "Code search" }));
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
-  await user.click(screen.getByRole("switch", { name: "Enable SSH" }));
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  await user.click(screen.getByRole("checkbox", { name: "Staging" }));
   await user.click(screen.getByRole("tab", { name: "Tools" }));
   expect(checked()).toEqual(["Read file", "Search documents"]);
   await user.click(screen.getByRole("button", { name: "Create agent" }));
@@ -352,7 +332,7 @@ test("the wizard Tools page follows the capabilities until changed and sends the
   );
 });
 
-test("Follow the capabilities drops the tool choice: the switches follow the capabilities and no tools are sent", async () => {
+test("Follow the resources drops the tool choice: the switches follow the resources and no tools are sent", async () => {
   const { user } = await open();
   await user.click(screen.getByRole("button", { name: "Generate proposal" }));
   await screen.findByLabelText("Agent name");
@@ -361,23 +341,23 @@ test("Follow the capabilities drops the tool choice: the switches follow the cap
     ["Read file", "Code search", "Search documents", "SSH"].filter(
       (name) => screen.getByRole("switch", { name }).getAttribute("aria-checked") === "true",
     );
-  expect(screen.queryByRole("button", { name: "Follow the capabilities" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Follow the resources" })).toBeNull();
   await user.click(screen.getByRole("switch", { name: "Code search" }));
   expect(checked()).toEqual(["Read file", "Search documents", "SSH"]);
   expect(screen.getByText(/Your choice of tools\./)).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Follow the capabilities" }));
+  await user.click(screen.getByRole("button", { name: "Follow the resources" }));
   expect(checked()).toEqual(["Read file", "Code search", "Search documents", "SSH"]);
-  expect(screen.getByText(/Follows the capability switches until you change a tool\./)).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Follow the capabilities" })).toBeNull();
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
-  await user.click(screen.getByRole("switch", { name: "Enable SSH" }));
+  expect(screen.getByText(/Follows the resources until you change a tool\./)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Follow the resources" })).toBeNull();
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  await user.click(screen.getByRole("checkbox", { name: "Staging" }));
   await user.click(screen.getByRole("tab", { name: "Tools" }));
   expect(checked()).toEqual(["Read file", "Code search", "Search documents"]); // following again
   await user.click(screen.getByRole("button", { name: "Create agent" }));
   expect(vi.mocked(api.createWizardAgent).mock.calls[0][0]).not.toHaveProperty("tools");
 });
 
-test("an untouched Tools page lets the backend apply the capabilities", async () => {
+test("an untouched Tools page lets the backend apply the resources", async () => {
   const { user } = await open();
   await user.click(screen.getByRole("button", { name: "Generate proposal" }));
   await screen.findByLabelText("Agent name");
@@ -402,5 +382,5 @@ test("the wizard Tools page switches May start subagents and chooses what a suba
   await user.click(screen.getByRole("button", { name: "Create agent" }));
   const created = vi.mocked(api.createWizardAgent).mock.calls[0][0];
   expect(created).toMatchObject({ subagents: true, subagent_blocked: ["ssh_run"] });
-  expect(created).not.toHaveProperty("tools"); // the tools still follow the capabilities
+  expect(created).not.toHaveProperty("tools"); // the tools still follow the resources
 });

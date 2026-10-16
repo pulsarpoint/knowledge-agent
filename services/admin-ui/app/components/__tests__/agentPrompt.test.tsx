@@ -15,7 +15,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/servers/OperationsView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = {
   id: "custom",
@@ -23,22 +23,12 @@ const agent: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_enabled: false,
-  repositories_enabled: false,
-  ssh_enabled: false,
-  skills_enabled: false,
-  mcp_enabled: false,
-  services_enabled: false,
   documents_grounded: false,
   revision: 4,
   model_id: null,
-  all_collections: false,
-  all_repositories: false,
-  collection_ids: [],
-  repository_ids: [],
-  service_ids: [],
-  skill_ids: [],
   system_prompt: "Use evidence.",
+  instructions: "",
+  access: { resources: [], roles: { content_editor: false } },
 };
 
 beforeEach(() => {
@@ -49,10 +39,14 @@ beforeEach(() => {
   );
   vi.mocked(profiles.getAgent).mockImplementation(async () => structuredClone(agent));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({
     models: [],
@@ -76,17 +70,7 @@ const open = (path: string) =>
 test("the agent page has no Prompts or Versions tab", async () => {
   open("/agents/custom");
   await screen.findByRole("heading", { name: "Payments analyst", level: 2 });
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-    "General",
-    "Tools",
-    "Skills",
-    "Documents",
-    "Code projects",
-    "SSH",
-    "MCP",
-    "Services",
-    "Test",
-  ]);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Tools", "Test"]);
 });
 
 test("General edits and saves the prompt with the agent revision", async () => {

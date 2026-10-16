@@ -24,7 +24,7 @@ vi.mock("~/features/llm/api", async () => ({
   ...(await vi.importActual("~/features/llm/api")),
   getLlmSettings: vi.fn(),
 }));
-vi.mock("~/features/servers/OperationsView", () => ({ default: () => null }));
+vi.mock("~/features/agents/AgentTestView", () => ({ default: () => null }));
 
 const agent: profiles.AgentProfile = {
   id: "payments",
@@ -32,22 +32,12 @@ const agent: profiles.AgentProfile = {
   description: "",
   when_to_use: "",
   enabled: true,
-  documents_enabled: false,
-  repositories_enabled: true,
-  ssh_enabled: false,
-  skills_enabled: false,
-  mcp_enabled: true,
-  services_enabled: false,
   documents_grounded: false,
   revision: 4,
   model_id: null,
-  all_collections: false,
-  all_repositories: true,
-  collection_ids: [],
-  repository_ids: [],
-  service_ids: [],
-  skill_ids: [],
   system_prompt: "",
+  instructions: "",
+  access: { resources: [], roles: { content_editor: false } },
 };
 const tool = (patch: Partial<tools.AgentTool>): tools.AgentTool => ({
   tool: "read_file",
@@ -104,10 +94,14 @@ beforeEach(() => {
   );
   vi.mocked(profiles.getAgent).mockImplementation(async (id) => ({ ...structuredClone(agent), id }));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(llm.getLlmSettings).mockResolvedValue({
     models: [],
@@ -144,8 +138,8 @@ test("the Tools tab switches tools, edits and resets usage and saves once", asyn
     screen
       .getAllByRole("tab")
       .map((tab) => tab.textContent)
-      .slice(0, 2),
-  ).toEqual(["General", "Tools"]);
+      .slice(0, 3),
+  ).toEqual(["General", "Resources", "Tools"]);
   expect(screen.queryByRole("group", { name: "Documents" })).toBeNull(); // empty groups are hidden
   expect(within(screen.getByRole("group", { name: "Agents" })).getByText(tools.SUBAGENTS_OFF_NOTE)).toBeVisible();
   await user.click(screen.getByRole("switch", { name: "Shell" }));
@@ -187,13 +181,11 @@ test("unmet needs are greyed out with their reason and link", async () => {
   const ssh = await screen.findByRole("switch", { name: "SSH" });
   const line = ssh.closest("[data-tool]") as HTMLElement;
   expect(within(line).getByText(/Needs SSH servers/)).toBeVisible();
-  expect(within(line).getByRole("link", { name: "Open SSH" })).toHaveAttribute("href", "/agents/payments?view=ssh");
+  expect(within(line).getByRole("link", { name: "Open Resources" })).toHaveAttribute(
+    "href",
+    "/agents/payments?view=resources",
+  );
   expect(within(row("Read file")).queryByText(/Needs/)).toBeNull();
-});
-
-test("capability tabs of a native agent point to the Tools tab", async () => {
-  open("/agents/payments?view=git");
-  expect(await screen.findByText(tools.TOOLS_TAB_NOTE)).toBeVisible();
 });
 
 test("an emptied usage saves as the default text", async () => {
@@ -228,21 +220,32 @@ function server(start: { revision: number; ssh: boolean }) {
   });
   vi.mocked(profiles.saveAgent).mockImplementation(async (value) => {
     state.revision += 1;
-    state.ssh = value.ssh_enabled;
+    state.ssh = value.access.resources.some((item) => item.type === "server");
     return { ...structuredClone(agent), ...value, revision: state.revision };
   });
   return state;
 }
 
-test("a capability saved on another tab keeps unsaved tool choices and refreshes availability", async () => {
+test("a resource saved on another tab keeps unsaved tool choices and refreshes availability", async () => {
   const user = userEvent.setup();
   server({ revision: 4, ssh: false });
+  vi.mocked(profiles.getAgentOptions).mockResolvedValue({
+    server: [{ type: "server", id: "s1", name: "web-1", description_short: "" }],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
+  });
   open("/agents/payments?view=tools");
   await user.click(await screen.findByRole("switch", { name: "Shell" }));
   expect(within(row("SSH")).getByText(/Needs SSH servers/)).toBeVisible();
-  await user.click(screen.getByRole("tab", { name: "SSH" }));
-  await user.click(screen.getByRole("switch", { name: "Enable SSH access" }));
-  await user.click(screen.getByRole("button", { name: "Save SSH access" }));
+  await user.click(screen.getByRole("tab", { name: "Resources" }));
+  await user.click(await screen.findByRole("button", { name: "Add servers" }));
+  await user.click(screen.getByRole("button", { name: "Add web-1" }));
+  await user.click(screen.getByRole("button", { name: "Save resources" }));
   await waitFor(() => expect(profiles.saveAgent).toHaveBeenCalledTimes(1));
   await user.click(screen.getByRole("tab", { name: "Tools" }));
   await waitFor(() => expect(within(row("SSH")).queryByText(/Needs SSH servers/)).toBeNull());

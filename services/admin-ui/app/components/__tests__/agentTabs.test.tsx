@@ -21,11 +21,11 @@ vi.mock("~/features/llm/mcp", () => ({ getMCPServers: vi.fn(async () => ({ serve
 vi.mock("../CodeSearchAgentView", () => ({
   default: ({ agentId }: { agentId: string }) => <div>Code test {agentId}</div>,
 }));
-vi.mock("~/features/servers/OperationsView", () => ({
-  default: ({ view, agentId }: { view: string; agentId: string }) => {
+vi.mock("~/features/agents/AgentTestView", () => ({
+  default: ({ active, agentId }: { active: boolean; agentId: string }) => {
     const [task, setTask] = useState("");
     return (
-      <div hidden={view !== "test"}>
+      <div hidden={!active}>
         <span>SSH test {agentId}</span>
         <label>
           SSH task
@@ -54,33 +54,37 @@ beforeEach(() => {
     id,
     documents_grounded: false,
     name: id === "custom-code" ? "Payments code" : llm.agentNames[id as llm.AgentName],
-    documents_enabled: id === "search",
-    repositories_enabled: id !== "operations",
-    ssh_enabled: id === "operations",
-    skills_enabled: true,
-    mcp_enabled: id !== "search",
-    services_enabled: true,
     description: "",
     when_to_use: "",
     enabled: true,
     revision: 1,
     model_id: null,
-    all_collections: false,
-    all_repositories: false,
-    collection_ids: [],
-    repository_ids: [],
-    service_ids: [],
-    skill_ids: [],
     system_prompt: `${id} instructions`,
+    instructions: "",
+    access: { resources: [], roles: { content_editor: false } },
+    counts: {
+      server: 0,
+      service: 0,
+      environment: 0,
+      code_project: 0,
+      collection: 0,
+      document: 0,
+      skill: 0,
+      mcp_server: 0,
+    },
     model_name: null,
   }));
   vi.mocked(profiles.getAgents).mockImplementation(async () => ({ agents: structuredClone(agents) }));
   vi.mocked(profiles.getAgent).mockImplementation(async (id) => structuredClone(agents.find((a) => a.id === id)!));
   vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [],
+    server: [],
+    service: [],
+    environment: [],
+    code_project: [],
+    collection: [],
+    document: [],
+    skill: [],
+    mcp_server: [],
   });
   vi.mocked(profiles.getAgentHistory).mockResolvedValue({ test_chats: 0, documentation_sessions: 0, run_records: 0 });
 });
@@ -137,117 +141,10 @@ test("agents are created only through one New agent panel with the wizard", asyn
   expect(within(panel).getByRole("button", { name: /Generate proposal/ })).toBeInTheDocument();
 });
 
-test.each(["search", "operations", "code", "custom-code"])(
-  "every agent has the same capability tabs: %s",
-  async (id) => {
-    render(app(`/agents/${id}`));
-    await screen.findByRole("combobox", { name: "Model" });
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "General",
-      "Tools",
-      "Skills",
-      "Documents",
-      "Code projects",
-      "SSH",
-      "MCP",
-      "Services",
-      "Test",
-    ]);
-  },
-);
-
-test("Documents tab picks RAG collections by name without subfolder options", async () => {
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [{ id: "c1", name: "jira", description: "Jira tickets" }],
-    repositories: [],
-    services: [],
-    skills: [],
-  });
-  render(app("/agents/search?view=documents"));
-  expect(await screen.findByRole("switch", { name: "All collections" })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "jira" })).toBeInTheDocument();
-  expect(screen.queryByText(/Include subfolders/)).toBeNull();
-});
-
-test("Code SSH and SSH Git access can be enabled, then disabled without clearing resources", async () => {
-  const user = userEvent.setup();
-  vi.mocked(profiles.saveAgent).mockImplementation(async (draft) => ({ ...draft, revision: draft.revision + 1 }));
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [{ id: "repo", name: "Payments repo" }],
-    services: [],
-    skills: [],
-  });
-  render(app("/agents/code?view=ssh"));
-  expect(await screen.findByRole("switch", { name: "Enable SSH access" })).not.toBeChecked();
-  await user.click(screen.getByRole("switch", { name: "Enable SSH access" }));
-  await user.click(screen.getByRole("button", { name: "Save SSH access" }));
-  await screen.findByText("Agent configuration saved.");
-  expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ id: "code", ssh_enabled: true }));
-  await user.click(
-    within(screen.getByRole("region", { name: "Agent details" })).getByRole("link", { name: "All agents" }),
-  );
-  await user.click(await screen.findByRole("link", { name: "SSH agent" }));
-  await user.click(await screen.findByRole("tab", { name: "Code projects" }));
-  expect(await screen.findByRole("switch", { name: "Enable code project access" })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "Payments repo" })).toBeDisabled();
-  await user.click(screen.getByRole("switch", { name: "Enable code project access" }));
-  await user.click(screen.getByRole("checkbox", { name: "Payments repo" }));
-  await user.click(screen.getByRole("button", { name: "Save code project access" }));
-  await screen.findByText("Agent configuration saved.");
-  await user.click(screen.getByRole("switch", { name: "Enable code project access" }));
-  expect(screen.getByRole("checkbox", { name: "Payments repo" })).toBeDisabled();
-  expect(screen.getByRole("checkbox", { name: "Payments repo" })).toBeChecked();
-  await user.click(screen.getByRole("button", { name: "Save code project access" }));
-  await screen.findByText("Agent configuration saved.");
-  expect(profiles.saveAgent).toHaveBeenLastCalledWith(
-    expect.objectContaining({ id: "operations", repositories_enabled: false, repository_ids: ["repo"] }),
-  );
-});
-
-test("Skills reveals multiple selections when enabled, saves together, and retains them when disabled", async () => {
-  const user = userEvent.setup();
-  agents.find((a) => a.id === "code")!.skills_enabled = false;
-  vi.mocked(profiles.getAgentOptions).mockResolvedValue({
-    collections: [],
-    repositories: [],
-    services: [],
-    skills: [
-      { id: "inspect", name: "Inspect code", description: "Find implementation details", enabled: true },
-      { id: "verify", name: "Verify findings", description: "Check evidence", enabled: true },
-    ],
-  });
-  vi.mocked(profiles.saveAgent).mockImplementation(async (draft) => ({ ...draft, revision: draft.revision + 1 }));
-  render(app("/agents/code?view=skills"));
-  const toggle = await screen.findByRole("switch", { name: "Enable skills" });
-  expect(toggle).not.toBeChecked();
-  expect(screen.queryByRole("checkbox", { name: "Inspect code" })).toBeNull();
-  expect(screen.queryByRole("textbox", { name: "Instructions" })).toBeNull();
-  expect(screen.queryByRole("link", { name: "Server SSH settings" })).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Save skills" })).toHaveLength(1);
-  await user.click(screen.getByRole("switch", { name: "Enable skills" }));
-  await user.click(screen.getByRole("checkbox", { name: "Inspect code" }));
-  await user.click(screen.getByRole("checkbox", { name: "Verify findings" }));
-  await user.click(screen.getByRole("tab", { name: "General" }));
-  await user.click(screen.getByRole("tab", { name: "Skills" }));
-  expect(screen.getByRole("checkbox", { name: "Inspect code" })).toBeChecked();
-  await user.click(screen.getByRole("button", { name: "Save skills" }));
-  await screen.findByText("Agent configuration saved.");
-  expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ skills_enabled: true }), [
-    "inspect",
-    "verify",
-  ]);
-  await user.click(screen.getByRole("switch", { name: "Enable skills" }));
-  expect(screen.queryByRole("checkbox", { name: "Inspect code" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Save skills" }));
-  await screen.findByText("Agent configuration saved.");
-  expect(profiles.saveAgent).toHaveBeenLastCalledWith(expect.objectContaining({ skills_enabled: false }), [
-    "inspect",
-    "verify",
-  ]);
-  await user.click(screen.getByRole("switch", { name: "Enable skills" }));
-  expect(screen.getByRole("checkbox", { name: "Inspect code" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "Verify findings" })).toBeChecked();
+test.each(["search", "operations", "code", "custom-code"])("every agent has the same tabs: %s", async (id) => {
+  render(app(`/agents/${id}`));
+  await screen.findByRole("combobox", { name: "Model" });
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["General", "Resources", "Tools", "Test"]);
 });
 
 test("agent removal requires confirmation and preserves the record on conflicts", async () => {

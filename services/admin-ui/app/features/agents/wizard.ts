@@ -1,25 +1,17 @@
 import { request } from "~/lib/api";
-import type { AgentResources } from "./api";
-import type { CatalogTool } from "./tools";
+import type { AccessType } from "./api";
+import type { CatalogTool, ToolSwitches } from "./tools";
 
 export interface WizardResource {
   id: string;
   name: string;
   description?: string;
 }
-export interface WizardConnection {
-  username: string | null;
-  port: number;
-  allow_sudo: boolean;
-  known_hosts: string;
-  credential_id: string | null;
-}
-export interface WizardServer {
-  server_id: string;
-  instructions: string | null;
-  skill_ids: string[] | null;
-  mcp_server_ids: string[] | null;
-  connection: WizardConnection | null;
+/** A reference of a proposed agent's access; `editable` for documents only. */
+export interface WizardReference {
+  type: AccessType;
+  id: string;
+  editable?: boolean;
 }
 export interface AgentProposal {
   name: string;
@@ -29,20 +21,7 @@ export interface AgentProposal {
   instructions: string;
   model_id: string | null;
   enabled: boolean;
-  documents_enabled: boolean;
-  repositories_enabled: boolean;
-  ssh_enabled: boolean;
-  skills_enabled: boolean;
-  mcp_enabled: boolean;
-  services_enabled: boolean;
-  all_collections: boolean;
-  all_repositories: boolean;
-  collection_ids: string[];
-  repository_ids: string[];
-  skill_ids: string[];
-  mcp_server_ids: string[];
-  service_ids: string[];
-  servers: WizardServer[];
+  access: { resources: WizardReference[]; roles: { content_editor: boolean } };
 }
 export interface WizardOptions {
   prompt: string;
@@ -52,8 +31,9 @@ export interface WizardOptions {
     models: (WizardResource & { provider: string; model: string; api_format: string })[];
     code_projects: (WizardResource & { folder_paths: string[]; remote_url: string | null })[];
     collections: { id: string; name: string; description: string }[];
-    servers: (WizardResource & WizardConnection & { hostname: string; tags: string[] })[];
-    credentials: WizardResource[];
+    servers: (WizardResource & { hostname: string; tags: string[]; ssh_ready: boolean })[];
+    environments: WizardResource[];
+    documents: { id: string; title: string; description?: string }[];
     skills: WizardResource[];
     mcp_servers: WizardResource[];
     services: WizardResource[];
@@ -61,12 +41,18 @@ export interface WizardOptions {
   };
 }
 export type NewAgent = AgentProposal & {
-  resources: AgentResources;
   tools?: string[];
   /** May start subagents, and the tools a subagent may not be given. */
   subagents?: boolean;
   subagent_blocked?: string[];
 };
+/** What an access gives the tool catalog rules (the backend's flags without "Answer only from documents"): code
+ * projects, collections and servers. */
+export const accessSwitches = (resources: { type: string; id: string }[]): ToolSwitches => ({
+  repositories_enabled: resources.some((item) => item.type === "code_project"),
+  documents_enabled: resources.some((item) => item.type === "collection"),
+  ssh_enabled: resources.some((item) => item.type === "server"),
+});
 export const getWizardOptions = () => request<WizardOptions>("/api/agents/wizard/options");
 export const generateAgent = (role: string, model_id: string) =>
   request<{ proposal: AgentProposal }>("/api/agents/wizard/generate", {

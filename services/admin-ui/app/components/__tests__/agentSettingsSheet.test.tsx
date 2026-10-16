@@ -127,9 +127,42 @@ test("a saved agent shows its model and prompt read-only and offers only narrowi
   expect(screen.getByText("You operate servers.")).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "System prompt" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Prompt" })).toBeNull();
-  fireEvent.click(screen.getByRole("checkbox", { name: "web-1" }));
+  expect(screen.getByRole("checkbox", { name: "web-1" })).toBeChecked(); // everything it has, by default
   expect(screen.getByRole("checkbox", { name: "SSH" })).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "web-1" }));
+  expect(screen.queryByRole("checkbox", { name: "SSH" })).toBeNull();
   expect(screen.getByRole("switch", { name: "Allow subagents" })).toBeInTheDocument();
+});
+
+test("a saved agent's run picks a subset of its documents and servers, each document as the agent has it", () => {
+  const fuller: AgentOptions = {
+    ...agentOptions,
+    resources: {
+      ...agentOptions.resources,
+      servers: [
+        ...agentOptions.resources.servers,
+        { id: "s2", name: "db-1", linked: false, usable: false, reason: "SSH is not set up" },
+      ],
+      documents: [
+        { id: "d1", name: "Runbook", linked: false, editable: true },
+        { id: "d2", name: "Guide", linked: false, editable: false },
+      ],
+    },
+  };
+  render(<Harness scope={agentScope} opts={fuller} />);
+  const guide = screen.getByRole("checkbox", { name: "Guide" });
+  expect(guide).toBeChecked();
+  expect(guide).toBeEnabled();
+  expect(screen.getByText("Read only.")).toBeInTheDocument();
+  expect(screen.getByText("The agent may change it (as a draft).")).toBeInTheDocument();
+  fireEvent.click(guide);
+  expect(screen.getByRole("checkbox", { name: "Guide" })).not.toBeChecked();
+  const db = screen.getByRole("checkbox", { name: "db-1" }); // given without SSH: it can still be left out
+  expect(db).toBeChecked();
+  fireEvent.click(db);
+  const state = JSON.parse(screen.getByLabelText("Settings state").textContent!);
+  expect(state.documents).toEqual(["d1"]);
+  expect(state.chosen.server_ids).toEqual(["s1"]);
 });
 
 test("an open agent run shows the run's model and prompt, not the agent's current ones", () => {
@@ -145,13 +178,4 @@ test("an open agent run shows the run's model and prompt, not the agent's curren
   expect(screen.queryByText("GPT")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   expect(screen.getByLabelText("Agent prompt").textContent).toBe("You operated servers.");
-});
-
-test("a fixed agent's resources are not offered", () => {
-  const fixed = { ...agentOptions, agent: { ...agentOptions.agent!, resources_fixed: true, subagents_allowed: false } };
-  render(<Harness scope={agentScope} opts={fixed} />);
-  expect(screen.getByText("This agent's resources are fixed.")).toBeInTheDocument();
-  expect(screen.queryByRole("checkbox", { name: "web-1" })).toBeNull();
-  expect(screen.queryByRole("switch", { name: "Allow subagents" })).toBeNull();
-  expect(screen.getByRole("checkbox", { name: "SSH" })).toBeChecked();
 });

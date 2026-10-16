@@ -216,8 +216,7 @@ test("applying a suggestion to the agent says so and reloads the agent", async (
     revision: 3,
     system_prompt: "You operate servers.",
     instructions: "",
-    servers: [],
-    changes: { system_prompt: "Answer in one line.", instructions: null, server_instructions: [] },
+    changes: { system_prompt: "Answer in one line.", instructions: null },
   };
   vi.mocked(reviews.getReviewSource).mockResolvedValue(source as never);
   vi.mocked(reviews.applyReview).mockResolvedValue({ agent_id: "ops" } as never);

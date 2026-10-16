@@ -3,11 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, expect, it, vi } from "vitest";
 import MCPServersView from "~/features/llm/MCPServersView";
-import OperationsView from "~/features/servers/OperationsView";
 import * as api from "~/features/llm/mcp";
-import * as operations from "~/features/servers/operations";
 vi.mock("~/features/llm/mcp");
-vi.mock("~/features/servers/operations");
 vi.mock("../Markdown", () => ({ default: () => null }));
 const connection: api.MCPServer = {
   id: "mcp-1",
@@ -74,52 +71,4 @@ it("tests a saved connection and shows discovered tools", async () => {
   expect(api.testMCPServer).toHaveBeenCalledWith(connection);
   await user.click(screen.getByText("1 tools · Connection verified"));
   expect(screen.getByText("read_info")).toBeVisible();
-});
-it("inherits global MCP connections on SSH servers and saves an explicit empty override", async () => {
-  const user = userEvent.setup();
-  const data: operations.OperationsConfiguration = {
-    settings: { revision: 1, instructions: "", server_ids: ["ssh-1"], skill_ids: [], mcp_server_ids: ["mcp-1"] },
-    configs: [],
-    skills: [],
-    mcp_servers: [connection],
-    servers: [
-      {
-        id: "ssh-1",
-        name: "Staging",
-        hostname: "staging.test",
-        port: 22,
-        username: "test",
-        revision: 1,
-        ssh_allowed: true,
-        enabled: true,
-        allow_sudo: false,
-        known_hosts: "",
-        has_private_key: true,
-        last_tested_at: null,
-        last_test_error: null,
-      },
-    ],
-  };
-  vi.mocked(operations.getOperationsSettings).mockResolvedValue(data);
-  render(
-    <MemoryRouter>
-      <OperationsView view="settings" />
-    </MemoryRouter>,
-  );
-  await user.click(await screen.findByRole("combobox", { name: "SSH configuration" }));
-  await user.click(screen.getByRole("option", { name: "Staging" }));
-  expect(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: "Create server configuration" }));
-  expect(screen.getByRole("checkbox", { name: "Use agent MCP selection" })).toBeChecked();
-  await user.click(screen.getByRole("checkbox", { name: "Use agent MCP selection" }));
-  await user.click(screen.getByRole("checkbox", { name: "Use MCP Deployment tools" }));
-  await user.click(screen.getByRole("button", { name: "Save server configuration" }));
-  await waitFor(() =>
-    expect(operations.saveOperationsServerConfig).toHaveBeenCalledWith(
-      "ssh-1",
-      { settings_revision: 1, revision: null, instructions: null, skill_ids: null, mcp_server_ids: [] },
-      "operations",
-    ),
-  );
 });

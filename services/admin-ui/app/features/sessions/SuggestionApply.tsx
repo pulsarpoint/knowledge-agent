@@ -5,7 +5,7 @@ import type { SessionReview } from "./api";
 import Markdown from "~/components/Markdown";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "~/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "~/components/ui/field";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
@@ -25,24 +25,13 @@ export default function SuggestionApply({
   const [source, setSource] = useState<ReviewSource>();
   const [prompt, setPrompt] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [servers, setServers] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [reloadable, setReloadable] = useState(false);
   function prefill(value: ReviewSource) {
-    const proposed = value.changes.instructions ?? value.instructions;
     setSource(value);
     setPrompt(value.changes.system_prompt ?? value.system_prompt);
-    setInstructions(proposed);
-    setServers(
-      Object.fromEntries(
-        value.servers.map((server) => [
-          server.id,
-          value.changes.server_instructions.find((change) => change.server_id === server.id)?.instructions ??
-            (server.inherits ? proposed : server.instructions),
-        ]),
-      ),
-    );
+    setInstructions(value.changes.instructions ?? value.instructions);
   }
   useEffect(() => {
     if (!review) return;
@@ -64,7 +53,7 @@ export default function SuggestionApply({
       live = false;
     };
   }, [agentId, review]);
-  /** Fetch the agent's latest texts and revision; the user's edits stay (new servers get their proposed text). */
+  /** Fetch the agent's latest texts and revision; the user's edits stay. */
   async function reload() {
     if (!review) return;
     setBusy(true);
@@ -73,19 +62,7 @@ export default function SuggestionApply({
     try {
       const value = await getReviewSource(agentId, review.id);
       if (!source) prefill(value);
-      else {
-        setSource(value);
-        setServers((current) =>
-          Object.fromEntries(
-            value.servers.map((server) => [
-              server.id,
-              current[server.id] ??
-                value.changes.server_instructions.find((change) => change.server_id === server.id)?.instructions ??
-                (server.inherits ? instructions : server.instructions),
-            ]),
-          ),
-        );
-      }
+      else setSource(value);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load the suggestion.");
       setReloadable(true);
@@ -93,25 +70,10 @@ export default function SuggestionApply({
       setBusy(false);
     }
   }
-  function editInstructions(next: string) {
-    // Servers that inherit the instructions follow them until edited on their own.
-    setServers((current) =>
-      Object.fromEntries(
-        Object.entries(current).map(([id, text]) => [
-          id,
-          source?.servers.find((server) => server.id === id)?.inherits && text === instructions ? next : text,
-        ]),
-      ),
-    );
-    setInstructions(next);
-  }
   function changes(value: ReviewSource): InstructionChanges {
     return {
       system_prompt: prompt === value.system_prompt ? null : prompt,
       instructions: instructions === value.instructions ? null : instructions,
-      server_instructions: value.servers
-        .filter((server) => servers[server.id] !== (server.inherits ? instructions : server.instructions))
-        .map((server) => ({ server_id: server.id, instructions: servers[server.id] })),
     };
   }
   async function apply(target: "agent" | "clone") {
@@ -186,25 +148,9 @@ export default function SuggestionApply({
                   maxLength={40000}
                   value={instructions}
                   disabled={busy}
-                  onChange={(event) => editInstructions(event.target.value)}
+                  onChange={(event) => setInstructions(event.target.value)}
                 />
               </Field>
-              {source.servers.map((server) => (
-                <Field key={server.id}>
-                  <FieldLabel htmlFor={`apply-server-${server.id}`}>{server.name} instructions</FieldLabel>
-                  <Textarea
-                    id={`apply-server-${server.id}`}
-                    rows={4}
-                    maxLength={40000}
-                    value={servers[server.id] ?? ""}
-                    disabled={busy}
-                    onChange={(event) => setServers((current) => ({ ...current, [server.id]: event.target.value }))}
-                  />
-                  {server.inherits && (
-                    <FieldDescription>Follows the additional instructions unless you change it here.</FieldDescription>
-                  )}
-                </Field>
-              ))}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" disabled={busy || !prompt.trim()} onClick={() => void apply("agent")}>
                   Apply to this agent
