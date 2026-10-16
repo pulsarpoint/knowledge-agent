@@ -91,6 +91,7 @@ NO_SSH = (
     'Server {name} is not given to this run: it has no usable SSH connection, so the agent cannot read it or run '
     'commands on it. {reason}'
 )
+AGENT_DISABLED = 'Agent is disabled.'
 AGENT_NO_MODEL = 'Select an enabled model in this agent’s General tab.'
 TITLE_LENGTH = 120
 
@@ -385,12 +386,14 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
     ):
         raise HTTPException(400, OWN_MODEL)
     if not config['enabled']:
-        raise HTTPException(409, 'Agent is disabled.')
+        raise HTTPException(409, AGENT_DISABLED)
     if model is None or not model['enabled'] or not model_fits(model):
         raise HTTPException(409, AGENT_NO_MODEL)
     resources = value.resources
     picked = [{'type': kind, 'id': str(i)} for kind, key in PICKS for i in getattr(resources, key)]
-    picked += [{'type': 'document', 'id': str(entry.id or 'new')} for entry in resources.documents]
+    picked += [
+        {'type': 'document', 'id': str(entry.id or 'new'), 'editable': entry.editable} for entry in resources.documents
+    ]
     try:
         access = run_access(
             conn,
@@ -992,11 +995,17 @@ def agent_options(conn, project: UUID, agent_id: str, conninfo: str) -> dict:
             'brings_servers': any(str(item) in servers for item in found['server_ids']),
         }
 
+    def server_state(server_id: str) -> dict:
+        """Whether a run can use the server over SSH now (a server without it is still given)."""
+        server = next(item for item in config['ssh']['servers'] if str(item['id']) == server_id)
+        usable = bool(server['enabled'] and server['ssh_allowed'])
+        return {'usable': usable, 'reason': None if usable else NOT_SET_UP if server['ssh_allowed'] else NOT_ALLOWED}
+
     def plain(type_: str) -> list[dict]:
         return [{'id': item['id'], 'name': item['name'], 'linked': False} for item in listed(type_)]
 
     resources = {
-        'servers': [{**item, 'usable': True, 'reason': None} for item in plain('server')],
+        'servers': [{**item, **server_state(item['id'])} for item in plain('server')],
         'services': [{**item, **brings(item['id'])} for item in plain('service')],
         'environments': plain('environment'),
         'code_projects': plain('code_project'),

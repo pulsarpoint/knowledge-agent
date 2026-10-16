@@ -132,15 +132,11 @@ def _readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> 
 
 
 def _server_extras(config: dict[str, Any], server_id: str) -> dict[str, Any]:
-    """What the run's configuration says about the server: its connection as pinned (a saved agent may connect with
-    its own username, port and sudo), its instructions, and its skills and MCP servers when the run uses them."""
+    """What the run's configuration says about the server: its connection as pinned (the server's own username, port
+    and sudo) and its instructions (the agent's)."""
     entry = next((item for item in (config.get('ssh') or {}).get('servers', []) if str(item['id']) == server_id), {})
     extras = {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
     extras['instructions'] = entry.get('instructions') or ''
-    if (config.get('skills') or {}).get('enabled'):
-        extras['skills'] = [skill for skill in entry.get('skills', []) if skill.get('enabled')]
-    if (config.get('mcp') or {}).get('enabled'):
-        extras['mcp_server_ids'] = [server['id'] for server in entry.get('mcp_servers', []) if server.get('enabled')]
     return extras
 
 

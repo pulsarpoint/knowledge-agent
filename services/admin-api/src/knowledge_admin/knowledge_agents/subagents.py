@@ -265,7 +265,7 @@ class Subagents:
     (knowledge_admin.agents.runner.agent) as its own task, with the parent's scratch workspace, no history, no turn or time
     limit, SubagentEvents hooks and `model_filter`. A subagent gets only the parent turn's credentials its
     configuration references; an expert gets its own configuration and credentials from `load_expert(entry, given
-    resources)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,
+    resources, whether the calling run is a content editor)` (experts.load, run in a thread), whose secrets are added to the turn's `secrets` so the turn's record,
     its answer and the tool result redact them too. An expert whose configuration has run_subagent gets a nested
     Subagents of its own (`nested`): its own slots (a slot the expert holds never blocks its helpers), the turn's
     per-turn count (`root`), its events in the turn's record under the expert's agent id, and no experts. Cancelling
@@ -280,7 +280,9 @@ class Subagents:
         record_usage: Callable[[dict[str, Any]], None] | None,
         run_agent: Callable[..., Awaitable[Any]],
         limit: int | None = None,
-        load_expert: Callable[[dict[str, Any], Mapping[str, list[str]] | None], tuple[dict[str, Any], dict[str, str]]]
+        load_expert: Callable[
+            [dict[str, Any], Mapping[str, list[str]] | None, bool], tuple[dict[str, Any], dict[str, str]]
+        ]
         | None = None,
         root: 'Subagents | None' = None,
         agent_id: str | None = None,
@@ -364,7 +366,8 @@ class Subagents:
         if self.root.started >= MAX_PER_TURN:
             raise ValueError(LIMIT)
         self.root.started += 1  # before the load (an await): calls arriving together cannot pass the check twice
-        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), given))
+        editor = access_rules.is_content_editor(context['config']['access'])  # the expert: only if its caller is too
+        load = asyncio.ensure_future(asyncio.to_thread(self.load_expert, dict(entry), given, editor))
         try:
             config, credentials = await asyncio.shield(load)
         except asyncio.CancelledError:

@@ -62,7 +62,9 @@ def refuse_none(*types: str) -> str:
 
 
 def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] | None = None) -> dict:
-    """The agent's access or less: picked resources must be in the agent's list; roles are only switched off."""
+    """The agent's access or less: picked resources must be in the agent's list (each once); a pick may make an
+    editable document read-only (editable only when the pick and the agent's entry both say so; a pick without
+    editable keeps the entry's); roles are only switched off."""
     if picked is None:
         resources = [dict(r) for r in agent_access.get('resources', [])]
     else:
@@ -71,7 +73,12 @@ def narrow(agent_access: dict, picked: list[dict] | None, roles_off: list[str] |
             e = entry(agent_access, p['type'], p['id'])
             if e is None:
                 raise ValueError(f"{TYPE_WORDS.get(p['type'], p['type'])} {p['id']} is not in the agent's access")
-            resources.append(dict(e))
+            if entry({'resources': resources}, p['type'], p['id']) is not None:
+                continue
+            found = dict(e)
+            if 'editable' in p and 'editable' in found:
+                found['editable'] = bool(found['editable'] and p['editable'])
+            resources.append(found)
     roles = dict(agent_access.get('roles', {}))
     roles['content_editor'] = bool(roles.get('content_editor'))
     for role in roles_off or []:

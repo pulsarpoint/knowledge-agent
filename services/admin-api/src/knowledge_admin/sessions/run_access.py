@@ -1,6 +1,6 @@
 """A run's access object, built at start from its pinned configuration (access.py holds the rules).
 
-What the run holds: the resources its pinned configuration lists (servers it may use, services, code projects,
+What the run holds: the resources its pinned configuration lists (its servers, also one without usable SSH, services, code projects,
 collections, skills, MCP servers, documents) and the environments it was given. What it was given (picked; None:
 everything it holds) is narrowed out of that with access.narrow; the children it holds are added by access.expand,
 each 'via <type> <id>' of its direct parent: an environment its services and servers; a service its code projects and
@@ -80,8 +80,9 @@ def document_entry(config: dict[str, Any], item: dict[str, Any]) -> dict[str, An
 
 def config_resources(config: dict[str, Any]) -> list[dict[str, Any]]:
     """Every resource the pinned configuration lists, once (pure: no environments, they are not in it)."""
-    servers = ssh_servers(config)
-    found = [_entry('server', server) for server in servers]
+    servers = ssh_servers(config)  # the ones it can reach over SSH: their skills and MCP servers
+    # every server it lists, also one without usable SSH (ssh_run fails on the server's own settings)
+    found = [_entry('server', server) for server in config['ssh']['servers'] if config['ssh']['enabled']]
     if config['services']['enabled']:
         found += [_entry('service', item) for item in config['services']['items']]
     if config['code']['enabled']:

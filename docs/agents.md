@@ -18,7 +18,8 @@ limit, no per-turn time limit, no 300-second limit).
   turn subagents off (`subagents: false`). Nothing can be added. The model and prompt are the agent's own: change them
   in General, or clone the agent to try another prompt. Refused: "{tool} is not one of this agent's tools.", "This
   agent does not allow subagents.", "A saved agent uses its own model and prompt." and a pick outside the agent's
-  access ("<type> <id> is not in the agent's access"). A reference to a deleted or archived resource is skipped.
+  access ("<type> <id> is not in the agent's access"); a document picked with `editable: false` is read-only in the
+  run. A reference to a deleted or archived resource is skipped; a server without usable SSH stays in the run.
   Event handlers can send to any enabled agent; its run gets the whole access object. An expert narrows its own
   agent's access object to the resources the caller passes.
 - `GET /api/sessions/options?agent_id=…` says what may be narrowed (tools, experts, whether subagents are allowed, the
@@ -206,7 +207,7 @@ or oversized task; `Unknown expert: <tool>.` for a tool the session did not pin.
 failed: <reason>` (redacted) and the caller goes on.
 
 A call runs `knowledge_agents/experts.py`: the expert's prompt, instructions, skills, tools and model with its own
-access object narrowed to the given resources (never a content editor), no conversation, and no expert tools (an expert cannot call experts). It keeps
+access object narrowed to the given resources (a content editor only when its agent and the calling run both are), no conversation, and no expert tools (an expert cannot call experts). It keeps
 `run_subagent` if it has it: its subagents run in slots of their own (`AGENT_MAX_SUBAGENTS`), count towards the turn's
 16 helpers and are cancelled with the call or by **Stop**. So a turn can run up to `AGENT_MAX_SUBAGENTS` x (1 + running
 experts) helpers at once. The call loads its own credentials (the expert's model key and the keys of the resources it

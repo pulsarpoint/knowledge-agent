@@ -97,6 +97,20 @@ def test_narrow_picked_cannot_make_document_editable():
     assert not access.can_write_document(out, 'd1')
 
 
+def test_narrow_a_read_only_pick_makes_an_editable_document_read_only():
+    out = access.narrow(run_access(True), [{'type': 'document', 'id': 'd2', 'editable': False}])
+    assert out['resources'][0]['editable'] is False and not access.can_write_document(out, 'd2')
+    kept = access.narrow(run_access(True), [{'type': 'document', 'id': 'd2', 'editable': True}])
+    assert access.can_write_document(kept, 'd2')  # both say editable
+    plain = access.narrow(run_access(True), [{'type': 'document', 'id': 'd2'}])
+    assert access.can_write_document(plain, 'd2')  # a pick without editable keeps the agent's entry
+
+
+def test_narrow_ignores_duplicate_picks():
+    out = access.narrow(run_access(), [{'type': 'server', 'id': 's1'}, {'type': 'server', 'id': 's1'}])
+    assert [(r['type'], r['id']) for r in out['resources']] == [('server', 's1')]
+
+
 def test_expand_marks_sources_and_does_not_duplicate():
     a = run_access()
     kid = {'type': 'service', 'id': 'v1', 'name': 'api', 'description_short': 'x'}

@@ -384,8 +384,8 @@ class NativeRunner(shared.SessionRunner):
 
                 project_id = str(self.session['project_id'])
 
-                def load_expert(entry: dict, given: dict | None) -> tuple[dict, dict[str, str]]:
-                    return experts.load(self.store, project_id, entry, given)
+                def load_expert(entry: dict, given: dict | None, editor: bool) -> tuple[dict, dict[str, str]]:
+                    return experts.load(self.store, project_id, entry, given, editor)
 
                 subagents = Subagents(
                     events,

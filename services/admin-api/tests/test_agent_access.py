@@ -51,9 +51,30 @@ def entry(type_: str, id_, name: str, description: str, source: str = 'given', *
 
 def test_the_migration_converts_each_agent_and_goes_down(world):
     w = world
-    fixed, per_run, everything, off = (a_saved_agent(w, name) for name in ('Fixed', 'Per run', 'All', 'Off'))
+    fixed, per_run, everything, off, docs = (
+        a_saved_agent(w, name) for name in ('Fixed', 'Per run', 'All', 'Off', 'Docs')
+    )
     other = uuid4()
+    skill = w.client.post(
+        '/api/skills', headers=HEADERS, json={'name': 'inspect', 'description': 'Inspect', 'instructions': 'Look.'}
+    ).json()['id']
+    mcp = w.client.post(
+        '/api/mcp/servers', headers=HEADERS, json={'name': 'Docs', 'url': 'http://mock.test/mcp'}
+    ).json()['id']
     with w.store.connect() as conn:
+        conn.execute("INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (w.project,))
+        collections = sorted(
+            str(
+                conn.execute(
+                    'INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,%s) RETURNING id', (w.project, name)
+                ).fetchone()['id']
+            )
+            for name in ('runbooks', 'notes')
+        )
+        gone = conn.execute(
+            "INSERT INTO ka.rag_collections(project_id,name,deleted_at) VALUES (%s,'old',now()) RETURNING id",
+            (w.project,),
+        ).fetchone()['id']
         run(conn, DOWN)
         conn.execute(
             "INSERT INTO ka.repositories(id,project_id,slug,name) VALUES (%s,%s,'other','Other')", (other, w.project)
@@ -73,6 +94,26 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
             conn.execute('INSERT INTO ka.agent_repositories(agent_id,repository_id) VALUES (%s,%s)', (agent, w.shop))
         conn.execute('UPDATE ka.agents SET all_repositories=true WHERE id=%s', (everything,))
         conn.execute('UPDATE ka.agents SET ssh_enabled=false,repositories_enabled=false WHERE id=%s', (off,))
+        # all collections (a deleted one is left out), a skill and an agent-level MCP server
+        conn.execute(
+            """UPDATE ka.agents SET ssh_enabled=false,services_enabled=false,repositories_enabled=false,
+            documents_enabled=true,all_collections=true,skills_enabled=true,mcp_enabled=true WHERE id=%s""",
+            (docs,),
+        )
+        conn.execute('INSERT INTO ka.agent_collections(agent_id,collection_id) VALUES (%s,%s)', (docs, gone))
+        conn.execute(
+            'INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) VALUES (%s,%s,%s)', (docs, skill, w.project)
+        )
+        conn.execute(
+            """INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
+            VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING""",
+            (w.project, docs),
+        )
+        conn.execute(
+            """INSERT INTO ka.agent_config_mcp_servers(config_id,project_id,mcp_server_id)
+            SELECT id,project_id,%s FROM ka.agent_configs WHERE agent=%s AND server_id IS NULL""",
+            (mcp, docs),
+        )
         conn.execute(
             """INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
             VALUES (%s,%s,'Check the disk first.',false) ON CONFLICT DO NOTHING""",
@@ -91,6 +132,14 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
     assert rows[per_run]['access'] == rows[fixed]['access']  # fixed or per run: the same list
     assert rows[everything]['access'] == {'resources': both, 'roles': {'content_editor': False}}
     assert rows[off]['access'] == {'resources': [service], 'roles': {'content_editor': False}}  # switched off: left out
+    assert rows[docs]['access'] == {
+        'resources': [
+            *({'type': 'collection', 'id': item} for item in collections),
+            {'type': 'skill', 'id': skill},
+            {'type': 'mcp_server', 'id': mcp},
+        ],
+        'roles': {'content_editor': False},
+    }
     assert rows[fixed]['instructions'] == 'Check the disk first.' and rows[off]['instructions'] == ''
     with w.store.connect() as conn:
         run(conn, DOWN)
@@ -179,7 +228,7 @@ def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world)
     response = start(
         w,
         agent,
-        resources={'environment_ids': [str(w.environment)], 'documents': [{'id': str(document)}]},
+        resources={'environment_ids': [str(w.environment)], 'documents': [{'id': str(document), 'editable': True}]},
     )
     assert response.status_code == 201, response.text
     access = stored_access(w, response.json()['id'])
@@ -187,6 +236,11 @@ def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world)
         entry('environment', w.environment, 'Production', 'Live'),
         {**entry('document', document, 'nginx runbook', ''), 'editable': True},
         entry('service', w.nginx, 'nginx', 'Front proxy for the shop', f'via environment {w.environment}'),
+    ]
+    read_only = start(w, agent, resources={'documents': [{'id': str(document), 'editable': False}]})
+    assert read_only.status_code == 201, read_only.text  # a read-only pick narrows the editable entry
+    assert stored_access(w, read_only.json()['id'])['resources'] == [
+        {**entry('document', document, 'nginx runbook', ''), 'editable': False}
     ]
 
 
@@ -273,3 +327,28 @@ def test_an_expert_narrows_its_own_access(world):
         assert str(exc) == f"code project {w.shop} is not in the agent's access"
     else:
         raise AssertionError('a resource outside the expert access was given')
+
+
+def test_a_server_without_usable_ssh_stays_in_the_run_and_may_be_picked(world):
+    w = world  # web-1 has no SSH key: ssh_run fails on the server's own settings, the run still holds it
+    agent = a_saved_agent(w)
+    with w.store.connect() as conn:
+        give(conn, agent, [('server', w.server['id'])])
+    for resources in ({}, {'server_ids': [w.server['id']]}):
+        response = start(w, agent, resources=resources)
+        assert response.status_code == 201, response.text
+        [server] = stored_access(w, response.json()['id'])['resources']
+        assert (server['type'], server['id'], server['source']) == ('server', w.server['id'], 'given')
+
+
+def test_an_expert_is_a_content_editor_only_when_it_and_its_caller_are(world):
+    w = world
+    expert = a_saved_agent(w, 'Writer expert')
+    with w.store.connect() as conn:
+        conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Writing.' WHERE id=%s", (expert,))
+        [offered] = [item for item in experts.offered(conn, None) if item['id'] == expert]
+    for own, caller, expected in ((True, True, True), (True, False, False), (False, True, False)):
+        with w.store.connect() as conn:
+            give(conn, expert, [('service', w.nginx)], content_editor=own)
+        config, _ = experts.load(w.store, w.project, offered, None, caller)
+        assert config['access']['roles'] == {'content_editor': expected}, (own, caller)

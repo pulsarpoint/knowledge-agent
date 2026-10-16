@@ -73,7 +73,7 @@ class Loader:
         self.calls: list[tuple] = []
         self.issued: list[dict] = []
 
-    def __call__(self, entry, given):
+    def __call__(self, entry, given, editor=False):
         self.calls.append((entry, given))
         if self.error is not None:
             raise self.error
@@ -349,7 +349,7 @@ def test_a_load_that_ends_after_stop_empties_the_credentials_it_returns():
     release, loading = threading.Event(), threading.Event()
     loader = Loader({'ssh': EXPERT_SECRET})
 
-    def slow(entry, given):
+    def slow(entry, given, editor):
         loading.set()
         release.wait(5)
         return loader(entry, given)

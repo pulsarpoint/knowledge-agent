@@ -302,7 +302,6 @@ SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.
     FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
     WHERE s.project_id=%s AND s.id=ANY(%s::uuid[]) ORDER BY lower(s.name),s.id"""
 DOCUMENTS = 'SELECT id,title FROM ka.live_documents WHERE project_id=%s AND id=ANY(%s::uuid[])'
-EMPTY_ACCESS = {'resources': [], 'roles': {'content_editor': False}}
 
 
 def access_ids(access: Mapping[str, Any], type_: str) -> list[str]:
@@ -340,7 +339,7 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
         if code_root.anchor != '/' or '..' in code_root.parts:
             raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
-        access = agent['access'] or EMPTY_ACCESS
+        access = agent['access']
         instructions = agent['instructions']
 
         def load(query: str, type_: str) -> list[dict[str, Any]]:
