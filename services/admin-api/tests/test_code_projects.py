@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from access_helpers import give
-from knowledge_admin.agents.runner import get_agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from test_api import _client
 from test_repositories import HEADERS
 

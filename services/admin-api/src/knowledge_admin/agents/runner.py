@@ -42,9 +42,8 @@ from knowledge_admin.tools.sdk import expert_tool, function_tool
 from knowledge_admin.knowledge_agents.config import (
     AD_HOC_AGENT,
     credential_references,
-    get_agent_config,
     mcp_definitions,
-)  # noqa: F401  (moved; imported from here too)
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +115,6 @@ async def agent(
             'config': config,
             'credentials': credentials,
             'workspace': workspace,
-            'shell_enabled': False,
             'tools': frozenset(),
             'subagents': subagents,
         }
@@ -153,9 +151,8 @@ async def agent(
                         tools=tools,
                     ) as assistant,
                 ):
-                    # The adapter's backstop and the shell switch follow exactly the tools the model was given.
+                    # The adapter's backstop follows exactly the tools the model was given.
                     context['tools'] = frozenset(tool.name for tool in assistant.tools)
-                    context['shell_enabled'] = 'shell_run' in context['tools']
                     run_config = RunConfig(
                         tracing={'include_task_and_turn_spans': False},
                         model_settings=ModelSettings(max_tokens=max_output_tokens),
@@ -321,11 +318,6 @@ def document_paths(config: dict[str, Any]) -> list[Path]:
     if not config['documents']['enabled'] or documents_grounded(config):
         return []
     return [Path(path) for item in document_collections(config)[1] for path in item['paths']]
-
-
-def get_paths(config: dict[str, Any]) -> list[Path]:
-    """Collect the code/document folders enabled for this agent."""
-    return list(dict.fromkeys([*code_paths(config), *document_paths(config)]))
 
 
 def ssh_servers(config: dict[str, Any]) -> list[dict[str, Any]]:

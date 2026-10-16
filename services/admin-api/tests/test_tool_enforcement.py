@@ -43,18 +43,18 @@ def test_the_model_request_carries_every_tool_with_its_built_in_description(conf
     assert all(tool['description'] == CATALOG[name].usage for name, tool in tools.items())
 
 
-def test_the_shell_is_on_in_every_run(config, responses_api, monkeypatch):
+def test_every_run_offers_every_tool(config, responses_api, monkeypatch):
     seen = {}
     real = Runner.run_streamed
 
     def spy(assistant, task, *, context, **kwargs):
-        seen.update(tools=context['tools'], shell=context['shell_enabled'])
+        seen.update(tools=context['tools'])
         return real(assistant, task, context=context, **kwargs)
 
     monkeypatch.setattr('knowledge_admin.agents.runner.Runner.run_streamed', spy)
     rows(config, {'read_file': None})
     asyncio.run(agent(config, 'Inspect.', credentials={'model-key': 'fixture-api-secret'}))
-    assert seen == {'tools': frozenset(EVERY), 'shell': True}
+    assert seen == {'tools': frozenset(EVERY)}
 
 
 def test_every_mcp_tool_reaches_the_model_and_the_prompt_has_no_tool_notes(config, responses_api):

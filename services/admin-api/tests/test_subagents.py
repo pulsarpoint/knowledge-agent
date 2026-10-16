@@ -59,7 +59,6 @@ async def start(subagents, call_id, task, resources=None):
         'config': parent(),
         'credentials': dict(CREDENTIALS),
         'workspace': SCRATCH,
-        'shell_enabled': True,
         'tools': frozenset(CATALOG),
         'subagents': subagents,
     }
@@ -615,7 +614,6 @@ def test_run_subagent_outside_a_session_is_a_tool_error():
         'config': {'access': {'resources': [], 'roles': {'content_editor': False}}},
         'credentials': {},
         'workspace': None,
-        'shell_enabled': False,
         'tools': frozenset({'run_subagent'}),
     }
     payload = json.dumps({'task': 'Read the worker', 'resources': None})

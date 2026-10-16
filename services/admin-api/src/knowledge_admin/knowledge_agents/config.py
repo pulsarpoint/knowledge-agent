@@ -173,7 +173,7 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
         'grounded': bool(config['documents'].get('grounded', False)),
-        'resources': _access(config.get('access') or {}),
+        'resources': _access(config['access']),
     }
 
 

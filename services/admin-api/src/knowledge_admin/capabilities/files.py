@@ -37,8 +37,6 @@ def available_documents(paths: Iterable[Path]) -> list[Path]:
 def _roots(context: RunContext) -> list[Path]:
     """The workspace and the folders of the run's code projects and collections (their access entries)."""
     config = context['config']
-    if not config['enabled']:
-        raise ValueError('This agent is disabled.')
     access = config['access']
     paths = [context['workspace']]  # the workspace and code folders must be mounted
     paths.extend(

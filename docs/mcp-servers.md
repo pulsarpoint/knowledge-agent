@@ -4,16 +4,14 @@ Agent execution currently returns `TODO`. Connection settings, encrypted credent
 and connection tests remain functional; runtime behavior described below is retained
 as design context only. See [execution status](agents.md).
 
-**Administration → MCP servers** manages Streamable HTTP connections for Code search and SSH. Connections have a name, description, endpoint, optional bearer token, enabled state, and a discovered tool catalog.
+**Administration → MCP servers** manages Streamable HTTP connections that agents can use as resources. Connections have a name, description, endpoint, optional bearer token, enabled state, and a discovered tool catalog.
 
 1. Add the MCP endpoint, for example `https://tools.example.com/mcp`. The address must be reachable from Docker. Use `host.docker.internal` for services running on the Docker Desktop host; `localhost` refers to the container. Code-agent and admin-api share the configured `DOCKER_DNS_SEARCH` suffix.
 2. Save and click **Test connection**. This initializes an MCP session and lists all tools, including paginated catalogs. It does not execute tools. Expand the tool count to inspect names and descriptions.
-3. Select the connection in **Agents → Code search → Settings → Additional tools**, or **Agents → SSH → Settings → MCP servers**, and save. Only enabled, successfully tested connections with tools can be selected.
+3. Add the connection to the agent's **Resources** (the MCP servers in its access) and save. Every tool of its MCP servers is then offered to its runs. Only enabled, successfully tested connections with tools can be selected.
 4. Use the agent's **Test** tab to run a task that needs the selected tools.
 
-Code selection applies to direct code tests and code investigations invoked by the Search agent. Code prompts require investigation without remote changes; each MCP service's credentials and own authorization determine the operations its tools can actually perform. Choose connection permissions appropriate to the agent.
-
-SSH MCP selections follow the existing Global/server configuration. A server without an override inherits Global. In an override, **Use global MCP servers** keeps inheritance; turning it off allows a replacement selection, including an empty list. Removing the server configuration restores inheritance. A multi-server run receives the union of its resolved MCP selections, with per-server selections in its context. MCP connections authorize tools on their own external systems; they are not an additional SSH server allowlist. Built-in SSH tools retain their server and sudo checks.
+Each MCP service's credentials and own authorization determine the operations its tools can actually perform. Choose connection permissions appropriate to the agent. MCP connections authorize tools on their own external systems; they are not an additional SSH server allowlist. Built-in SSH tools retain their server and sudo checks.
 
 ## Credentials and execution
 

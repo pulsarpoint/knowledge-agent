@@ -26,7 +26,6 @@ def context(tmp_path):
         directory.mkdir()
     return {
         'workspace': workspace,
-        'shell_enabled': False,
         'credentials': {'secret': 'test-tool-secret'},
         'config': with_access(
             {
@@ -58,10 +57,7 @@ def test_tools_register_directly_and_hide_backend_context():
     assert all(isinstance(tool, FunctionTool) for tool in agent.tools)
     for tool in tools:
         assert tool.description
-        assert (
-            not {'ctx', 'config', 'credentials', 'workspace', 'shell_enabled'}
-            & tool.params_json_schema['properties'].keys()
-        )
+        assert not {'ctx', 'config', 'credentials', 'workspace'} & tool.params_json_schema['properties'].keys()
     assert set(ssh_run.params_json_schema['properties']) == {'server_id', 'command', 'as_root', 'timeout_seconds'}
 
 
@@ -93,8 +89,6 @@ def test_browse_read_pagination_redaction_and_folder_boundaries(context, tmp_pat
     context['config']['code']['enabled'] = False
     with_access(context['config'])  # its access: no code project now
     assert 'outside' in asyncio.run(invoke(read_file, context, path=str(code / 'a.txt')))
-    context['config']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(list_files, context))
 
 
 def test_file_input_limits_binary_files_and_literal_search(context, tmp_path):

@@ -9,12 +9,11 @@ from typing import Any, NotRequired, TypedDict
 
 class RunContext(TypedDict):
     """Backend-only inputs of one run: the configuration snapshot, resolved credentials, the scratch workspace and
-    whether the shell may run. None of these is a model-supplied argument."""
+    the tools offered. None of these is a model-supplied argument."""
 
     config: dict[str, Any]
     credentials: Mapping[str, str]
     workspace: Path
-    shell_enabled: bool
     tools: frozenset[str]  # the catalog tools offered to this run
     subagents: NotRequired[Any]  # the turn's knowledge_agents.subagents.Subagents (native sessions only)
 

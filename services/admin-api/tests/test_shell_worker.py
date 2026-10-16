@@ -43,7 +43,6 @@ def shell_context(context, monkeypatch):
     try:
         with TemporaryDirectory(dir='/work/agent-workspaces') as directory:
             context['workspace'] = Path(directory)
-            context['shell_enabled'] = True
             yield context
     finally:
         server.should_exit = True
@@ -137,8 +136,6 @@ def test_errors_limits_redaction_and_disabled_access(shell_context):
     assert 'test-tool-secret' not in json.dumps(result)
     limited = json.loads(asyncio.run(invoke(shell_run, shell_context, command='python -c "print(\'x\'*100000)"')))
     assert len(limited['stdout']) == 32768 and limited['truncated']['stdout']
-    shell_context['shell_enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(shell_run, shell_context, command='pwd'))
 
 
 def test_timeout_and_http_disconnect_stop_background_commands(shell_context):

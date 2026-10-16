@@ -177,8 +177,6 @@ async def code_graph(
     config = context['config']
     if refusal := check_code_graph(config['access'], project_id=project_id):
         return refusal
-    if not config['enabled']:
-        raise ValueError('Code access is disabled.')
     graph = next((g for g in config['code'].get('graphs', []) if g['id'] == project_id), None)
     if graph is None:
         raise ValueError('Choose a configured code graph project.')

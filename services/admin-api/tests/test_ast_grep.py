@@ -98,8 +98,6 @@ def test_folder_scope_symlinks_disabled_access_and_project_config(context, tmp_p
     assert asyncio.run(invoke(ast_grep, context, path=str(code), **args)) == 'This run has no code projects.'
     context['config']['code']['enabled'] = True
     with_access(context['config'])
-    context['config']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(ast_grep, context, path=str(code), **args))
 
 
 @pytest.mark.parametrize(

@@ -51,7 +51,7 @@ def test_projects_with_a_current_graph_are_listed(store, saved_agent, graphs):
     assert get_agent_config('operations', conninfo=store.conninfo)['code']['graphs'] == []
 
 
-def test_a_per_run_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, graphs):
+def test_a_run_gets_only_the_graphs_of_its_code_projects(store, saved_agent, graphs):
     repo = saved_agent[5]
     other = str(uuid4())
     with store.connect() as conn:

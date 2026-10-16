@@ -4,7 +4,8 @@ load_skill returns a listed, enabled skill's instructions and refuses any other 
 import asyncio
 
 import pytest
-from knowledge_admin.agents.runner import get_agent_config, get_prompt
+from knowledge_admin.agents.runner import get_prompt
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.capabilities import inventory
 from knowledge_admin.capabilities.skills import check_load_skill
 from knowledge_admin.sessions.run_access import agent_access

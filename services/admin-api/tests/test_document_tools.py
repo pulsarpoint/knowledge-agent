@@ -7,7 +7,7 @@ import httpx
 import pytest
 from access_helpers import with_access
 from agents.tool_context import ToolContext
-from knowledge_admin.agents.runner import get_paths, get_prompt
+from knowledge_admin.agents.runner import document_paths, get_prompt
 from knowledge_admin.capabilities import documents
 from knowledge_admin.sessions import grounding
 from tool_helpers import tools
@@ -74,7 +74,7 @@ def invoke(tool, context, **arguments):
 
 
 def run_context(cfg):
-    return {'config': with_access(cfg), 'credentials': {}, 'workspace': None, 'shell_enabled': False}
+    return {'config': with_access(cfg), 'credentials': {}, 'workspace': None}
 
 
 def test_search_numbers_excerpts_and_limits_collections(rag):
@@ -252,18 +252,18 @@ def test_grounded_agents_get_the_policy():
     assert grounding.POLICY not in get_prompt(config(grounded=False))
 
 
-def test_get_paths_skips_document_collections_for_grounded_agents():
+def test_document_paths_skips_document_collections_for_grounded_agents():
     missing = [{'id': '1', 'name': 'payments', 'description': '', 'path': '/nonexistent/rag-data/payments'}]
-    assert get_paths(config(collections=missing)) == []
-    assert [str(path) for path in get_paths(config(grounded=False, collections=missing))] == [
+    assert document_paths(config(collections=missing)) == []
+    assert [str(path) for path in document_paths(config(grounded=False, collections=missing))] == [
         '/nonexistent/rag-data/payments'
     ]
 
 
-def test_get_paths_treats_legacy_config_without_grounded_as_ungrounded():
+def test_document_paths_treats_legacy_config_without_grounded_as_ungrounded():
     legacy = config()
     del legacy['documents']['grounded']
-    assert [str(path) for path in get_paths(legacy)] == ['/work/rag-data/payments']
+    assert [str(path) for path in document_paths(legacy)] == ['/work/rag-data/payments']
 
 
 def test_read_document_passes_full_path(rag):

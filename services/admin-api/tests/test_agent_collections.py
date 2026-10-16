@@ -1,7 +1,8 @@
 import pytest
 
 from access_helpers import give
-from knowledge_admin.agents.runner import get_agent_config, get_paths
+from knowledge_admin.agents.runner import code_paths, document_paths
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.rag.collections import document_collections, slug
 from test_api import _client
 from test_profiles import update
@@ -92,7 +93,11 @@ def test_ungrounded_document_agents_read_every_collection_path(monkeypatch):
             ],
         },
     }
-    assert [str(p) for p in get_paths(config)] == ['/work/code/payments', '/work/rag-data/jira', '/work/rag-data/old']
+    assert [str(p) for p in [*code_paths(config), *document_paths(config)]] == [
+        '/work/code/payments',
+        '/work/rag-data/jira',
+        '/work/rag-data/old',
+    ]
 
 
 def test_agent_config_maps_any_folder_under_the_data_root(store, monkeypatch):

@@ -81,7 +81,6 @@ def test_the_adapter_refuses_a_tool_the_run_was_not_offered(tmp_path):
         'config': c,
         'credentials': {},
         'workspace': workspace.resolve(),
-        'shell_enabled': False,
         'tools': frozenset({'list_files'}),
     }
     read = function_tool(CATALOG['read_file'], CATALOG['read_file'].usage)
@@ -117,7 +116,6 @@ def test_a_refused_tool_answers_not_offered_even_with_invalid_arguments():
         'config': config(code=True),
         'credentials': {},
         'workspace': None,
-        'shell_enabled': False,
         'tools': frozenset(),
     }
     read = function_tool(CATALOG['read_file'], CATALOG['read_file'].usage)
@@ -140,7 +138,6 @@ def test_a_failing_tool_is_logged_and_traced_with_secrets_redacted(caplog, monke
         'config': config(code=True),
         'credentials': {'key': 'TOP-SECRET'},
         'workspace': None,
-        'shell_enabled': False,
         'tools': frozenset({'read_file'}),
     }
 

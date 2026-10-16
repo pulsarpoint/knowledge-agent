@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from knowledge_admin.agents.wizard import AgentProposal
-from knowledge_admin.agents.runner import get_agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from test_agents import saved_agent, agent_mounts
 from test_repositories import HEADERS
 

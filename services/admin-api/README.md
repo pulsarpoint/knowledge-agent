@@ -124,7 +124,7 @@ This is the application configuration accepted by `agent()` in the same module.
 It is **not** a dictionary to unpack directly into the native Agents SDK:
 the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
-`POST /api/sessions` with `agent_id` and `message` (it may only narrow the agent: tools, experts, subagents, a
+`POST /api/sessions` with `agent_id` and `message` (it may only narrow the agent: experts, subagents, a
 subset of its resources, which bring their direct children), which pins this saved configuration (credential references only) in a Test session
 (`ka.agent_sessions`, `purpose = 'test'`) that `agent-session-worker` runs; the Test tab then uses the other session
 routes under `/api/sessions`. Runs and safe
@@ -156,7 +156,7 @@ result = await agent(config, 'Explain how this project starts.', credentials=dec
 print(result.final_output)
 ```
 
-Setup is split into `get_model`, `get_paths`, `get_ssh` and `get_prompt` in
+Setup is split into `get_model`, `get_ssh` and `get_prompt` in
 `agents/runner.py`; tools come from `tools/catalog.py` through `tools/sdk.py` (MCP server selection is in
 `knowledge_admin/capabilities/mcp.py`). These select the saved settings and enabled
 resources. Provider connections still belong to `model_adapter.agent_model()`;

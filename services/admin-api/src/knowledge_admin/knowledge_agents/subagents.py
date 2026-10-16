@@ -90,7 +90,6 @@ def subagent_config(config: Mapping[str, Any], resources: Mapping[str, list[str]
     sub = copy.deepcopy(dict(config))
     sub.pop('record', None)
     sub.pop('document_access', None)  # a subagent never gets the run's documents
-    sub.pop('tools', None)  # every tool, whatever the agent's old rows say
     sub['experts'] = []  # a subagent never calls experts
     if resources is not None:
         _narrow(sub, resources)

@@ -148,7 +148,7 @@ def test_context_is_added_as_facts(agent):
 
 def test_options_for_a_saved_agent_offer_only_what_may_be_narrowed(agent):
     options = agent.client.get(f'/api/sessions/options?agent_id={agent.id}', headers=HEADERS).json()
-    assert options['agent']['id'] == agent.id and not options['agent']['resources_fixed']
+    assert options['agent']['id'] == agent.id and 'resources_fixed' not in options['agent']
     assert options['prompts'] == [] and options['default_prompt_id'] is None and 'tools' not in options
     assert [server['id'] for server in options['resources']['servers']] == [agent.web]
     assert [service['id'] for service in options['resources']['services']] == [agent.service]

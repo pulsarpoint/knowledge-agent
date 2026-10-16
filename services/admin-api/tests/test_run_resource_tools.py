@@ -90,7 +90,7 @@ def run_context(folders, *, code=(), collections=(), servers=()) -> dict:
         },
     }
     with_access(config)
-    return {'config': config, 'credentials': {}, 'workspace': folders['workspace'], 'shell_enabled': True}
+    return {'config': config, 'credentials': {}, 'workspace': folders['workspace']}
 
 
 def test_file_and_code_tools_reach_only_the_given_code_projects(folders):

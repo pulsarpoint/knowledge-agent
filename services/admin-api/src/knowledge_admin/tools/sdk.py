@@ -38,13 +38,13 @@ class ExpertTask(BaseModel):
     task: str = Field(description='A complete task: the expert does not see this conversation.')
 
 
-class PerRunExpertTask(ExpertTask):
+class ResourceExpertTask(ExpertTask):
     resources: ExpertResources | None = Field(description='The resources the expert works on; only your own.')
 
 
 def expert_tool(entry: dict[str, Any]) -> FunctionTool:
     """One expert as its own tool (ask_<name>): the call goes to the turn's Subagents host (Subagents.ask)."""
-    arguments = PerRunExpertTask if entry.get('accepts') else ExpertTask
+    arguments = ResourceExpertTask if entry.get('accepts') else ExpertTask
 
     async def run(context: dict[str, Any], value: BaseModel) -> str:
         host = context.get('subagents')

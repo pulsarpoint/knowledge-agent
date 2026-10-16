@@ -45,7 +45,7 @@ run.`). The run's instructions list its skills by name and description only (`sk
 
 Expert tools (`ask_<slug>`) are not catalog tools: they are not in the tool catalog and have no usage text of their
 own. A session pins the experts it may call (`config['experts']`); the runtime builds one function tool per entry
-with `tools/sdk.py` (name, description and parameters from the entry; per-run experts also take `resources`), and
+with `tools/sdk.py` (name, description and parameters from the entry; experts that accept resources also take `resources`), and
 `knowledge_agents/experts.py` runs the call. A run gets every enabled expert other than its own agent, or those its
 start request names (`expert_ids`). Subagents never get them, and an expert's own run has an empty `experts` list.
 Calls share the turn's limit of 16 helpers with subagents.

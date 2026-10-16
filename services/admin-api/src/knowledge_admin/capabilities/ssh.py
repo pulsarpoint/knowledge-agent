@@ -241,8 +241,6 @@ async def ssh_run(
     config = context['config']
     if refusal := check_ssh_run(config['access'], server_id=server_id):
         return refusal
-    if not config['enabled']:
-        raise ValueError('SSH is disabled for this agent.')
     # the server's connection as the run's configuration pins it
     server = next((item for item in config['ssh']['servers'] if str(item['id']) == str(server_id)), None)
     if server is None or not server['enabled'] or not server['ssh_allowed']:

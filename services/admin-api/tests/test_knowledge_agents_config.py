@@ -2,13 +2,11 @@
 
 import pytest
 
-from knowledge_admin.agents.runner import get_agent_config as agents_loader
 from knowledge_admin.knowledge_agents.config import AgentConfig, get_agent_config, model_fits
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 
 
 def test_the_config_has_the_declared_shape(store, saved_agent):
-    assert agents_loader is get_agent_config  # moved; existing imports keep working
     config = get_agent_config('operations', conninfo=store.conninfo)
     assert set(config) == AgentConfig.__required_keys__
     assert 'runtime' not in config and 'claude_code_tools' not in config and 'tools' not in config

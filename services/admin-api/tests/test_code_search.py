@@ -102,8 +102,6 @@ def test_literal_names_stable_pagination_and_scope(context, tmp_path):
     assert asyncio.run(invoke(code_search, context, **args)) == 'This run has no code projects.'
     context['config']['code']['enabled'] = True
     with_access(context['config'])
-    context['config']['enabled'] = False
-    assert 'disabled' in asyncio.run(invoke(code_search, context, **args))
 
 
 @pytest.mark.parametrize(

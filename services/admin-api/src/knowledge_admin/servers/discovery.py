@@ -148,14 +148,11 @@ def free_folder(conn, project, kind: str, entry_slug: str) -> str:
 
 def run_resource(conn, row: dict) -> dict | None:
     """The resource a proposal's run started from ({type, id, name}, the name as it is now); None when it no longer
-    exists. A run without started_from (a discovery run from before 0102 that 0106 did not backfill) falls back to the
-    proposal's own server."""
+    exists."""
     session = conn.execute(
         "SELECT agent_config->'started_from' AS started_from FROM ka.agent_sessions WHERE id=%s", (row['session_id'],)
     ).fetchone()
     started = session['started_from'] if session else None
-    if started is None and row['server_id'] is not None:
-        started = {'type': 'server', 'id': row['server_id']}
     resource = (
         conn.execute(f'SELECT id,name FROM {RESOURCE_TABLES[started["type"]]} WHERE id=%s', (started['id'],)).fetchone()
         if started and started.get('type') in RESOURCE_TABLES

@@ -54,8 +54,6 @@ async def shell_run(
     in the shell; use ssh_run for configured servers."""
     if refusal := check_shell_run(context['config']['access'], command=command):
         return refusal
-    if not context['config']['enabled'] or not context['shell_enabled']:
-        raise ValueError('Local command execution is disabled for this agent run.')
     if not command.strip() or '\0' in command or len(command) > 20000 or not 1 <= timeout_seconds <= 300:
         raise ValueError('Provide a command up to 20000 characters and a timeout from 1 to 300 seconds.')
     endpoint = os.environ.get('AGENT_SHELL_URL')

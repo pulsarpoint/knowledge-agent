@@ -179,7 +179,7 @@ once; earlier activity loaded by scrolling up is already counted).
 **Subagents (`run_subagent`).** Every native session run (not a subagent's own) gets `run_subagent(task, resources)`. A
 subagent works on one task (at most 20,000 characters) without the conversation: its configuration is a copy of the
 agent's pinned configuration with every tool but `run_subagent` (the parent's MCP servers kept, no experts, content
-editor off), the resource lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a per-run run, so
+editor off), the resource lists narrowed to the given ids (each must be in the agent's current lists; given resources make it a run of exactly those, so
 an empty list gives nothing), the built-in prompt `knowledge_agents/prompts/subagent.md`, no instructions, skills off
 and the same model. It gets only the turn's already decrypted credentials its configuration references (SSH private
 keys only with `ssh_run` or a kept SSH-hosted MCP server) and shares the turn's scratch workspace. A turn starts at

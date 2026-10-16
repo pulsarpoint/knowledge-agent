@@ -8,7 +8,7 @@ from knowledge_llm.prompts import DEFAULT_PROMPTS
 
 from access_helpers import give
 
-from knowledge_admin.agents.runner import get_agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured

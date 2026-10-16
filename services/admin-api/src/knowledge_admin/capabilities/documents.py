@@ -22,8 +22,6 @@ def _state(context: RunContext) -> dict[str, Any]:
 
 def _collections(config: dict[str, Any]) -> list[str]:
     """The names of the run's collections (its access entries)."""
-    if not config['enabled']:
-        raise ValueError('Document search is not enabled for this agent.')
     return sorted({item['name'] for item in access_rules.listing(config['access'], 'collection')})
 
 
@@ -132,8 +130,6 @@ async def read_document(
     """Read one knowledge-base document returned by search_documents; cite it with its [n]."""
     if refusal := check_read_document(context['config']['access'], collection=collection):
         return refusal
-    if not context['config']['enabled']:
-        raise ValueError('Document search is not enabled for this agent.')
     collection, path = collection.strip(), path.strip()
     parts = path.split('/')
     if not path or path.startswith('/') or '\\' in path or any(part in ('', '.', '..') for part in parts):

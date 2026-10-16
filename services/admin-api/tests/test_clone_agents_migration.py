@@ -175,57 +175,6 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     )
     return conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
 
-    server = saved_agent[1]
-    client, server = saved_agent[0], saved_agent[1]
-    own_connection(store, server['id'], 'agent-user', 2222)
-    saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
-    convert(store)  # the other agents as their tables hold them
-    working = {
-        agent_id: sections(get_agent_config(agent_id, conninfo=store.conninfo)) for agent_id in ('search', 'code')
-    }
-    saved['system_prompt']['content'] = 'Answer from evidence only.'
-    saved['instructions'] = 'Gather evidence first.'
-    saved['when_to_use'] = 'When payments fail.'
-    saved['ssh']['servers'][0].update(instructions='Check only the queue.', instructions_source='agent_version')
-    saved['services']['enabled'] = False
-    with store.connect() as conn:
-        taken = conn.execute("SELECT name FROM ka.agents WHERE id='search'").fetchone()['name']
-    own, saved['name'] = saved['name'], taken  # another agent has this name now: the agent keeps its own
-    for key_name in ('tools', 'resources'):  # saved before 0075 and 0078
-        saved.pop(key_name)
-    with store.connect() as conn:  # the working copy moved on after the version was activated
-        conn.execute(
-            "UPDATE ka.agent_configs SET instructions='Working copy edits' WHERE agent='operations' AND server_id IS NULL"
-        )
-        conn.execute("UPDATE ka.agent_server_connections SET port=2200 WHERE agent_id='operations'")
-        conn.execute("DELETE FROM ka.agent_tools WHERE agent_id='operations'")
-        conn.execute("UPDATE ka.agents SET services_enabled=true,when_to_use='Later' WHERE id='operations'")
-        for table in ('agent_collections', 'agent_repositories', 'agent_services', 'skills_agents'):
-            conn.execute(f"DELETE FROM ka.{table} WHERE agent_id='operations'")
-        conn.execute("""DELETE FROM ka.agent_config_mcp_servers s USING ka.agent_configs c
-            WHERE s.config_id=c.id AND c.agent='operations' """)
-        conn.execute("UPDATE ka.agents SET model_id=NULL,system_prompt='Working prompt' WHERE id='operations'")
-        conn.commit()
-        run(conn, DOWN)
-        conn.commit()
-        agent = activate(conn, 'operations', saved, store.actor(conn, 'migration-admin', 'migration@test'))
-        conn.commit()
-        run(conn, UP)
-        conn.commit()
-    convert(store)
-    after = get_agent_config('operations', conninfo=store.conninfo)
-    assert held(sections(after)) == held(sections(ran_before(saved, agent)))
-    assert after['system_prompt'] == {'content': 'Answer from evidence only.'}
-    assert after['instructions'] == 'Gather evidence first.'  # the per-server override is not kept
-    assert 'instructions' not in after['ssh']['servers'][0]
-    assert after['services']['enabled'] is False and after['when_to_use'] == 'When payments fail.'
-    assert {tool for tool, row in tool_rows(store, 'operations').items() if row[0] == 'on'} == {
-        item['tool'] for item in implied_tools(saved)['items'] if item['mode'] == 'on'
-    }
-    for agent_id, before in working.items():  # agents without a version keep their own configuration
-        assert held(sections(get_agent_config(agent_id, conninfo=store.conninfo))) == held(before), agent_id
-    assert after['name'] == own
-
 
 def test_a_version_saved_after_0078_runs_after_although_every_section_changed_since(store, saved_agent):
     client, server, _, _, mcp, repo, _ = saved_agent
