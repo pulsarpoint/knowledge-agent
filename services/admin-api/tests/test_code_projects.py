@@ -32,8 +32,8 @@ def test_local_project_maps_multiple_folders_and_is_available_to_agents_and_serv
     assert row['folder_paths'] == ['api', 'shared'] and row['description'] == 'Payment source'
     assert row['remote_url'] is None and not row['has_token'] and row['sync_status'] is None
     assert client.post(f'/api/code-projects/{project_id}/pull', headers=HEADERS).status_code == 400
-    assert client.get('/api/agents/code/options', headers=HEADERS).json()['repositories'] == [
-        {'id': project_id, 'name': 'Payments'}
+    assert client.get('/api/agents/code/options', headers=HEADERS).json()['code_project'] == [
+        {'type': 'code_project', 'id': project_id, 'name': 'Payments', 'description_short': 'Payment source'}
     ]
     service = client.post(
         '/api/services', headers=HEADERS, json={'name': 'Payment API', 'repository_ids': [project_id]}

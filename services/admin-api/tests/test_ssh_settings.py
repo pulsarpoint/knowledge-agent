@@ -107,15 +107,6 @@ def test_agent_accepts_credentials_without_host_keys_and_migration_preserves_acc
         f'/api/servers/{server["id"]}/ssh', headers=HEADERS, json={**value, 'revision': 2, 'known_hosts': ''}
     ).json()
     assert saved['enabled']
-    settings = client.get('/api/operations/settings', headers=HEADERS).json()['settings']
-    assert (
-        client.put(
-            '/api/operations/settings',
-            headers=HEADERS,
-            json={k: settings[k] for k in ('revision', 'instructions', 'server_ids', 'skill_ids')},
-        ).status_code
-        == 200
-    )
     with store.connect() as conn:
         connection = agent.connection(conn, UUID(server['id']))
     assert connection.known_hosts == '' and connection.username == 'operator'

@@ -3,14 +3,13 @@
 import json
 from uuid import UUID
 
-import asyncssh
 import pytest
 from knowledge_llm.prompts import DEFAULT_PROMPTS
 
-from access_helpers import from_tables
+from access_helpers import give
+
 from knowledge_admin.agents.runner import get_agent_config
 from knowledge_admin.servers.operations_store import OperationsStore
-from test_agent_ssh import save
 from test_api import _client
 from test_operations import configured
 from test_profiles import create
@@ -88,10 +87,6 @@ def saved_agent(store, tmp_path):
                 'INSERT INTO ka.rag_collection_paths(collection_id,source_path) VALUES (%s,%s)', (collection, path)
             )
         conn.execute(
-            "INSERT INTO ka.agent_collections SELECT 'operations',id FROM ka.rag_collections WHERE name='payments'"
-        )
-        conn.execute("INSERT INTO ka.agent_repositories VALUES ('operations',%s)", (UUID(repo['id']),))
-        conn.execute(
             "UPDATE ka.repositories SET checkout_path='managed/payments',current_commit=%s WHERE id=%s",
             ('a' * 40, UUID(repo['id'])),
         )
@@ -102,19 +97,21 @@ def saved_agent(store, tmp_path):
             "INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,'managed/payments')",
             (UUID(repo['id']), project),
         )
-        conn.execute("INSERT INTO ka.agent_services VALUES ('operations',%s)", (UUID(service['id']),))
-        conn.execute("INSERT INTO ka.skills_agents VALUES ('operations',%s,%s)", (UUID(skill['id']), project))
-        conn.execute(
-            "INSERT INTO ka.agent_config_mcp_servers SELECT id,project_id,%s FROM ka.agent_configs WHERE agent='operations' AND server_id IS NULL",
-            (UUID(mcp['id']),),
+        payments = conn.execute("SELECT id FROM ka.rag_collections WHERE name='payments'").fetchone()['id']
+        give(
+            conn,
+            'operations',
+            [
+                ('server', server['id']),
+                ('service', service['id']),
+                ('code_project', repo['id']),
+                ('collection', payments),
+                ('skill', skill['id']),
+                ('mcp_server', mcp['id']),
+            ],
         )
         conn.execute('UPDATE ka.mcp_servers SET tools=\'[{"name":"lookup"}]\' WHERE id=%s', (UUID(mcp['id']),))
-        conn.execute(
-            """UPDATE ka.agents SET model_id=%s,documents_enabled=true,repositories_enabled=true,
-            ssh_enabled=true,skills_enabled=true,mcp_enabled=true,services_enabled=true WHERE id='operations'""",
-            (UUID(model['id']),),
-        )
-    from_tables(store)
+        conn.execute("UPDATE ka.agents SET model_id=%s WHERE id='operations'", (UUID(model['id']),))
     return client, server, ssh, skill, mcp, repo, model
 
 
@@ -172,7 +169,7 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
         ]:
             encrypted = bytes(conn.execute(query, (UUID(reference['id']),)).fetchone()['secret'])
             assert store.cipher.decrypt(encrypted[:12], encrypted[12:], reference['aad'].encode()).decode() == expected
-        connection = OperationsStore(store, 'shop').agent_connection(conn, UUID(host['id']))
+        connection = OperationsStore(store, 'shop').connection(conn, UUID(host['id']))
         assert connection.private_key == ssh['private_key']
     serialized = json.dumps(config)
     for excluded in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret'):
@@ -205,18 +202,13 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
 
 def test_per_agent_connections_and_server_overrides_are_no_longer_read(store, saved_agent):
     """A server uses its own SSH settings and the agent's instructions (phase 2: references only)."""
-    client, server, ssh, *_ = saved_agent
-    own_key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
-    save(
-        client,
-        f'/api/agents/operations/servers/{server["id"]}/ssh',
-        username='agent-user',
-        port=2222,
-        known_hosts='',
-        allow_sudo=False,
-        private_key=own_key,
-    )
+    _, server, ssh, *_ = saved_agent
     with store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,username,port)
+            SELECT 'operations',id,project_id,'agent-user',2222 FROM ka.servers WHERE id=%s""",
+            (UUID(server['id']),),
+        )
         conn.execute(
             """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
             SELECT project_id,'operations',id,'Inspect this host only.',false,false FROM ka.servers WHERE id=%s""",
@@ -234,7 +226,7 @@ def test_per_agent_connections_and_server_overrides_are_no_longer_read(store, sa
             ).fetchone()['ciphertext']
         )
     key = store.cipher.decrypt(encrypted[:12], encrypted[12:], host['private_key_ref']['aad'].encode()).decode()
-    assert key == ssh['private_key'] != own_key  # the server's own key
+    assert key == ssh['private_key']  # the server's own key
 
 
 def test_switches_and_all_scopes_are_no_longer_read_and_missing_items_are_skipped(store, saved_agent):

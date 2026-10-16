@@ -170,7 +170,6 @@ def analyst(tester):
                 'INSERT INTO ka.code_project_folders(code_project_id,project_id,path) VALUES (%s,%s,%s)',
                 (project_id, project, slug),
             )
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id=%s", (t.agent,))
         give(conn, t.agent, [('code_project', app), ('code_project', worker)])
     t.app, t.worker = str(app), str(worker)
     return t
@@ -211,13 +210,9 @@ def test_the_test_tab_offers_what_a_run_may_be_given(analyst):
     offered = a.client.get(f'/api/agents/{a.agent}/run-resources', headers=HEADERS)
     assert offered.status_code == 200 and offered.headers['cache-control'] == 'no-store'
     assert offered.json() == {
-        'resources': 'per_run',
-        'code_projects': [{'id': a.app, 'name': 'App'}, {'id': a.worker, 'name': 'Worker'}],
-        'collections': None,
-        'servers': None,
-        'services': None,
+        'resources': [
+            {'type': 'code_project', 'id': a.app, 'name': 'App', 'description_short': ''},
+            {'type': 'code_project', 'id': a.worker, 'name': 'Worker', 'description_short': ''},
+        ]
     }
-    with a.store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='fixed' WHERE id=%s", (a.agent,))
-    assert a.client.get(f'/api/agents/{a.agent}/run-resources', headers=HEADERS).json() == {'resources': 'fixed'}
     assert a.client.get('/api/agents/missing/run-resources', headers=HEADERS).status_code == 404

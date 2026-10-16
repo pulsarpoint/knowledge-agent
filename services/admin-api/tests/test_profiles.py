@@ -6,7 +6,6 @@ import pytest
 from fastapi import HTTPException
 
 from knowledge_admin.agents.profiles_api import ProfileInput
-from knowledge_admin.servers.operations_store import OperationsStore
 from test_api import _client
 from test_operations import configured
 from test_repositories import HEADERS
@@ -22,20 +21,7 @@ def wizard_payload(name, **overrides):
         'instructions': '',
         'model_id': None,
         'enabled': True,
-        'documents_enabled': False,
-        'repositories_enabled': False,
-        'ssh_enabled': False,
-        'skills_enabled': False,
-        'mcp_enabled': False,
-        'services_enabled': False,
-        'all_collections': False,
-        'all_repositories': False,
-        'collection_ids': [],
-        'repository_ids': [],
-        'skill_ids': [],
-        'mcp_server_ids': [],
-        'service_ids': [],
-        'servers': [],
+        'access': {'resources': [], 'roles': {'content_editor': False}},
         **overrides,
     }
 
@@ -62,11 +48,8 @@ def test_catalog_creation_and_independent_prompts(store, tmp_path):
     first = create(client, 'Payments')
     second = create(client, 'Documentation')
     assert first['id'] != second['id'] and 'kind' not in first
-    assert not any(
-        first[name + '_enabled'] for name in ('documents', 'repositories', 'ssh', 'skills', 'mcp', 'services')
-    )
-    assert first['model_id'] is None and first['collection_ids'] == first['repository_ids'] == first['skill_ids'] == []
-    assert not first['all_collections'] and not first['all_repositories']
+    assert first['model_id'] is None and first['instructions'] == ''
+    assert first['access'] == {'resources': [], 'roles': {'content_editor': False}}
     assert (first['system_prompt'], second['system_prompt']) == (
         'Instructions for Payments.',
         'Instructions for Documentation.',
@@ -95,24 +78,18 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
         headers=HEADERS,
         json={'name': 'review', 'description': 'Review procedures', 'instructions': 'Inspect retries.'},
     ).json()
-    response = update(client, first, repositories_enabled=True, repository_ids=[repository['id']])
+    code = {'resources': [{'type': 'code_project', 'id': repository['id']}], 'roles': {'content_editor': False}}
+    response = update(client, first, access=code)
     assert response.status_code == 200, response.text
     first = response.json()
-    assert first['repository_ids'] == [repository['id']]
-    saved = client.put(
-        '/api/operations/settings',
-        headers=HEADERS,
-        params={'agent_id': first['id']},
-        json={'revision': 1, 'instructions': '', 'server_ids': [], 'skill_ids': [skill['id']]},
-    )
-    assert saved.status_code == 200, saved.text
-    assert client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()['skill_ids'] == [skill['id']]
-    first = client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()
-    assert update(client, first, repository_ids=[str(uuid4())]).status_code == 400
-    assert update(client, first, all_repositories=True).status_code == 400
-    assert update(client, first, all_collections=True).status_code == 200
-    first = client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()
-    assert client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['repository_ids'] == []
+    assert [(r['type'], r['id']) for r in first['access']['resources']] == [('code_project', repository['id'])]
+    skilled = {**code, 'resources': [*code['resources'], {'type': 'skill', 'id': skill['id']}]}
+    first = update(client, first, access=skilled).json()
+    assert [r['id'] for r in first['access']['resources']] == [repository['id'], skill['id']]
+    gone = {**code, 'resources': [{'type': 'code_project', 'id': str(uuid4())}]}
+    first = update(client, first, access=gone).json()  # a resource that does not exist is dropped
+    assert first['access']['resources'] == []
+    assert client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['access']['resources'] == []
     model = client.post(
         '/api/llm/models',
         headers=HEADERS,
@@ -134,7 +111,7 @@ def test_resource_validation_and_per_profile_model_assignments(store, tmp_path):
     assert client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['model_id'] is None
     assert client.get('/api/llm', headers=HEADERS).json()['assignments']['code_model_id'] is None
     options = client.get(f'/api/agents/{first["id"]}/options', headers=HEADERS)
-    assert options.status_code == 200 and options.json()['repositories'][0]['id'] == repository['id']
+    assert options.status_code == 200 and options.json()['code_project'][0]['id'] == repository['id']
 
 
 def test_mcp_selections_are_independent_and_available_to_every_agent(store, tmp_path):
@@ -187,7 +164,7 @@ def test_system_prompt_is_required_by_api_and_database(store, tmp_path):
             conn.execute("INSERT INTO ka.agents(id,name,system_prompt) VALUES ('missing-prompt','Missing prompt',NULL)")
 
 
-def test_agent_skill_assignments_are_many_to_many_and_atomic(store, tmp_path):
+def test_skills_are_referenced_by_many_agents_and_a_deleted_one_shows_missing(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     first, second = create(client, 'First specialist'), create(client, 'Second specialist')
     skills = [
@@ -196,43 +173,23 @@ def test_agent_skill_assignments_are_many_to_many_and_atomic(store, tmp_path):
         ).json()['id']
         for name in ('inspect', 'verify')
     ]
-    first = update(client, first, skills_enabled=True, skill_ids=skills).json()
-    second = update(client, second, skills_enabled=True, skill_ids=[skills[0]]).json()
-    assert set(first['skill_ids']) == set(skills)
-    assert second['skill_ids'] == [skills[0]]
-    with store.connect() as conn:
-        assert conn.execute('SELECT count(*) AS n FROM ka.skills_agents').fetchone()['n'] == 3
-        assert conn.execute('SELECT count(*) AS n FROM ka.agent_config_skills').fetchone()['n'] == 0
-        for selected in (first, second):
-            configs = OperationsStore(store, 'shop', selected['id']).configs(conn)
-            assert set(next(c for c in configs if c['server_id'] is None)['skill_ids']) == {
-                UUID(s) for s in selected['skill_ids']
-            }
-        with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
-            conn.execute('INSERT INTO ka.skills_agents SELECT * FROM ka.skills_agents LIMIT 1')
-        with pytest.raises(psycopg.errors.ForeignKeyViolation), conn.transaction():
-            conn.execute(
-                "INSERT INTO ka.skills_agents(agent_id,skill_id,project_id) SELECT 'missing',skill_id,project_id FROM ka.skills_agents LIMIT 1"
-            )
-    disabled = update(client, first, skills_enabled=False, skill_ids=skills)
-    assert disabled.status_code == 200, disabled.text
-    assert set(disabled.json()['skill_ids']) == set(skills)
-    assert update(client, first, skill_ids=[]).status_code == 409
-    first = disabled.json()
-    invalid = update(client, first, skills_enabled=True, skill_ids=[str(uuid4())])
-    assert invalid.status_code == 400
-    assert client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json() == first
-    assert update(client, first, skill_ids=[skills[0], skills[0]]).status_code == 400
-    first = update(client, first, skill_ids=[skills[1]]).json()
-    assert first['skill_ids'] == [skills[1]]
-    assert client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['skill_ids'] == [skills[0]]
+
+    def access(*ids):
+        return {'resources': [{'type': 'skill', 'id': i} for i in ids], 'roles': {'content_editor': False}}
+
+    first = update(client, first, access=access(*skills)).json()
+    second = update(client, second, access=access(skills[0])).json()
+    assert [r['id'] for r in first['access']['resources']] == skills
+    assert [r['id'] for r in second['access']['resources']] == [skills[0]]
     with store.connect() as conn:
         conn.execute('DELETE FROM ka.agent_skills WHERE id=%s', (UUID(skills[1]),))
-        assert (
-            conn.execute('SELECT count(*) AS n FROM ka.skills_agents WHERE agent_id=%s', (first['id'],)).fetchone()['n']
-            == 0
-        )
-    assert client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['skill_ids'] == [skills[0]]
+    found = client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()['access']['resources']
+    assert [(r['id'], r.get('missing', False)) for r in found] == [(skills[0], False), (skills[1], True)]
+    saved = update(client, client.get(f'/api/agents/{first["id"]}', headers=HEADERS).json()).json()
+    assert [r['id'] for r in saved['access']['resources']] == [skills[0]]  # saving drops the missing one
+    assert [
+        r['id'] for r in client.get(f'/api/agents/{second["id"]}', headers=HEADERS).json()['access']['resources']
+    ] == [skills[0]]
 
 
 def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_path, monkeypatch):
@@ -242,38 +199,25 @@ def test_documents_grounded_is_saved_versioned_and_kept_when_omitted(store, tmp_
     agent = create(client, 'Grounded docs')
     saved = client.get(f'/api/agents/{agent["id"]}', headers=HEADERS).json()
     assert saved['documents_grounded'] is False
-    payload = {
-        key: saved[key]
-        for key in (
-            'revision',
-            'name',
-            'description',
-            'when_to_use',
-            'enabled',
-            'all_collections',
-            'all_repositories',
-            'collection_ids',
-            'repository_ids',
-            'service_ids',
-            'documents_enabled',
-            'repositories_enabled',
-            'ssh_enabled',
-            'skills_enabled',
-            'mcp_enabled',
-            'services_enabled',
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO ka.rag_workspaces(project_id,settings) VALUES (%s,'{}')", (store.project(conn, 'shop'),)
         )
-    }
+        collection = conn.execute(
+            "INSERT INTO ka.rag_collections(project_id,name) VALUES (%s,'runbooks') RETURNING id",
+            (store.project(conn, 'shop'),),
+        ).fetchone()['id']
+    access = {'resources': [{'type': 'collection', 'id': str(collection)}], 'roles': {'content_editor': False}}
+    payload = {key: saved[key] for key in ('revision', 'name', 'description', 'when_to_use', 'enabled', 'instructions')}
     updated = client.put(
-        f'/api/agents/{agent["id"]}',
-        headers=HEADERS,
-        json={**payload, 'documents_enabled': True, 'documents_grounded': True},
+        f'/api/agents/{agent["id"]}', headers=HEADERS, json={**payload, 'access': access, 'documents_grounded': True}
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()['documents_grounded'] is True
     kept = client.put(
         f'/api/agents/{agent["id"]}',
         headers=HEADERS,
-        json={**payload, 'revision': updated.json()['revision'], 'documents_enabled': True},
+        json={**payload, 'revision': updated.json()['revision'], 'access': access},
     )
     assert kept.json()['documents_grounded'] is True
     config = client.get(f'/api/agents/{agent["id"]}/config', headers=HEADERS).json()

@@ -86,6 +86,9 @@ def test_the_migration_converts_each_agent_and_goes_down(world):
             (per_run,),
         )
         for agent in (fixed, per_run, off):
+            conn.execute(  # the settings row operations_servers needs (the wizard wrote it before phase 2)
+                'INSERT INTO ka.operations_settings(project_id,agent) VALUES (%s,%s)', (w.project, agent)
+            )
             conn.execute(
                 'INSERT INTO ka.operations_servers(project_id,agent,server_id) VALUES (%s,%s,%s)',
                 (w.project, agent, w.server['id']),

@@ -2,7 +2,6 @@
 sections list (sessions.run_access.config_resources), all given; a partial configuration (document tests) its
 documents."""
 
-from pathlib import Path
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -39,15 +38,3 @@ def give(conn, agent_id: str, resources: list, content_editor: bool = False) -> 
         'UPDATE ka.agents SET access=%s WHERE id=%s',
         (Jsonb({'resources': entries, 'roles': {'content_editor': content_editor}}), agent_id),
     )
-
-
-MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
-
-
-def from_tables(store) -> None:
-    """Every agent's access object and instructions converted from the per-type tables, as 0113 converts them (0113
-    down, then up): the agent API, the wizard, clones and reviews write those tables until they write the access
-    object themselves (phase 2, task 2)."""
-    with store.connect() as conn:
-        for name in ('0113_agent_access.down.sql', '0113_agent_access.up.sql'):
-            conn.execute((MIGRATIONS / name).read_text(), prepare=False)

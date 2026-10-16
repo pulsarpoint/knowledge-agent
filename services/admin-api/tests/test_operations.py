@@ -1,12 +1,13 @@
 import asyncio
 import json
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import asyncssh
 import pytest
 from agents.tool_context import ToolContext
 from fastapi import HTTPException
 
+from access_helpers import give
 from test_api import _client
 from test_repositories import HEADERS
 from knowledge_admin.capabilities import ssh
@@ -36,8 +37,9 @@ def setup(client):
 def configured(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     server, value = setup(client)
-    settings = {'revision': 1, 'instructions': 'Verify every change.', 'server_ids': [server['id']], 'skill_ids': []}
-    assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 200
+    with store.connect() as conn:  # the operations agent works on this server
+        give(conn, 'operations', [('server', server['id'])])
+        conn.execute("UPDATE ka.agents SET instructions='Verify every change.' WHERE id='operations'")
     model = client.post(
         '/api/llm/models',
         headers=HEADERS,
@@ -61,7 +63,6 @@ def test_ssh_secret_encrypted_write_only_rotation_removal_and_server_delete(stor
     assert server['has_private_key'] and server['enabled'] and server['revision'] == 2
     assert value['private_key'] not in json.dumps(server)
     assert client.get(path).status_code == 403
-    assert client.get('/api/operations/settings').status_code == 403
     assert client.put(path, headers=HEADERS, json=value).status_code == 409
     with store.connect() as conn:
         row = conn.execute(
@@ -120,22 +121,6 @@ def test_partial_settings_key_clear_and_invalid_secret_never_echoed(store, tmp_p
         assert (
             conn.execute("SELECT count(*) AS n FROM ka.credentials WHERE kind='ssh_private_key'").fetchone()['n'] == 0
         )
-
-
-def test_settings_validate_ssh_skills_revisions_and_empty_allowlist(store, tmp_path):
-    client = _client(tmp_path, repository_store=store)
-    initial = client.get('/api/operations/settings', headers=HEADERS).json()['settings']
-    assert 'enabled' not in initial and initial['server_ids'] == []
-    settings = {'revision': 1, 'instructions': '', 'server_ids': [], 'skill_ids': []}
-    assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 200
-    settings['revision'] = 2
-    server, _ = setup(client)
-    settings['server_ids'] = [server['id']]
-    settings['skill_ids'] = [str(uuid4())]
-    assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 400
-    settings['skill_ids'] = []
-    assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 200
-    assert client.put('/api/operations/settings', headers=HEADERS, json=settings).status_code == 409
 
 
 def test_builtin_mcp_endpoint_removed_and_model_gateway_rejects_unleased_requests(store, tmp_path):

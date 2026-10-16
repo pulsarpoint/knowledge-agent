@@ -191,13 +191,13 @@ def test_profile_api_grants_collections(store, tmp_path):
     client = _client(tmp_path, repository_store=store)
     ids = seed(store, ('jira', 'rag-data/jira'))
     options = client.get('/api/agents/search/options', headers=HEADERS).json()
-    assert [(c['name'], c['description']) for c in options['collections']] == [('jira', 'About jira')]
+    assert [(c['name'], c['description_short']) for c in options['collection']] == [('jira', 'About jira')]
     agent = client.get('/api/agents/search', headers=HEADERS).json()
     assert 'all_folders' not in agent and 'folder_ids' not in agent
-    saved = update(client, agent, all_collections=False, collection_ids=[str(ids['jira'])])
+    jira = {'resources': [{'type': 'collection', 'id': str(ids['jira'])}], 'roles': {'content_editor': False}}
+    saved = update(client, agent, access=jira)
     assert saved.status_code == 200, saved.text
-    assert client.get('/api/agents/search', headers=HEADERS).json()['collection_ids'] == [str(ids['jira'])]
-    both = update(client, saved.json(), all_collections=True, collection_ids=[str(ids['jira'])])
-    assert both.status_code == 400
+    found = client.get('/api/agents/search', headers=HEADERS).json()['access']['resources']
+    assert [(r['type'], r['id']) for r in found] == [('collection', str(ids['jira']))]
     old = update(client, saved.json(), folder_ids=[])
     assert old.status_code == 400 and 'Extra inputs' in old.text

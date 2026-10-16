@@ -16,17 +16,10 @@ from knowledge_admin.db import storage
 from knowledge_admin.knowledge_agents.config import fingerprint, get_agent_config
 
 
-class ServerInstructions(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    server_id: UUID
-    instructions: str = Field(max_length=40000)
-
-
 class InstructionChanges(BaseModel):
     model_config = ConfigDict(extra='forbid')
     system_prompt: str | None = Field(max_length=100000)
     instructions: str | None = Field(max_length=40000)
-    server_instructions: list[ServerInstructions] = Field(max_length=200)
 
 
 class TuningSuggestion(BaseModel):
@@ -44,10 +37,9 @@ class TuningSuggestion(BaseModel):
 
 REVIEW_NOT_FOUND = 'Suggestion not found for this agent.'
 AGENT_CHANGED = 'The agent changed since you opened the suggestion. Review it again.'
-UNKNOWN_SERVER = 'Instructions refer to a server outside this agent.'
 PROMPT_REQUIRED = 'Enter a system prompt.'
 INVALID_TEXT = 'Instructions cannot contain NUL characters.'
-NO_CHANGES = {'system_prompt': None, 'instructions': None, 'server_instructions': []}
+NO_CHANGES = {'system_prompt': None, 'instructions': None}
 
 
 class ApplyInput(BaseModel):
@@ -58,38 +50,13 @@ class ApplyInput(BaseModel):
     changes: InstructionChanges
 
 
-def write_changes(conn, project_id, agent_id: str, changes: InstructionChanges, actor_id) -> None:
-    """Write reviewed texts into an agent: its prompt, its instructions (servers that inherit them follow) and server
-    overrides (a new override inherits the agent's skills and MCP servers). Nothing else changes."""
+def write_changes(conn, agent_id: str, changes: InstructionChanges, actor_id) -> None:
+    """Write reviewed texts into an agent: its prompt and its instructions. Nothing else changes."""
     if changes.system_prompt is not None:
         conn.execute('UPDATE ka.agents SET system_prompt=%s WHERE id=%s', (changes.system_prompt, agent_id))
     if changes.instructions is not None:
-        conn.execute(
-            """INSERT INTO ka.agent_configs(project_id,agent,instructions,inherit_skills)
-            VALUES (%s,%s,'',false) ON CONFLICT DO NOTHING""",
-            (project_id, agent_id),
-        )
-        conn.execute(
-            """UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
-            WHERE project_id=%s AND agent=%s AND server_id IS NULL""",
-            (changes.instructions, actor_id, project_id, agent_id),
-        )
-    for change in changes.server_instructions:
-        conn.execute(
-            """INSERT INTO ka.agent_configs(project_id,agent,server_id,instructions,inherit_skills,inherit_mcp_servers)
-            VALUES (%s,%s,%s,'',true,true) ON CONFLICT DO NOTHING""",
-            (project_id, agent_id, change.server_id),
-        )
-        conn.execute(
-            """UPDATE ka.agent_configs SET instructions=%s,revision=revision+1,updated_by=%s
-            WHERE project_id=%s AND agent=%s AND server_id=%s""",
-            (change.instructions, actor_id, project_id, agent_id, change.server_id),
-        )
+        conn.execute('UPDATE ka.agents SET instructions=%s WHERE id=%s', (changes.instructions, agent_id))
     conn.execute('UPDATE ka.agents SET revision=revision+1,updated_by=%s WHERE id=%s', (actor_id, agent_id))
-    conn.execute(
-        'UPDATE ka.operations_settings SET revision=revision+1,updated_by=%s WHERE project_id=%s AND agent=%s',
-        (actor_id, project_id, agent_id),
-    )
 
 
 def build_api(app_name, store):
@@ -129,15 +96,6 @@ def build_api(app_name, store):
             'fingerprint': fingerprint(current),
             'system_prompt': current['system_prompt']['content'],
             'instructions': current['instructions'],
-            'servers': [
-                {
-                    'id': server['id'],
-                    'name': server['name'],
-                    'instructions': server['instructions'],
-                    'inherits': server['instructions_source'] == 'agent',
-                }
-                for server in current['ssh']['servers']
-            ],
         }
 
     @router.post('/apply')
@@ -146,8 +104,7 @@ def build_api(app_name, store):
         changes = value.changes
         if changes.system_prompt is not None and (not changes.system_prompt.strip() or '\x00' in changes.system_prompt):
             raise HTTPException(400, PROMPT_REQUIRED)
-        texts = [changes.instructions or '', *(change.instructions for change in changes.server_instructions)]
-        if any('\x00' in text for text in texts):
+        if '\x00' in (changes.instructions or ''):
             raise HTTPException(400, INVALID_TEXT)
         with database().connect() as conn:
             conn.execute('SELECT id FROM ka.agents WHERE id=%s FOR UPDATE', (agent_id,))
@@ -155,9 +112,6 @@ def build_api(app_name, store):
             current = config(agent_id)
             if current['revision'] != value.revision or fingerprint(current) != value.fingerprint:
                 raise HTTPException(409, AGENT_CHANGED)
-            servers = {str(server['id']) for server in current['ssh']['servers']}
-            if any(str(change.server_id) not in servers for change in changes.server_instructions):
-                raise HTTPException(422, UNKNOWN_SERVER)
             actor, project = store.actor(conn, *request_actor(request)), store.project(conn, app_name)
             target = agent_id
             if value.target == 'clone':
@@ -170,7 +124,7 @@ def build_api(app_name, store):
                     VALUES (%s,%s,'agent.cloned','agent',%s)""",
                     (project, actor, Jsonb({'agent_id': target, 'cloned_from': agent_id})),
                 )
-            write_changes(conn, project, target, changes, actor)
+            write_changes(conn, target, changes, actor)
             conn.execute(
                 """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,details)
                 VALUES (%s,%s,'agent.suggestion.applied','agent',%s)""",

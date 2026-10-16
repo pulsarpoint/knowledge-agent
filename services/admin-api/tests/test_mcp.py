@@ -17,7 +17,6 @@ from psycopg.conninfo import conninfo_to_dict
 
 from knowledge_admin.llm.mcp_settings import credential_aad
 from test_api import _client
-from test_operations import configured
 from test_repositories import HEADERS
 
 
@@ -170,33 +169,3 @@ def test_failures_do_not_echo_credentials_and_invalid_urls_rejected(store, tmp_p
     response = client.post(path + '/test', headers=HEADERS, json={'revision': changed['revision']})
     assert not response.json()['ok'] and 'invalid-private-token' not in response.text
     assert response.json()['server']['tools'] == []
-
-
-def test_ssh_global_inherited_explicit_empty_mcp_selections(store, tmp_path, remote_mcp):
-    client, ssh_server, _, agent = configured(store, tmp_path)
-    server = create(client, remote_mcp[0])
-    settings = client.get('/api/operations/settings', headers=HEADERS).json()['settings']
-    value = {k: settings[k] for k in ('revision', 'instructions', 'skill_ids', 'server_ids')}
-    assert (
-        client.put(
-            '/api/operations/settings', headers=HEADERS, json={**value, 'mcp_server_ids': [server['id']]}
-        ).status_code
-        == 200
-    )
-    assert client.get('/api/operations/settings', headers=HEADERS).json()['settings']['mcp_server_ids'] == [
-        server['id']
-    ]
-    settings = client.get('/api/operations/settings', headers=HEADERS).json()['settings']
-    response = client.put(
-        f'/api/operations/configs/{ssh_server["id"]}',
-        headers=HEADERS,
-        json={
-            'revision': None,
-            'settings_revision': settings['revision'],
-            'instructions': None,
-            'skill_ids': None,
-            'mcp_server_ids': [],
-        },
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()['mcp_server_ids'] == []

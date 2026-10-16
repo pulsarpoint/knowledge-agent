@@ -5,12 +5,9 @@ import copy
 from pathlib import Path
 from uuid import uuid4
 
-import asyncssh
-from access_helpers import from_tables
 from implied_tools import implied_tools
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
 from psycopg.types.json import Jsonb
-from test_agent_ssh import save
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_api import _client
 from test_profiles import create
@@ -86,6 +83,7 @@ def held(found: dict) -> dict:
     """sections() as an access object holds them (0113): a kind only with items and only when it was switched on, no
     "all", no per-server overrides or per-agent connections."""
     found = copy.deepcopy(found)
+    found.pop('resources')  # the access object itself: compared through the sections it fills
     for key, items in (('skills', 'items'), ('mcp', 'servers'), ('services', 'items'), ('ssh', 'servers')):
         if not found[key]['enabled']:
             found[key][items] = []
@@ -101,6 +99,23 @@ def held(found: dict) -> dict:
     return found
 
 
+def convert(store) -> None:
+    """Every agent's access object as 0113 converts the per-type tables (what 0080 materialised into them)."""
+    with store.connect() as conn:
+        run(conn, '0113_agent_access.down.sql')
+        run(conn, '0113_agent_access.up.sql')
+
+
+def own_connection(store, server_id: str, username: str, port: int) -> None:
+    """A per-agent SSH connection of the operations agent (written before 0113 stopped reading them)."""
+    with store.connect() as conn:
+        conn.execute(
+            """INSERT INTO ka.agent_server_connections(agent_id,server_id,project_id,username,port)
+            SELECT 'operations',id,project_id,%s,%s FROM ka.servers WHERE id=%s""",
+            (username, port, server_id),
+        )
+
+
 def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     version = conn.execute(
         """INSERT INTO ka.agent_versions(agent,version,label,config,created_by,published_at)
@@ -113,22 +128,14 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     return conn.execute('SELECT enabled FROM ka.agents WHERE id=%s', (agent_id,)).fetchone()
 
 
-def test_every_agent_runs_what_it_ran_before(store, saved_agent):
+    server = saved_agent[1]
     client, server = saved_agent[0], saved_agent[1]
-    key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
-    save(
-        client,
-        f'/api/agents/operations/servers/{server["id"]}/ssh',
-        username='agent-user',
-        port=2222,
-        known_hosts='',
-        allow_sudo=False,
-        private_key=key,
-    )
+    own_connection(store, server['id'], 'agent-user', 2222)
+    saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
+    convert(store)  # the other agents as their tables hold them
     working = {
         agent_id: sections(get_agent_config(agent_id, conninfo=store.conninfo)) for agent_id in ('search', 'code')
     }
-    saved = as_saved(get_agent_config('operations', conninfo=store.conninfo))
     saved['system_prompt']['content'] = 'Answer from evidence only.'
     saved['instructions'] = 'Gather evidence first.'
     saved['when_to_use'] = 'When payments fail.'
@@ -161,7 +168,7 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
         conn.commit()
         run(conn, UP)
         conn.commit()
-    from_tables(store)  # what 0080 materialised, as 0113 converts it
+    convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert held(sections(after)) == held(sections(ran_before(saved, agent)))
     assert after['system_prompt'] == {'content': 'Answer from evidence only.'}
@@ -178,16 +185,7 @@ def test_every_agent_runs_what_it_ran_before(store, saved_agent):
 
 def test_a_version_saved_after_0078_runs_after_although_every_section_changed_since(store, saved_agent):
     client, server, _, _, mcp, repo, _ = saved_agent
-    key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
-    save(
-        client,
-        f'/api/agents/operations/servers/{server["id"]}/ssh',
-        username='agent-user',
-        port=2222,
-        known_hosts='',
-        allow_sudo=False,
-        private_key=key,
-    )
+    own_connection(store, server['id'], 'agent-user', 2222)
     with store.connect() as conn:
         runbooks = str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='runbooks'").fetchone()['id'])
         unselected = str(conn.execute('SELECT id FROM ka.repositories WHERE id<>%s', (repo['id'],)).fetchone()['id'])
@@ -223,15 +221,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     other = client.post(
         '/api/servers', headers=HEADERS, json={'name': 'Other host', 'hostname': 'other.test', 'ssh_allowed': True}
     ).json()
-    save(
-        client,
-        f'/api/agents/operations/servers/{other["id"]}/ssh',
-        username='other-user',
-        port=2022,
-        known_hosts='',
-        allow_sudo=False,
-        private_key=key,
-    )  # a connection for a server the version does not select
+    own_connection(store, other['id'], 'other-user', 2022)  # a connection for a server the version does not select
     with store.connect() as conn:  # the working copy changes every section after the version was activated
         conn.execute(
             "UPDATE ka.agent_configs SET instructions='Working copy edits' WHERE agent='operations' AND server_id IS NULL"
@@ -243,7 +233,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
         conn.execute("""UPDATE ka.agents SET model_id=NULL,system_prompt='Working prompt',when_to_use='Later',
             documents_enabled=false,repositories_enabled=false,ssh_enabled=false,
             skills_enabled=false,mcp_enabled=false,services_enabled=false,resources='per_run' WHERE id='operations'""")
-    from_tables(store)
+    convert(store)
     drifted = held(sections(get_agent_config('operations', conninfo=store.conninfo)))
     with store.connect() as conn:
         run(conn, DOWN)
@@ -266,7 +256,7 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     expected['code']['projects'].remove(unselected)
     expected = held(expected)
     assert [key for key in expected if drifted[key] == expected[key]] == []  # the working copy differed everywhere
-    from_tables(store)
+    convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(after))
     migrated['tools'] = [entry for entry in migrated['tools'] if entry['tool'] != 'run_subagent']  # not in old versions

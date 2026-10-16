@@ -1,5 +1,5 @@
-"""Resources (0075): an agent works with fixed resources or receives them per run. The setting is saved (until
-0114); runs no longer read it: every run narrows the agent's access object (test_agent_access)."""
+"""Resources (0075): an agent works with fixed resources or receives them per run. The column stays until 0114;
+neither the API nor runs read it: every run narrows the agent's access object (test_agent_access)."""
 
 from pathlib import Path
 
@@ -8,9 +8,7 @@ import pytest
 from knowledge_llm import ModelUnavailable
 from knowledge_llm.profiles import profile
 
-from knowledge_admin.knowledge_agents.config import get_agent_config
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
-from test_profiles import update, wizard_payload
 from test_repositories import HEADERS
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / 'db/migrations'
@@ -73,75 +71,9 @@ def test_down_refuses_per_run_agents_then_up_makes_every_agent_fixed(store, save
         assert conn.execute("SELECT resources FROM ka.agents WHERE id='operations'").fetchone()['resources'] == 'fixed'
 
 
-def test_the_setting_is_saved_and_listed(store, saved_agent):
-    client = saved_agent[0]
-    operations = client.get('/api/agents/operations', headers=HEADERS).json()
-    assert operations['resources'] == 'fixed'
-    saved = update(client, operations, resources='per_run')
-    assert saved.status_code == 200, saved.text
-    assert saved.json()['resources'] == 'per_run'
-    assert update(client, saved.json(), resources=None).json()['resources'] == 'per_run'  # omitted: kept
-    assert get_agent_config('operations', conninfo=store.conninfo)['resources'] == 'per_run'
-    assert listed(client)['operations']['resources'] == 'per_run'
-    back = update(client, client.get('/api/agents/operations', headers=HEADERS).json(), resources='fixed')
-    assert back.json()['resources'] == 'fixed'
-    assert listed(client)['operations']['resources'] == 'fixed'  # the list shows the agent: what runs
-    created = client.post(
-        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Code analyst', resources='per_run')
-    )
-    assert created.status_code == 201, created.text
-    assert client.get(f'/api/agents/{created.json()["id"]}', headers=HEADERS).json()['resources'] == 'per_run'
-    assert (
-        client.post(
-            '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Odd agent', resources='sometimes')
-        ).status_code
-        == 400
-    )
-
-
 def test_the_llm_profile_of_a_per_run_agent_is_not_runnable(store, saved_agent):
     with store.connect() as conn:
         conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
     with store.connect() as conn:
         with pytest.raises(ModelUnavailable):
             profile(conn, 'operations', runnable=True)
-
-
-def test_the_list_says_what_a_per_run_agent_accepts(store, saved_agent):
-    client = saved_agent[0]
-    assert listed(client)['operations']['accepts'] == []  # fixed
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
-    assert listed(client)['operations']['accepts'] == [
-        {'kind': 'code', 'limit': 1},
-        {'kind': 'documents', 'limit': 1},
-        {'kind': 'servers', 'limit': 1},
-        {'kind': 'services', 'limit': 1},
-    ]
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET all_repositories=true,ssh_enabled=false WHERE id='operations'")
-        conn.execute("DELETE FROM ka.agent_repositories WHERE agent_id='operations'")
-    expected = [{'kind': 'code', 'limit': 'any'}, {'kind': 'documents', 'limit': 1}, {'kind': 'services', 'limit': 1}]
-    assert listed(client)['operations']['accepts'] == expected
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET documents_enabled=false,services_enabled=false WHERE id='operations'")
-    assert listed(client)['operations']['accepts'] == [{'kind': 'code', 'limit': 'any'}]
-
-
-def test_the_list_counts_only_servers_a_run_may_use(store, saved_agent):
-    """As run resource options: a server counts when it is enabled and allows SSH."""
-    client = saved_agent[0]
-
-    def servers() -> int:
-        return next(item['limit'] for item in listed(client)['operations']['accepts'] if item['kind'] == 'servers')
-
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
-    assert servers() == 1
-    with store.connect() as conn:
-        conn.execute('UPDATE ka.servers SET ssh_allowed=false')
-    assert servers() == 0
-    with store.connect() as conn:
-        conn.execute('UPDATE ka.servers SET ssh_allowed=true, enabled=false')
-        conn.execute("DELETE FROM ka.agent_server_connections WHERE agent_id='operations'")
-    assert servers() == 0

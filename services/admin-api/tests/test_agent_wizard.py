@@ -7,11 +7,15 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from access_helpers import from_tables
 from knowledge_admin.agents.wizard import AgentProposal
 from knowledge_admin.agents.runner import get_agent_config
 from test_agents import saved_agent, agent_mounts
 from test_repositories import HEADERS
+
+
+def echoed(proposal: dict) -> dict:
+    """A proposal as generate returns it (every access entry with its editable flag)."""
+    return AgentProposal.model_validate(proposal).model_dump(mode='json')
 
 
 @pytest.fixture
@@ -30,34 +34,17 @@ def wizard(store, saved_agent):
         'instructions': 'Check exit codes.',
         'model_id': model['id'],
         'enabled': True,
-        'documents_enabled': True,
-        'repositories_enabled': True,
-        'ssh_enabled': True,
-        'skills_enabled': True,
-        'mcp_enabled': True,
-        'services_enabled': True,
-        'all_collections': False,
-        'all_repositories': False,
-        'collection_ids': [next(c['id'] for c in catalog['collections'] if c['name'] == 'payments')],
-        'repository_ids': [repo['id']],
-        'skill_ids': [skill['id']],
-        'mcp_server_ids': [mcp['id']],
-        'service_ids': [catalog['services'][0]['id']],
-        'servers': [
-            {
-                'server_id': server['id'],
-                'instructions': 'Inspect the queue first.',
-                'skill_ids': [],
-                'mcp_server_ids': None,
-                'connection': {
-                    'username': 'investigator',
-                    'port': 2222,
-                    'allow_sudo': False,
-                    'known_hosts': ssh['known_hosts'],
-                    'credential_id': catalog['servers'][0]['credential_id'],
-                },
-            }
-        ],
+        'access': {
+            'resources': [
+                {'type': 'server', 'id': server['id']},
+                {'type': 'service', 'id': catalog['services'][0]['id']},
+                {'type': 'code_project', 'id': repo['id']},
+                {'type': 'collection', 'id': next(c['id'] for c in catalog['collections'] if c['name'] == 'payments')},
+                {'type': 'skill', 'id': skill['id']},
+                {'type': 'mcp_server', 'id': mcp['id']},
+            ],
+            'roles': {'content_editor': False},
+        },
     }
     return client, catalog, proposal, ssh
 
@@ -73,9 +60,8 @@ def test_wizard_context_excludes_secret_material_and_is_admin_only(wizard):
         'prompt',
         'tools',
     }  # no default model: the UI starts with the first
-    assert next(p for p in catalog['code_projects'] if p['id'] == proposal['repository_ids'][0])['folder_paths'] == [
-        'managed/payments'
-    ]
+    repository = next(r['id'] for r in proposal['access']['resources'] if r['type'] == 'code_project')
+    assert next(p for p in catalog['code_projects'] if p['id'] == repository)['folder_paths'] == ['managed/payments']
     assert all(isinstance(p['folder_paths'], list) for p in catalog['code_projects'])
     for secret in (ssh['private_key'], 'test-model-secret', 'test-mcp-secret', 'test-git-secret', 'ciphertext'):
         assert secret not in response.text
@@ -94,21 +80,15 @@ def test_wizard_roundtrip_every_resource(store, wizard):
     response = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert response.status_code == 201, response.text
     agent_id = response.json()['id']
-    from_tables(store)  # the wizard writes the per-type tables until it writes the access object
     config = get_agent_config(agent_id, conninfo=store.conninfo)
     assert config['system_prompt']['content'] == proposal['system_prompt']
     assert config['instructions'] == proposal['instructions']
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
-    assert [p['id'] for p in config['code']['projects']] == proposal['repository_ids']
+    assert config['access'] == proposal['access']
     assert [c['name'] for c in config['documents']['collections']] == ['payments']
-    assert [s['id'] for s in config['skills']['items']] == proposal['skill_ids']
-    assert [s['id'] for s in config['mcp']['servers']] == proposal['mcp_server_ids']
-    assert [s['id'] for s in config['services']['items']] == proposal['service_ids']
     server = config['ssh']['servers'][0]  # the server's own SSH settings and the agent's instructions
     assert (server['username'], server['connection_source']) == ('operator', 'server')
     assert server['instructions'] == proposal['instructions']
-    assert server['skills'] == server['mcp_servers'] == []
-    assert server['private_key_ref']['id'] == catalog['servers'][0]['credential_id']
     assert ssh['private_key'] not in json.dumps(config)
     assert client.post('/api/agents/wizard', headers=HEADERS, json=proposal).status_code == 409
     with store.connect() as conn:
@@ -132,27 +112,15 @@ def test_wizard_roundtrip_every_resource(store, wizard):
         ).fetchone()
 
 
-def test_wizard_server_defaults_and_all_resources(store, wizard):
-    client, _, proposal, _ = wizard
-    proposal.update(all_collections=True, collection_ids=[], all_repositories=True, repository_ids=[])
-    proposal['servers'][0].update(instructions=None, skill_ids=None, mcp_server_ids=[], connection=None)
-    response = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
-    assert response.status_code == 201, response.text
-    from_tables(store)
-    config = get_agent_config(response.json()['id'], conninfo=store.conninfo)
-    assert len(config['code']['projects']) == 2 and len(config['documents']['collections']) == 4
-    server = config['ssh']['servers'][0]
-    assert server['connection_source'] == 'server' and server['username'] == 'operator'
-    assert server['instructions'] == proposal['instructions'] and server['skills'] == server['mcp_servers'] == []
-
-
 @pytest.mark.parametrize(
     'change',
     [
-        {'collection_ids': [str(uuid4())]},
+        {'access': {'resources': [{'type': 'collection', 'id': str(uuid4())}], 'roles': {'content_editor': False}}},
+        {'access': {'resources': [{'type': 'printer', 'id': str(uuid4())}], 'roles': {'content_editor': False}}},
         {'model_id': str(uuid4())},
         {'system_prompt': ' '},
         {'all_repositories': True},
+        {'servers': []},
         {'unknown_field': True},
         {'private_key': 'not allowed'},
     ],
@@ -168,9 +136,7 @@ def test_wizard_invalid_proposal_writes_nothing(store, wizard, change):
 def test_wizard_rechecks_disabled_resources_before_saving(store, wizard):
     client, _, proposal, _ = wizard
     with store.connect() as conn:
-        conn.execute(
-            'UPDATE ka.servers SET ssh_allowed=false WHERE id=%s', (UUID(proposal['servers'][0]['server_id']),)
-        )
+        conn.execute("UPDATE ka.rag_collections SET deleted_at=now() WHERE name='payments'")
     result = client.post('/api/agents/wizard', headers=HEADERS, json=proposal)
     assert result.status_code == 400 and 'unavailable' in result.text
     with store.connect() as conn:
@@ -193,7 +159,7 @@ def test_generation_uses_no_tools_and_does_not_save(store, wizard, monkeypatch):
         json={'role': 'Investigate payments without sudo.', 'model_id': proposal['model_id']},
     )
     assert result.status_code == 200, result.text
-    assert result.json()['proposal'] == proposal
+    assert result.json()['proposal'] == echoed(proposal)
     assert result.headers['cache-control'] == 'no-store'
     assert client.get('/api/agents', headers=HEADERS).json() == before
     config, task, kwargs = calls[0]
@@ -225,7 +191,7 @@ def test_invalid_model_output_gets_one_correction_attempt(wizard, monkeypatch):
     result = client.post(
         '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
     )
-    assert result.status_code == 200 and result.json()['proposal'] == proposal
+    assert result.status_code == 200 and result.json()['proposal'] == echoed(proposal)
     assert len(calls) == 2
     assert calls[1]['correction']['errors']
     assert calls[1]['role'] == calls[0]['role']
@@ -242,7 +208,7 @@ def test_model_annotations_cannot_add_unsupported_settings(wizard, monkeypatch):
     result = client.post(
         '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
     )
-    assert result.status_code == 200 and result.json()['proposal'] == proposal
+    assert result.status_code == 200 and result.json()['proposal'] == echoed(proposal)
     assert (
         client.post('/api/agents/wizard', headers=HEADERS, json={**proposal, 'unknown_field': True}).status_code == 400
     )
@@ -274,20 +240,7 @@ BLANK = {
     'instructions': '',
     'model_id': None,
     'enabled': True,
-    'documents_enabled': False,
-    'repositories_enabled': False,
-    'ssh_enabled': False,
-    'skills_enabled': False,
-    'mcp_enabled': False,
-    'services_enabled': False,
-    'all_collections': False,
-    'all_repositories': False,
-    'collection_ids': [],
-    'repository_ids': [],
-    'skill_ids': [],
-    'mcp_server_ids': [],
-    'service_ids': [],
-    'servers': [],
+    'access': {'resources': [], 'roles': {'content_editor': False}},
 }
 
 
@@ -322,12 +275,13 @@ def test_blank_proposal_without_model_creates_agent(store, tmp_path, monkeypatch
     )
 
 
-def test_proposal_rejects_all_and_specific_collections(wizard):
+def test_proposal_rejects_an_unknown_resource_type(wizard):
     _, _, proposal, _ = wizard
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match='not both'):
-        AgentProposal.model_validate({**proposal, 'all_collections': True})
+    unknown = {'resources': [{'type': 'printer', 'id': str(uuid4())}], 'roles': {'content_editor': False}}
+    with pytest.raises(ValidationError, match="'server'"):
+        AgentProposal.model_validate({**proposal, 'access': unknown})
 
 
 def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypatch):
@@ -336,16 +290,17 @@ def test_inconsistent_model_output_gets_one_correction_attempt(wizard, monkeypat
 
     async def run(config, task, **kwargs):
         calls.append(json.loads(task))
-        output = {**proposal, 'all_collections': True} if len(calls) == 1 else proposal
+        invented = {'resources': [{'type': 'server', 'id': str(uuid4())}], 'roles': {'content_editor': False}}
+        output = {**proposal, 'access': invented} if len(calls) == 1 else proposal
         return SimpleNamespace(final_output=AgentProposal.model_validate(output))
 
     monkeypatch.setattr('knowledge_admin.agents.wizard.agent', run)
     result = client.post(
         '/api/agents/wizard/generate', headers=HEADERS, json={'role': 'Payments', 'model_id': proposal['model_id']}
     )
-    assert result.status_code == 200 and result.json()['proposal'] == proposal
+    assert result.status_code == 200 and result.json()['proposal'] == echoed(proposal)
     assert len(calls) == 2
-    assert any('not both' in e['message'] for e in calls[1]['correction']['errors'])
+    assert any('unavailable' in e for e in calls[1]['correction']['errors'])
 
 
 def test_generation_offers_the_models_that_fit_an_agent(store, wizard, monkeypatch):

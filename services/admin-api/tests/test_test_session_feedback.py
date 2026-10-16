@@ -15,7 +15,7 @@ from test_test_sessions import start, tester  # noqa: F401  (fixture)
 
 PROPOSAL = {
     'suggestion': 'Cite the runbook.',
-    'changes': {'system_prompt': None, 'instructions': 'Cite sources.', 'server_instructions': []},
+    'changes': {'system_prompt': None, 'instructions': 'Cite sources.'},
 }
 TURNS = [
     {

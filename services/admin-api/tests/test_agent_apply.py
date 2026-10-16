@@ -5,52 +5,32 @@ import threading
 import time
 from uuid import uuid4
 
-import asyncssh
-
-from access_helpers import from_tables
 from knowledge_admin.agents.clones import APPLY_WORKING, NOT_A_CLONE, ORIGINAL_CHANGED
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
-from test_agent_clones import clone, own_connection, per_server
-from test_agent_ssh import save
+from test_agent_clones import clone
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
+from test_profiles import update
 from test_repositories import HEADERS
-
-# Every configuration table, by the columns that decide what runs (not ids, revisions or who saved them).
-TABLES = {
-    'agent_collections': ('agent_id', 'collection_id'),
-    'agent_repositories': ('agent_id', 'repository_id'),
-    'agent_services': ('agent_id', 'service_id'),
-    'skills_agents': ('agent_id', 'skill_id,project_id'),
-    'agent_tools': ('agent_id', 'tool,mode,usage,subagent_allowed'),
-    'agent_configs': ('agent', 'project_id,server_id,instructions,inherit_skills,inherit_mcp_servers'),
-    'operations_settings': ('agent', 'project_id'),
-    'operations_servers': ('agent', 'project_id,server_id'),
-    'agent_server_connections': (
-        'agent_id',
-        'server_id,project_id,username,port,allow_sudo,known_hosts,credential_id,credential_kind',
-    ),
-}
 
 
 def rows(conn, agent_id: str) -> dict[str, list]:
-    """The agent's rows in every configuration table, comparable between two agents."""
-    found = {}
-    for table, (key, columns) in TABLES.items():
-        found[table] = sorted(
-            map(str, conn.execute(f'SELECT {columns} FROM ka.{table} WHERE {key}=%s', (agent_id,)).fetchall())
-        )
-    for table, column in (('agent_config_skills', 'skill_id'), ('agent_config_mcp_servers', 'mcp_server_id')):
-        found[table] = sorted(
+    """What decides how the agent runs: its configuration columns (access and instructions among them) and its tool
+    rows, comparable between two agents."""
+    return {
+        'agent': conn.execute(
+            """SELECT when_to_use,model_id,system_prompt,documents_grounded,access,instructions
+            FROM ka.agents WHERE id=%s""",
+            (agent_id,),
+        ).fetchone(),
+        'agent_tools': sorted(
             map(
                 str,
                 conn.execute(
-                    f"""SELECT c.project_id,c.server_id,t.{column} FROM ka.{table} t
-            JOIN ka.agent_configs c ON c.id=t.config_id WHERE c.agent=%s""",
-                    (agent_id,),
+                    'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
                 ).fetchall(),
             )
-        )
-    return found
+        ),
+    }
 
 
 def preview(client, agent_id: str) -> dict:
@@ -76,56 +56,35 @@ def edit_prompt(client, agent_id: str, text: str) -> None:
 
 
 def test_apply_copies_everything_but_name_and_description(store, saved_agent):
-    client, server, skill, mcp = saved_agent[0], saved_agent[1], saved_agent[3], saved_agent[4]
-    own_connection(client, server)  # a saved key of the original, which the clone references
+    client, skill = saved_agent[0], saved_agent[3]
     copy_id = clone(client)['id']
     original = client.get('/api/agents/operations', headers=HEADERS).json()
     edit_prompt(client, copy_id, 'Answer from evidence.')
     with store.connect() as conn:
-        conn.execute(
-            "UPDATE ka.agent_configs SET instructions='Gather evidence first.' WHERE agent=%s AND server_id IS NULL",
-            (copy_id,),
+        conn.execute("UPDATE ka.agents SET instructions='Gather evidence first.' WHERE id=%s", (copy_id,))
+        conn.execute(  # the clone drops the skill and becomes a content editor
+            """UPDATE ka.agents SET access=jsonb_build_object(
+                'resources',(SELECT jsonb_agg(r) FROM jsonb_array_elements(access->'resources') r WHERE r->>'id'<>%s),
+                'roles',jsonb_build_object('content_editor',true)) WHERE id=%s""",
+            (skill['id'], copy_id),
         )
-        conn.execute('DELETE FROM ka.skills_agents WHERE agent_id=%s', (copy_id,))
-        per_server(conn, server, skill, mcp, copy_id)
         conn.execute(
             """UPDATE ka.agents SET name='Experiment',description='Evidence first',when_to_use='Payments',
             enabled=false WHERE id=%s""",
             (copy_id,),
         )
-        # settings of the original in another (archived) project, which the clone has none for: Apply leaves no stale row
-        other = store.project(conn, 'other')
-        conn.execute("INSERT INTO ka.operations_settings(project_id,agent) VALUES (%s,'operations')", (other,))
-        conn.execute('UPDATE ka.projects SET archived_at=now() WHERE id=%s', (other,))
-        credentials = conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n']
-    from_tables(store)
     value = preview(client, copy_id)
     assert value['original'] == {'id': 'operations', 'name': original['name'], 'revision': original['revision']}
-    assert value['changes'] == ['Prompt', 'Instructions', 'When to use', 'Skills']  # per-server rows are not read
+    assert value['changes'] == ['Prompt', 'Instructions', 'When to use', 'Resources', 'Skills']
     applied = apply(client, copy_id, value)
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'id': 'operations', 'revision': original['revision'] + 1}
-    from_tables(store)
     assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(
         get_agent_config(copy_id, conninfo=store.conninfo)
     )
     with store.connect() as conn:
         assert rows(conn, 'operations') == rows(conn, copy_id)
-        assert rows(conn, copy_id)['agent_config_mcp_servers']  # the per-server rows were copied
-        # the saved key stays, referenced by both; nothing duplicated
-        assert conn.execute('SELECT count(*) AS n FROM ka.credentials').fetchone()['n'] == credentials
-        assert (
-            len(
-                {
-                    row['credential_id']
-                    for row in conn.execute(
-                        'SELECT credential_id FROM ka.agent_server_connections WHERE agent_id IN (%s,%s)',
-                        ('operations', copy_id),
-                    )
-                }
-            )
-            == 1
-        )
+        assert rows(conn, 'operations')['agent']['access']['roles'] == {'content_editor': True}
     after = client.get('/api/agents/operations', headers=HEADERS).json()
     assert (after['name'], after['description'], after['enabled'], after['cloned_from']) == (
         original['name'],
@@ -144,11 +103,8 @@ def test_apply_is_refused_when_the_original_changed_or_is_working(store, saved_a
     copy_id = clone(client)['id']
     edit_prompt(client, copy_id, 'Answer from evidence.')
     value = preview(client, copy_id)
-    with store.connect() as conn:  # an instructions save keeps agents.revision but changes what runs
-        conn.execute(
-            "UPDATE ka.agent_configs SET instructions='Edited meanwhile.' WHERE agent='operations' AND server_id IS NULL"
-        )
-    from_tables(store)
+    with store.connect() as conn:  # a write that keeps agents.revision but changes what runs
+        conn.execute("UPDATE ka.agents SET instructions='Edited meanwhile.' WHERE id='operations'")
     stale = apply(client, copy_id, value)
     assert stale.status_code == 409 and stale.json()['error']['message'] == ORIGINAL_CHANGED
     value = preview(client, copy_id)
@@ -191,49 +147,6 @@ def test_apply_needs_a_clone_whose_original_still_exists(store, saved_agent):
     assert gone.status_code == 404 and gone.json()['error']['message'] == NOT_A_CLONE
 
 
-def test_apply_deletes_the_key_only_the_original_used(store, saved_agent):
-    client, server = saved_agent[0], saved_agent[1]
-    own_connection(client, server)
-    copy_id = clone(client)['id']
-    with store.connect() as conn:
-        old = conn.execute(
-            "SELECT credential_id FROM ka.agent_server_connections WHERE agent_id='operations'"
-        ).fetchone()
-        others = {
-            row['id'] for row in conn.execute('SELECT id FROM ka.credentials WHERE id<>%s', (old['credential_id'],))
-        }
-    own_connection_of(client, server, copy_id)  # the clone switches to its own key; the original keeps the old one
-    with store.connect() as conn:
-        new = conn.execute(
-            'SELECT credential_id FROM ka.agent_server_connections WHERE agent_id=%s', (copy_id,)
-        ).fetchone()['credential_id']
-        assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (old['credential_id'],)).fetchone()
-    assert apply(client, copy_id, preview(client, copy_id)).status_code == 200
-    with store.connect() as conn:
-        assert conn.execute('SELECT 1 FROM ka.credentials WHERE id=%s', (old['credential_id'],)).fetchone() is None
-        assert {
-            row['credential_id']
-            for row in conn.execute(
-                'SELECT credential_id FROM ka.agent_server_connections WHERE agent_id IN (%s,%s)',
-                ('operations', copy_id),
-            )
-        } == {new}
-        assert {row['id'] for row in conn.execute('SELECT id FROM ka.credentials')} == others | {new}
-
-
-def own_connection_of(client, server, agent_id: str) -> None:
-    key = asyncssh.generate_private_key('ssh-ed25519').export_private_key().decode()
-    save(
-        client,
-        f'/api/agents/{agent_id}/servers/{server["id"]}/ssh',
-        username='clone-user',
-        port=2222,
-        known_hosts='',
-        allow_sudo=False,
-        private_key=key,
-    )
-
-
 def waits_for_the_agent(store, write) -> None:
     """While another transaction (Apply) holds the original's row, the write waits for it, then succeeds."""
     with store.connect() as holder, store.connect() as watcher:
@@ -252,21 +165,7 @@ def waits_for_the_agent(store, write) -> None:
     assert done and done[0].status_code == 200, done and done[0].text
 
 
-def test_ssh_and_per_server_saves_wait_for_apply(store, saved_agent):
-    client, server = saved_agent[0], saved_agent[1]
-    path = f'/api/agents/operations/servers/{server["id"]}/ssh'
-    current = client.get(path, headers=HEADERS).json()  # the forms are read before Apply takes the lock
-    ssh = {key: current[key] for key in ('revision', 'server_revision', 'known_hosts', 'allow_sudo')}
-    waits_for_the_agent(
-        store, lambda: client.put(path, headers=HEADERS, json={**ssh, 'username': 'agent-user', 'port': 2222})
-    )
-    data = client.get('/api/operations/settings', headers=HEADERS).json()
-    body = {
-        'settings_revision': data['settings']['revision'],
-        'revision': None,
-        'instructions': 'Check only the queue.',
-        'skill_ids': None,
-    }
-    waits_for_the_agent(
-        store, lambda: client.put(f'/api/operations/configs/{server["id"]}', headers=HEADERS, json=body)
-    )
+def test_a_profile_save_waits_for_apply(store, saved_agent):
+    client = saved_agent[0]
+    current = client.get('/api/agents/operations', headers=HEADERS).json()  # the form is read before Apply locks
+    waits_for_the_agent(store, lambda: update(client, current, instructions='Check only the queue.'))

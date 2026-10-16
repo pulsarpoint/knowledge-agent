@@ -127,7 +127,7 @@ def test_generate_documents_pins_every_expert_and_offers_run_subagent(sessions):
 def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(store, saved_agent):
     client = saved_agent[0]
     me = expert(client, 'Lead', 'Leads.')
-    other = expert(client, 'Payments', 'Payments questions.', resources='per_run')
+    other = expert(client, 'Payments', 'Payments questions.')
     plain = create(client, 'Plain')
     tab = view(client, me['id'])
     experts = [tool for tool in tab['tools'] if tool['group'] == 'experts']
@@ -145,7 +145,6 @@ def test_the_tools_tab_lists_other_experts_on_by_default_and_saves_off_rows(stor
             'available': True,
             'reason': None,
             'tab': None,
-            'resources': 'per_run',
         }
     ]
     name = f'expert:{other["id"]}'

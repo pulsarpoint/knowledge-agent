@@ -95,11 +95,12 @@ def test_the_tools_tab_keeps_run_subagent_on_and_stores_subagent_allowed(store, 
 
 
 def test_the_wizard_switches_subagents_on_with_the_tools_a_subagent_may_use(store, saved_agent):
-    client = saved_agent[0]
+    client, repo = saved_agent[0], saved_agent[5]
+    code = {'resources': [{'type': 'code_project', 'id': repo['id']}], 'roles': {'content_editor': False}}
     created = client.post(
         '/api/agents/wizard',
         headers=HEADERS,
-        json=wizard_payload('Lead', repositories_enabled=True, subagents=True, subagent_blocked=['shell_run']),
+        json=wizard_payload('Lead', access=code, subagents=True, subagent_blocked=['shell_run']),
     )
     assert created.status_code == 201, created.text
     agent_id = created.json()['id']
@@ -116,9 +117,10 @@ def test_the_wizard_switches_subagents_on_with_the_tools_a_subagent_may_use(stor
 
 
 def test_a_clone_copies_the_switch_and_what_subagents_may_use(store, saved_agent):
-    client = saved_agent[0]
+    client, repo = saved_agent[0], saved_agent[5]
     agent = create(client, 'Lead')
-    on = update(client, agent, subagents=True, repositories_enabled=True).json()
+    code = {'resources': [{'type': 'code_project', 'id': repo['id']}], 'roles': {'content_editor': False}}
+    on = update(client, agent, subagents=True, access=code).json()
     put(
         client,
         agent['id'],

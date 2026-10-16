@@ -3,11 +3,11 @@ tools when a capability is switched on; the wizard's tools; the list summary."""
 
 from uuid import uuid4
 
-from access_helpers import from_tables
 from knowledge_admin.knowledge_agents.config import get_agent_config
 from knowledge_admin.tools.catalog import ALWAYS_ON, CATALOG, effective_tools, run_only
 from knowledge_admin.agents.tools_api import DISCOVERY_ONLY, GROUNDED, MCP_NOT_SELECTED, STALE, UNKNOWN
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
+from access_helpers import give
 from test_agent_resources import listed
 from test_profiles import create, update, wizard_payload
 from test_repositories import HEADERS
@@ -47,6 +47,15 @@ def usage_of(store, agent_id, tool):
         ).fetchone()['usage']
 
 
+def access_of(*references) -> dict:
+    return {'resources': [{'type': t, 'id': str(i)} for t, i in references], 'roles': {'content_editor': False}}
+
+
+def payments(store) -> str:
+    with store.connect() as conn:
+        return str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='payments'").fetchone()['id'])
+
+
 def profile_of(client, agent_id):
     return client.get(f'/api/agents/{agent_id}', headers=HEADERS).json()
 
@@ -72,10 +81,8 @@ def test_the_catalog_and_an_agents_tools(store, saved_agent):
     )
     read = current['tools'][1]
     assert read['default_usage'] == CATALOG['read_file'].usage and read['available'] and read['tab'] == 'git'
-    with store.connect() as conn:
-        conn.execute(
-            "UPDATE ka.agents SET repositories_enabled=false,documents_enabled=false,ssh_enabled=false WHERE id='operations'"
-        )
+    with store.connect() as conn:  # no code projects, collections or servers any more
+        give(conn, 'operations', [('skill', saved_agent[3]['id']), ('mcp_server', mcp['id'])])
     unmet = {tool['tool']: tool for tool in view(client)['tools']}
     assert not unmet['read_file']['available']
     assert unmet['read_file']['reason'] == 'Needs code projects, or documents without "Answer only from documents"'
@@ -126,7 +133,7 @@ def test_put_replaces_the_tools_and_enforces_the_save_rules(store, saved_agent):
         == 400
     )  # validation: 400 in this app
     with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET documents_enabled=true,documents_grounded=true WHERE id='operations'")
+        conn.execute("UPDATE ka.agents SET documents_grounded=true WHERE id='operations'")
     grounded = put(client, 'operations', body['revision'], [{'tool': 'search_documents', 'mode': 'on', 'usage': None}])
     assert grounded.status_code == 400 and grounded.json()['error']['message'] == GROUNDED
     assert (
@@ -153,10 +160,15 @@ def test_a_stale_revision_is_refused(store, saved_agent):
 
 
 def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent):
-    client = saved_agent[0]
+    client, server, repo = saved_agent[0], saved_agent[1], saved_agent[5]
+    code_project, collection, host = (
+        ('code_project', repo['id']),
+        ('collection', payments(store)),
+        ('server', server['id']),
+    )
     blank = create(client, 'Blank')
     assert rows(store, blank['id']) == set()
-    code = update(client, blank, repositories_enabled=True).json()
+    code = update(client, blank, access=access_of(code_project)).json()
     assert rows(store, blank['id']) == CODE_TOOLS
     only = put(
         client,
@@ -169,15 +181,15 @@ def test_switching_a_capability_on_switches_all_its_tools_on(store, saved_agent)
     ).json()
     profile = profile_of(client, blank['id'])
     assert profile['revision'] == only['revision']
-    documents = update(client, profile, documents_enabled=True).json()
+    documents = update(client, profile, access=access_of(code_project, collection)).json()
     assert rows(store, blank['id']) == {'read_file', 'search_documents', 'read_document'}  # code keeps its choices
     grounded = update(client, documents, documents_grounded=True).json()
     assert 'report_not_covered' in rows(store, blank['id'])
-    ssh = update(client, grounded, ssh_enabled=True).json()
+    ssh = update(client, grounded, access=access_of(code_project, collection, host)).json()
     assert 'ssh_run' in rows(store, blank['id'])
-    off = update(client, ssh, repositories_enabled=False).json()
-    assert 'read_file' in rows(store, blank['id']) and 'shell_run' not in rows(store, blank['id'])  # off keeps rows
-    update(client, off, repositories_enabled=True)  # on again: all of its tools, replacing the off rows
+    off = update(client, ssh, access=access_of(collection, host)).json()
+    assert 'read_file' in rows(store, blank['id']) and 'shell_run' not in rows(store, blank['id'])  # gone keeps rows
+    update(client, off, access=access_of(code_project, collection, host))  # back: all of its tools, replacing off rows
     assert rows(store, blank['id']) >= CODE_TOOLS
     assert usage_of(store, blank['id'], 'read_file') == 'Read narrowly.'  # switching on keeps edited usage
 
@@ -186,74 +198,39 @@ def test_a_grounded_documents_only_agent_gets_no_file_tools_on_switch_on(store, 
     """The file tools come with documents only without "Answer only from documents" (their need, files)."""
     client = saved_agent[0]
     blank = create(client, 'Grounded')
-    update(client, blank, documents_enabled=True, documents_grounded=True)
+    update(client, blank, access=access_of(('collection', payments(store))), documents_grounded=True)
     assert rows(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
 
 
-def test_a_per_run_agent_gets_all_tools_of_its_enabled_capabilities(store, saved_agent):
-    client = saved_agent[0]
-    role = client.post(
+def test_a_save_that_adds_no_capability_leaves_the_tools_alone(store, saved_agent):
+    """Existing agents are not changed: only a capability the access now gives switches tools on."""
+    client, repo = saved_agent[0], saved_agent[5]
+    agent = client.post(
         '/api/agents/wizard',
         headers=HEADERS,
-        json=wizard_payload('Role', resources='per_run', repositories_enabled=True, documents_enabled=True),
+        json=wizard_payload('Kept', access=access_of(('code_project', repo['id']))),
     ).json()
-    assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document'}
-    profile = profile_of(client, role['id'])
-    trimmed = put(
-        client,
-        role['id'],
-        profile['revision'],
-        [
-            {'tool': name, 'mode': 'off' if name == 'shell_run' else 'on', 'usage': None}
-            for name in sorted(CODE_TOOLS | {'search_documents', 'read_document'})
-        ],
-    ).json()
-    assert 'shell_run' not in rows(store, role['id'])
-    ssh = update(client, profile_of(client, role['id']), ssh_enabled=True).json()  # a capability on while per run
-    assert rows(store, role['id']) == CODE_TOOLS | {'search_documents', 'read_document', 'ssh_run'}
-    assert ssh['revision'] == trimmed['revision'] + 1
-    fixed = create(client, 'Fixed first')
-    coded = update(client, fixed, repositories_enabled=True).json()
-    put(
-        client,
-        fixed['id'],
-        coded['revision'],
-        [
-            {'tool': name, 'mode': 'off' if name == 'code_search' else 'on', 'usage': None}
-            for name in sorted(CODE_TOOLS)
-        ],
-    )
-    update(client, profile_of(client, fixed['id']), resources='per_run')  # switched to per run
-    assert rows(store, fixed['id']) == CODE_TOOLS
-
-
-def test_a_save_that_switches_nothing_on_leaves_the_tools_alone(store, saved_agent):
-    """Existing agents are not changed: only switching a capability on (or to per run) switches tools on."""
-    client = saved_agent[0]
-    for resources in ('fixed', 'per_run'):
-        agent = client.post(
-            '/api/agents/wizard',
-            headers=HEADERS,
-            json=wizard_payload(f'Kept {resources}', resources=resources, repositories_enabled=True),
-        ).json()
-        profile = profile_of(client, agent['id'])
-        put(client, agent['id'], profile['revision'], [{'tool': 'read_file', 'mode': 'off', 'usage': None}])
-        update(client, profile_of(client, agent['id']), name=f'Renamed {resources}')
-        assert rows(store, agent['id']) == set(), resources
+    profile = profile_of(client, agent['id'])
+    put(client, agent['id'], profile['revision'], [{'tool': 'read_file', 'mode': 'off', 'usage': None}])
+    update(client, profile_of(client, agent['id']), name='Renamed')
+    assert rows(store, agent['id']) == set()
 
 
 def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
-    client = saved_agent[0]
+    client, server, repo = saved_agent[0], saved_agent[1], saved_agent[5]
+    code = access_of(('code_project', repo['id']))
     options = client.get('/api/agents/wizard/options', headers=HEADERS).json()
     assert [tool['name'] for tool in options['tools']] == [name for name in CATALOG if not run_only(name)]
     implied = client.post(
-        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Implied', ssh_enabled=True)
+        '/api/agents/wizard',
+        headers=HEADERS,
+        json=wizard_payload('Implied', access=access_of(('server', server['id']))),
     ).json()
     assert rows(store, implied['id']) == {'ssh_run'}
     chosen = client.post(
         '/api/agents/wizard',
         headers=HEADERS,
-        json=wizard_payload('Chosen', repositories_enabled=True, tools=['read_file', 'code_graph']),
+        json=wizard_payload('Chosen', access=code, tools=['read_file', 'code_graph']),
     ).json()
     assert rows(store, chosen['id']) == {'read_file', 'code_graph'}
     refused = client.post('/api/agents/wizard', headers=HEADERS, json=wizard_payload('Odd', tools=['grep']))
@@ -265,7 +242,7 @@ def test_the_wizard_saves_the_chosen_or_implied_tools(store, saved_agent):
     )
     assert revision_only.status_code == 400 and revision_only.json()['error']['message'] == DISCOVERY_ONLY
     empty = client.post(
-        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Empty', repositories_enabled=True, tools=[])
+        '/api/agents/wizard', headers=HEADERS, json=wizard_payload('Empty', access=code, tools=[])
     ).json()
     assert rows(store, empty['id']) == set()  # an explicit empty selection is kept
 
@@ -299,23 +276,8 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
     fresh = client.post(
         '/api/agents/wizard',
         headers=HEADERS,
-        json=wizard_payload(
-            'Fresh',
-            repositories_enabled=True,
-            repository_ids=[repo['id']],
-            ssh_enabled=True,
-            servers=[
-                {
-                    'server_id': server['id'],
-                    'instructions': None,
-                    'skill_ids': None,
-                    'mcp_server_ids': None,
-                    'connection': None,
-                }
-            ],
-        ),
+        json=wizard_payload('Fresh', access=access_of(('code_project', repo['id']), ('server', server['id']))),
     ).json()
-    from_tables(store)  # the wizard writes the per-type tables until it writes the access object
     assert offered(store, fresh['id'], [{'id': 'server'}]) == {
         'list_files',
         'read_file',
@@ -328,10 +290,7 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
     }  # no graph yet
     blank = create(client, 'Blank')
     assert offered(store, blank['id']) == set()
-    with store.connect() as conn:
-        collection = str(conn.execute("SELECT id FROM ka.rag_collections WHERE name='payments'").fetchone()['id'])
-    documents = update(client, blank, documents_enabled=True, collection_ids=[collection]).json()
-    from_tables(store)
+    documents = update(client, blank, access=access_of(('collection', payments(store)))).json()
     assert offered(store, blank['id']) == {
         'list_files',
         'read_file',
@@ -341,7 +300,6 @@ def test_new_agents_and_switched_on_capabilities_run_with_their_tools(store, sav
         'read_document',
     }
     update(client, documents, documents_grounded=True)
-    from_tables(store)
     assert offered(store, blank['id']) == {'search_documents', 'read_document', 'report_not_covered'}
 
 

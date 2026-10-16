@@ -151,11 +151,6 @@ def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
     ]
 
 
-def per_run(config: Mapping[str, Any]) -> bool:
-    """Per-run agents: the saved selections are what a run may be given (versions saved before 0075 are fixed)."""
-    return config.get('resources', 'fixed') == 'per_run'
-
-
 def mcp_definitions(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The MCP servers a configuration may connect to: the agent's and, with MCP on, those of its usable SSH servers."""
     if not config['mcp']['enabled']:
@@ -226,6 +221,22 @@ def _server(entry: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _access(access: Mapping[str, Any]) -> dict[str, Any]:
+    """The stored access object in a comparable form: references sorted, editable on documents only."""
+    references = [
+        {
+            'type': r['type'],
+            'id': str(r['id']),
+            **({'editable': bool(r.get('editable'))} if r['type'] == 'document' else {}),
+        }
+        for r in access.get('resources', [])
+    ]
+    return {
+        'resources': sorted(references, key=lambda r: (r['type'], r['id'])),
+        'content_editor': bool(access.get('roles', {}).get('content_editor')),
+    }
+
+
 def sections(config: Mapping[str, Any]) -> dict[str, Any]:
     """What an agent runs with, by section (SECTIONS): everything except its identity (id, name, description, on/off),
     revisions and live data (graphs; the details of shared servers, collections, skills). Equal sections run the
@@ -236,7 +247,7 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
-        'resources': config.get('resources', 'fixed'),
+        'resources': _access(config.get('access') or {}),
         'tools': [
             {
                 'tool': entry['tool'],

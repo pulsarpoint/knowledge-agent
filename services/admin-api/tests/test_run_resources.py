@@ -10,7 +10,7 @@ import pytest
 
 from knowledge_admin.agents.runner import load_credentials
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, options, resolve
+from knowledge_admin.knowledge_agents.run_resources import RunResourceError, RunResources, resolve
 from access_helpers import give
 from test_generations import native_agent, sessions  # noqa: F401  (fixture)
 from test_operations import setup as ssh_setup
@@ -51,23 +51,6 @@ def per_run(sessions):
         client,
         'Code analyst',
         model_id=sessions.gpt,
-        resources='per_run',
-        repositories_enabled=True,
-        repository_ids=[sessions.repo],
-        documents_enabled=True,
-        collection_ids=[collections['runbooks']],
-        ssh_enabled=True,
-        servers=[
-            {
-                'server_id': host['id'],
-                'instructions': 'Read logs only.',
-                'skill_ids': None,
-                'mcp_server_ids': None,
-                'connection': None,
-            }
-        ],
-        services_enabled=True,
-        service_ids=[sessions.service],
     )
     found = SimpleNamespace(
         **vars(sessions),
@@ -242,31 +225,6 @@ def test_credentials_are_decrypted_only_for_the_servers_a_run_was_given(per_run)
     key_id = with_host['ssh']['servers'][0]['private_key_ref']['id']
     assert key_id not in load_credentials(s.store, without)
     assert load_credentials(s.store, with_host)[key_id] == s.key['private_key']
-
-
-def test_options_list_what_a_caller_may_pass(per_run):
-    s = per_run
-
-    def offered() -> dict:
-        with s.store.connect() as conn:
-            return options(conn, s.store.project(conn, 'shop'), get_agent_config(s.analyst, conninfo=s.store.conninfo))
-
-    assert offered() == {
-        'code_projects': [{'id': s.repo, 'name': 'Payments API'}],
-        'collections': [{'id': s.runbooks, 'name': 'runbooks'}],
-        'servers': [{'id': s.host['id'], 'name': 'Test host'}],
-        'services': [{'id': s.service, 'name': 'Payments'}],
-    }
-    allow(s, code=[s.repo, s.worker], collections=[])
-    assert offered()['code_projects'] == [
-        {'id': s.repo, 'name': 'Payments API'},
-        {'id': s.worker, 'name': 'Payments worker'},
-    ]
-    assert offered()['collections'] is None
-    config = get_agent_config(s.analyst, conninfo=s.store.conninfo)
-    config['ssh']['servers'][0]['ssh_allowed'] = False  # as a saved version may have it, whatever the server says now
-    with s.store.connect() as conn:
-        assert options(conn, s.store.project(conn, 'shop'), config)['servers'] == []
 
 
 def test_a_brought_server_without_a_usable_connection_is_left_out_but_a_chosen_one_is_refused(per_run):

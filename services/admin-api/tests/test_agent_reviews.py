@@ -2,14 +2,12 @@
 is tested with the Test session review in test_test_session_feedback.py."""
 
 import json
-from uuid import uuid4
 
 import pytest
 from agents import AgentOutputSchema, ModelBehaviorError
 
 import psycopg
 
-from access_helpers import from_tables
 from knowledge_admin.agents import reviews as agent_reviews
 from knowledge_admin.agents.clones import NAME_TAKEN
 from knowledge_admin.agents.reviews import (
@@ -17,7 +15,6 @@ from knowledge_admin.agents.reviews import (
     INVALID_TEXT,
     PROMPT_REQUIRED,
     REVIEW_NOT_FOUND,
-    UNKNOWN_SERVER,
     TuningSuggestion,
 )
 from knowledge_admin.knowledge_agents.config import get_agent_config, sections
@@ -27,13 +24,8 @@ from test_sdk_agent import responses_api  # noqa: F401  (fixture)
 from test_repositories import HEADERS
 
 
-def test_sdk_tuning_schema_decodes_nested_changes_and_server_instructions():
-    server_id = str(uuid4())
-    changes = {
-        'system_prompt': None,
-        'instructions': 'Use "read-only" checks.\nReport uncertainty.',
-        'server_instructions': [{'server_id': server_id, 'instructions': 'Read logs first.'}],
-    }
+def test_sdk_tuning_schema_decodes_nested_changes():
+    changes = {'system_prompt': None, 'instructions': 'Use "read-only" checks.\nReport uncertainty.'}
     schema = AgentOutputSchema(TuningSuggestion, strict_json_schema=False)
     proposal = schema.validate_json(
         json.dumps({'suggestion': 'Clarify inspection steps.', 'changes': json.dumps(changes)})
@@ -50,14 +42,8 @@ def test_sdk_tuning_schema_decodes_nested_changes_and_server_instructions():
         '[]',
         'null',
         '{}',
-        json.dumps({'system_prompt': None, 'instructions': None, 'server_instructions': [], 'ssh_enabled': True}),
-        json.dumps(
-            {
-                'system_prompt': None,
-                'instructions': None,
-                'server_instructions': [{'server_id': 'invalid', 'instructions': 'Read logs.'}],
-            }
-        ),
+        json.dumps({'system_prompt': None, 'instructions': None, 'ssh_enabled': True}),
+        json.dumps({'system_prompt': None, 'instructions': None, 'server_instructions': []}),  # overrides are gone
     ],
 )
 def test_sdk_tuning_schema_still_rejects_invalid_encoded_changes(changes):
@@ -77,8 +63,8 @@ def saved_review(store, agent_id: str, changes: dict, agent_config: dict | None 
         return str(add_review(conn, session, actor, changes=changes, agent_config=agent_config))
 
 
-def changes(system_prompt=None, instructions=None, servers=()) -> dict:
-    return {'system_prompt': system_prompt, 'instructions': instructions, 'server_instructions': list(servers)}
+def changes(system_prompt=None, instructions=None) -> dict:
+    return {'system_prompt': system_prompt, 'instructions': instructions}
 
 
 def apply_review(client, agent_id, review, body, target='agent', **change):
@@ -111,22 +97,17 @@ def test_a_suggestion_is_applied_to_this_agent_after_review(store, saved_agent):
         'Verify every change.',
         before['revision'],
     )
-    host = before['ssh']['servers'][0]
-    assert body['servers'] == [
-        {'id': host['id'], 'name': host['name'], 'instructions': 'Verify every change.', 'inherits': True}
-    ]
+    assert 'servers' not in body
     applied = apply_review(
         client, 'operations', review, body, system_prompt='Answer from evidence.', instructions='Gather evidence first.'
     )
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'agent_id': 'operations'}
-    from_tables(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert (after['system_prompt'], after['instructions']) == (
         {'content': 'Answer from evidence.'},
         'Gather evidence first.',
     )
-    assert after['ssh']['servers'][0]['instructions'] == 'Gather evidence first.'  # an inheriting server follows
     assert without(after, 'prompt', 'instructions') == without(before, 'prompt', 'instructions')
     assert after['revision'] == before['revision'] + 1
     again = apply_review(client, 'operations', review, body, instructions='Older text.')
@@ -138,27 +119,12 @@ def test_a_suggestion_is_applied_to_this_agent_after_review(store, saved_agent):
     ]
 
 
-def test_server_instructions_become_an_override_and_unknown_servers_are_refused(store, saved_agent):
-    client, server = saved_agent[0], saved_agent[1]
+def test_a_blank_prompt_is_refused_and_another_agent_has_no_such_review(store, saved_agent):
+    client = saved_agent[0]
     review = saved_review(store, 'operations', changes())
     body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
-    forged = apply_review(
-        client, 'operations', review, body, servers=[{'server_id': str(uuid4()), 'instructions': 'Forged'}]
-    )
-    assert forged.status_code == 422 and forged.json()['error']['message'] == UNKNOWN_SERVER
     blank = apply_review(client, 'operations', review, body, system_prompt='  ')
     assert blank.status_code == 400 and blank.json()['error']['message'] == PROMPT_REQUIRED
-    applied = apply_review(
-        client,
-        'operations',
-        review,
-        body,
-        servers=[{'server_id': server['id'], 'instructions': 'Check only the queue.'}],
-    )
-    assert applied.status_code == 200, applied.text
-    from_tables(store)
-    host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert (host['instructions'], host['instructions_source']) == ('Verify every change.', 'agent')  # not read
     assert client.get(f'/api/agents/code/reviews/{review}', headers=HEADERS).status_code == 404  # another agent's
 
 
@@ -171,7 +137,6 @@ def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, s
     assert applied.status_code == 200, applied.text
     clone_id = applied.json()['agent_id']
     assert clone_id != 'operations'
-    from_tables(store)
     assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(before)
     copied = get_agent_config(clone_id, conninfo=store.conninfo)
     assert copied['system_prompt'] == {'content': 'Answer from evidence.'}
@@ -189,10 +154,8 @@ def test_a_suggestion_applied_to_a_new_clone_leaves_the_agent_as_it_was(store, s
     ]
 
 
-def test_a_suggestion_from_a_per_run_chat_never_narrows_the_agent(store, saved_agent):
+def test_a_suggestion_from_a_narrowed_chat_never_narrows_the_agent(store, saved_agent):
     client = saved_agent[0]
-    with store.connect() as conn:
-        conn.execute("UPDATE ka.agents SET resources='per_run' WHERE id='operations'")
     before = get_agent_config('operations', conninfo=store.conninfo)
     review = saved_review(store, 'operations', changes(instructions='Be brief.'), agent_config=NARROWED)
     body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
@@ -216,21 +179,13 @@ def test_a_clone_name_taken_concurrently_is_a_conflict(store, saved_agent, monke
 
 
 def test_invalid_texts_are_refused(store, saved_agent):
-    client, server = saved_agent[0], saved_agent[1]
+    client = saved_agent[0]
     before = get_agent_config('operations', conninfo=store.conninfo)
     review = saved_review(store, 'operations', changes())
     body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
-    for change in (
-        {'instructions': 'Be\x00brief.'},
-        {'servers': [{'server_id': server['id'], 'instructions': 'Read\x00logs.'}]},
-    ):
-        refused = apply_review(client, 'operations', review, body, **change)
-        assert refused.status_code == 400 and refused.json()['error']['message'] == INVALID_TEXT
-    for change in (
-        {'instructions': 'x' * 40001},
-        {'system_prompt': 'x' * 100001},
-        {'servers': [{'server_id': server['id'], 'instructions': 'x' * 40001}]},
-    ):
+    refused = apply_review(client, 'operations', review, body, instructions='Be\x00brief.')
+    assert refused.status_code == 400 and refused.json()['error']['message'] == INVALID_TEXT
+    for change in ({'instructions': 'x' * 40001}, {'system_prompt': 'x' * 100001}):
         assert apply_review(client, 'operations', review, body, **change).status_code == 400
     assert sections(get_agent_config('operations', conninfo=store.conninfo)) == sections(before)
 
@@ -239,10 +194,8 @@ def test_instructions_saved_elsewhere_make_the_suggestion_stale(store, saved_age
     client = saved_agent[0]
     review = saved_review(store, 'operations', changes())
     body = client.get(f'/api/agents/operations/reviews/{review}', headers=HEADERS).json()
-    with store.connect() as conn:  # as the instructions endpoint does: agents.revision stays
-        conn.execute("""UPDATE ka.agent_configs SET instructions='Saved meanwhile.',revision=revision+1
-            WHERE agent='operations' AND server_id IS NULL""")
-    from_tables(store)
+    with store.connect() as conn:  # saved another way, agents.revision staying
+        conn.execute("UPDATE ka.agents SET instructions='Saved meanwhile.' WHERE id='operations'")
     assert get_agent_config('operations', conninfo=store.conninfo)['revision'] == body['revision']
     stale = apply_review(client, 'operations', review, body, instructions='Be brief.')
     assert stale.status_code == 409 and stale.json()['error']['message'] == AGENT_CHANGED

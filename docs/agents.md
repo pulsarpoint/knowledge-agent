@@ -231,10 +231,9 @@ original, keep it as an alternative, or delete it. A conversation pins the agent
 saving the agent never changes a conversation in progress.
 
 **Clone agent** (the header menu *Actions for <name>* on the agent page, or the **Clone <name>** button in the All
-agents list) creates a new agent with an identical configuration: prompt, instructions, model, type, resources mode,
-tools with their usage text, skills, documents, code projects, services, SSH servers (per-server instructions and
-connection overrides) and MCP selections. The name is `<name> (copy)`, then `(copy 2)` and so on while taken. Saved
-SSH credentials are **referenced**, not copied or decrypted. Sessions, runs, run records, reviews and audit history
+agents list) creates a new agent with an identical configuration: prompt, instructions, model, when to use, "Answer
+only from documents", its access object (resources and the content editor role) and tools with their usage text. The
+name is `<name> (copy)`, then `(copy 2)` and so on while taken. Sessions, runs, run records, reviews and audit history
 are not copied. The clone records `cloned_from` and shows *Clone of <original>* on its General tab and in the list.
 
 - `POST /api/agents/{id}/clone`: creates the clone and returns it (409 `An agent with this name already exists.`
@@ -250,18 +249,16 @@ are not copied. The clone records `cloned_from` and shows *Clone of <original>* 
   has a documentation session or run working. It bumps the original's revision and writes the audit event
   `agent.config.applied`. The clone then offers **Delete this clone**.
 
-Saving SSH, per-server or MCP settings locks the agent for the save, so it is serialized with Apply and with other
-saves.
+Saving the agent locks it for the save, so it is serialized with Apply and with other saves.
 
 **Add feedback → Suggest improvements** stays. **Review and apply** on a suggestion opens *Apply suggestions*: the
-proposed instruction and prompt replacements can be edited, then applied with **Apply to this agent** (new
+proposed replacements of the agent's instructions and prompt can be edited, then applied with **Apply to this agent** (new
 conversations use it) or **Apply to a new clone** (clone first, then write them there).
 
 - `GET /api/agents/{id}/reviews/{review_id}`: the suggestion with the agent's current texts and its fingerprint (404
   `Suggestion not found for this agent.`).
 - `POST /api/agents/{id}/reviews/{review_id}/apply`: `{target: 'agent' | 'clone', revision, fingerprint, changes}`; 409 `The agent changed since
-  you opened the suggestion. Review it again.`, 422 `Instructions refer to a server outside this agent.`, 400 `Enter a
-  system prompt.`
+  you opened the suggestion. Review it again.`, 400 `Enter a system prompt.`
 
 Snapshots of running conversations store credential references, never private keys or provider tokens. Credentials
 are resolved at execution time; disabled agents/models/SSH/MCP resources still block use. File contents and external

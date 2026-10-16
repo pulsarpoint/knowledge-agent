@@ -443,21 +443,11 @@ def build_api(app_name: str, store: RepositoryStore | None) -> APIRouter:
             credential = conn.execute('SELECT credential_id FROM ka.servers WHERE id=%s', (server_id,)).fetchone()[
                 'credential_id'
             ]
-            credentials = [
-                r['credential_id']
-                for r in conn.execute(
-                    'SELECT credential_id FROM ka.agent_server_connections WHERE server_id=%s AND credential_id IS NOT NULL',
-                    (server_id,),
-                )
-            ]
-            if credential is not None:
-                credentials.append(credential)
             conn.execute('DELETE FROM ka.servers WHERE id=%s AND project_id=%s', (server_id, project_id))
-            conn.execute(
-                """DELETE FROM ka.credentials c WHERE id=ANY(%s) AND kind='ssh_private_key'
-                AND NOT EXISTS (SELECT 1 FROM ka.servers s WHERE s.credential_id=c.id)
-                AND NOT EXISTS (SELECT 1 FROM ka.agent_server_connections a WHERE a.credential_id=c.id)""",
-                (credentials,),
+            conn.execute(  # the server's own key, unless another server uses it
+                """DELETE FROM ka.credentials c WHERE id=%s AND kind='ssh_private_key'
+                AND NOT EXISTS (SELECT 1 FROM ka.servers s WHERE s.credential_id=c.id)""",
+                (credential,),
             )
             conn.execute(
                 """INSERT INTO ka.audit_events(project_id,actor_id,action,resource_type,resource_id,details)

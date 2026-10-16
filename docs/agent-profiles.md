@@ -131,7 +131,8 @@ runtime, SDK wrapper, dependency, or migration is introduced.
 - `POST /api/agents/wizard/generate`: `{role, model_id}` → `{proposal}`; bounded to
   240 seconds overall, with one correction attempt for invalid model output,
   sanitized provider errors, and no database writes.
-- `POST /api/agents/wizard`: reviewed proposal → `{id}`; atomic creation.
+- `POST /api/agents/wizard`: reviewed proposal (`access` with references and `content_editor`, `instructions`) →
+  `{id}`; atomic creation.
 
 ## Persistence and APIs
 
@@ -152,19 +153,24 @@ coordinator agent with everything it owned, and drops `agents.is_coordinator` wi
 
 Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode` on/off/per_run, `usage`, `subagent_allowed`) and backfills every native agent with the tools its capabilities gave it, so nothing changes at upgrade; `code_graph` stays offered only when a selected code project has a generated graph. Its down migration drops the table and any edited usage text.
 
-- `GET /api/agents` lists profiles with model summaries and `cloned_from`.
-- `GET /api/agents/{id}` and `/options` return configuration and available resources.
-- `PUT /api/agents/{id}` saves metadata, capability switches and folder/repository/service selections using optimistic revisions. Optional `skill_ids` saves skill assignments in the same transaction as the skills switch; omitting it preserves assignments.
-- `PUT /api/agents/{id}` also accepts `resources`.
-- `GET /api/agents` returns `resources` and `accepts` (from the agent).
-- `GET /api/agents/{id}/run-resources` returns what a run may be given per kind (`null`: a kind the agent does not use), or `{resources: 'fixed'}`.
+- `GET /api/agents` lists profiles with model summaries, `cloned_from` and `counts`: per resource type, how many of the
+  resources its access object references still exist.
+- `GET /api/agents/{id}` returns the agent with `instructions` and `access`: each reference resolved to `{type, id,
+  name, description_short}` (a document with `editable`; a resource that no longer exists with `missing: true`) and
+  `roles.content_editor`.
+- `GET /api/agents/{id}/options` lists every resource of the project by type (`{type, id, name, description_short}`), for
+  the Resources picker.
+- `PUT /api/agents/{id}` saves metadata, `instructions` and `access` (references `{type, id, editable?}` and roles) using
+  optimistic revisions. Each reference must be of a known type; one to a resource that does not exist in the project is
+  dropped, and `editable` is kept for documents only.
+- `GET /api/agents/{id}/run-resources` returns the agent's access list (resources that still exist): what the Test tab
+  and chat settings pick a subset from.
 - `POST /api/sessions` with `agent_id` accepts `resources` for a per-run agent (chosen from its saved resources); the session keeps them (`run_resources` on the session).
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model.
 - `GET /api/agents/{id}/config` returns the agent's configuration (`knowledge_admin.knowledge_agents.config.get_agent_config`).
 - `PUT /api/agents/{id}/prompt` saves the system prompt; `POST /api/agents/{id}/clone`, `GET|POST /api/agents/{id}/apply` and `GET|POST /api/agents/{id}/reviews/{review_id}[/apply]` are described in [Agent execution](agents.md#clones).
 - `GET /api/sessions?agent_id={id}` lists the agent's conversations, `GET /api/sessions/{id}` restores one,
   `POST /api/sessions/{id}/close` ends one and `POST /api/sessions/{id}/review` saves tuning suggestions.
-- `/api/operations/settings`, `/api/operations/configs/{server_id}` and `/api/operations/runs` accept `?agent_id={id}` for any agent. The internal “operations” route/table names remain for compatibility.
 - Legacy Search, Code and `/api/mcp/code` routes remain available to existing integrations and honor the corresponding agent scope and capability switches.
 
 Administration endpoints require the existing administrator authorization. Model,

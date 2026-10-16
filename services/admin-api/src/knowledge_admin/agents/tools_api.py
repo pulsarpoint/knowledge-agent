@@ -8,8 +8,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from knowledge_admin.access import has_any
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage
+from knowledge_admin.knowledge_agents.config import access_ids
 from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
 from knowledge_admin.tools.catalog import (
     CATALOG,
@@ -19,7 +21,6 @@ from knowledge_admin.tools.catalog import (
     run_only,
     capability_tools,
     catalog_listing,
-    enabled_capability_tools,
     needs_met,
 )
 
@@ -37,15 +38,12 @@ SUBAGENT_ROW = """INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_a
     ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',subagent_allowed=false,updated_at=now()"""
 INSERT_TOOL = 'INSERT INTO ka.agent_tools(agent_id,tool,mode,usage,subagent_allowed) VALUES (%s,%s,%s,%s,%s)'
 
-AGENT = """SELECT id,revision,repositories_enabled,documents_enabled,documents_grounded,
-    ssh_enabled,mcp_enabled,expert FROM ka.agents WHERE id=%s"""
+AGENT = 'SELECT id,revision,access,documents_grounded,expert FROM ka.agents WHERE id=%s'
 # Every other expert, including those this agent switched off (the Tools tab shows the switch).
-EXPERTS = """SELECT id,name,when_to_use,resources FROM ka.agents WHERE expert AND id<>%s ORDER BY lower(name),id"""
-# As the agent configuration selects them: the application project's servers, linked in the same project.
+EXPERTS = """SELECT id,name,when_to_use FROM ka.agents WHERE expert AND id<>%s ORDER BY lower(name),id"""
+# The MCP servers of the application project the agent's access references.
 SELECTED_MCP = """SELECT m.id::text AS id,m.name,m.enabled,m.tools FROM ka.mcp_servers m
-    WHERE m.project_id=%s AND EXISTS (
-    SELECT 1 FROM ka.agent_config_mcp_servers s JOIN ka.agent_configs c ON c.id=s.config_id
-    WHERE s.mcp_server_id=m.id AND c.agent=%s AND c.project_id=m.project_id) ORDER BY lower(m.name),m.id"""
+    WHERE m.project_id=%s AND m.id=ANY(%s::uuid[]) ORDER BY lower(m.name),m.id"""
 SWITCH_ON = """INSERT INTO ka.agent_tools(agent_id,tool,mode) VALUES (%s,%s,'on')
     ON CONFLICT (agent_id,tool) DO UPDATE SET mode='on',updated_at=now()"""
 
@@ -71,13 +69,13 @@ class ToolsInput(BaseModel):
         return value
 
 
-def flags(row: dict[str, Any]) -> dict[str, Any]:
-    """The capability switches of an agent row (or a proposal) in config shape, for the catalog rules."""
+def flags(access: dict[str, Any], grounded: bool) -> dict[str, Any]:
+    """The capabilities an access object gives, in config shape, for the catalog rules: code projects, collections
+    (with "Answer only from documents") and servers."""
     return {
-        'resources': row.get('resources', 'fixed'),
-        'code': {'enabled': row['repositories_enabled']},
-        'documents': {'enabled': row['documents_enabled'], 'grounded': row['documents_grounded']},
-        'ssh': {'enabled': row['ssh_enabled']},
+        'code': {'enabled': has_any(access, 'code_project')},
+        'documents': {'enabled': has_any(access, 'collection'), 'grounded': grounded},
+        'ssh': {'enabled': has_any(access, 'server')},
     }
 
 
@@ -119,7 +117,7 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
             'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
         )
     }
-    current = flags(agent)
+    current = flags(agent['access'], agent['documents_grounded'])
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
@@ -143,8 +141,8 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                 'tab': NEED_TABS.get(spec.needs),
             }
         )
-    for server in conn.execute(SELECTED_MCP, (project, agent_id)):
-        available = agent['mcp_enabled'] and server['enabled']
+    for server in conn.execute(SELECTED_MCP, (project, access_ids(agent['access'], 'mcp_server'))):
+        available = server['enabled']
         for found in server['tools']:
             name = f'mcp:{server["id"]}:{found["name"]}'
             row = saved.get(name)
@@ -179,7 +177,6 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
                 'available': True,
                 'reason': None,
                 'tab': None,
-                'resources': found['resources'],
             }
         )
     return {'revision': agent['revision'], 'expert': agent['expert'], 'tools': tools}
@@ -189,17 +186,14 @@ CAPABILITIES = ('code', 'documents', 'ssh')
 
 
 def switch_on_defaults(conn, agent_id: str, old: dict[str, Any], new: dict[str, Any]) -> None:
-    """Profile save. Fixed agents: a capability switched on gets all of its tools on (catalog.capability_tools),
-    replacing earlier off rows (they had no effect while it was off). Per-run agents: when the agent becomes per run or
-    a capability is switched on, every enabled capability's tools are switched on. Grounded answers always get
-    report_not_covered. Switching a capability off, and a save that switches nothing on, keep every row; edited usage
-    text is kept."""
+    """Profile save (flags of the old and the new access): a capability the access now gives gets all of its tools on
+    (catalog.capability_tools), replacing earlier off rows (they had no effect while it was off). Grounded answers
+    always get report_not_covered. A capability gone, and a save that adds none, keep every row; edited usage text is
+    kept."""
     switched_on = [
         capability for capability in CAPABILITIES if new[capability]['enabled'] and not old[capability]['enabled']
     ]
     wanted: set[str] = set()
-    if new['resources'] == 'per_run' and (old['resources'] != 'per_run' or switched_on):
-        wanted.update(enabled_capability_tools(new))
     for capability in switched_on:
         wanted.update(capability_tools(capability, new))
     if new['documents']['enabled'] and new['documents']['grounded']:
@@ -233,7 +227,9 @@ def build_api(app_name, store):
                 raise HTTPException(409, STALE)
             servers = {
                 row['id']: {found['name'] for found in row['tools']}
-                for row in conn.execute(SELECTED_MCP, (store.project(conn, app_name), agent_id))
+                for row in conn.execute(
+                    SELECTED_MCP, (store.project(conn, app_name), access_ids(agent['access'], 'mcp_server'))
+                )
             }
             agents = {
                 row['id']: row['expert']
@@ -262,7 +258,8 @@ def build_api(app_name, store):
             if SUBAGENT in chosen and switch is None:
                 raise HTTPException(400, SUBAGENTS_OFF)
             report = chosen.get('report_not_covered')
-            if agent['documents_enabled'] and agent['documents_grounded'] and (report is None or report.mode != 'on'):
+            documents = flags(agent['access'], agent['documents_grounded'])['documents']
+            if documents['enabled'] and documents['grounded'] and (report is None or report.mode != 'on'):
                 raise HTTPException(400, GROUNDED)
             # Choices about agents that are not experts now survive the replace (they apply again if one returns).
             kept = [

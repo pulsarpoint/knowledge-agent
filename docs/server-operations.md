@@ -1,7 +1,7 @@
 # SSH configuration
 
-Every agent has an SSH tab and can store selected servers, per-server instructions,
-and optional connection overrides. Administration requires the Keycloak admin group.
+An agent reaches the servers its access object references with each server's own SSH settings.
+Administration requires the Keycloak admin group.
 Agent execution currently returns `TODO`; saving configuration does not connect to a server.
 
 ## Setup
@@ -17,7 +17,7 @@ The server inventory’s **SSH allowed** flag applies even when an agent has an 
 
 ## Connection tests and credentials
 
-Server defaults and per-agent overrides support connection tests without creating
+Server SSH settings support connection tests without creating
 an agent run. SSH uses AsyncSSH. Private keys are encrypted at rest with the existing
 AES-GCM credential key. Responses expose key metadata, never the private key.
 Omitting a replacement key preserves the saved key; explicit removal is separate.
@@ -25,13 +25,6 @@ Omitting a replacement key preserves the saved key; explicit removal is separate
 Trusted host keys are optional. When saved they are verified; when absent the
 connection test returns the discovered public host key and fingerprint for review.
 The server SSH-enabled flag and sudo permission remain configuration controls.
-Changing a server default does not replace an agent's explicit connection override.
 
-## Agent SSH API
-
-- `GET /api/agents/{agent_id}/servers/{server_id}/ssh` returns the effective connection, its `connection_source` (`server` or `agent`), override `revision` (zero when absent), and `server_revision`.
-- `PUT` at the same path saves an override. Send both revisions plus connection fields. An omitted private key preserves the effective saved key; explicit `null` removes authentication for this override.
-- `POST .../ssh/test` previews a connection with the same revisions, without saving credentials or creating an override.
-- `DELETE .../ssh` requires both revisions and `confirmed: true`, removes the override, and returns the server configuration. Instructions and server selection are preserved.
-
-The original `/api/servers/{id}/ssh` endpoints manage server defaults. `GET /api/operations/settings?agent_id={id}` lists effective SSH configurations for that agent.
+The `/api/servers/{id}/ssh` endpoints manage a server's SSH settings; every agent uses them (per-agent connection
+overrides are gone).

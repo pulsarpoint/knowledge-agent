@@ -30,15 +30,14 @@ class Kind(NamedTuple):
     capability: str  # the config section with its switch
     label: str  # one resource, in messages
     plural: str  # the kind, in messages
-    option: str  # the options() key
     type: str  # the access object's resource type
 
 
 KINDS = (
-    Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_projects', 'code_project'),
-    Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collections', 'collection'),
-    Kind('server_ids', 'ssh', 'Server', 'servers', 'servers', 'server'),
-    Kind('service_ids', 'services', 'Service', 'services', 'services', 'service'),
+    Kind('code_project_ids', 'code', 'Code project', 'code projects', 'code_project'),
+    Kind('collection_ids', 'documents', 'Collection', 'document collections', 'collection'),
+    Kind('server_ids', 'ssh', 'Server', 'servers', 'server'),
+    Kind('service_ids', 'services', 'Service', 'services', 'service'),
 )
 
 
@@ -64,13 +63,6 @@ FOUND = {
     'collection_ids': 'SELECT id,name,deleted_at IS NULL AS usable FROM ka.rag_collections WHERE project_id=%s AND id=ANY(%s)',
     'server_ids': 'SELECT id,name,ssh_allowed AS usable FROM ka.servers WHERE project_id=%s AND id=ANY(%s)',
     'service_ids': 'SELECT id,name,true AS usable FROM ka.services WHERE project_id=%s AND id=ANY(%s)',
-}
-# Every usable resource of one kind in this workspace (what "all" allows, and the options a caller sees).
-LISTED = {
-    'code_project_ids': 'SELECT id,name FROM ka.repositories WHERE project_id=%s AND archived_at IS NULL ORDER BY lower(name),id',
-    'collection_ids': 'SELECT id,name FROM ka.rag_collections WHERE project_id=%s AND deleted_at IS NULL ORDER BY name,id',
-    'server_ids': 'SELECT id,name FROM ka.servers WHERE project_id=%s AND ssh_allowed ORDER BY lower(name),id',
-    'service_ids': 'SELECT id,name FROM ka.services WHERE project_id=%s ORDER BY lower(name),id',
 }
 CODE_PROJECTS = """SELECT r.id,r.name,r.description,r.remote_url AS remote_git_url,
     ARRAY(SELECT f.path::text FROM ka.code_project_folders f WHERE f.code_project_id=r.id ORDER BY f.path) AS folder_paths
@@ -230,22 +222,3 @@ def resolve(
 def _usable_server(server: dict[str, Any]) -> bool:
     """As `resolve` checks it: the snapshot's server is enabled and allows SSH."""
     return bool(server['enabled'] and server['ssh_allowed'])
-
-
-def options(conn, project_id, config: dict[str, Any]) -> dict[str, list[dict[str, str]] | None]:
-    """What a caller may pass to one run of a per-run agent, per kind: the usable resources inside its saved selection
-    (every usable one for All), as id and name; None for a kind the agent does not use."""
-    result: dict[str, list[dict[str, str]] | None] = {}
-    for kind in KINDS:
-        if not config[kind.capability]['enabled']:
-            result[kind.option] = None
-            continue
-        selection = _selection(config, kind)
-        result[kind.option] = [
-            {'id': str(row['id']), 'name': row['name']}
-            for row in conn.execute(LISTED[kind.key], (project_id,))
-            if selection is None
-            or str(row['id']) in selection
-            and (kind.capability != 'ssh' or _usable_server(selection[str(row['id'])]))
-        ]
-    return result
