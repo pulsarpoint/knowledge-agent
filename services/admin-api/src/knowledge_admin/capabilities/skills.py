@@ -4,13 +4,16 @@ listed skill's instructions from ka.agent_skills. The skills are the run's acces
 import asyncio
 from typing import Annotated, Any
 
+import psycopg
 from pydantic import Field
 
 from knowledge_admin import access as access_rules
 from knowledge_admin.capabilities.context import RunContext
+from knowledge_admin.capabilities.inventory import UNAVAILABLE as STORE_UNAVAILABLE
 from knowledge_admin.capabilities.inventory import connect, project_of
 from knowledge_admin.tools.registry import tool
 
+UNAVAILABLE = 'Skills are unavailable right now.'
 INSTRUCTIONS = """SELECT instructions FROM ka.agent_skills WHERE project_id=%s AND id=%s AND enabled"""
 HEADER = """## Skills
 A skill is a set of instructions to follow. Below is the list of skills that can be used. Each entry has a name and a description; call `load_skill` with the name to get its full instructions when you use it.
@@ -26,9 +29,7 @@ def section(access: dict) -> str:
     skills = access_rules.listing(access, 'skill')
     if not skills:
         return ''
-    lines = [
-        f'- {item["name"]}: {" ".join(item.get("description", item["description_short"]).split())}' for item in skills
-    ]
+    lines = [f'- {item["name"]}: {" ".join(item["description"].split())}' for item in skills]
     return '\n'.join([HEADER, *lines, HOW_TO])
 
 
@@ -42,8 +43,17 @@ def check_load_skill(access: dict, name: str, **_) -> str | None:
 
 
 def _instructions(config: dict[str, Any], skill_id: str) -> str:
-    with connect() as conn:
-        row = conn.execute(INSTRUCTIONS, (project_of(conn, config), skill_id)).fetchone()
+    """The skill's instructions; a refusal when it is disabled or gone, or the database is unavailable (as the memory
+    tools refuse)."""
+    try:
+        with connect() as conn:
+            row = conn.execute(INSTRUCTIONS, (project_of(conn, config), skill_id)).fetchone()
+    except ValueError as error:
+        if str(error) != STORE_UNAVAILABLE:  # only 'the store is not configured in this process' is a refusal
+            raise
+        return UNAVAILABLE
+    except psycopg.OperationalError:  # the database is down or unreachable
+        return UNAVAILABLE
     return row['instructions'] if row is not None else access_rules.refuse_use('skill')
 
 

@@ -84,3 +84,18 @@ def test_check_load_skill_matches_on_the_entry_name():
     assert check_load_skill(access, name='inspect') is None
     assert check_load_skill(access, name='k1') == REFUSED
     assert check_load_skill({'resources': []}, name='inspect') == REFUSED
+
+
+def test_a_database_outage_is_a_refusal(run, monkeypatch):
+    import psycopg
+
+    config, _ = run
+
+    def down():
+        raise psycopg.OperationalError('connection refused')
+
+    monkeypatch.setattr('knowledge_admin.capabilities.skills.connect', down)
+    assert load(config, 'inspect') == 'Skills are unavailable right now.'
+    monkeypatch.undo()
+    monkeypatch.setattr(inventory, '_store', None)
+    assert load(config, 'inspect') == 'Skills are unavailable right now.'
