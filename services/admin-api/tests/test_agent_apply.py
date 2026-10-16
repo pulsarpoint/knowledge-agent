@@ -75,7 +75,7 @@ def test_apply_copies_everything_but_name_and_description(store, saved_agent):
         )
     value = preview(client, copy_id)
     assert value['original'] == {'id': 'operations', 'name': original['name'], 'revision': original['revision']}
-    assert value['changes'] == ['Prompt', 'Instructions', 'When to use', 'Resources', 'Skills']
+    assert value['changes'] == ['General', 'Resources']  # each tab once: a skill is a resource
     applied = apply(client, copy_id, value)
     assert applied.status_code == 200, applied.text
     assert applied.json() == {'id': 'operations', 'revision': original['revision'] + 1}

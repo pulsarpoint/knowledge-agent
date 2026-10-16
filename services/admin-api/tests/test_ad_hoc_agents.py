@@ -103,7 +103,7 @@ def test_a_chosen_server_keeps_its_own_connection_as_a_reference(sessions):
     server, key = ssh_setup(s.client)
     config = build(s, chosen(server_ids=[server['id']]))
     [pinned] = config['ssh']['servers']
-    assert pinned['id'] == server['id'] and pinned['connection_source'] == 'server'
+    assert pinned['id'] == server['id'] and pinned['username'] == server['username']
     assert pinned['private_key_ref']['id'] and key['private_key'] not in json.dumps(config)
     assert 'ssh_run' in [spec.name for spec, _ in effective_tools(config, config['ssh']['servers'])]
 

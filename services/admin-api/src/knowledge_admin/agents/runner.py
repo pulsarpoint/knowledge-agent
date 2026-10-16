@@ -301,7 +301,7 @@ def instructions_and_tools(
     create_agent gives the model (it adds the experts not named like an MCP tool, which it lists once connected) and
     what the Debug tab and the start preview show (sessions/debug.py), so they cannot drift. ssh_servers: the usable
     servers (ssh_servers()); subagents as in create_agent."""
-    selected_mcp = mcp.selected_servers(config, ssh_servers)
+    selected_mcp = mcp.selected_servers(config)
     offered = [
         (spec, usage) for spec, usage in effective_tools(config, ssh_servers) if subagents or spec.name != SUBAGENT
     ]

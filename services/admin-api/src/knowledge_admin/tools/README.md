@@ -77,8 +77,8 @@ share the turn's limit of 16 helpers with subagents.
   of `server`, `service`, `environment`, `code_project` (a fixed enum), `resource_id` a plain uuid — returns everything
   recorded about one resource as JSON: its fields, its `inventory_document` (id, title; or null), its other `documents`
   (id, title; from their links) and `links` (`{type, id, name, relation,
-  ...}`) the model follows by passing `type` and `id` again; lists stop at 100 (`truncated`). A server's connection,
-  instructions, skills and MCP server ids come from the run's configuration. Scoped to the run's allowlist: anything
+  ...}`) the model follows by passing `type` and `id` again; lists stop at 100 (`truncated`). A server's connection
+  (username, port, sudo) comes from the run's configuration. Scoped to the run's allowlist: anything
   the run was not given (a linked resource too) or a malformed id returns "The <type> <id> is not available in this
   run.", the same as for a missing entry. `get_document` reads documents the run was given or linked to those
   resources. The prompt names a run's starting resource in one line (`Resource: server <uuid> (<name>)`) and lists

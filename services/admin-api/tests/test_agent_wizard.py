@@ -86,9 +86,8 @@ def test_wizard_roundtrip_every_resource(store, wizard):
     assert config['model']['api_key_ref']['id'] == proposal['model_id']
     assert config['access'] == proposal['access']
     assert [c['name'] for c in config['documents']['collections']] == ['payments']
-    server = config['ssh']['servers'][0]  # the server's own SSH settings and the agent's instructions
-    assert (server['username'], server['connection_source']) == ('operator', 'server')
-    assert server['instructions'] == proposal['instructions']
+    server = config['ssh']['servers'][0]
+    assert server['username'] == 'operator'  # the server's own SSH settings
     assert ssh['private_key'] not in json.dumps(config)
     assert client.post('/api/agents/wizard', headers=HEADERS, json=proposal).status_code == 409
     with store.connect() as conn:

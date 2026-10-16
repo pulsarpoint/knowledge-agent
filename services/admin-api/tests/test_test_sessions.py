@@ -202,16 +202,3 @@ def test_the_session_endpoints_serve_test_sessions(tester):
     assert t.client.get(url + '/events/history', headers=HEADERS).json() == {'events': [], 'has_more': False}
     assert t.client.post(url + '/close', headers=HEADERS).status_code == 200
     assert t.client.post(url + '/messages', headers=HEADERS, json={'text': 'More'}).status_code == 409
-
-
-def test_the_test_tab_offers_what_a_run_may_be_given(analyst):
-    a = analyst
-    offered = a.client.get(f'/api/agents/{a.agent}/run-resources', headers=HEADERS)
-    assert offered.status_code == 200 and offered.headers['cache-control'] == 'no-store'
-    assert offered.json() == {
-        'resources': [
-            {'type': 'code_project', 'id': a.app, 'name': 'App', 'description_short': ''},
-            {'type': 'code_project', 'id': a.worker, 'name': 'Worker', 'description_short': ''},
-        ]
-    }
-    assert a.client.get('/api/agents/missing/run-resources', headers=HEADERS).status_code == 404

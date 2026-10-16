@@ -150,15 +150,8 @@ def load_graphs(conn, project_id, ids: Iterable[str]) -> list[dict[str, Any]]:
 
 
 def mcp_definitions(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The MCP servers a configuration may connect to: the agent's and, with MCP on, those of its usable SSH servers."""
-    if not config['mcp']['enabled']:
-        return []
-    servers = list(config['mcp']['servers'])
-    if config['ssh']['enabled']:
-        for server in config['ssh']['servers']:
-            if server['enabled'] and server['ssh_allowed']:
-                servers.extend(server['mcp_servers'])
-    return servers
+    """The MCP servers a configuration may connect to."""
+    return list(config['mcp']['servers']) if config['mcp']['enabled'] else []
 
 
 def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | None]:
@@ -175,48 +168,16 @@ def credential_references(config: Mapping[str, Any]) -> list[dict[str, Any] | No
     return references
 
 
+# Each section of sections() and the agent tab it is edited on (the clone Apply dialog names the tabs).
 SECTIONS: dict[str, str] = {
-    'prompt': 'Prompt',
-    'instructions': 'Instructions',
-    'when_to_use': 'When to use',
-    'model': 'Model',
+    'prompt': 'General',
+    'instructions': 'General',
+    'when_to_use': 'General',
+    'model': 'General',
+    'grounded': 'General',
     'resources': 'Resources',
     'tools': 'Tools',
-    'skills': 'Skills',
-    'documents': 'Documents',
-    'code': 'Code projects',
-    'ssh': 'SSH',
-    'mcp': 'MCP',
-    'services': 'Services',
 }
-
-
-def _ids(items: Iterable[Mapping[str, Any]]) -> list[str]:
-    return sorted(str(item['id']) for item in items)
-
-
-def _server(entry: Mapping[str, Any]) -> dict[str, Any]:
-    """A selected SSH server: only what the agent decides (inherited values are the agent's own sections)."""
-
-    def own(source: str) -> bool:
-        return entry.get(source, 'agent') != 'agent'
-
-    agent_connection = entry.get('connection_source', 'server') == 'agent'
-    return {
-        'id': str(entry['id']),
-        'instructions': entry['instructions'] if own('instructions_source') else None,
-        'skills': _ids(entry['skills']) if own('skills_source') else None,
-        'mcp_servers': _ids(entry['mcp_servers']) if own('mcp_source') else None,
-        'connection': {
-            'username': entry['username'],
-            'port': entry['port'],
-            'allow_sudo': entry['allow_sudo'],
-            'known_hosts': entry['known_hosts'],
-            'credential_id': (entry.get('private_key_ref') or {}).get('id'),
-        }
-        if agent_connection
-        else None,
-    }
 
 
 def _access(access: Mapping[str, Any]) -> dict[str, Any]:
@@ -237,14 +198,14 @@ def _access(access: Mapping[str, Any]) -> dict[str, Any]:
 
 def sections(config: Mapping[str, Any]) -> dict[str, Any]:
     """What an agent runs with, by section (SECTIONS): everything except its identity (id, name, description, on/off),
-    revisions and live data (graphs; the details of shared servers, collections, skills). Equal sections run the
-    same. Clone, Apply and the 0080 migration compare these."""
-    documents, code = config['documents'], config['code']
+    revisions and live data (the items its access references). Equal sections run the same. Clone and Apply compare
+    these."""
     return {
         'prompt': config['system_prompt']['content'],
         'instructions': config['instructions'],
         'when_to_use': config['when_to_use'],
         'model': str(config['model']['id']) if config['model'] else None,
+        'grounded': bool(config['documents'].get('grounded', False)),
         'resources': _access(config.get('access') or {}),
         'tools': [
             {
@@ -255,37 +216,19 @@ def sections(config: Mapping[str, Any]) -> dict[str, Any]:
             }
             for entry in config['tools']['items']
         ],
-        'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
-        'documents': {
-            'enabled': documents['enabled'],
-            'grounded': documents.get('grounded', False),
-            'all_collections': documents.get('all_collections', False),
-            'collections': [] if documents.get('all_collections') else _ids(documents.get('collections', [])),
-        },
-        'code': {
-            'enabled': code['enabled'],
-            'all_projects': code.get('all_projects', False),
-            'projects': [] if code.get('all_projects') else _ids(code['projects']),
-        },
-        'ssh': {
-            'enabled': config['ssh']['enabled'],
-            'servers': sorted((_server(entry) for entry in config['ssh']['servers']), key=lambda s: s['id']),
-        },
-        'mcp': {'enabled': config['mcp']['enabled'], 'servers': _ids(config['mcp']['servers'])},
-        'services': {'enabled': config['services']['enabled'], 'items': _ids(config['services']['items'])},
     }
 
 
 def fingerprint(config: Mapping[str, Any]) -> str:
-    """Changes whenever what the agent runs with changes, whichever tab saved it (instructions and SSH saves do not
-    bump agents.revision)."""
+    """Changes whenever what the agent runs with changes, whichever tab saved it (an instructions save does not bump
+    agents.revision)."""
     return hashlib.sha256(json.dumps(sections(config), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def changed_sections(source: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
-    """The labels of the sections that differ, in SECTIONS order."""
+    """The tabs whose sections differ, each once, in SECTIONS order."""
     ours, theirs = sections(source), sections(target)
-    return [label for key, label in SECTIONS.items() if ours[key] != theirs[key]]
+    return list(dict.fromkeys(label for key, label in SECTIONS.items() if ours[key] != theirs[key]))
 
 
 # The items an agent's access references, by type: only those that still exist (deleted or archived ones are skipped).
@@ -303,9 +246,9 @@ SKILLS = """SELECT id,name,description,instructions,enabled,revision FROM ka.age
     WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY name,id"""
 MCP_SERVERS = """SELECT id,name,description,url,enabled,tools,revision,token_ciphertext IS NOT NULL AS has_token
     FROM ka.mcp_servers WHERE project_id=%s AND id=ANY(%s::uuid[]) ORDER BY lower(name),id"""
-# A server with its own SSH settings (per-agent connections are not read).
+# A server with its own SSH settings.
 SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.revision AS server_revision,
-    NULL::integer AS connection_revision,'server' AS connection_source,s.username,s.port,s.allow_sudo,
+    s.username,s.port,s.allow_sudo,
     coalesce(s.known_hosts,'') AS known_hosts,s.enabled,
     c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
     FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
@@ -318,12 +261,112 @@ def access_ids(access: Mapping[str, Any], type_: str) -> list[str]:
     return [str(entry['id']) for entry in access.get('resources', []) if entry['type'] == type_]
 
 
+# The referenced code projects, collections, servers and services that still exist.
+EXISTING = {
+    'code_project': 'SELECT id::text AS id FROM ka.repositories WHERE id=ANY(%s::uuid[]) AND archived_at IS NULL',
+    'collection': 'SELECT id::text AS id FROM ka.rag_collections WHERE id=ANY(%s::uuid[]) AND deleted_at IS NULL',
+    'server': 'SELECT id::text AS id FROM ka.servers WHERE id=ANY(%s::uuid[])',
+    'service': 'SELECT id::text AS id FROM ka.services WHERE id=ANY(%s::uuid[])',
+}
+
+
+def without_missing(conn, access: Mapping[str, Any]) -> dict[str, Any]:
+    """The access object without the code projects, collections, servers and services it references that no longer
+    exist (the kinds the Tools tab and an expert's accepted resources count)."""
+    gone = set()
+    for type_, query in EXISTING.items():
+        ids = access_ids(access, type_)
+        kept = {row['id'] for row in conn.execute(query, (ids,))} if ids else set()
+        gone |= {(type_, item) for item in ids if item not in kept}
+    return {**access, 'resources': [r for r in access.get('resources', []) if (r['type'], str(r['id'])) not in gone]}
+
+
+def _code_root() -> PurePosixPath:
+    code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
+    if code_root.anchor != '/' or '..' in code_root.parts:
+        raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
+    return code_root
+
+
+def load_items(conn, project_id, ids: Mapping[str, list[str]]) -> dict[str, list[dict[str, Any]]]:
+    """The items of these ids by type (collection, code_project, service, skill, mcp_server, server) in config shape:
+    only those that still exist; paths in the agent's container, credentials as references."""
+    code_root = _code_root()
+
+    def load(query: str, type_: str) -> list[dict[str, Any]]:
+        found = ids.get(type_) or []
+        return conn.execute(query, (project_id, found)).fetchall() if found and project_id else []
+
+    collections = load(COLLECTIONS, 'collection')
+    for item in collections:
+        item['paths'] = [str(data_path(path)) for path in item.pop('source_paths')]
+    code_projects = load(CODE_PROJECTS, 'code_project')
+    for project in code_projects:
+        project['folder_paths'] = [str(code_root / path) for path in project['folder_paths']]
+        if project['remote_git_url'] is None:
+            del project['remote_git_url']
+    services = load(SERVICES, 'service')
+    for service in services:
+        for repository in service['repositories']:
+            if repository['checkout_path'] is not None:
+                repository['checkout_path'] = str(code_root / repository['checkout_path'])
+    mcp_servers = load(MCP_SERVERS, 'mcp_server')
+    for server in mcp_servers:
+        server['bearer_token_ref'] = (
+            {
+                'table': 'ka.mcp_servers',
+                'id': server['id'],
+                'column': 'token_ciphertext',
+                'key_env': 'CREDENTIAL_ENCRYPTION_KEY',
+                'aad': f'mcp:{server["id"]}:v1',
+            }
+            if server.pop('has_token')
+            else None
+        )
+    servers = load(SERVERS, 'server')
+    for server in servers:
+        server['private_key_ref'] = private_key_ref(
+            server.pop('credential_id'), server.pop('credential_project_id'), server.pop('key_version')
+        )
+    return {
+        'collection': collections,
+        'code_project': code_projects,
+        'service': services,
+        'skill': load(SKILLS, 'skill'),
+        'mcp_server': mcp_servers,
+        'server': servers,
+    }
+
+
+LOADED = ('collection', 'code_project', 'service', 'skill', 'mcp_server', 'server')
+# The sections that hold resources a given resource brings (its children), by type.
+CHILD_SECTIONS = {'code_project': ('code', 'projects'), 'server': ('ssh', 'servers'), 'service': ('services', 'items')}
+
+
+def add_children(conn, project_id, config: dict[str, Any], ids: Mapping[str, list[str]]) -> dict[str, Any]:
+    """The configuration with these code projects, servers and services added to its sections (those it lists
+    already stay as they are; a section with items is enabled) and the graphs of the added code projects."""
+    config = dict(config)
+    wanted = {}
+    for type_, (section, key) in CHILD_SECTIONS.items():
+        listed = {str(item['id']) for item in config[section][key]}
+        wanted[type_] = [str(item) for item in dict.fromkeys(ids.get(type_) or []) if str(item) not in listed]
+    loaded = jsonable_encoder(load_items(conn, project_id, wanted))
+    for type_, (section, key) in CHILD_SECTIONS.items():
+        items = [*config[section][key], *loaded[type_]]
+        config[section] = {**config[section], 'enabled': bool(items), key: items}
+    if loaded['code_project']:
+        added = load_graphs(conn, project_id, [item['id'] for item in loaded['code_project']])
+        config['code'] = {**config['code'], 'graphs': [*config['code'].get('graphs', []), *jsonable_encoder(added)]}
+    return config
+
+
 def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
     """Return one JSON-compatible configuration snapshot (AgentConfig) for an agent: its access object (`access`, as
     stored: references and roles), its instructions and the items its access references loaded into the sections
     the tools read (code projects, collections, SSH servers, services, skills, MCP servers; documents as
     document_access). A section is enabled when it has items; a reference to an item that no longer exists is
-    skipped. Servers use their own SSH settings.
+    skipped. Servers use their own SSH settings. A run adds the children of what it was given (add_children).
 
     Uses the standard PG* environment variables when conninfo is omitted. Reads
     only: no defaults are saved, credentials decrypted, or tools/SDKs started.
@@ -345,70 +388,26 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
         if len(projects) > 1:
             raise ValueError('Agent configuration requires a single application database')
         project_id = projects[0]['id'] if projects else None
-        code_root = PurePosixPath(os.environ.get('CODE_ROOT', ''))
-        if code_root.anchor != '/' or '..' in code_root.parts:
-            raise ValueError('CODE_ROOT must be an absolute path mounted in the agent container')
         access = agent['access']
-        instructions = agent['instructions']
-
-        def load(query: str, type_: str) -> list[dict[str, Any]]:
-            ids = access_ids(access, type_)
-            return conn.execute(query, (project_id, ids)).fetchall() if ids and project_id else []
-
-        model = load_model(conn, agent['model_id'])
-
-        collections = load(COLLECTIONS, 'collection')
-        for item in collections:
-            item['paths'] = [str(data_path(path)) for path in item.pop('source_paths')]
-        code_projects = load(CODE_PROJECTS, 'code_project')
-        for project in code_projects:
-            project['folder_paths'] = [str(code_root / path) for path in project['folder_paths']]
-            if project['remote_git_url'] is None:
-                del project['remote_git_url']
-        services = load(SERVICES, 'service')
-        for service in services:
-            for repository in service['repositories']:
-                if repository['checkout_path'] is not None:
-                    repository['checkout_path'] = str(code_root / repository['checkout_path'])
-        skills = load(SKILLS, 'skill')
-        mcp_servers = load(MCP_SERVERS, 'mcp_server')
-        for server in mcp_servers:
-            server['bearer_token_ref'] = (
-                {
-                    'table': 'ka.mcp_servers',
-                    'id': server['id'],
-                    'column': 'token_ciphertext',
-                    'key_env': 'CREDENTIAL_ENCRYPTION_KEY',
-                    'aad': f'mcp:{server["id"]}:v1',
-                }
-                if server.pop('has_token')
-                else None
-            )
-        servers = load(SERVERS, 'server')
-        for server in servers:
-            server['private_key_ref'] = private_key_ref(
-                server.pop('credential_id'), server.pop('credential_project_id'), server.pop('key_version')
-            )
-            server.update(
-                config_revision=None,
-                instructions=instructions,
-                instructions_source='agent',
-                skills=[],
-                skills_source='agent',
-                mcp_servers=[],
-                mcp_source='agent',
-            )
+        items = load_items(conn, project_id, {type_: access_ids(access, type_) for type_ in LOADED})
         editable = {
             str(entry['id']): bool(entry.get('editable'))
             for entry in access.get('resources', [])
             if entry['type'] == 'document'
         }
-        documents = {str(row['id']): row for row in load(DOCUMENTS, 'document')}
+        found = access_ids(access, 'document')
+        documents = (
+            {str(row['id']): row for row in conn.execute(DOCUMENTS, (project_id, found))}
+            if found and project_id
+            else {}
+        )
         document_access = [
             {'id': key, 'title': documents[key]['title'], 'editable': editable[key]}
-            for key in access_ids(access, 'document')
+            for key in found
             if key in documents
         ]
+        collections, code_projects = items['collection'], items['code_project']
+        skills, mcp_servers, servers, services = items['skill'], items['mcp_server'], items['server'], items['service']
 
         return jsonable_encoder(
             {
@@ -418,9 +417,9 @@ def get_agent_config(agent_id: str, *, conninfo: str = '') -> dict[str, object]:
                 'when_to_use': agent['when_to_use'],
                 'enabled': agent['enabled'],
                 'revision': agent['revision'],
-                'model': model,
+                'model': load_model(conn, agent['model_id']),
                 'system_prompt': {'content': agent['system_prompt']},
-                'instructions': instructions,
+                'instructions': agent['instructions'],
                 'settings_revision': None,
                 'documents': {
                     'enabled': bool(collections),

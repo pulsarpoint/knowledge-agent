@@ -133,11 +133,9 @@ def _readable_documents(conn, config: dict[str, Any], documents: list[dict]) -> 
 
 def _server_extras(config: dict[str, Any], server_id: str) -> dict[str, Any]:
     """What the run's configuration says about the server: its connection as pinned (the server's own username, port
-    and sudo) and its instructions (the agent's)."""
+    and sudo)."""
     entry = next((item for item in (config.get('ssh') or {}).get('servers', []) if str(item['id']) == server_id), {})
-    extras = {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
-    extras['instructions'] = entry.get('instructions') or ''
-    return extras
+    return {key: entry[key] for key in ('port', 'username', 'allow_sudo') if key in entry}
 
 
 def check_get_resource(access: dict, resource_type: str, resource_id: str, **_) -> str | None:

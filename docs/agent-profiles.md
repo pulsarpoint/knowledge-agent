@@ -21,7 +21,9 @@ Other `?view=` values open General.
 `environment`, `code_project`, `collection`, `document`, `skill` and `mcp_server`; only references are stored (names,
 descriptions and paths are loaded at run start), `editable` applies to documents. The agent's instructions are
 `ka.agents.instructions`. Every run narrows the access object: it gets all of it, or the resources the request picks
-out of it, never more (see [Agent execution](agents.md)). A reference to a resource that was deleted or archived is
+out of it, never more (see [Agent execution](agents.md)); what the run was given brings its direct children, as in
+an ad-hoc run (an environment its services and servers, a service its code projects and servers, a server the services
+deployed on it), also those the agent does not reference. A reference to a resource that was deleted or archived is
 skipped at run start and shown as missing in the editor; saving drops it. Nothing else is stored per agent: there are
 no per-kind switches, per-server instructions, skill or MCP overrides, or per-agent SSH connections; a server's own SSH
 settings and its SSH-enabled flag always apply.
@@ -161,8 +163,6 @@ Migration `0078_agent_tools` creates `ka.agent_tools` (`agent_id`, `tool`, `mode
 - `PUT /api/agents/{id}` saves metadata, `instructions` and `access` (references `{type, id, editable?}` and roles) using
   optimistic revisions. Each reference must be of a known type; one to a resource that does not exist in the project is
   dropped, and `editable` is kept for documents only.
-- `GET /api/agents/{id}/run-resources` returns the agent's access list (resources that still exist): what the Test tab
-  and chat settings pick a subset from.
 - `POST /api/sessions` with `agent_id` accepts `resources` picked from the agent's access; the session keeps its narrowed access object.
 - `PUT /api/agents/{id}/model` assigns an enabled compatible model.
 - `GET /api/agents/{id}/config` returns the agent's configuration (`knowledge_admin.knowledge_agents.config.get_agent_config`).

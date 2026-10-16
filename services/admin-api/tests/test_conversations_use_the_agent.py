@@ -10,10 +10,9 @@ from test_repositories import HEADERS
 def test_no_preview_chooses_a_version(saved_agent):
     client = saved_agent[0]
     version = str(uuid4())
-    for path in ('config', 'run-resources'):
-        response = client.get(f'/api/agents/operations/{path}', headers=HEADERS, params={'version_id': version})
-        assert response.status_code == 200, (path, response.text)  # the parameter is not read
-        assert response.json() == client.get(f'/api/agents/operations/{path}', headers=HEADERS).json(), path
+    response = client.get('/api/agents/operations/config', headers=HEADERS, params={'version_id': version})
+    assert response.status_code == 200, response.text  # the parameter is not read
+    assert response.json() == client.get('/api/agents/operations/config', headers=HEADERS).json()
 
 
 def test_the_old_test_chat_endpoints_are_gone(saved_agent):

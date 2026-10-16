@@ -144,10 +144,8 @@ def test_complete_config_active_prompt_and_secret_locations(store, saved_agent):
     assert config['services']['items'][0]['repositories'][0]['checkout_path'] == '/work/code/managed/unselected'
     assert config['services']['items'][0]['deployments'][0]['log_location'] == '/var/log/payments/app.log'
     host = config['ssh']['servers'][0]
-    assert host['id'] == server['id'] and host['connection_source'] == 'server'
-    assert host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
-    assert host['instructions'] == config['instructions'] and host['instructions_source'] == 'agent'
-    assert host['skills'] == host['mcp_servers'] == []  # per-server skills and MCP servers are no longer read
+    assert host['id'] == server['id'] and host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
+    assert not {'instructions', 'skills', 'mcp_servers', 'connection_source'} & set(host)  # no per-server settings
     # The returned references locate and decrypt exactly the saved credentials.
     with store.connect() as conn:
         for reference, query, expected in [
@@ -200,14 +198,11 @@ def test_config_preview_is_admin_only_read_only_and_never_executes(store, saved_
     assert client.get(path, headers=HEADERS).json()['enabled'] is False
 
 
-def test_a_server_uses_its_own_ssh_settings_and_the_agents_instructions(store, saved_agent):
+def test_a_server_uses_its_own_ssh_settings(store, saved_agent):
     """Phase 2: references only; there are no per-agent connections or per-server overrides."""
     _, _, ssh, *_ = saved_agent
     host = get_agent_config('operations', conninfo=store.conninfo)['ssh']['servers'][0]
-    assert (host['connection_source'], host['username']) == ('server', 'operator')
-    assert host['known_hosts'] == ssh['known_hosts']
-    assert (host['instructions'], host['instructions_source']) == ('Verify every change.', 'agent')
-    assert host['skills'] == host['mcp_servers'] == [] and host['skills_source'] == host['mcp_source'] == 'agent'
+    assert host['username'] == 'operator' and host['known_hosts'] == ssh['known_hosts']
     with store.connect() as conn:
         encrypted = bytes(
             conn.execute(

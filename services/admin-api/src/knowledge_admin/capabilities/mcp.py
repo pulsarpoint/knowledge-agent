@@ -4,14 +4,11 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def selected_servers(config: dict[str, Any], ssh_servers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Enabled MCP definitions of the agent and of its selected SSH servers, each once."""
+def selected_servers(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The agent's enabled MCP definitions, each once."""
     if not config['mcp']['enabled']:
         return []
-    servers = list(config['mcp']['servers'])
-    for server in ssh_servers:
-        servers.extend(server['mcp_servers'])
-    return list({server['id']: server for server in servers if server['enabled']}.values())
+    return list({server['id']: server for server in config['mcp']['servers'] if server['enabled']}.values())
 
 
 def auth_headers(server: dict[str, Any], credentials: Mapping[str, str]) -> dict[str, str]:

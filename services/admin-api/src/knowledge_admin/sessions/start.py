@@ -26,7 +26,7 @@ from knowledge_admin.knowledge_agents.run_resources import (
     RunResourceError,
     bring,
 )
-from knowledge_admin.sessions.run_access import cut_to, held, run_access
+from knowledge_admin.sessions.run_access import agent_access, held, run_access
 from knowledge_admin.sessions.text import agent_system_prompt
 from knowledge_admin.sessions.rows import NO_MODEL, Selection
 from knowledge_admin.tools.catalog import (
@@ -395,17 +395,16 @@ def narrow(conn, project: UUID, agent_id: str, value: StartInput, conninfo: str)
         {'type': 'document', 'id': str(entry.id or 'new'), 'editable': entry.editable} for entry in resources.documents
     ]
     try:
-        access = run_access(
+        cut, access = agent_access(
             conn,
             project,
             config,
             picked or None,  # nothing picked: everything it has
-            environment_ids=access_ids(config['access'], 'environment'),
             content_editor=access_rules.is_content_editor(config['access']),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    pinned = pin(conn, cut_to(config, access), agent_id)
+    pinned = pin(conn, cut, agent_id)
     if picked:  # what a new document of the run is built for
         pinned['chosen_resources'] = {key: [str(i) for i in getattr(resources, key)] for _, key in PICKS}
     items = {item['tool']: item for item in pinned['tools']['items']}

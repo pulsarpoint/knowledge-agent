@@ -19,9 +19,6 @@ def comparable(config: dict) -> dict:
     config = copy.deepcopy(config)
     for key in ('id', 'name', 'description', 'revision', 'settings_revision'):
         config.pop(key)
-    for server in config['ssh']['servers']:
-        server.pop('config_revision')
-        server.pop('connection_revision')
     return config
 
 

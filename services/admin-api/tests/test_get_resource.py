@@ -79,7 +79,7 @@ def test_a_server_has_its_fields_environments_services_and_documents(world):
     found = get(given(world), 'server', world.server['id'])
     assert found['type'] == 'server' and found['id'] == world.server['id'] and found['name'] == 'web-1'
     assert found['hostname'] == '10.0.0.7' and found['description'] == 'Shop front end'
-    assert {'port', 'username', 'tags', 'allow_sudo', 'instructions'} <= set(found)
+    assert {'port', 'username', 'tags', 'allow_sudo'} <= set(found)
     assert link(found, 'environment') == {
         'type': 'environment',
         'id': str(world.environment),
@@ -265,7 +265,7 @@ def test_get_resource_is_on_in_every_run_with_resources_and_only_there(world):
     assert usage == spec.usage  # neither its row's mode nor an edited usage text applies
 
 
-def test_a_saved_agent_with_ssh_run_reads_its_servers_instructions_and_sudo(agent, ask, monkeypatch):
+def test_a_saved_agent_with_ssh_run_reads_its_servers_sudo(agent, ask, monkeypatch):
     monkeypatch.setattr(inventory, '_store', ask.s.store)
     response = ask.s.client.post(
         '/api/sessions/preview',
@@ -284,9 +284,9 @@ def test_a_saved_agent_with_ssh_run_reads_its_servers_instructions_and_sudo(agen
     names = [tool.name for tool in tools]
     assert 'ssh_run' in names and 'get_resource' in names
     server = config['ssh']['servers'][0]
-    server.update(instructions='Never reboot during business hours.', allow_sudo=True)
+    server.update(allow_sudo=True)
     found = get(config, 'server', agent.web)
-    assert found['instructions'] == 'Never reboot during business hours.' and found['allow_sudo'] is True
+    assert found['allow_sudo'] is True and 'instructions' not in found  # the agent's instructions are in its prompt
 
 
 def server_run(world) -> str:

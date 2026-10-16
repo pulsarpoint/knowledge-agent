@@ -133,11 +133,7 @@ def test_a_run_gets_exactly_its_resources_and_nothing_means_nothing(per_run):
     assert [c['name'] for c in given['documents']['collections']] == ['runbooks']
     assert given['documents']['all_collections'] is False
     [server] = given['ssh']['servers']
-    assert (server['id'], server['instructions'], bool(server['private_key_ref'])) == (
-        s.host['id'],
-        '',  # per-server instructions are no longer read: the agent's
-        True,
-    )
+    assert (server['id'], bool(server['private_key_ref'])) == (s.host['id'], True)
     assert given['services']['items'] == []
     assert given['run_resources'] == {
         'code_project_ids': [s.repo],

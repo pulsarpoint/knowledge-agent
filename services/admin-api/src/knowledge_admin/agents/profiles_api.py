@@ -13,7 +13,7 @@ from knowledge_admin.access import TYPES, is_content_editor
 from knowledge_admin.capabilities.inventory import short
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import audit as write_audit, storage
-from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, tool_items
+from knowledge_admin.knowledge_agents.config import get_agent_config, model_fits, tool_items, without_missing
 from knowledge_admin.tools.catalog import tools_summary
 from knowledge_admin.agents.tools_api import flags, subagents_on, switch_on_defaults, switch_subagents
 
@@ -254,6 +254,7 @@ def build_api(app_name, store):
                 ORDER BY a.created_at,a.id""").fetchall()
             project = store.project(conn, app_name)
             found = project_resources(conn, project)
+            index = _index(found)
             saved_tools: dict[str, list[dict]] = {}
             for tool in conn.execute('SELECT agent_id,tool,mode,usage FROM ka.agent_tools'):
                 saved_tools.setdefault(tool['agent_id'], []).append(tool)
@@ -266,10 +267,11 @@ def build_api(app_name, store):
             for row in rows:
                 row.pop('system_prompt')  # read with the agent, not in the list
                 access = row['access']
+                existing = {**access, 'resources': [r for r in access['resources'] if (r['type'], r['id']) in index]}
                 row['counts'] = counts(access, found)
                 row['tools_summary'] = tools_summary(
                     {
-                        **flags(access, row['documents_grounded']),
+                        **flags(existing, row['documents_grounded']),
                         'mcp': {
                             'enabled': True,
                             'servers': [
@@ -297,15 +299,6 @@ def build_api(app_name, store):
             raise HTTPException(404, 'Agent not found') from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
-
-    @router.get('/{agent_id}/run-resources')
-    def run_resources(agent_id: str, response: Response):
-        """What a caller may pick for one run of the agent (the Test tab, chat settings): its access list, the
-        resources that still exist."""
-        response.headers['Cache-Control'] = 'no-store'
-        with database().connect() as conn:
-            agent = read(conn, agent_id)
-        return {'resources': [entry for entry in agent['access']['resources'] if not entry.get('missing')]}
 
     @router.get('/{agent_id}/options')
     def options(agent_id: str):
@@ -369,7 +362,10 @@ def build_api(app_name, store):
                 if new_model:
                     conn.execute('UPDATE ka.llm_assignment_revision SET revision=revision+1,updated_by=%s', (actor,))
                 switch_on_defaults(
-                    conn, agent_id, flags(old['access'], old['documents_grounded']), flags(access, grounded)
+                    conn,
+                    agent_id,
+                    flags(without_missing(conn, old['access']), old['documents_grounded']),
+                    flags(access, grounded),
                 )
                 if value.subagents is not None and value.subagents != subagents_on(conn, agent_id):
                     switch_subagents(conn, agent_id, value.subagents)  # the UPDATE above bumped the revision

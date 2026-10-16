@@ -122,10 +122,6 @@ def test_get_resolves_each_reference_and_marks_a_missing_one(world):
         'ssh_enabled',
     ):
         assert gone_field not in found
-    # the Test tab and chat settings pick from the agent's access: what still exists
-    picks = w.client.get(f'/api/agents/{agent["id"]}/run-resources', headers=HEADERS)
-    assert picks.status_code == 200, picks.text
-    assert picks.json() == {'resources': found['access']['resources'][:3]}
 
 
 def test_put_saves_references_drops_missing_ones_and_refuses_an_unknown_type(world):
@@ -265,7 +261,7 @@ def test_a_clone_copies_access_and_instructions_and_apply_writes_them_back(world
     )
     assert saved.status_code == 200, saved.text
     preview = w.client.get(f'/api/agents/{copy_id}/apply', headers=HEADERS).json()
-    assert {'Resources', 'Instructions'} <= set(preview['changes'])
+    assert preview['changes'] == ['General', 'Resources']  # the tabs: instructions are on General
     applied = w.client.post(
         f'/api/agents/{copy_id}/apply',
         headers=HEADERS,

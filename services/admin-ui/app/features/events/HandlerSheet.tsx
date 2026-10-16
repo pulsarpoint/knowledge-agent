@@ -131,7 +131,7 @@ function HandlerForm({ handler, onSaved }: { handler: EventHandler | null; onSav
       .catch(() => setRecent([]));
   }, []);
 
-  // A saved handler keeps its agent even when it is no longer offered (deleted, disabled or per-run): show it so the
+  // A saved handler keeps its agent even when it is no longer offered (deleted or disabled): show it so the
   // handler can still be turned off or edited.
   const storedAgent =
     handler?.agent_id && !agents?.some((agent) => agent.id === handler.agent_id)

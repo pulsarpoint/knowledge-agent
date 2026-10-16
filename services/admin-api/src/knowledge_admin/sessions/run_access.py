@@ -2,7 +2,8 @@
 
 What the run holds: the resources its pinned configuration lists (its servers, also one without usable SSH, services, code projects,
 collections, skills, MCP servers, documents) and the environments it was given. What it was given (picked; None:
-everything it holds) is narrowed out of that with access.narrow; the children it holds are added by access.expand,
+everything it holds) is narrowed out of that with access.narrow; the children it holds (a saved agent's run loads
+the children of what it was given first: agent_access) are added by access.expand,
 each 'via <type> <id>' of its direct parent: an environment its services and servers; a service its code projects and
 the servers it is deployed on; a server the services deployed on it. Skills and MCP servers are not picked: always
 given. Code projects and collections carry their paths (folder_paths, paths) and a code project its graph (graph_path,
@@ -11,15 +12,16 @@ code_root): the file, shell and graph tools work on them."""
 from typing import Any
 
 from knowledge_admin import access as access_rules
-from knowledge_admin.agents.runner import ssh_servers
 from knowledge_admin.capabilities import mcp
 from knowledge_admin.capabilities.inventory import short
+from knowledge_admin.knowledge_agents.config import access_ids, add_children
 from knowledge_admin.knowledge_agents.run_resources import (
     DEPLOYED_SERVICES,
     ENVIRONMENT_SERVERS,
     ENVIRONMENT_SERVICES,
     SERVICE_CODE,
     SERVICE_SERVERS,
+    bring,
 )
 from knowledge_admin.rag.collections import document_collections
 
@@ -80,7 +82,6 @@ def document_entry(config: dict[str, Any], item: dict[str, Any]) -> dict[str, An
 
 def config_resources(config: dict[str, Any]) -> list[dict[str, Any]]:
     """Every resource the pinned configuration lists, once (pure: no environments, they are not in it)."""
-    servers = ssh_servers(config)  # the ones it can reach over SSH: their skills and MCP servers
     # every server it lists, also one without usable SSH (ssh_run fails on the server's own settings)
     found = [_entry('server', server) for server in config['ssh']['servers'] if config['ssh']['enabled']]
     if config['services']['enabled']:
@@ -95,9 +96,8 @@ def config_resources(config: dict[str, Any]) -> list[dict[str, Any]]:
             if 'id' in item
         ]
     if config['skills']['enabled']:
-        skills = [*config['skills']['items'], *(skill for server in servers for skill in server.get('skills', []))]
-        found += [_entry('skill', skill) for skill in skills if skill['enabled']]
-    found += [_entry('mcp_server', server) for server in mcp.selected_servers(config, servers)]
+        found += [_entry('skill', skill) for skill in config['skills']['items'] if skill['enabled']]
+    found += [_entry('mcp_server', server) for server in mcp.selected_servers(config)]
     found += [document_entry(config, item) for item in config.get('document_access') or []]
     return list({(item['type'], item['id']): item for item in found}.values())
 
@@ -188,3 +188,39 @@ def run_access(
     narrowed = access_rules.narrow({'resources': holds, 'roles': {'content_editor': content_editor}}, picked)
     by_key = {(item['type'], item['id']): item for item in holds}
     return access_rules.expand(narrowed, _children(conn, project, by_key))
+
+
+def agent_access(
+    conn, project, config: dict[str, Any], picked: list[dict[str, Any]] | None, *, content_editor: bool
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A saved agent's run: (its configuration cut to the run's access, the run's access object). The agent's access
+    narrowed to picked (None: all of it; ValueError: a pick outside it, access.narrow), then the direct children of
+    what was given brought as an ad-hoc run brings them (an environment its services and servers, a service its code
+    projects and servers: run_resources.bring; a server the services deployed on it) and loaded into the
+    configuration: what was given brings them, the agent's access need not hold them."""
+    holds = held(conn, project, config, access_ids(config['access'], 'environment'))
+    if picked is not None:
+        picked = [*picked, *(item for item in holds if item['type'] in ALWAYS_GIVEN)]
+    given = access_rules.narrow({'resources': holds}, picked)['resources']
+
+    def ids(type_: str) -> list[str]:
+        return [item['id'] for item in given if item['type'] == type_]
+
+    brought = bring(conn, project, ids('service'), ids('environment'))
+    deployed = [found for server in ids('server') for found in _ids(conn, DEPLOYED_SERVICES, (server,))]
+    config = add_children(
+        conn,
+        project,
+        config,
+        {
+            'code_project': brought['code_project_ids'],
+            'server': brought['server_ids'],
+            'service': [*brought['service_ids'], *deployed],
+        },
+    )
+    picks = [
+        {'type': item['type'], 'id': item['id'], **({'editable': item['editable']} if 'editable' in item else {})}
+        for item in given
+    ]
+    access = run_access(conn, project, config, picks, environment_ids=ids('environment'), content_editor=content_editor)
+    return cut_to(config, access), access

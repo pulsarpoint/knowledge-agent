@@ -518,16 +518,17 @@ one tool. Changing the URL clears discovered tools and requires re-entering the 
 
 ### 4.11 Agents
 
-`/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** shows `Fixed`, or what a per-run agent accepts, for example `Per run · code (any) · servers (2)`.
+`/agents` lists agents with **Resources**, capabilities, model, active system prompt and status. **Resources** counts what the agent may use by type, for example `1 server · 2 documents` (or `No resources`).
 
-**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first fields are **Agent model** (the model the agent runs on; it defaults to the first model in the catalog) and **Resources** (Fixed or Per run). Both a generated proposal and **Start blank** use that model. The review shows the two as one line (for example `Claude Opus · Per run`); to change them go back with **Edit role**:
+**Create an agent** with **New agent** (the only way to create agents). It opens the wizard directly. Its first field is **Agent model** (the model the agent runs on; it defaults to the first model in the catalog). Both a generated proposal and **Start blank** use that model; to change it go back with **Edit role**:
 
 - **Generate proposal** — describe the role, choose a generator model, and the model
-  proposes the name, prompt, documents, code projects, SSH, skills, MCP and services.
+  proposes the name, prompt, instructions and resources (servers, services, environments, code projects,
+  collections, documents, skills and MCP servers).
 - **Start blank** — skip generation (no model needed) and fill in the same review tabs
   yourself.
 
-Review and edit the tabs, then **Create agent** (enabled once name and system prompt are
+Review and edit the tabs (General, Prompt, Resources, Tools; **Content editor** is on General), then **Create agent** (enabled once name and system prompt are
 filled in). The agent model is optional — an agent without a model is
 saved but runs only after you choose one with **Model** on its General tab.
 
@@ -535,15 +536,10 @@ saved but runs only after you choose one with **Model** on its General tab.
 
 | Tab | What you do there |
 | --- | --- |
-| **General** | **Resources** (Fixed: the agent always works with its selections; Per run: each run says what to work on, from those selections), **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); additional instructions; the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
-| **Skills** | Enable and pick skills (max 30) |
-| **Documents** | Enable and pick RAG collections, or "All collections" (whole collections only; there are no subfolder grants); **Answer only from documents** switch (cite every claim and report questions the documents do not cover). For a per-run agent: what callers may pass (the tab says so) |
-| **Code projects** | Enable and pick code projects, or "All code projects". For a per-run agent: what callers may pass (the tab says so) |
-| **SSH** | Choose allowed servers; per-server SSH overrides (user, key, host keys, sudo) and per-server instructions/skills/MCP. For a per-run agent: what callers may pass (the tab says so) |
-| **MCP** | Pick tested MCP servers (and their tools) |
+| **General** | **Model** (required to run; saved with **Save details**), name, purpose, when-to-use, **Instructions** (added to the system prompt), **Content editor** (lets the agent propose services and documents and edit its editable documents), **Answer only from documents** (cite every claim and report questions the documents do not cover), **Enable agent**; **May start subagents** (the agent can hand separate parts of its work to helpers that run in parallel); **Offer as an expert** (other agents can call this agent as a tool; needs When to use; an **Expert** badge shows in All agents); the **System prompt** card (one field, up to 100,000 characters; **Save prompt**); *Clone of <original>* for a clone |
+| **Resources** | What the agent may use, grouped by type: Servers, Services, Environments, Code projects, Collections, Documents, Skills and MCP servers. Add from the project's resources (or **Select all** of a type) and **Remove**; a document may be made **Editable** (only a Content editor changes it). A resource that no longer exists shows as **missing** and is dropped when you save. **Save** writes them all |
 | **Tools** | Switch tools on or off (Code, Documents, Servers, MCP, Agents groups), **Edit usage** / **Reset** their instructions, see "Needs …" for tools whose resources are missing; **Save tools**. With **May start subagents** on, the Agents group has **Start subagents** (usage, **Reset**) and **A subagent may use**. The **Experts** group lists the agents offered as experts, each with a switch (on by default). |
-| **Services** | Pick services whose descriptions are added to the agent's context. For a per-run agent: what callers may pass (the tab says so) |
-| **Test** | Chat with the agent (a per-run agent first picks **Resources for this run**) |
+| **Test** | Chat with the agent; **Settings** may pick some of its resources for the run |
 
 An agent has one configuration: what its tabs show is what runs. A conversation keeps the configuration it started with.
 
@@ -558,8 +554,8 @@ step); **Stop** ends the current turn.
 
 **Settings** opens a sheet. A Test run can only narrow the saved agent; nothing can be added. The model and prompt are
 shown read-only ("Change them in General."); to try another prompt, clone the agent. In the sheet you can untick tools,
-choose some of the agent's experts, turn off **Allow subagents** (shown when the agent allows them) and, for a per-run
-agent, choose from its resources (a fixed agent shows "This agent's resources are fixed."). **Preview** shows the
+choose some of the agent's experts, turn off **Allow subagents** (shown when the agent allows them) and choose some of
+its resources (see *Resources of a run* below). **Preview** shows the
 configuration the run would use. Settings are remembered per agent in this browser and reset when the agent is saved.
 **New chat** closes the open run and starts fresh. **Earlier runs** lists this agent's Test runs and event runs (**Event**
 badge) to reopen them. Under each answer: **Full record** (the turn's record in Agent runs) and **Add feedback** →
@@ -568,7 +564,7 @@ them, and **Review and apply** opens them for editing, then **Apply to this agen
 
 **Apply suggestions.** In a suggestion, **Review and apply** opens the sheet *Apply suggestions*. **Apply to this agent** writes the edited prompt and instructions into the agent (“Applied to this agent. New conversations use it.”); **Apply to a new clone** clones the agent first and writes them there, leaving the original unchanged.
 
-**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; switching a capability on switches all of its tools on, and a per-run agent gets all tools of the capabilities it uses when it becomes per run or gets one switched on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used.
+**Choosing tools.** The **Tools** tab (and the wizard's Tools page) decides which tools a native agent gets; new agents start with all tools of the capabilities they use; adding the first resource of a kind (a code project, a collection, a server) switches all of its tools on. Agents created earlier keep their tools. Turn a tool off to remove it from the model, or use **Edit usage** to change the instructions the model reads for it (**Reset** restores the built-in text; for an MCP tool the edit is added to the prompt as a "Tool notes" line). A tool marked "Needs …" is saved but not offered until that resource is configured. Grounded agents always keep `report_not_covered`. **All agents** shows a **Tools** column, and **Agent runs**, run records, session pages and Test chats show how often each tool was used.
 
 **Subagents.** With **May start subagents** on (General, or the wizard's Tools page) a native agent can start helpers
 with `run_subagent`: each gets a complete task, the tools you allow under **A subagent may use** that the agent passes
@@ -582,10 +578,10 @@ the main turn's Worked line counts only the agent's own work. **Stop** stops the
 **Experts.** Turn on **Offer as an expert** on an agent's General tab (it needs a When to use text, which tells other
 agents when to call it; the agent must be enabled and have a model). Every other native agent, including the agent of a
 new-document run, then gets a tool `ask_<name>` for it. In an agent's **Tools** tab the **Experts** group lists the
-experts with their When to use and whether they use fixed or per-run resources; switch one off to stop this agent
+experts with their When to use and the kinds of resources they accept; switch one off to stop this agent
 from calling it. The group says "No experts yet. Turn on Offer as an expert on an agent's General tab." when there is
-none, and an expert itself sees "When this agent runs as an expert it cannot call experts." A per-run expert works
-only on the resources the caller passes from its own; a fixed expert uses its own. An expert starts without the
+none, and an expert itself sees "When this agent runs as an expert it cannot call experts." An expert works on
+its own resources, or on those the caller passes, which must be the caller's own and in the expert's resources. An expert starts without the
 conversation, may start its own subagents if it has that switch on, uses its own model and keys, and returns its final
 answer. The helpers of one turn (subagents and expert calls together) are limited to 16; sessions started before an
 expert was added do not see it. In the Test tab and on the session page an expert call appears in the Worked block as
@@ -596,7 +592,15 @@ opening one shows that call's record, including the expert's own subagents.
 In the wizard, a hand-picked tool
 list wins over the "all tools" default.
 
-**Per-run agents (role agents).** A per-run agent defines what it does (prompt, instructions, skills, tools); each run says what it works on. Its tabs' selections are what a run **may** be given: **All code projects** / **All collections** = any. The agent's setting decides the mode. On the **Test** tab, **Settings** lists the agent's resources, one list per kind the agent uses, and you choose from them for the run; the choice is kept for the session and shown in the header and in **Preview**. The agent's tools reach exactly what the run was given: a kind with nothing chosen answers "No code project was given for this run" (never everything). A choice outside the selection is refused (`Code project <name> is not allowed for this agent.`), as are removed, archived or disabled resources and kinds the agent does not use. Resources passed to a fixed agent are refused (`This agent uses fixed resources.`). Example: a **Code analyst** with Code projects on and **All code projects**, tested with `payments-api` in one conversation and `helpers` in the next.
+**Resources of a run.** A run gets the agent's resources, or a subset picked for it: on the **Test** tab **Settings**
+lists the agent's resources by type and you pick from them (the choice is kept for the session and shown in the header
+and in **Preview**); chat settings, event handlers and expert calls narrow the same way. A run never gets more than the
+agent has: a pick outside its resources is refused (`server <id> is not in the agent's access`), and an editable
+document may be picked read-only. What a run was given brings its direct children: an environment its services and
+servers, a service its code projects and the servers it is deployed on, a server the services deployed on it
+(`get_available_resources` marks them `via <type> <id>`). The tools reach exactly the run's resources; a kind the run
+has none of is refused (`This run has no code projects.`). Example: a **Code analyst** with several code projects,
+tested with `payments-api` in one conversation and `helpers` in the next.
 
 Limits: message ≤ 20,000 characters; a Test session's turns have no time
 limit (they end with the answer, **Stop**, **New chat** (it closes the open run) or a lost worker), and a session closes after 24 hours
@@ -849,14 +853,14 @@ A handler does one thing:
   `| tojson`, e.g. `{"summary": {{ event.payload.summary | tojson }}}`; the payload must be a JSON object. The new
   event is processed like any other, so handlers can build chains — at most 5 levels deep.
 - **Send to agent** starts an ordinary agent run of the chosen agent for every matching event. The **Prompt** template
-  is the run's first message, the run uses everything the agent has switched on that it can use, and the handler's
+  is the run's first message, the run uses all of the agent's resources and the tools switched on, and the handler's
   creator is the actor. The run is titled `<agent> · <event type> <event subject>`, appears in the agent's **Test** tab
   under **Earlier runs**, and can be opened and continued like any other run. When its first turn ends, one
   notification is written with the answer, or why it failed (4.19). With **Also post the answer as a comment on the Jira
   ticket**, the answer to a Jira event is also posted on its ticket as the Jira connection's user (see the Jira docs for
   the permission it needs); a failed run is not posted. A failed run is not retried: continue it, or send
-  the event again. Only enabled agents with fixed resources can be chosen (agents that choose resources per run are
-  refused). A handler whose agent was deleted or no longer qualifies can still be turned off or edited; choosing a new
+  the event again. Any enabled agent can be chosen; its run gets all of the agent's resources. A handler whose agent was
+  deleted or disabled can still be turned off or edited; choosing a new
   agent or turning it back on checks the agent again. Processing the same event again never starts a second run for
   the same handler.
 
@@ -1118,9 +1122,9 @@ Which of these a native agent actually gets is chosen on its **Tools** tab; the 
 | `search_documents`, `read_document` | Documents capability on | Search and read only the granted RAG collections; with **Answer only from documents** on, these are the agent's only tools (plus `report_not_covered`) |
 | `report_not_covered` | **Answer only from documents** on | Records what is missing and marks the answer **not covered** |
 | `run_subagent` | **May start subagents** on (native agents, sessions only) | Starts a helper with a subset of the agent's tools and resources and no conversation; at most 16 helpers per turn (with expert calls), `AGENT_MAX_SUBAGENTS` at once; only the credentials its configuration needs; result redacted |
-| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and not switched off for this agent (native agents, sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (or the resources you pass, for a per-run expert); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
+| `ask_<name>` | An agent is offered as an expert (**Offer as an expert**) and not switched off for this agent (native agents, sessions only) | Runs that agent without the conversation, with its own prompt, tools, model and keys (on its own resources, or a subset of them you pass); no expert tools inside an expert; counts towards the 16 helpers; result redacted |
 
-For a per-run agent every tool works on the run's resources only; a kind with nothing given is refused with `No … was given for this run`.
+Every tool works on the run's resources only; a kind the run has none of is refused with `This run has no ….`
 
 Every agent's instructions include "use only configured resources; never display
 secrets", and secrets are redacted from activity, answers and traces. Skills and

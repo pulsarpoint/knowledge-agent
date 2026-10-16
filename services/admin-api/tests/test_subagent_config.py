@@ -323,7 +323,7 @@ def test_an_mcp_tool_not_for_subagents_or_blocked_for_the_parent_is_refused_unde
     assert str(refused.value) == NOT_OFFERED.format(name='mcp_docs__search')
 
 
-def test_a_subagent_gets_an_ssh_key_only_with_ssh_run_or_for_a_kept_mcp_server_on_that_server():
+def test_a_subagent_gets_an_ssh_key_only_with_ssh_run():
     lead = parent()
     lead['ssh']['servers'].append(
         {
@@ -332,28 +332,20 @@ def test_a_subagent_gets_an_ssh_key_only_with_ssh_run_or_for_a_kept_mcp_server_o
             'enabled': True,
             'ssh_allowed': True,
             'private_key_ref': {'id': 'logs-key'},
-            'skills': [],
-            'mcp_servers': [
-                {'id': 'logs', 'name': 'Logs', 'enabled': True, 'bearer_token_ref': None, 'tools': [{'name': 'tail'}]}
-            ],
         }
     )
     credentials = {**CREDENTIALS, 'logs-key': 'logs-secret'}
-    tools = {**MCP, 'mcp_logs__tail': 'mcp:logs:tail'}
-    reading = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=tools)
+    reading = subagent_config(lead, ['read_file'], None, offered=OFFERED, mcp_tools=MCP)
     assert referenced_credentials(reading, credentials) == {'model-key': 'model-secret'}
     assert reading['ssh']['servers'] == []  # no SSH server it cannot use
-    tailing = subagent_config(lead, ['mcp_logs__tail'], None, offered=OFFERED, mcp_tools=tools)
-    assert referenced_credentials(tailing, credentials) == {'model-key': 'model-secret', 'logs-key': 'logs-secret'}
-    assert [server['id'] for server in tailing['ssh']['servers']] == ['logs-host']
-    running = subagent_config(lead, ['ssh_run'], None, offered=OFFERED, mcp_tools=tools)
+    running = subagent_config(lead, ['ssh_run'], None, offered=OFFERED, mcp_tools=MCP)
     assert referenced_credentials(running, credentials) == {
         'model-key': 'model-secret',
         'ssh-key': 'ssh-secret',
         'logs-key': 'logs-secret',
     }
     per_run = subagent_config(
-        lead, ['read_file'], {**NO_RESOURCES, 'server_ids': ['prod']}, offered=OFFERED, mcp_tools=tools
+        lead, ['read_file'], {**NO_RESOURCES, 'server_ids': ['prod']}, offered=OFFERED, mcp_tools=MCP
     )
     assert (per_run['ssh']['servers'], per_run['run_resources']['server_ids']) == ([], [])
 

@@ -10,7 +10,7 @@ from discovery_world import world  # noqa: F401  (fixture)
 from knowledge_admin.events import processor as event_processor
 from knowledge_admin.knowledge_agents import experts
 from knowledge_admin.knowledge_agents.config import get_agent_config
-from test_discovery_runs import ssh_ready
+from test_discovery_runs import call, ssh_ready
 from test_event_processor import a_handler, an_event, runs
 from test_profiles import create
 from test_repositories import HEADERS
@@ -242,12 +242,40 @@ def test_environments_and_documents_may_be_picked_when_the_agent_has_them(world)
         entry('environment', w.environment, 'Production', 'Live'),
         {**entry('document', document, 'nginx runbook', ''), 'editable': True},
         entry('service', w.nginx, 'nginx', 'Front proxy for the shop', f'via environment {w.environment}'),
+        entry('server', w.server['id'], 'web-1', 'Shop front end', f'via environment {w.environment}'),
+        entry('code_project', w.shop, 'Shop', '', f'via service {w.nginx}', folder_paths=[]),
     ]
     read_only = start(w, agent, resources={'documents': [{'id': str(document), 'editable': False}]})
     assert read_only.status_code == 201, read_only.text  # a read-only pick narrows the editable entry
     assert stored_access(w, read_only.json()['id'])['resources'] == [
         {**entry('document', document, 'nginx runbook', ''), 'editable': False}
     ]
+
+
+def test_an_environment_brings_its_services_and_servers_although_the_agent_holds_only_it(world):
+    w = world  # the children come from what was given, as in an ad-hoc run
+    agent = a_saved_agent(w)
+    with w.store.connect() as conn:
+        give(conn, agent, [('environment', w.environment)])
+    response = start(w, agent)
+    assert response.status_code == 201, response.text
+    with w.store.connect() as conn:
+        config = conn.execute(
+            'SELECT agent_config FROM ka.agent_sessions WHERE id=%s', (response.json()['id'],)
+        ).fetchone()['agent_config']
+    via = f'via environment {w.environment}'
+    assert call(config, 'get_available_resources') == [
+        entry('environment', w.environment, 'Production', 'Live'),
+        entry('service', w.nginx, 'nginx', 'Front proxy for the shop', via),
+        entry('server', w.server['id'], 'web-1', 'Shop front end', via),
+        entry('code_project', w.shop, 'Shop', '', f'via service {w.nginx}', folder_paths=[]),
+    ]
+    assert [item['id'] for item in config['services']['items']] == [str(w.nginx)]  # loaded for the tools
+    assert [item['id'] for item in config['ssh']['servers']] == [w.server['id']]
+    assert config['access'] == stored_access(w, response.json()['id'])
+    picked = start(w, agent, resources={'service_ids': [str(w.nginx)]})  # a child is not the agent's to pick
+    assert picked.status_code == 400
+    assert picked.json()['error']['message'] == f"service {w.nginx} is not in the agent's access"
 
 
 def test_the_content_editor_role_comes_from_the_agent(world):
@@ -269,12 +297,22 @@ def test_a_deleted_resource_in_the_access_is_skipped(world):
     gone = str(uuid4())
     with w.store.connect() as conn:
         give(conn, agent, [('service', w.nginx), ('code_project', gone), ('collection', gone), ('server', gone)])
+        conn.execute("UPDATE ka.agents SET expert=true,when_to_use='Proxies.' WHERE id=%s", (agent,))
+        [offered] = [item for item in experts.offered(conn, None) if item['id'] == agent]
+    assert offered['accepts'] == ['service_ids']  # a missing reference is not counted
+    tools = w.client.get(f'/api/agents/{agent}/tools', headers=HEADERS)
+    assert tools.status_code == 200, tools.text
+    available = {
+        item['tool']: item['available'] for item in tools.json()['tools'] if item['tool'] in ('ssh_run', 'read_file')
+    }
+    assert available == {'ssh_run': False, 'read_file': False}  # the deleted server and code project give no tools
     config = get_agent_config(agent, conninfo=w.store.conninfo)
     assert config['code'] == {'enabled': False, 'all_projects': False, 'projects': [], 'graphs': []}
     assert not config['ssh']['enabled'] and not config['documents']['enabled']
     response = start(w, agent)
     assert response.status_code == 201, response.text
-    assert [item['id'] for item in stored_access(w, response.json()['id'])['resources']] == [str(w.nginx)]
+    given = [item['id'] for item in stored_access(w, response.json()['id'])['resources'] if item['source'] == 'given']
+    assert given == [str(w.nginx)]
 
 
 def test_an_agent_without_access_runs_with_nothing(world):
@@ -301,7 +339,7 @@ def test_a_handler_can_send_to_any_enabled_agent_with_its_whole_access(world):
     [handler_run] = runs(w.store, first['id'])
     assert handler_run['status'] == 'succeeded', handler_run['message']
     access = stored_access(w, handler_run['agent_session_id'])
-    assert [item['id'] for item in access['resources']] == [str(w.nginx)]
+    assert [item['id'] for item in access['resources'] if item['source'] == 'given'] == [str(w.nginx)]
 
 
 def test_an_expert_narrows_its_own_access(world):
@@ -319,11 +357,13 @@ def test_an_expert_narrows_its_own_access(world):
     assert [(item['type'], item['source']) for item in whole['access']['resources']] == [
         ('server', 'given'),
         ('service', 'given'),
+        ('code_project', f'via service {w.nginx}'),  # what it was given brings its children
     ]
     narrowed, _ = experts.load(w.store, w.project, offered, {'service_ids': [str(w.nginx)]})
     assert [(item['type'], item['source']) for item in narrowed['access']['resources']] == [
         ('service', 'given'),
-        ('server', f'via service {w.nginx}'),  # what it picked brings its children
+        ('code_project', f'via service {w.nginx}'),  # what it picked brings its children
+        ('server', f'via service {w.nginx}'),
     ]
     assert not narrowed['access']['roles']['content_editor']
     try:
@@ -342,8 +382,9 @@ def test_a_server_without_usable_ssh_stays_in_the_run_and_may_be_picked(world):
     for resources in ({}, {'server_ids': [w.server['id']]}):
         response = start(w, agent, resources=resources)
         assert response.status_code == 201, response.text
-        [server] = stored_access(w, response.json()['id'])['resources']
+        server, deployed = stored_access(w, response.json()['id'])['resources']
         assert (server['type'], server['id'], server['source']) == ('server', w.server['id'], 'given')
+        assert (deployed['id'], deployed['source']) == (str(w.nginx), f'via server {w.server["id"]}')
 
 
 def test_an_expert_is_a_content_editor_only_when_it_and_its_caller_are(world):

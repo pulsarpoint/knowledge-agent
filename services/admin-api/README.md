@@ -95,11 +95,12 @@ relative paths to these roots without resolving paths on the host. `DATA_ROOT` a
 `*_FOLDER` variables are host-side mount sources and never enter the generated paths.
 Service repository checkout paths use the same code root; remote deployment log
 paths remain paths on their SSH servers. Database paths remain relative.
-Service context does not grant access to its linked repositories or servers.
+The configuration holds what the access object references; a run given a service, server or environment also gets
+its direct children (its code projects and servers, its deployed services, its services and servers).
 
 Each selected SSH server contains its hostname, port, login user, sudo permission,
-trusted host keys and connection settings: always the server's own
-(`connection_source` is `server`; there are no per-agent overrides). Server
+trusted host keys and connection settings: always the server's own (there are
+no per-agent overrides). Server
 availability and its SSH-enabled flag still apply.
 
 Credentials are references, never plaintext or ciphertext in the returned object:
@@ -124,7 +125,7 @@ It is **not** a dictionary to unpack directly into the native Agents SDK:
 the function maps enabled sections to provider settings, instructions, MCP
 connections and function tools. The Test tab calls
 `POST /api/sessions` with `agent_id` and `message` (it may only narrow the agent: tools, experts, subagents, a
-per-run agent's resources), which pins this saved configuration (credential references only) in a Test session
+subset of its resources, which bring their direct children), which pins this saved configuration (credential references only) in a Test session
 (`ka.agent_sessions`, `purpose = 'test'`) that `agent-session-worker` runs; the Test tab then uses the other session
 routes under `/api/sessions`. Runs and safe
 activity are retained in PostgreSQL; full SDK traces go to Phoenix.

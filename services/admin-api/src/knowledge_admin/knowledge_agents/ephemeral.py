@@ -14,9 +14,9 @@ from knowledge_admin.knowledge_agents.config import AD_HOC_AGENT, AD_HOC_NAME, p
 from knowledge_admin.knowledge_agents.experts import pin
 from knowledge_admin.knowledge_agents.run_resources import RunResources, resolve
 
-# Every server with its own connection (an ad-hoc agent has no per-agent connections, instructions, skills or MCP).
+# Every server with its own connection.
 SERVERS = """SELECT s.id,s.name,s.hostname,s.description,s.tags,s.ssh_allowed,s.revision AS server_revision,
-    NULL::integer AS connection_revision,'server' AS connection_source,s.username,s.port,s.allow_sudo,
+    s.username,s.port,s.allow_sudo,
     coalesce(s.known_hosts,'') AS known_hosts,s.enabled,
     c.id AS credential_id,c.project_id AS credential_project_id,c.key_version
     FROM ka.servers s LEFT JOIN ka.credentials c ON c.id=s.credential_id
@@ -31,15 +31,6 @@ def _servers(conn, project_id) -> list[dict[str, Any]]:
     for server in servers:
         server['private_key_ref'] = private_key_ref(
             server.pop('credential_id'), server.pop('credential_project_id'), server.pop('key_version')
-        )
-        server.update(
-            config_revision=None,
-            instructions='',
-            instructions_source='agent',
-            skills=[],
-            skills_source='agent',
-            mcp_servers=[],
-            mcp_source='agent',
         )
     return servers
 

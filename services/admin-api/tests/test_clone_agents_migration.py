@@ -6,7 +6,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from implied_tools import implied_tools
-from knowledge_admin.knowledge_agents.config import get_agent_config, sections
+from knowledge_admin.knowledge_agents import config as agent_config
+from knowledge_admin.knowledge_agents.config import get_agent_config
 from psycopg.types.json import Jsonb
 from test_agents import agent_mounts, saved_agent  # noqa: F401  (fixtures)
 from test_api import _client
@@ -87,6 +88,33 @@ def ran_before(saved: dict, agent: dict) -> dict:
     return config
 
 
+def _ids(items) -> list[str]:
+    return sorted(str(item['id']) for item in items)
+
+
+def sections(config: dict) -> dict:
+    """config.sections and what the agent runs with by kind: the items of each section (a version saved before 0113
+    and a configuration loaded from an access object compare alike)."""
+    documents, code = config['documents'], config['code']
+    return {
+        **agent_config.sections(config),
+        'skills': {'enabled': config['skills']['enabled'], 'items': _ids(config['skills']['items'])},
+        'documents': {
+            'enabled': documents['enabled'],
+            'all_collections': documents.get('all_collections', False),
+            'collections': [] if documents.get('all_collections') else _ids(documents.get('collections', [])),
+        },
+        'code': {
+            'enabled': code['enabled'],
+            'all_projects': code.get('all_projects', False),
+            'projects': [] if code.get('all_projects') else _ids(code['projects']),
+        },
+        'ssh': {'enabled': config['ssh']['enabled'], 'servers': _ids(config['ssh']['servers'])},
+        'mcp': {'enabled': config['mcp']['enabled'], 'servers': _ids(config['mcp']['servers'])},
+        'services': {'enabled': config['services']['enabled'], 'items': _ids(config['services']['items'])},
+    }
+
+
 def held(found: dict) -> dict:
     """sections() as an access object holds them (0113): a kind only with items and only when it was switched on, no
     "all", no per-server overrides or per-agent connections."""
@@ -96,10 +124,6 @@ def held(found: dict) -> dict:
         if not found[key]['enabled']:
             found[key][items] = []
         found[key]['enabled'] = bool(found[key][items])
-    found['ssh']['servers'] = [
-        {'id': server['id'], 'instructions': None, 'skills': None, 'mcp_servers': None, 'connection': None}
-        for server in found['ssh']['servers']
-    ]
     for key, items, every in (('documents', 'collections', 'all_collections'), ('code', 'projects', 'all_projects')):
         if not found[key]['enabled']:
             found[key][items] = []
@@ -147,9 +171,6 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     saved['system_prompt']['content'] = 'Answer from evidence only.'
     saved['instructions'] = 'Gather evidence first.'
     saved['when_to_use'] = 'When payments fail.'
-    for entry in saved['ssh']['servers']:
-        if entry['instructions_source'] == 'agent':
-            entry['instructions'] = saved['instructions']
     saved['ssh']['servers'][0].update(instructions='Check only the queue.', instructions_source='agent_version')
     saved['services']['enabled'] = False
     with store.connect() as conn:
@@ -180,8 +201,8 @@ def activate(conn, agent_id: str, saved: dict, actor) -> dict:
     after = get_agent_config('operations', conninfo=store.conninfo)
     assert held(sections(after)) == held(sections(ran_before(saved, agent)))
     assert after['system_prompt'] == {'content': 'Answer from evidence only.'}
-    host = after['ssh']['servers'][0]
-    assert (host['instructions'], host['instructions_source']) == ('Gather evidence first.', 'agent')
+    assert after['instructions'] == 'Gather evidence first.'  # the per-server override is not kept
+    assert 'instructions' not in after['ssh']['servers'][0]
     assert after['services']['enabled'] is False and after['when_to_use'] == 'When payments fail.'
     assert {item['tool'] for item in after['tools']['items'] if item['mode'] == 'on'} == {
         item['tool'] for item in implied_tools(saved)['items'] if item['mode'] == 'on'
@@ -263,7 +284,8 @@ def test_a_version_saved_after_0078_runs_after_although_every_section_changed_si
     expected['documents']['collections'].remove(runbooks)  # deleted and archived items are dropped
     expected['code']['projects'].remove(unselected)
     expected = held(expected)
-    assert [key for key in expected if drifted[key] == expected[key]] == []  # the working copy differed everywhere
+    # the working copy differed everywhere (neither answers only from documents)
+    assert [key for key in expected if drifted[key] == expected[key]] == ['grounded']
     convert(store)
     after = get_agent_config('operations', conninfo=store.conninfo)
     migrated = held(sections(after))

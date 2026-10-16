@@ -534,11 +534,12 @@ def test_load_narrows_the_experts_own_access_and_refuses_unavailable_experts(per
     key_id = config['ssh']['servers'][0]['private_key_ref']['id']
     assert credentials[key_id] == s.key['private_key']  # its own SSH key, decrypted for this call
     whole, _ = load(s.store, project, entry, None)  # nothing given: everything it has
-    assert [(e['type'], e['source']) for e in whole['access']['resources']] == [
+    assert [(e['type'], e['source'].split()[0]) for e in whole['access']['resources']] == [
         ('server', 'given'),
         ('service', 'given'),
         ('code_project', 'given'),
         ('collection', 'given'),
+        ('code_project', 'via'),  # its service brings the code project it is built from
     ]
     for change in ('enabled=false', 'expert=false'):
         with s.store.connect() as conn:

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from knowledge_admin.access import has_any
 from knowledge_admin.identity import request_actor
 from knowledge_admin.db import storage
-from knowledge_admin.knowledge_agents.config import access_ids
+from knowledge_admin.knowledge_agents.config import access_ids, without_missing
 from knowledge_admin.knowledge_agents.experts import ROW_PREFIX
 from knowledge_admin.tools.catalog import (
     CATALOG,
@@ -71,7 +71,8 @@ class ToolsInput(BaseModel):
 
 def flags(access: dict[str, Any], grounded: bool) -> dict[str, Any]:
     """The capabilities an access object gives, in config shape, for the catalog rules: code projects, collections
-    (with "Answer only from documents") and servers."""
+    (with "Answer only from documents") and servers. The caller leaves out references that no longer exist
+    (config.without_missing)."""
     return {
         'code': {'enabled': has_any(access, 'code_project')},
         'documents': {'enabled': has_any(access, 'collection'), 'grounded': grounded},
@@ -117,7 +118,7 @@ def agent_tools(conn, agent_id: str, project) -> dict[str, Any]:
             'SELECT tool,mode,usage,subagent_allowed FROM ka.agent_tools WHERE agent_id=%s', (agent_id,)
         )
     }
-    current = flags(agent['access'], agent['documents_grounded'])
+    current = flags(without_missing(conn, agent['access']), agent['documents_grounded'])
     tools = []
     for spec in CATALOG.values():
         row = saved.get(spec.name)
@@ -258,7 +259,7 @@ def build_api(app_name, store):
             if SUBAGENT in chosen and switch is None:
                 raise HTTPException(400, SUBAGENTS_OFF)
             report = chosen.get('report_not_covered')
-            documents = flags(agent['access'], agent['documents_grounded'])['documents']
+            documents = flags(without_missing(conn, agent['access']), agent['documents_grounded'])['documents']
             if documents['enabled'] and documents['grounded'] and (report is None or report.mode != 'on'):
                 raise HTTPException(400, GROUNDED)
             # Choices about agents that are not experts now survive the replace (they apply again if one returns).

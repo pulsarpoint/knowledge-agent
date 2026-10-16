@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from knowledge_admin import access as access_rules
-from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits
+from knowledge_admin.knowledge_agents.config import access_ids, get_agent_config, model_fits, without_missing
 from knowledge_admin.knowledge_agents.run_resources import KINDS, picks
 
 ROW_PREFIX = 'expert:'
@@ -49,7 +49,8 @@ def offered(conn, caller_id: str | None) -> list[dict[str, Any]]:
             number += 1
             tool = f'{base}_{number}'
         taken.add(tool)
-        accepts = [kind.key for kind in KINDS if access_ids(row['access'], kind.type)]  # the kinds in its access
+        held = without_missing(conn, row['access'])
+        accepts = [kind.key for kind in KINDS if access_ids(held, kind.type)]  # the kinds in its access that exist
         entries.append(
             {
                 'id': str(row['id']),
@@ -80,7 +81,7 @@ def load(
     a content editor only when its agent and the calling run both are; and its decrypted credentials. ValueError: a message for the model (also a given resource
     outside its access). Synchronous: the caller runs it in a thread."""
     from knowledge_admin.agents.runner import load_credentials  # agents imports this package
-    from knowledge_admin.sessions.run_access import cut_to, run_access  # sessions imports this package
+    from knowledge_admin.sessions.run_access import agent_access  # sessions imports this package
 
     unavailable = ValueError(UNAVAILABLE.format(name=entry['name']))
     try:
@@ -100,15 +101,14 @@ def load(
         ):
             raise unavailable
         # its access object, built as a run start builds one for its agent
-        access = run_access(
+        cut, access = agent_access(
             conn,
             project_id,
             config,
             picks(resources) or None,
-            environment_ids=access_ids(config['access'], 'environment'),
             content_editor=caller_content_editor and access_rules.is_content_editor(config['access']),
         )
-        config = {**cut_to(config, access), 'access': access}
+        config = {**cut, 'access': access}
     config.pop('record', None)
     config['experts'] = []  # an expert never calls experts
     return config, load_credentials(store, config)

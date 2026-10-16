@@ -44,7 +44,7 @@ export const idsOf = <K extends ResourceKey>(
 export const DOCUMENT_KINDS = kindsOf(["environments", "code_projects", "services", "servers", "deployments"]);
 /** What an agent run may be given: servers, services, environments, code projects and collections. */
 export const AGENT_KINDS = kindsOf(["servers", "services", "environments", "code_projects", "collections"]);
-/** What a per-run saved agent's callers may pass (no environments). */
+/** The run resource ids a session records (run_resources; no environments). */
 export const RUN_KINDS = kindsOf(["code_projects", "collections", "servers", "services"]);
 export type DocumentKey = (typeof DOCUMENT_KINDS)[number]["key"];
 export type AgentKey = (typeof AGENT_KINDS)[number]["key"];

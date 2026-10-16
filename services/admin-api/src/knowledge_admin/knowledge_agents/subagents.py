@@ -124,8 +124,8 @@ def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_
     """Only the given tools on: catalog tools by name; MCP servers kept only for given MCP tools, every other tool of
     those servers off (from the snapshot's tool lists, the run's live names and the parent's own mcp:<server>:* rows,
     so a tool switched off for the parent stays off for the subagent). The kept servers offer only the tools switched
-    on (an allowlist: a tool a server adds later stays out). Without ssh_run, only the SSH servers that host a kept MCP
-    server stay (agent() requires their keys), so a subagent gets no other SSH private key."""
+    on (an allowlist: a tool a server adds later stays out). Without ssh_run, no SSH server stays, so a subagent gets
+    no SSH private key."""
     rows = {entry['tool']: entry for entry in sub['tools']['items']}
     items = [item(name, 'on' if name in catalog else 'off', rows.get(name, {}).get('usage')) for name in CATALOG]
 
@@ -138,14 +138,11 @@ def _only(sub: dict[str, Any], catalog: set[str], mcp: dict[str, set[str]], mcp_
         'servers': keep(sub['mcp']['servers']),
         'allowlist': True,
     }
-    for server in sub['ssh']['servers']:
-        server['mcp_servers'] = keep(server.get('mcp_servers', []))
     if 'ssh_run' not in catalog:
-        hosts = [server for server in sub['ssh']['servers'] if server['mcp_servers'] and sub['mcp']['enabled']]
-        sub['ssh'] = {**sub['ssh'], 'servers': hosts}
+        sub['ssh'] = {**sub['ssh'], 'servers': []}
         if 'run_resources' in sub:
-            sub['run_resources'] = {**sub['run_resources'], 'server_ids': [str(server['id']) for server in hosts]}
-    kept = [*sub['mcp']['servers'], *(found for server in sub['ssh']['servers'] for found in server['mcp_servers'])]
+            sub['run_resources'] = {**sub['run_resources'], 'server_ids': []}
+    kept = sub['mcp']['servers']
     for server_id, given in sorted(mcp.items()):
         listed = {tool['name'] for server in kept if str(server['id']) == server_id for tool in server.get('tools', [])}
         listed |= {
@@ -353,8 +350,8 @@ class Subagents:
     ) -> str:
         """One expert call (ask_<name>): the expert's answer (redacted), experts.FAILED when its run fails, or a
         ValueError for a refused call (refused calls do not count towards MAX_PER_TURN). The given resources must be
-        the caller's own; the expert runs its own saved configuration (resolved with them when it is per run) and
-        its own credentials. Shares the slots and the per-turn limit with run_subagent."""
+        the caller's own; the expert runs its own saved configuration, its access narrowed to them (experts.load),
+        and its own credentials. Shares the slots and the per-turn limit with run_subagent."""
         check_task(task)
         if resources is not None and (refusal := check_run_subagent(context['config']['access'], resources)):
             raise ValueError(refusal)

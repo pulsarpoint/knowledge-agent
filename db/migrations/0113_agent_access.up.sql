@@ -6,6 +6,8 @@ SET search_path = ka, public;
 -- switched off is left out, "all collections" / "all code projects" become every current collection / code project,
 -- MCP servers are the agent-level ones (per-server overrides and per-agent SSH connections are not kept). The old
 -- tables stay until 0114.
+-- Assumes a single project (the app runs on one): "all" expands across every project's collections / code projects,
+-- and an agent with agent-level agent_configs rows in several projects takes the instructions of an arbitrary one.
 ALTER TABLE agents
     ADD COLUMN access jsonb NOT NULL DEFAULT '{"resources": [], "roles": {"content_editor": false}}',
     ADD COLUMN instructions text NOT NULL DEFAULT '' CHECK (char_length(instructions) <= 40000);
